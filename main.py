@@ -20,6 +20,12 @@ def get_current_date():
     return datetime.now().date().isoformat()
 
 
+tool_registry = {
+    "get_current_time": get_current_time,
+    "get_current_date": get_current_date,
+}
+
+
 tools = [
     {
         "type": "function",
@@ -73,12 +79,12 @@ while True:
             break
 
         for tool_call in assistant_message.tool_calls:
-            if tool_call.function.name == "get_current_time":
-                tool_result = get_current_time()
-            elif tool_call.function.name == "get_current_date":
-                tool_result = get_current_date()
-            else:
+            tool_function = tool_registry.get(tool_call.function.name)
+
+            if tool_function is None:
                 tool_result = f"未知工具：{tool_call.function.name}"
+            else:
+                tool_result = tool_function()
 
             messages.append(
                 {
