@@ -11,8 +11,13 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
+
 def get_current_time():
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def get_current_date():
+    return datetime.now().date().isoformat()
 
 
 tools = [
@@ -27,7 +32,19 @@ tools = [
                 "required": [],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_date",
+            "description": "获取当前日期。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 messages = []
@@ -58,6 +75,8 @@ while True:
         for tool_call in assistant_message.tool_calls:
             if tool_call.function.name == "get_current_time":
                 tool_result = get_current_time()
+            elif tool_call.function.name == "get_current_date":
+                tool_result = get_current_date()
             else:
                 tool_result = f"未知工具：{tool_call.function.name}"
 
