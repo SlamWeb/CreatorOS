@@ -10,30 +10,23 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
-messages = [
-    {"role": "user", "content": "用一句话解释什么是 Agent Runtime。"}
-]
+messages = []
 
-response = client.chat.completions.create(
-    model="deepseek-v4-flash",
-    messages=messages,
-    extra_body={"thinking": {"type": "disabled"}},
-)
+while True:
+    user_input = input("你：")
 
-assistant_message = response.choices[0].message
-messages.append({"role": "assistant", "content": assistant_message.content})
+    if user_input == "/exit":
+        break
 
-print("第一轮:", assistant_message.content)
+    messages.append({"role": "user", "content": user_input})
 
-messages.append({"role": "user", "content": "再用一句话解释 Tool Calling。"})
+    response = client.chat.completions.create(
+        model="deepseek-v4-flash",
+        messages=messages,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
 
-second_response = client.chat.completions.create(
-    model="deepseek-v4-flash",
-    messages=messages,
-    extra_body={"thinking": {"type": "disabled"}},
-)
+    assistant_message = response.choices[0].message
+    messages.append({"role": "assistant", "content": assistant_message.content})
 
-second_assistant_message = second_response.choices[0].message
-messages.append({"role": "assistant", "content": second_assistant_message.content})
-
-print("第二轮:", second_assistant_message.content)
+    print("Agent:", assistant_message.content)
