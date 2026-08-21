@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -12,6 +13,8 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
 
 def get_current_time():
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -19,6 +22,24 @@ def get_current_time():
 
 def get_current_date():
     return datetime.now().date().isoformat()
+
+
+def read_file(path):
+    requested_path = (PROJECT_ROOT / path).resolve()
+
+    try:
+        requested_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        return "错误：只能读取 CreatorOS 项目目录内的文件。"
+
+    try:
+        return requested_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return f"文件不存在：{path}"
+    except IsADirectoryError:
+        return f"这不是文件：{path}"
+    except UnicodeDecodeError:
+        return f"文件不是 UTF-8 文本：{path}"
 
 
 class Tool:
@@ -53,6 +74,21 @@ tool_registry = {
             description="获取当前日期。",
             parameters={"type": "object", "properties": {}, "required": []},
             execute=get_current_date,
+        ),
+        Tool(
+            name="read_file",
+            description="读取 CreatorOS 项目目录内的 UTF-8 文本文件。",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "相对于 CreatorOS 项目目录的文件路径。",
+                    }
+                },
+                "required": ["path"],
+            },
+            execute=read_file,
         ),
     ]
 }
