@@ -10,10 +10,17 @@ client = OpenAI(
     base_url="https://api.deepseek.com",
 )
 
+messages = [
+    {"role": "user", "content": "用一句话解释什么是 Agent Runtime。"}
+]
+
 response = client.chat.completions.create(
     model="deepseek-v4-flash",
-    messages=[{"role": "user", "content": "用一句话解释什么是 Agent Runtime。"}],
+    messages=messages,
     extra_body={"thinking": {"type": "disabled"}},
 )
 
-print(response.choices[0].message.content)
+assistant_message = response.choices[0].message
+messages.append({"role": "assistant", "content": assistant_message.content})
+
+print(assistant_message.content)
