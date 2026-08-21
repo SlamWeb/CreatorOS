@@ -125,6 +125,24 @@ tool_registry = {
     ]
 }
 
+
+def execute_tool_call(tool_call):
+    tool_name = tool_call.function.name
+    tool = tool_registry.get(tool_name)
+
+    if tool is None:
+        return f"未知工具：{tool_name}"
+
+    try:
+        arguments = json.loads(tool_call.function.arguments or "{}")
+        if not isinstance(arguments, dict):
+            raise ValueError("工具参数必须是 JSON object。")
+
+        return tool.execute(**arguments)
+    except Exception as error:
+        return f"工具 {tool_name} 执行失败：{error}"
+
+
 tools = [tool.to_schema() for tool in tool_registry.values()]
 
 messages = []
@@ -153,13 +171,7 @@ while True:
             break
 
         for tool_call in assistant_message.tool_calls:
-            tool = tool_registry.get(tool_call.function.name)
-
-            if tool is None:
-                tool_result = f"未知工具：{tool_call.function.name}"
-            else:
-                arguments = json.loads(tool_call.function.arguments or "{}")
-                tool_result = tool.execute(**arguments)
+            tool_result = execute_tool_call(tool_call)
 
             messages.append(
                 {
