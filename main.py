@@ -23,4 +23,17 @@ response = client.chat.completions.create(
 assistant_message = response.choices[0].message
 messages.append({"role": "assistant", "content": assistant_message.content})
 
-print(assistant_message.content)
+print("第一轮:", assistant_message.content)
+
+messages.append({"role": "user", "content": "再用一句话解释 Tool Calling。"})
+
+second_response = client.chat.completions.create(
+    model="deepseek-v4-flash",
+    messages=messages,
+    extra_body={"thinking": {"type": "disabled"}},
+)
+
+second_assistant_message = second_response.choices[0].message
+messages.append({"role": "assistant", "content": second_assistant_message.content})
+
+print("第二轮:", second_assistant_message.content)
