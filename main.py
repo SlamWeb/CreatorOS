@@ -64,6 +64,30 @@ def read_file(path, offset=1, limit=None):
         return f"文件不是 UTF-8 文本：{path}"
 
 
+def write_file(path, content):
+    if not isinstance(path, str):
+        return "错误：path 必须是字符串。"
+    if not isinstance(content, str):
+        return "错误：content 必须是字符串。"
+
+    requested_path = (PROJECT_ROOT / path).resolve()
+    try:
+        requested_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        return "错误：只能写入 CreatorOS 项目目录内的文件。"
+
+    if requested_path.exists():
+        return f"错误：文件已存在，为避免覆盖：{path}"
+
+    try:
+        requested_path.write_text(content, encoding="utf-8")
+        return f"已写入文件：{path}"
+    except FileNotFoundError:
+        return f"错误：父目录不存在：{path}"
+    except OSError as error:
+        return f"写入文件失败：{error}"
+
+
 class Tool:
     def __init__(self, name, description, parameters, execute):
         self.name = name
@@ -121,6 +145,25 @@ tool_registry = {
                 "required": ["path"],
             },
             execute=read_file,
+        ),
+        Tool(
+            name="write_file",
+            description="在 CreatorOS 项目目录内创建新的 UTF-8 文本文件，不覆盖已有文件。",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "相对于 CreatorOS 项目目录的新文件路径。",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "要写入文件的完整文本内容。",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+            execute=write_file,
         ),
     ]
 }
