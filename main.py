@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 
@@ -20,38 +21,43 @@ def get_current_date():
     return datetime.now().date().isoformat()
 
 
+class Tool:
+    def __init__(self, name, description, parameters, execute):
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.execute = execute
+
+    def to_schema(self):
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
 tool_registry = {
-    "get_current_time": get_current_time,
-    "get_current_date": get_current_date,
+    tool.name: tool
+    for tool in [
+        Tool(
+            name="get_current_time",
+            description="获取当前本地时间。",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=get_current_time,
+        ),
+        Tool(
+            name="get_current_date",
+            description="获取当前日期。",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=get_current_date,
+        ),
+    ]
 }
 
-
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_time",
-            "description": "获取当前本地时间。",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_current_date",
-            "description": "获取当前日期。",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
-        },
-    },
-]
+tools = [tool.to_schema() for tool in tool_registry.values()]
 
 messages = []
 
@@ -79,12 +85,13 @@ while True:
             break
 
         for tool_call in assistant_message.tool_calls:
-            tool_function = tool_registry.get(tool_call.function.name)
+            tool = tool_registry.get(tool_call.function.name)
 
-            if tool_function is None:
+            if tool is None:
                 tool_result = f"未知工具：{tool_call.function.name}"
             else:
-                tool_result = tool_function()
+                arguments = json.loads(tool_call.function.arguments or "{}")
+                tool_result = tool.execute(**arguments)
 
             messages.append(
                 {
