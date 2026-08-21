@@ -24,7 +24,13 @@ def get_current_date():
     return datetime.now().date().isoformat()
 
 
-def read_file(path):
+def read_file(path, offset=1, limit=None):
+    if offset < 1:
+        return "错误：offset 必须从 1 开始。"
+
+    if limit is not None and limit < 1:
+        return "错误：limit 必须大于 0。"
+
     requested_path = (PROJECT_ROOT / path).resolve()
 
     try:
@@ -33,7 +39,23 @@ def read_file(path):
         return "错误：只能读取 CreatorOS 项目目录内的文件。"
 
     try:
-        return requested_path.read_text(encoding="utf-8")
+        lines = requested_path.read_text(encoding="utf-8").splitlines()
+        if not lines:
+            return ""
+
+        start_index = offset - 1
+        if start_index >= len(lines):
+            return f"错误：offset {offset} 超出文件范围（共 {len(lines)} 行）。"
+
+        end_index = start_index + limit if limit is not None else len(lines)
+        result = "\n".join(lines[start_index:end_index])
+
+        if end_index < len(lines):
+            remaining = len(lines) - end_index
+            next_offset = end_index + 1
+            result += f"\n\n[文件还有 {remaining} 行，可使用 offset={next_offset} 继续读取。]"
+
+        return result
     except FileNotFoundError:
         return f"文件不存在：{path}"
     except IsADirectoryError:
@@ -84,7 +106,17 @@ tool_registry = {
                     "path": {
                         "type": "string",
                         "description": "相对于 CreatorOS 项目目录的文件路径。",
-                    }
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "从第几行开始读取，第一行是 1。",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "最多读取多少行，不填写则读取到文件结尾。",
+                    },
                 },
                 "required": ["path"],
             },

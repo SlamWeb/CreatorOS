@@ -16,15 +16,16 @@ Progressive SPEC, not a form.
 - 第六个可运行切片加入最小 `tool_registry`，用名称查找替换工具执行处的 `if/elif`。
 - 第七个可运行切片把名称、描述、参数 schema 和执行函数合并到一个 `Tool` 对象中，并让它生成模型 schema。
 - 第八个可运行切片加入第一个带参数的 `read_file(path)` Tool，开始验证模型返回的 JSON arguments 如何进入本地函数。
+- 第九个可运行切片给 `read_file` 增加可选的 `offset` 和 `limit`，开始验证同一个 Tool 的可选参数和分段结果。
 
 ## 本轮目标
 
 本轮只迈一个 `small step`：
 
-- 给现有 Registry 增加一个带 `path` 参数的 `read_file` Tool。
-- 让它使用现有 `Tool.to_schema()` 把参数规则告诉模型，并用 `json.loads` 得到实际参数。
-- 将文件读取限制在 CreatorOS 项目目录内，只读取 UTF-8 文本。
-- 不加入写文件、内容总结、复杂参数校验、权限系统或插件系统。
+- 给现有 `read_file` Tool 增加可选的 `offset` 和 `limit` 参数。
+- 让 `offset` 使用从 1 开始的行号，`limit` 限制本次读取的行数。
+- 当文件还有未读取内容时，返回下一次可用的 `offset` 提示。
+- 不加入图片、字节级截断、写文件、内容总结、复杂参数校验、权限系统或插件系统。
 
 ## 当前假设
 
@@ -37,11 +38,12 @@ Progressive SPEC, not a form.
 - `get_current_time` 和 `get_current_date` 都没有参数和副作用；未知工具暂时返回错误文本给模型。
 - 当前每个 Tool 同时提供执行函数和模型 schema；`tools` 列表由 Registry 中的 Tool 对象生成。
 - `read_file` 接收相对于项目根目录的路径；路径会先解析并拒绝项目目录之外的目标；文件按 UTF-8 文本读取。
+- `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - 项目早期所有模块共享根级 `SPEC.md`；出现稳定模块边界后，再在最近模块建立独立 `SPEC.md`。
 
 ## 对外影响
 
-- 本轮让 Runtime 用同一组 Tool 对象生成 schema 并分发执行；运行 `python main.py` 可以在不同用户轮次选择时间、日期或读取项目内文本文件。
+- 本轮让 Runtime 用同一组 Tool 对象生成 schema 并分发执行；运行 `python main.py` 可以在不同用户轮次选择时间、日期或分段读取项目内文本文件。
 - `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai` 与 `python-dotenv`。
 
 暂未确认：
@@ -52,11 +54,12 @@ Progressive SPEC, not a form.
 - 模型请求失败时如何恢复、限制轮数和检测重复调用；这些属于后续 Guard/错误处理步骤。
 - 参数 schema 与 Python 函数签名不一致时如何验证和报错；本轮仍依赖模型按 schema 发送 JSON object，不提前引入通用校验器。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
+- Pi 风格的字节级截断、图片内容块、AbortSignal 和 UI 渲染；这些暂不翻译到 Python 版本。
 
 ## 验收与验证草案
 
-- `main.py` 能从本地 `.env` 读取 `DEEPSEEK_API_KEY`，从 `Tool` 对象生成 schema，通过 `tool_registry` 解析 JSON arguments 并执行 `read_file(path)`，再追加正确的 `tool_call_id`。
-- `read_file` 对项目内 UTF-8 文件返回内容，对项目外路径、目录、缺失文件和非 UTF-8 文件返回可供模型理解的错误文本。
+- `main.py` 能从本地 `.env` 读取 `DEEPSEEK_API_KEY`，从 `Tool` 对象生成 schema，通过 `tool_registry` 解析 JSON arguments 并执行带可选参数的 `read_file(path, offset, limit)`，再追加正确的 `tool_call_id`。
+- `read_file` 对项目内 UTF-8 文件返回指定行段，对项目外路径、目录、缺失文件、非 UTF-8 文件和越界行号返回可供模型理解的错误文本。
 - `requirements.txt` 包含运行所需的两个依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
@@ -74,6 +77,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`python -m py_compile main.py`、本地 `read_file` 单元 smoke、请求读取 `requirements.txt` 后 `/exit`
-- 结果：通过；模型返回 `read_file` 的 `path` 参数并成功读取文件，项目外路径、缺失文件和 schema required 检查也通过，`parameterized_tool_smoke_check=passed`。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；参数错误、文件大小和副作用权限暂不处理。
+- 命令：`python -m py_compile main.py`、本地分段读取单元 smoke、指定 `offset=1, limit=1` 的真实模型调用后 `/exit`
+- 结果：通过；模型返回的 `path`、`offset`、`limit` 被正确解析，工具只返回指定行并提供下一次 `offset` 提示，`read_line_range_smoke_check=passed`。
+- 问题：本轮仍依赖本地 `.env`，不将其提交；参数类型、文件大小和副作用权限暂不处理。
