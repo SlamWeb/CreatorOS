@@ -60,13 +60,13 @@ def run_agent(
                 for tool_call in response.tool_calls:
                     print(f"[Tool call] {tool_call.name}")
                     tool_result = execute_tool_call(tool_call)
-                    print(f"[Tool result] {tool_result}")
+                    print(f"[Tool result] {tool_result.content}")
 
                     state.messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": tool_result,
+                            "content": tool_result.content,
                         }
                     )
                     save_messages(state.messages)

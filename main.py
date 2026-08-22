@@ -29,10 +29,11 @@ from creatoros.session import snapshot as _snapshot
 from creatoros.tools import (
     ReadFileArgs,
     Tool,
+    ToolResult,
     WriteFileArgs,
     execute_tool_call as _execute_tool_call,
-    get_current_date,
-    get_current_time,
+    get_current_date as _get_current_date,
+    get_current_time as _get_current_time,
     read_file as _read_file,
     tool_registry,
     tools,
@@ -69,12 +70,20 @@ def save_messages(messages):
 
 def read_file(path, offset=1, limit=None):
     _sync_compat_config()
-    return _read_file(path, offset=offset, limit=limit)
+    return _read_file(path, offset=offset, limit=limit).content
 
 
 def write_file(path, content):
     _sync_compat_config()
-    return _write_file(path, content)
+    return _write_file(path, content).content
+
+
+def get_current_date():
+    return _get_current_date().content
+
+
+def get_current_time():
+    return _get_current_time().content
 
 
 def execute_tool_call(tool_call):
