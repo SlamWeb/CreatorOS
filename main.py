@@ -288,7 +288,9 @@ def run_agent(provider: ModelProvider):
                 break
 
             for tool_call in response.tool_calls:
+                print(f"[Tool call] {tool_call.name}")
                 tool_result = execute_tool_call(tool_call)
+                print(f"[Tool result] {tool_result}")
 
                 messages.append(
                     {
