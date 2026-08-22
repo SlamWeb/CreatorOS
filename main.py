@@ -1,7 +1,9 @@
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -35,17 +37,80 @@ class WriteFileArgs(BaseModel):
     content: str = Field(description="要写入文件的完整文本内容。")
 
 
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass
+class ModelResponse:
+    content: str | None
+    tool_calls: list[ToolCall]
+
+    def to_message(self):
+        message = {"role": "assistant", "content": self.content}
+        if self.tool_calls:
+            message["tool_calls"] = [
+                {"id": call.id, "name": call.name, "arguments": call.arguments}
+                for call in self.tool_calls
+            ]
+        return message
+
+
+class ModelProvider(Protocol):
+    def complete(self, messages: list[dict], tools: list[dict]) -> ModelResponse:
+        ...
+
+
 class DeepSeekProvider:
     def __init__(self, api_key, model="deepseek-v4-flash"):
         self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         self.model = model
 
+    def _to_openai_messages(self, messages):
+        converted = []
+        for message in messages:
+            if message.get("role") != "assistant":
+                converted.append(message)
+                continue
+
+            converted_message = dict(message)
+            tool_calls = message.get("tool_calls", [])
+            if tool_calls:
+                converted_message["tool_calls"] = [
+                    {
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {
+                            "name": call["name"],
+                            "arguments": call["arguments"],
+                        },
+                    }
+                    for call in tool_calls
+                ]
+            converted.append(converted_message)
+        return converted
+
     def complete(self, messages, tools):
-        return self.client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model=self.model,
-            messages=messages,
+            messages=self._to_openai_messages(messages),
             tools=tools,
             extra_body={"thinking": {"type": "disabled"}},
+        )
+        assistant_message = response.choices[0].message
+        return ModelResponse(
+            content=assistant_message.content,
+            tool_calls=[
+                ToolCall(
+                    id=tool_call.id,
+                    name=tool_call.function.name,
+                    arguments=tool_call.function.arguments,
+                )
+                for tool_call in assistant_message.tool_calls or []
+            ],
         )
 
 
@@ -172,15 +237,15 @@ tool_registry = {
 }
 
 
-def execute_tool_call(tool_call):
-    tool_name = tool_call.function.name
+def execute_tool_call(tool_call: ToolCall):
+    tool_name = tool_call.name
     tool = tool_registry.get(tool_name)
 
     if tool is None:
         return f"未知工具：{tool_name}"
 
     try:
-        arguments = tool.parse_arguments(tool_call.function.arguments)
+        arguments = tool.parse_arguments(tool_call.arguments)
         return tool.execute(**arguments)
     except ValidationError as error:
         return f"工具 {tool_name} 参数无效：{error}"
@@ -189,7 +254,7 @@ def execute_tool_call(tool_call):
 
 
 tools = [tool.to_schema() for tool in tool_registry.values()]
-provider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"])
+provider: ModelProvider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"])
 
 messages = []
 
@@ -204,14 +269,13 @@ while True:
     while True:
         response = provider.complete(messages=messages, tools=tools)
 
-        assistant_message = response.choices[0].message
-        messages.append(assistant_message.model_dump(exclude_none=True))
+        messages.append(response.to_message())
 
-        if not assistant_message.tool_calls:
-            print("Agent:", assistant_message.content)
+        if not response.tool_calls:
+            print("Agent:", response.content)
             break
 
-        for tool_call in assistant_message.tool_calls:
+        for tool_call in response.tool_calls:
             tool_result = execute_tool_call(tool_call)
 
             messages.append(

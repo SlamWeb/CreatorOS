@@ -22,15 +22,17 @@ Progressive SPEC, not a form.
 - 第十二个可运行切片把 `read_file` 的参数模型迁移到 Pydantic：同一个 `ReadFileArgs` 同时生成模型 schema 和执行前的运行时校验。
 - 第十三个可运行切片把 `write_file` 的参数模型也迁移到 Pydantic，并删除它的手写参数 schema。
 - 第十四个可运行切片加入最小 `DeepSeekProvider`，把模型 SDK 调用从 Agent Loop 中移出。
+- 第十五个可运行切片定义 `ModelProvider`、`ModelResponse` 和 `ToolCall`，让 Agent Loop 不再读取 OpenAI SDK 的响应对象。
+- 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
 ## 本轮目标
 
 本轮只迈一个 `small step`：
 
-- 创建最小 `DeepSeekProvider.complete(messages, tools)` 方法。
-- 将 DeepSeek endpoint、模型名和 `thinking` 请求配置放入 Provider。
-- 让 Agent Loop 只通过 Provider 获取模型响应。
-- 不加入抽象基类、多 Provider 注册、Streaming、重试或 Responses API 迁移。
+- 定义 `ModelProvider.complete(messages, tools) -> ModelResponse` 协议。
+- 定义内部 `ModelResponse` 和 `ToolCall`，隔离 OpenAI SDK 的 response/tool-call 结构。
+- 让 `DeepSeekProvider` 负责内部消息与 OpenAI-compatible 消息之间的转换。
+- 让 Agent Loop 只处理 CreatorOS 的响应对象；不加入模型目录、Streaming、重试或 Responses API 迁移。
 
 ## 当前假设
 
@@ -52,11 +54,13 @@ Progressive SPEC, not a form.
 - `read_file` 和 `write_file` 已迁移到 Pydantic；无参数 Tool 仍使用手写空参数 schema，便于保持当前实现简单。
 - `DeepSeekProvider` 持有 OpenAI-compatible client 和模型配置；`complete` 负责一次模型请求，Agent Loop 不再直接调用 SDK。
 - 当前只有一个 DeepSeek Provider；Provider 只是边界，不等同于已经完成可插拔的多模型架构。
+- `ModelProvider` 是结构化协议；`DeepSeekProvider` 返回 `ModelResponse`，其中的 `ToolCall` 不携带 OpenAI SDK 对象。
+- Agent Loop 使用内部 assistant message 保存历史；DeepSeek Provider 在请求前把内部 assistant tool calls 转换为 OpenAI 的嵌套 function 格式。
 - 项目早期所有模块共享根级 `SPEC.md`；出现稳定模块边界后，再在最近模块建立独立 `SPEC.md`。
 
 ## 对外影响
 
-- 本轮让 Agent Loop 通过 `DeepSeekProvider` 请求模型；工具 schema、工具执行和消息循环行为保持不变。
+- 本轮让 Agent Loop 依赖 `ModelProvider` 协议和内部 `ModelResponse`；DeepSeek 适配器承担厂商响应和 tool-call 格式转换，工具执行行为保持不变。
 - `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai`、`python-dotenv` 与 Pydantic 2.x。
 
 暂未确认：
@@ -66,7 +70,8 @@ Progressive SPEC, not a form.
 - 多轮消息是否属于 Agent State、Session 或 Context；先不提前命名，等循环和持久化需求出现后再区分。
 - 模型请求失败时如何恢复、限制轮数和检测重复调用；这些属于后续 Guard/错误处理步骤。
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
-- Provider 是否抽象为 Protocol / ABC、如何支持第二个模型、如何分类模型请求错误；先观察最小边界带来的真实需求。
+- 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
+- Provider 请求失败如何转换为统一错误结果，以及 Streaming 如何表达增量事件；留到后续错误处理和 Streaming 步骤。
 - Pydantic 验证错误的用户展示格式、错误分类和重试策略；本轮只把验证错误作为工具结果文本返回。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
 - Pi 风格的字节级截断、图片内容块、AbortSignal 和 UI 渲染；这些暂不翻译到 Python 版本。
@@ -85,7 +90,8 @@ Progressive SPEC, not a form.
 - `write_file` 的字符串类型和额外字段错误在进入写入函数前被 Pydantic 拦截。
 - 没有 args model 的现有 Tool 仍能解析原来的 JSON object 参数。
 - `DeepSeekProvider.complete` 使用原来的 DeepSeek endpoint、模型和 `thinking` 配置，并把完整响应返回给 Agent Loop。
-- Agent Loop 源码不再直接调用 `client.chat.completions.create`。
+- `ModelProvider` 的结果包含 CreatorOS 内部的 `ModelResponse` 和 `ToolCall`，Agent Loop 源码不再读取 `response.choices[0].message`。
+- DeepSeek 请求中的 assistant tool calls 仍能转换为 OpenAI-compatible 的 `function` 嵌套格式。
 - `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
@@ -103,6 +109,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`python -m py_compile main.py`、Provider 请求转发 smoke、工具 schema 与参数校验回归检查
-- 结果：通过；Provider 将原模型名、messages、tools 和 `thinking` 配置转发给 SDK 并返回完整响应，Agent Loop 不再直接调用 SDK，`provider_boundary_check=passed`。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；无参数 Tool、Provider 插件化、模型错误分类和重试暂不处理。
+- 命令：`python -m py_compile main.py`、Provider 内外消息格式转换 smoke、内部 `ModelResponse` / `ToolCall` 与工具执行回归检查
+- 结果：通过；Agent Loop 只消费内部响应对象，DeepSeek 适配器负责 OpenAI-compatible 转换，`provider_interface_check=passed`。
+- 问题：本轮仍依赖本地 `.env`，不将其提交；只有 DeepSeek Provider，模型目录、第二个 Provider、Streaming、模型错误分类和重试暂不处理。
