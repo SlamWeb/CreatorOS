@@ -9,11 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 load_dotenv()
 
-client = OpenAI(
-    api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
-)
-
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 
@@ -38,6 +33,20 @@ class WriteFileArgs(BaseModel):
 
     path: str = Field(description="相对于 CreatorOS 项目目录的新文件路径。")
     content: str = Field(description="要写入文件的完整文本内容。")
+
+
+class DeepSeekProvider:
+    def __init__(self, api_key, model="deepseek-v4-flash"):
+        self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+        self.model = model
+
+    def complete(self, messages, tools):
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            tools=tools,
+            extra_body={"thinking": {"type": "disabled"}},
+        )
 
 
 def read_file(path, offset=1, limit=None):
@@ -180,6 +189,7 @@ def execute_tool_call(tool_call):
 
 
 tools = [tool.to_schema() for tool in tool_registry.values()]
+provider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"])
 
 messages = []
 
@@ -192,12 +202,7 @@ while True:
     messages.append({"role": "user", "content": user_input})
 
     while True:
-        response = client.chat.completions.create(
-            model="deepseek-v4-flash",
-            messages=messages,
-            tools=tools,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
+        response = provider.complete(messages=messages, tools=tools)
 
         assistant_message = response.choices[0].message
         messages.append(assistant_message.model_dump(exclude_none=True))
