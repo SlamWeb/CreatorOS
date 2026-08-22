@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+SYSTEM_PROMPT = "你是 CreatorOS 的 Agent，只在必要时调用已提供的工具。"
 
 
 def get_current_time():
@@ -265,7 +266,9 @@ def llm(
 
 
 def run_agent(provider: ModelProvider):
-    messages = []
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
 
     while True:
         user_input = input("你：")
