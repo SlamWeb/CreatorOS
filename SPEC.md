@@ -19,15 +19,16 @@ Progressive SPEC, not a form.
 - 第九个可运行切片给 `read_file` 增加可选的 `offset` 和 `limit`，开始验证同一个 Tool 的可选参数和分段结果。
 - 第十个可运行切片把工具查找、参数解析和异常转换收敛到 `execute_tool_call`，避免单个坏调用击穿 Agent Loop。
 - 第十一个可运行切片加入第一个有副作用的 `write_file(path, content)` Tool，默认拒绝覆盖已有文件。
+- 第十二个可运行切片把 `read_file` 的参数模型迁移到 Pydantic：同一个 `ReadFileArgs` 同时生成模型 schema 和执行前的运行时校验。
 
 ## 本轮目标
 
 本轮只迈一个 `small step`：
 
-- 创建一个最小 `write_file(path, content)` Tool。
-- 只允许写入 CreatorOS 项目目录内的 UTF-8 文本文件。
-- 如果目标文件已经存在，返回错误并拒绝覆盖。
-- 不加入用户审批、覆盖开关、目录创建、重试、日志或新的抽象。
+- 为 `read_file` 创建 `ReadFileArgs` Pydantic 模型。
+- 使用严格类型和禁止额外字段，拒绝错误的 JSON arguments。
+- 使用 Pydantic schema 生成给模型的 `read_file` 参数定义。
+- 保留其他 Tool 的手写参数 schema，不提前做全量迁移。
 
 ## 当前假设
 
@@ -43,12 +44,15 @@ Progressive SPEC, not a form.
 - `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - `execute_tool_call` 捕获单次工具调用的普通 `Exception` 并返回错误文本；当前不区分模型输入错误和工具内部程序错误。
 - `write_file` 是当前第一个有副作用的 Tool；它创建新文件但不覆盖已有文件，路径边界和错误仍由 Tool 自己处理。
+- `read_file` 的 JSON arguments 在进入函数前由 `ReadFileArgs` 校验；`strict=True` 不把字符串自动转换成整数，`extra="forbid"` 拒绝未声明字段。
+- `Tool` 可选持有一个 Pydantic args model；有 model 时由它生成 JSON schema 并解析 arguments，没有 model 时继续使用原来的手写解析。
+- 当前只迁移 `read_file`，`write_file` 和无参数 Tool 仍使用手写 schema，便于比较两种方式。
 - 项目早期所有模块共享根级 `SPEC.md`；出现稳定模块边界后，再在最近模块建立独立 `SPEC.md`。
 
 ## 对外影响
 
-- 本轮让 Runtime 在同一套 Tool Registry 中同时支持读取和创建文件；写入失败仍会通过 `execute_tool_call` 作为工具结果返回给模型。
-- `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai` 与 `python-dotenv`。
+- 本轮让 `read_file` 的 schema 和运行时参数校验由同一个 Pydantic 模型提供；写入能力仍保持上一轮行为。
+- `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai`、`python-dotenv` 与 Pydantic 2.x。
 
 暂未确认：
 
@@ -56,7 +60,8 @@ Progressive SPEC, not a form.
 - 未来 Provider 抽象如何承载 DeepSeek 与其他模型；这留到后续步骤。
 - 多轮消息是否属于 Agent State、Session 或 Context；先不提前命名，等循环和持久化需求出现后再区分。
 - 模型请求失败时如何恢复、限制轮数和检测重复调用；这些属于后续 Guard/错误处理步骤。
-- 参数 schema 与 Python 函数签名不一致时如何验证和报错；本轮仍依赖模型按 schema 发送 JSON object，不提前引入通用校验器。
+- `write_file` 和无参数 Tool 是否也迁移到 Pydantic，以及是否为所有 Tool 统一 args model；先观察 `read_file` 的迁移效果。
+- Pydantic 验证错误的用户展示格式、错误分类和重试策略；本轮只把验证错误作为工具结果文本返回。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
 - Pi 风格的字节级截断、图片内容块、AbortSignal 和 UI 渲染；这些暂不翻译到 Python 版本。
 - 工具异常是否需要重试、分类、日志和用户可见诊断；本轮只返回一段错误文本。
@@ -66,9 +71,12 @@ Progressive SPEC, not a form.
 
 - `main.py` 能从本地 `.env` 读取 `DEEPSEEK_API_KEY`，从 `Tool` 对象生成 schema，通过 `execute_tool_call` 解析 JSON arguments 并执行 `read_file` 或 `write_file`，再追加正确的 `tool_call_id`。
 - `read_file` 对项目内 UTF-8 文件返回指定行段，对项目外路径、目录、缺失文件、非 UTF-8 文件和越界行号返回可供模型理解的错误文本。
+- `read_file` 的 schema 包含 `path`、`offset`、`limit` 约束，并标记禁止额外字段。
+- `read_file` 拒绝字符串形式的整数、零或负数范围、缺少 `path` 和未知字段；合法参数仍能读取指定行段。
 - 坏 JSON、非 object 参数、未知工具和 Tool 内部异常不会让 Agent Loop 直接退出，而会变成工具结果文本。
 - `write_file` 对项目内新路径写入 UTF-8 文本，对项目外路径、已有文件、缺失父目录和非字符串参数返回错误文本。
-- `requirements.txt` 包含运行所需的两个依赖；`.env` 被 `.gitignore` 忽略。
+- 没有 args model 的现有 Tool 仍能解析原来的 JSON object 参数。
+- `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
 
@@ -85,6 +93,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`python -m py_compile main.py`、临时新文件写入/拒绝覆盖/路径边界 smoke、通过 `execute_tool_call` 传入 JSON 参数的写入 smoke
-- 结果：通过；`write_file` 能创建 UTF-8 文本文件，拒绝已有文件、项目外路径、缺失父目录和非字符串内容，`write_file_unit_check=passed`、`write_file_tool_call_check=passed`。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；用户审批、覆盖开关、错误分类和日志暂不处理。
+- 命令：`python -m py_compile main.py`、Pydantic schema 检查、合法/非法 `read_file` arguments smoke、无 args model 工具回归检查
+- 结果：通过；schema 来自 `ReadFileArgs`，严格类型、范围和额外字段校验生效，合法调用仍能读取文件，`pydantic_read_file_check=passed`。
+- 问题：本轮仍依赖本地 `.env`，不将其提交；`write_file` 和无参数 Tool 暂不迁移，验证错误的细粒度分类和重试暂不处理。

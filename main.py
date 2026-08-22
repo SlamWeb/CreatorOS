@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 load_dotenv()
 
@@ -22,6 +23,14 @@ def get_current_time():
 
 def get_current_date():
     return datetime.now().date().isoformat()
+
+
+class ReadFileArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    path: str = Field(description="相对于 CreatorOS 项目目录的文件路径。")
+    offset: int = Field(default=1, ge=1, description="从第几行开始读取，第一行是 1。")
+    limit: int | None = Field(default=None, ge=1, description="最多读取多少行，不填写则读取到文件结尾。")
 
 
 def read_file(path, offset=1, limit=None):
@@ -89,21 +98,36 @@ def write_file(path, content):
 
 
 class Tool:
-    def __init__(self, name, description, parameters, execute):
+    def __init__(self, name, description, execute, parameters=None, args_model=None):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.execute = execute
+        self.args_model = args_model
 
     def to_schema(self):
+        parameters = (
+            self.args_model.model_json_schema()
+            if self.args_model is not None
+            else self.parameters
+        )
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.parameters,
+                "parameters": parameters,
             },
         }
+
+    def parse_arguments(self, raw_arguments):
+        if self.args_model is not None:
+            return self.args_model.model_validate_json(raw_arguments or "{}").model_dump()
+
+        arguments = json.loads(raw_arguments or "{}")
+        if not isinstance(arguments, dict):
+            raise ValueError("工具参数必须是 JSON object。")
+        return arguments
 
 
 tool_registry = {
@@ -124,27 +148,8 @@ tool_registry = {
         Tool(
             name="read_file",
             description="读取 CreatorOS 项目目录内的 UTF-8 文本文件。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "相对于 CreatorOS 项目目录的文件路径。",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "从第几行开始读取，第一行是 1。",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "description": "最多读取多少行，不填写则读取到文件结尾。",
-                    },
-                },
-                "required": ["path"],
-            },
             execute=read_file,
+            args_model=ReadFileArgs,
         ),
         Tool(
             name="write_file",
@@ -177,11 +182,10 @@ def execute_tool_call(tool_call):
         return f"未知工具：{tool_name}"
 
     try:
-        arguments = json.loads(tool_call.function.arguments or "{}")
-        if not isinstance(arguments, dict):
-            raise ValueError("工具参数必须是 JSON object。")
-
+        arguments = tool.parse_arguments(tool_call.function.arguments)
         return tool.execute(**arguments)
+    except ValidationError as error:
+        return f"工具 {tool_name} 参数无效：{error}"
     except Exception as error:
         return f"工具 {tool_name} 执行失败：{error}"
 
