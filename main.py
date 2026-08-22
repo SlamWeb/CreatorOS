@@ -13,6 +13,39 @@ load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SYSTEM_PROMPT = "你是 CreatorOS 的 Agent，只在必要时调用已提供的工具。"
+SESSION_FILE = PROJECT_ROOT / "sessions" / "latest.json"
+
+
+def new_messages():
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
+
+
+def load_messages():
+    if not SESSION_FILE.exists():
+        return new_messages()
+
+    try:
+        messages = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        if not isinstance(messages, list) or not all(
+            isinstance(message, dict) for message in messages
+        ):
+            raise ValueError("会话文件必须是消息对象列表。")
+        if not messages or messages[0].get("role") != "system":
+            messages.insert(0, new_messages()[0])
+        return messages
+    except (OSError, ValueError, json.JSONDecodeError):
+        print("[Session] 会话文件无效，将从新会话开始。")
+        return new_messages()
+
+
+def save_messages(messages):
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary_file = SESSION_FILE.with_suffix(".tmp")
+    temporary_file.write_text(
+        json.dumps(messages, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary_file.replace(SESSION_FILE)
 
 
 def get_current_time():
@@ -266,39 +299,52 @@ def llm(
 
 
 def run_agent(provider: ModelProvider):
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-    ]
+    messages = load_messages()
+    save_messages(messages)
 
-    while True:
-        user_input = input("你：")
-
-        if user_input == "/exit":
-            break
-
-        messages.append({"role": "user", "content": user_input})
-
+    try:
         while True:
-            response = llm(provider=provider, messages=messages, tools=tools)
+            user_input = input("你：")
 
-            messages.append(response.to_message())
-
-            if not response.tool_calls:
-                print("Agent:", response.content)
+            if user_input == "/exit":
                 break
 
-            for tool_call in response.tool_calls:
-                print(f"[Tool call] {tool_call.name}")
-                tool_result = execute_tool_call(tool_call)
-                print(f"[Tool result] {tool_result}")
+            if user_input == "/reset":
+                messages = new_messages()
+                save_messages(messages)
+                print("[Session] 已清空当前会话。")
+                continue
 
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": tool_result,
-                    }
-                )
+            messages.append({"role": "user", "content": user_input})
+            save_messages(messages)
+
+            while True:
+                response = llm(provider=provider, messages=messages, tools=tools)
+
+                messages.append(response.to_message())
+                save_messages(messages)
+
+                if not response.tool_calls:
+                    print("Agent:", response.content)
+                    break
+
+                for tool_call in response.tool_calls:
+                    print(f"[Tool call] {tool_call.name}")
+                    tool_result = execute_tool_call(tool_call)
+                    print(f"[Tool result] {tool_result}")
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": tool_result,
+                        }
+                    )
+                    save_messages(messages)
+    except KeyboardInterrupt:
+        print("\n[Session] 已保存当前会话。")
+    finally:
+        save_messages(messages)
 
 
 if __name__ == "__main__":

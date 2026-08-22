@@ -27,15 +27,18 @@ Progressive SPEC, not a form.
 - 第十七个可运行切片把一次模型请求命名为 Runtime 层的 `llm(...)`，让 Agent Loop 不直接调用 Provider 方法。
 - 第十八个可运行切片把一条 `role="system"` 消息预置到 Agent 的内部消息历史中，并验证 Provider 保留该角色。
 - 第十九个可运行切片为每次工具调用和工具结果增加最小终端 trace，让 Runtime 的中间过程可见。
+- 第二十个可运行切片把完整 `messages` 快照保存到本地 JSON 文件，支持启动恢复、`/reset` 和 Ctrl+C 保存。
+- 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
 ## 本轮目标
 
 本轮只迈一个 `small step`：
 
-- 在工具执行前打印工具名称，在执行后打印工具结果。
-- 用 FakeProvider 验证 trace 不会破坏 Tool Calling 闭环。
-- 不在本轮加入 JSONL/Session 持久化、Streaming、Rich UI 或事件抽象。
+- 将 `messages` 保存到被 Git 忽略的 `sessions/latest.json`。
+- 启动时恢复快照，`/reset` 清空为新的 system 消息，Ctrl+C 时保存当前状态。
+- 用 FakeProvider 验证普通回答、工具结果和恢复后的消息都能保存。
+- 不在本轮加入 JSONL、SQLite、数据库 Session、Streaming、Rich UI 或事件抽象。
 
 ## 当前假设
 
@@ -64,6 +67,8 @@ Progressive SPEC, not a form.
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout，不改变发给模型的 `tool` 消息；结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
+- 当前会话存储是单个 JSON 快照；每次保存先写临时文件再替换目标文件，避免直接覆盖时留下半个 JSON 文件。
+- `sessions/latest.json` 只用于本地恢复，可能包含用户输入、工具参数和文件内容，因此必须被 `.gitignore` 忽略。
 - 项目早期所有模块共享根级 `SPEC.md`；出现稳定模块边界后，再在最近模块建立独立 `SPEC.md`。
 
 ## 对外影响
@@ -73,6 +78,7 @@ Progressive SPEC, not a form.
 - 本轮为 Runtime 增加 `llm(...)` 命名边界；未来可以在这个边界逐步加入统一错误、统计或事件，但当前行为不变。
 - 本轮让内部消息历史显式包含系统指令；Chat Completions Provider 原样保留该角色，未来 Responses Provider 可将其映射为 `instructions`。
 - 本轮让用户能看到工具调用和工具结果，但它们仍只存在内存和终端，不形成持久化记录。
+- 本轮将当前消息历史持久化到本地快照；这不是多用户数据库，也不支持会话树、并发写入或跨机器共享。
 - `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai`、`python-dotenv` 与 Pydantic 2.x。
 
 暂未确认：
@@ -86,7 +92,8 @@ Progressive SPEC, not a form.
 - Provider 请求失败如何转换为统一错误结果，以及 Streaming 如何表达增量事件；留到后续错误处理和 Streaming 步骤。
 - `SYSTEM_PROMPT` 是否应该成为 `run_agent` 参数、Provider 配置还是 Context 字段；当前先固定在源码中观察实际需求。
 - Tool trace 是否应升级为统一 Event、日志级别或可关闭输出；当前只使用两个固定前缀。
-- Ctrl+C 后如何保存并恢复 `messages`；下一步考虑最小本地会话快照，不先引入完整 Session 类。
+- 是否从单个 JSON 快照迁移到 Pi 风格 JSONL、SQLite Checkpoint 或生产数据库；等会话查询、并发和分支需求出现后再决定。
+- 会话 ID、多个用户、多会话列表和历史恢复 UI；当前只有 `latest.json`。
 - Runtime 层 `llm(...)` 未来是否需要接收 Context、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
 - Pydantic 验证错误的用户展示格式、错误分类和重试策略；本轮只把验证错误作为工具结果文本返回。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
@@ -113,6 +120,8 @@ Progressive SPEC, not a form.
 - `run_agent(FakeProvider)` 的第一条请求包含 `role="system"`，第二条工具请求仍保留 system、assistant 和 tool 消息。
 - `DeepSeekProvider._to_openai_messages` 转换 system 消息后仍保留相同角色和内容。
 - FakeProvider Tool Calling smoke 的 stdout 包含 `[Tool call]`、`[Tool result]` 和最终 Agent 回复。
+- 会话快照 smoke 能保存并恢复 system、assistant、tool 消息；`/reset` 只保留新的 system 消息；KeyboardInterrupt 后文件仍存在。
+- `git check-ignore -v sessions/latest.json` 能命中 `sessions/` 规则。
 - `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
@@ -130,6 +139,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`deepcode python -m py_compile main.py`、FakeProvider Tool trace smoke、导入安全检查
-- 结果：通过；工具调用和结果会出现在 stdout，`tool_trace_check=passed`。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；messages 尚未持久化，Streaming、Rich UI、模型目录、第二个 Provider、错误分类和重试暂不处理。
+- 命令：`deepcode python -m py_compile main.py`、FakeProvider 会话保存/恢复 smoke、`/reset` smoke、KeyboardInterrupt 保存 smoke、`.gitignore` 检查
+- 结果：通过；`session_snapshot_check=passed`，工具消息和结果可恢复，快照不会被 Git 跟踪。
+- 问题：本轮仍依赖本地 `.env`，不将其提交；当前只有单个 JSON 快照，Streaming、Rich UI、数据库 Session、模型目录、第二个 Provider、错误分类和重试暂不处理。
