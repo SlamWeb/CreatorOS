@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Protocol
+from typing import Callable, Iterator, Protocol
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -111,7 +111,14 @@ class StreamEnd:
     finish_reason: str | None
 
 
+@dataclass
+class ToolCallEnd:
+    index: int
+    tool_call: ToolCall
+
+
 ModelStreamEvent = TextDelta | ToolCallDelta | StreamEnd
+RuntimeStreamEvent = ModelStreamEvent | ToolCallEnd
 
 
 class ModelProvider(Protocol):
@@ -359,11 +366,20 @@ def stream_llm(
     provider: ModelProvider,
     messages: list[dict],
     tools: list[dict],
+    on_event: Callable[[RuntimeStreamEvent], None] | None = None,
 ) -> ModelResponse:
     text_parts = []
     tool_calls_by_index = {}
+    stream_end = None
 
     for event in provider.stream(messages=messages, tools=tools):
+        if isinstance(event, StreamEnd):
+            stream_end = event
+            continue
+
+        if on_event is not None:
+            on_event(event)
+
         if isinstance(event, TextDelta):
             print(event.content, end="", flush=True)
             text_parts.append(event.content)
@@ -381,13 +397,27 @@ def stream_llm(
             tool_call.arguments += event.arguments
 
     print()
+    for index in sorted(tool_calls_by_index):
+        if on_event is not None:
+            on_event(
+                ToolCallEnd(
+                    index=index,
+                    tool_call=tool_calls_by_index[index],
+                )
+            )
+    if on_event is not None and stream_end is not None:
+        on_event(stream_end)
+
     return ModelResponse(
         content="".join(text_parts) or None,
         tool_calls=[tool_calls_by_index[index] for index in sorted(tool_calls_by_index)],
     )
 
 
-def run_agent(provider: ModelProvider):
+def run_agent(
+    provider: ModelProvider,
+    on_stream_event: Callable[[RuntimeStreamEvent], None] | None = None,
+):
     messages = load_messages()
     save_messages(messages)
 
@@ -410,7 +440,10 @@ def run_agent(provider: ModelProvider):
             while True:
                 print("Agent: ", end="", flush=True)
                 response = stream_llm(
-                    provider=provider, messages=messages, tools=tools
+                    provider=provider,
+                    messages=messages,
+                    tools=tools,
+                    on_event=on_stream_event,
                 )
 
                 messages.append(response.to_message())

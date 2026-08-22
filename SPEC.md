@@ -29,18 +29,19 @@ Progressive SPEC, not a form.
 - 第十九个可运行切片为每次工具调用和工具结果增加最小终端 trace，让 Runtime 的中间过程可见。
 - 第二十个可运行切片把完整 `messages` 快照保存到本地 JSON 文件，支持启动恢复、`/reset` 和 Ctrl+C 保存。
 - 第二十一个可运行切片接入真实 DeepSeek Streaming：Provider 通过 OpenAI-compatible SDK 消费 SSE，Runtime 用内部增量事件累积文本和工具参数，终端即时显示文本，完整 assistant/tool 消息仍在每个模型 turn 结束后保存。
+- 第二十二个可运行切片让 `stream_llm` 通过可选 `on_event` 把增量事件交给上层，并在完整工具调用形成后发出 `ToolCallEnd`；本轮只建立事件可见性，不提前执行工具。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
 ## 本轮目标
 
-本轮把真实 API Streaming 做成一条可运行闭环：
+本轮把 Streaming 从“函数内部黑盒”推进为可观察事件流：
 
-- Provider 暴露 `stream(...)`，把厂商 SDK 的流式响应翻译为文本、工具调用和结束三类内部事件。
-- DeepSeek 请求使用 `stream=True`；SDK 负责 SSE 连接和解析，Runtime 不手写 HTTP/SSE 解析器。
-- `stream_llm(...)` 累积文本增量和可能跨多个 chunk 的工具 JSON 参数，流结束后才生成 `ModelResponse`。
-- Agent CLI 即时打印文本；完整 assistant 消息、工具结果仍按现有 JSON 快照策略保存。
-- 本轮不加入 Responses API、WebSocket、Rich UI、事件总线、取消、重试或部分增量持久化。
+- 增加 `ToolCallEnd`，表示某个工具调用已经由 Runtime 拼接为完整的 `ToolCall`。
+- `stream_llm(..., on_event=...)` 将文本增量、工具增量、工具结束和最终 `StreamEnd` 按顺序通知观察器。
+- `run_agent(..., on_stream_event=...)` 将观察器入口暴露到 Agent Loop，但默认 CLI 行为保持不变。
+- 当前 DeepSeek 适配器只提供整轮结束边界，因此 `ToolCallEnd` 暂时在整轮流结束后产生，不启动工具。
+- 本轮不加入并发执行、工具进度事件、取消、重试、Rich UI 或部分增量持久化。
 
 ## 当前假设
 
@@ -67,6 +68,7 @@ Progressive SPEC, not a form.
 - `run_agent` 只依赖 `ModelProvider`，FakeProvider 可以替换 DeepSeekProvider；`messages` 成为一次 `run_agent` 调用的局部状态。
 - `llm(...)` 只负责一次模型 turn，并把 Provider 返回的 `ModelResponse` 原样交给循环；它暂不处理错误、统计、事件或重试。
 - `stream_llm(...)` 只负责消费 Provider 的内部流式事件；文本立即刷新到终端，工具调用按 index 拼接，流结束后才交给 Agent Loop。
+- `stream_llm(..., on_event=...)` 仍返回完整 `ModelResponse`，同时把运行时事件通知观察器；观察器可以记录事件，但本轮不改变执行时机。
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout，不改变发给模型的 `tool` 消息；结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
@@ -79,6 +81,7 @@ Progressive SPEC, not a form.
 - 本轮让 Agent Loop 依赖 `ModelProvider` 协议和内部 `ModelResponse`；DeepSeek 适配器承担厂商响应和 tool-call 格式转换，工具执行行为保持不变。
 - 本轮让 Provider 成为 `run_agent` 的输入依赖，CLI 启动只发生在直接运行 `main.py` 时；导入模块可进行离线测试。
 - 本轮为 Runtime 增加 `llm(...)` 命名边界；未来可以在这个边界逐步加入统一错误、统计或事件，但当前行为不变。
+- 本轮为 Streaming 增加可选事件观察器；默认不传观察器时终端和会话行为保持不变。
 - 本轮让内部消息历史显式包含系统指令；Chat Completions Provider 原样保留该角色，未来 Responses Provider 可将其映射为 `instructions`。
 - 本轮让用户能看到工具调用和工具结果，但它们仍只存在内存和终端，不形成持久化记录。
 - 本轮将当前消息历史持久化到本地快照；这不是多用户数据库，也不支持会话树、并发写入或跨机器共享。
@@ -99,6 +102,7 @@ Progressive SPEC, not a form.
 - 是否从单个 JSON 快照迁移到 Pi 风格 JSONL、SQLite Checkpoint 或生产数据库；等会话查询、并发和分支需求出现后再决定。
 - 会话 ID、多个用户、多会话列表和历史恢复 UI；当前只有 `latest.json`。
 - Runtime 层 `llm(...)` 未来是否需要接收 Context、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
+- `ToolCallEnd` 目前由 Runtime 在整轮流结束后派生；未来是否由 Provider 提供每个工具调用的原生结束事件，留到 Provider 能力扩展时决定。
 - Pydantic 验证错误的用户展示格式、错误分类和重试策略；本轮只把验证错误作为工具结果文本返回。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
 - Pi 风格的字节级截断、图片内容块、AbortSignal 和 UI 渲染；这些暂不翻译到 Python 版本。
@@ -127,6 +131,8 @@ Progressive SPEC, not a form.
 - 会话快照 smoke 能保存并恢复 system、assistant、tool 消息；`/reset` 只保留新的 system 消息；KeyboardInterrupt 后文件仍存在。
 - `git check-ignore -v sessions/latest.json` 能命中 `sessions/` 规则。
 - `stream_llm(FakeStreamingProvider)` 能把文本 delta 拼成完整回答，把分片工具参数拼成合法 JSON，并完成工具闭环。
+- `stream_llm(..., on_event=...)` 能按 `TextDelta`、`ToolCallDelta`、`ToolCallEnd`、`StreamEnd` 顺序通知观察器。
+- `run_agent(FakeProvider, on_stream_event=...)` 仍能完成普通回答和工具调用；未提供观察器时行为与上一轮相同。
 - 真实 `.env` 下 `DeepSeekProvider.stream(...)` 能收到至少一个流式事件和最终 `StreamEnd`，不输出 API Key。
 - `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
@@ -144,7 +150,7 @@ git diff --check
 
 ## 最近验证
 
-- 日期：2026-08-22
-- 命令：`conda run --no-capture-output -n deepcode python -m py_compile main.py`、Fake Streaming Provider 工具闭环 smoke、真实 `DeepSeekProvider.stream(...)` smoke、`.gitignore` 检查
-- 结果：全部通过；`streaming_smoke=passed`，真实请求收到 2 个事件且最后一个为 `StreamEnd`。会话仍保存完整消息，`.env` 未进入 Git。
-- 问题：本轮仍只有单个 JSON 快照，未处理 SSE 中断后的部分恢复、事件总线、取消、错误分类、重试、Rich UI、数据库 Session、模型目录和第二个 Provider。
+- 日期：2026-08-23
+- 命令：`conda run --no-capture-output -n deepcode python -m py_compile main.py`、事件观察器顺序 smoke、Fake Streaming Provider 工具闭环 smoke
+- 结果：全部通过；`stream_event_observer_check=passed`，观察器收到 `TextDelta`、`ToolCallDelta`、`ToolCallEnd`、`StreamEnd`，默认 Agent 行为保持不变。
+- 问题：本轮仍只有单个 JSON 快照，未处理 Provider 原生单工具结束事件、并发执行、提前执行、工具进度事件、SSE 中断后的部分恢复、取消、错误分类、重试、Rich UI、数据库 Session、模型目录和第二个 Provider。
