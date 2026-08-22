@@ -4,6 +4,7 @@ from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
+from .guards import MaxTurnGuard
 from .state import AgentState
 from .streaming import stream_llm
 
@@ -19,7 +20,9 @@ def llm(
 def run_agent(
     provider: ModelProvider,
     on_stream_event: Callable[[RuntimeStreamEvent], None] | None = None,
+    max_turns: int = 12,
 ):
+    guard = MaxTurnGuard(max_turns)
     state = AgentState(messages=load_messages())
     save_messages(state.messages)
 
@@ -39,8 +42,15 @@ def run_agent(
             state.messages.append({"role": "user", "content": user_input})
             save_messages(state.messages)
             state.status = "running"
+            task_start_turn = state.turn
 
             while True:
+                turns_used = state.turn - task_start_turn
+                if guard.should_stop(turns_used):
+                    state.status = "idle"
+                    print(f"[Guard] 本次任务已达到最大模型调用次数：{max_turns}")
+                    break
+
                 state.turn += 1
                 print("Agent: ", end="", flush=True)
                 response = stream_llm(

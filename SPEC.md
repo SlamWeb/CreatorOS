@@ -34,6 +34,7 @@ Progressive SPEC, not a form.
 - 第二十四个可运行切片加入最小 `AgentState`：用一个 dataclass 持有当前运行的 `messages`、`status` 和模型调用 `turn` 计数；本轮不加入 Context、pending tool、取消或持久化状态机。
 - 第二十五个可运行切片加入统一 `ToolResult`：所有内置工具返回同一种结果对象，保留原有 `content` 文本，同时增加 `is_error`、`error_type`、`retryable` 和 `details`；本轮不自动重试、不执行终端命令。
 - 第二十六个可运行切片增加 `ToolResult.to_model_content()`：把内部结果投影为安全的模型可见文本；成功结果保持原文，错误结果增加稳定的 `tool_error` 类型前缀，不暴露 `details` 或自动重试策略。
+- 第二十七个可运行切片加入最小 `MaxTurnGuard`：按单个用户任务限制模型调用次数，在下一次模型请求前停止；本轮不加入重复调用检测、自动重试或超时。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
@@ -51,12 +52,12 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 本轮目标
 
-本轮只加入最小的模型结果投影，并保持现有工具执行、Streaming 和 CLI 行为：
+本轮只加入最小的 `MaxTurnGuard`，并保持现有工具执行、Streaming 和 CLI 行为：
 
-- `ToolResult.to_model_content()` 是唯一新增的模型内容投影入口。
-- 成功结果的模型内容仍等于原始 `content`；错误结果使用 `[tool_error type=...]` 前缀，但不拼接 `details` 和 `retryable`。
-- Agent Loop 把 `to_model_content()` 写入 `role="tool"` 消息；终端仍显示原始 `content`。
-- 本轮不加入终端执行、完整 stdout/stderr、自动重试、Guard、Event 总线或 Agent Context。
+- `creatoros/agent/guards.py` 定义 `MaxTurnGuard(max_turns)`，拒绝小于 1 的上限。
+- `run_agent(..., max_turns=12)` 在每个用户任务开始时记录累计 `state.turn`，用差值计算本任务已用模型调用次数。
+- Guard 在递增下一次 `state.turn` 之前检查；达到上限后把 State 置回 `idle`、打印 Guard 提示并保存已有消息。
+- 本轮不加入重复调用检测、自动重试、终端执行、超时、Event 总线或 Agent Context。
 
 ## 当前假设
 
@@ -93,6 +94,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `ToolResult.content` 是给模型和当前终端显示的文本；`details` 只保存结构化诊断，当前不写入消息快照，也不包含终端命令输出。
 - `ToolResult.retryable` 只是工具提供的保守提示，本轮没有任何自动重试逻辑；Guard 以后再消费它。
 - `ToolResult.to_model_content()` 是内部结果到 LLM 消息的投影，不是让模型填写 `ToolResult` 的输入 schema；模型仍只生成 `ToolCall`。
+- `MaxTurnGuard` 是 Harness 层的运行时保险丝，不是 Tool，也不是发给模型的指令；`AgentState.turn` 仍然是整个 `run_agent` 调用期间累计的总次数。
 - Pi 的 `AgentToolResult<T>` 同样把模型内容与通用 `details` 分开，并支持 `usage`、动态工具名和 `terminate`；Pi 的工具执行契约要求失败抛出异常，Runtime 再把失败纳入工具结果和事件。参考：[Pi Agent types](https://github.com/earendil-works/pi/blob/main/packages/agent/src/types.ts)。
 - 当前会话存储是单个 JSON 快照；每次保存先写临时文件再替换目标文件，避免直接覆盖时留下半个 JSON 文件。
 - `sessions/latest.json` 只用于本地恢复，可能包含用户输入、工具参数和文件内容，因此必须被 `.gitignore` 忽略。
@@ -100,7 +102,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 对外影响
 
-- 本轮让 Agent Loop 把 `ToolResult.to_model_content()` 写入 tool message；正常结果保持不变，错误消息增加稳定类型前缀，CLI 仍显示原始文本。
+- 本轮让 Agent Loop 在每个用户任务的下一次模型请求前执行 `MaxTurnGuard`；达到上限时不再发起新请求，之前的 assistant/tool 消息仍被保存。
 - 本轮让 Provider 成为 `run_agent` 的输入依赖，CLI 启动只发生在直接运行 `main.py` 时；导入模块可进行离线测试。
 - 本轮为 Runtime 增加 `llm(...)` 命名边界；未来可以在这个边界逐步加入统一错误、统计或事件，但当前行为不变。
 - 本轮为 Streaming 增加可选事件观察器；默认不传观察器时终端和会话行为保持不变。
@@ -146,6 +148,8 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 文件缺失、路径越界、参数错误和未知工具结果分别带有稳定的 `error_type`；异常详情至少包含验证错误或异常类名。
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
 - 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
+- `MaxTurnGuard(2)` 在使用 0、1 次模型调用时继续，在第 2 次调用前停止；`MaxTurnGuard(0)` 拒绝创建。
+- `run_agent(..., max_turns=1)` 的 Fake Loop 只发起一次模型请求，执行其工具结果后停止，不影响下一次用户任务重新计数。
 - 没有 args model 的现有 Tool 仍能解析原来的 JSON object 参数。
 - `DeepSeekProvider.complete` 使用原来的 DeepSeek endpoint、模型和 `thinking` 配置，并把完整响应返回给 Agent Loop。
 - `ModelProvider` 的结果包含 CreatorOS 内部的 `ModelResponse` 和 `ToolCall`，Agent Loop 源码不再读取 `response.choices[0].message`。
@@ -183,9 +187,10 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-23
-- 状态：最小 AgentState 已通过既有 smoke；本轮 ToolResult 已完成代码验证，待提交。
+- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；本轮 MaxTurnGuard 已完成代码验证，待提交。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。
 - `model_content_smoke=passed`：成功结果保持原文，文件错误带有 `tool_error` 类型前缀，内部 `details` 未进入模型内容。
+- `max_turn_guard_smoke=passed`：Guard 的阈值判断和 `max_turns=1` 的 Fake Loop 均通过，只发起一次模型请求。
 - 提交前还需运行 `git diff --check`，检查 staged diff 后 commit 并 push。
