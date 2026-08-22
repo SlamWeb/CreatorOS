@@ -33,6 +33,13 @@ class ReadFileArgs(BaseModel):
     limit: int | None = Field(default=None, ge=1, description="最多读取多少行，不填写则读取到文件结尾。")
 
 
+class WriteFileArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    path: str = Field(description="相对于 CreatorOS 项目目录的新文件路径。")
+    content: str = Field(description="要写入文件的完整文本内容。")
+
+
 def read_file(path, offset=1, limit=None):
     if offset < 1:
         return "错误：offset 必须从 1 开始。"
@@ -74,11 +81,6 @@ def read_file(path, offset=1, limit=None):
 
 
 def write_file(path, content):
-    if not isinstance(path, str):
-        return "错误：path 必须是字符串。"
-    if not isinstance(content, str):
-        return "错误：content 必须是字符串。"
-
     requested_path = (PROJECT_ROOT / path).resolve()
     try:
         requested_path.relative_to(PROJECT_ROOT)
@@ -154,21 +156,8 @@ tool_registry = {
         Tool(
             name="write_file",
             description="在 CreatorOS 项目目录内创建新的 UTF-8 文本文件，不覆盖已有文件。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "相对于 CreatorOS 项目目录的新文件路径。",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "要写入文件的完整文本内容。",
-                    },
-                },
-                "required": ["path", "content"],
-            },
             execute=write_file,
+            args_model=WriteFileArgs,
         ),
     ]
 }
