@@ -254,34 +254,41 @@ def execute_tool_call(tool_call: ToolCall):
 
 
 tools = [tool.to_schema() for tool in tool_registry.values()]
-provider: ModelProvider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"])
 
-messages = []
-
-while True:
-    user_input = input("你：")
-
-    if user_input == "/exit":
-        break
-
-    messages.append({"role": "user", "content": user_input})
+def run_agent(provider: ModelProvider):
+    messages = []
 
     while True:
-        response = provider.complete(messages=messages, tools=tools)
+        user_input = input("你：")
 
-        messages.append(response.to_message())
-
-        if not response.tool_calls:
-            print("Agent:", response.content)
+        if user_input == "/exit":
             break
 
-        for tool_call in response.tool_calls:
-            tool_result = execute_tool_call(tool_call)
+        messages.append({"role": "user", "content": user_input})
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_result,
-                }
-            )
+        while True:
+            response = provider.complete(messages=messages, tools=tools)
+
+            messages.append(response.to_message())
+
+            if not response.tool_calls:
+                print("Agent:", response.content)
+                break
+
+            for tool_call in response.tool_calls:
+                tool_result = execute_tool_call(tool_call)
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": tool_result,
+                    }
+                )
+
+
+if __name__ == "__main__":
+    provider: ModelProvider = DeepSeekProvider(
+        api_key=os.environ["DEEPSEEK_API_KEY"]
+    )
+    run_agent(provider)
