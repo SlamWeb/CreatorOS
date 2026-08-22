@@ -28,17 +28,19 @@ Progressive SPEC, not a form.
 - 第十八个可运行切片把一条 `role="system"` 消息预置到 Agent 的内部消息历史中，并验证 Provider 保留该角色。
 - 第十九个可运行切片为每次工具调用和工具结果增加最小终端 trace，让 Runtime 的中间过程可见。
 - 第二十个可运行切片把完整 `messages` 快照保存到本地 JSON 文件，支持启动恢复、`/reset` 和 Ctrl+C 保存。
+- 第二十一个可运行切片接入真实 DeepSeek Streaming：Provider 通过 OpenAI-compatible SDK 消费 SSE，Runtime 用内部增量事件累积文本和工具参数，终端即时显示文本，完整 assistant/tool 消息仍在每个模型 turn 结束后保存。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
 ## 本轮目标
 
-本轮只迈一个 `small step`：
+本轮把真实 API Streaming 做成一条可运行闭环：
 
-- 将 `messages` 保存到被 Git 忽略的 `sessions/latest.json`。
-- 启动时恢复快照，`/reset` 清空为新的 system 消息，Ctrl+C 时保存当前状态。
-- 用 FakeProvider 验证普通回答、工具结果和恢复后的消息都能保存。
-- 不在本轮加入 JSONL、SQLite、数据库 Session、Streaming、Rich UI 或事件抽象。
+- Provider 暴露 `stream(...)`，把厂商 SDK 的流式响应翻译为文本、工具调用和结束三类内部事件。
+- DeepSeek 请求使用 `stream=True`；SDK 负责 SSE 连接和解析，Runtime 不手写 HTTP/SSE 解析器。
+- `stream_llm(...)` 累积文本增量和可能跨多个 chunk 的工具 JSON 参数，流结束后才生成 `ModelResponse`。
+- Agent CLI 即时打印文本；完整 assistant 消息、工具结果仍按现有 JSON 快照策略保存。
+- 本轮不加入 Responses API、WebSocket、Rich UI、事件总线、取消、重试或部分增量持久化。
 
 ## 当前假设
 
@@ -64,6 +66,7 @@ Progressive SPEC, not a form.
 - Agent Loop 使用内部 assistant message 保存历史；DeepSeek Provider 在请求前把内部 assistant tool calls 转换为 OpenAI 的嵌套 function 格式。
 - `run_agent` 只依赖 `ModelProvider`，FakeProvider 可以替换 DeepSeekProvider；`messages` 成为一次 `run_agent` 调用的局部状态。
 - `llm(...)` 只负责一次模型 turn，并把 Provider 返回的 `ModelResponse` 原样交给循环；它暂不处理错误、统计、事件或重试。
+- `stream_llm(...)` 只负责消费 Provider 的内部流式事件；文本立即刷新到终端，工具调用按 index 拼接，流结束后才交给 Agent Loop。
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout，不改变发给模型的 `tool` 消息；结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
@@ -89,7 +92,8 @@ Progressive SPEC, not a form.
 - 模型请求失败时如何恢复、限制轮数和检测重复调用；这些属于后续 Guard/错误处理步骤。
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
 - 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
-- Provider 请求失败如何转换为统一错误结果，以及 Streaming 如何表达增量事件；留到后续错误处理和 Streaming 步骤。
+- Provider 请求失败如何转换为统一错误结果；留到后续错误处理步骤。
+- Streaming 当前假设一次只处理一个模型 turn；事件中断时不会保存半截 assistant 消息，取消、重试、超时和增量恢复留到后续步骤。
 - `SYSTEM_PROMPT` 是否应该成为 `run_agent` 参数、Provider 配置还是 Context 字段；当前先固定在源码中观察实际需求。
 - Tool trace 是否应升级为统一 Event、日志级别或可关闭输出；当前只使用两个固定前缀。
 - 是否从单个 JSON 快照迁移到 Pi 风格 JSONL、SQLite Checkpoint 或生产数据库；等会话查询、并发和分支需求出现后再决定。
@@ -122,6 +126,8 @@ Progressive SPEC, not a form.
 - FakeProvider Tool Calling smoke 的 stdout 包含 `[Tool call]`、`[Tool result]` 和最终 Agent 回复。
 - 会话快照 smoke 能保存并恢复 system、assistant、tool 消息；`/reset` 只保留新的 system 消息；KeyboardInterrupt 后文件仍存在。
 - `git check-ignore -v sessions/latest.json` 能命中 `sessions/` 规则。
+- `stream_llm(FakeStreamingProvider)` 能把文本 delta 拼成完整回答，把分片工具参数拼成合法 JSON，并完成工具闭环。
+- 真实 `.env` 下 `DeepSeekProvider.stream(...)` 能收到至少一个流式事件和最终 `StreamEnd`，不输出 API Key。
 - `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
@@ -139,6 +145,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`deepcode python -m py_compile main.py`、FakeProvider 会话保存/恢复 smoke、`/reset` smoke、KeyboardInterrupt 保存 smoke、`.gitignore` 检查
-- 结果：通过；`session_snapshot_check=passed`，工具消息和结果可恢复，快照不会被 Git 跟踪。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；当前只有单个 JSON 快照，Streaming、Rich UI、数据库 Session、模型目录、第二个 Provider、错误分类和重试暂不处理。
+- 命令：`conda run --no-capture-output -n deepcode python -m py_compile main.py`、Fake Streaming Provider 工具闭环 smoke、真实 `DeepSeekProvider.stream(...)` smoke、`.gitignore` 检查
+- 结果：全部通过；`streaming_smoke=passed`，真实请求收到 2 个事件且最后一个为 `StreamEnd`。会话仍保存完整消息，`.env` 未进入 Git。
+- 问题：本轮仍只有单个 JSON 快照，未处理 SSE 中断后的部分恢复、事件总线、取消、错误分类、重试、Rich UI、数据库 Session、模型目录和第二个 Provider。

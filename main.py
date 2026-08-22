@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -93,8 +93,34 @@ class ModelResponse:
         return message
 
 
+@dataclass
+class TextDelta:
+    content: str
+
+
+@dataclass
+class ToolCallDelta:
+    index: int
+    id: str | None
+    name: str | None
+    arguments: str
+
+
+@dataclass
+class StreamEnd:
+    finish_reason: str | None
+
+
+ModelStreamEvent = TextDelta | ToolCallDelta | StreamEnd
+
+
 class ModelProvider(Protocol):
     def complete(self, messages: list[dict], tools: list[dict]) -> ModelResponse:
+        ...
+
+    def stream(
+        self, messages: list[dict], tools: list[dict]
+    ) -> Iterator[ModelStreamEvent]:
         ...
 
 
@@ -146,6 +172,37 @@ class DeepSeekProvider:
                 for tool_call in assistant_message.tool_calls or []
             ],
         )
+
+    def stream(self, messages, tools):
+        response_stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=self._to_openai_messages(messages),
+            tools=tools,
+            stream=True,
+            stream_options={"include_usage": True},
+            extra_body={"thinking": {"type": "disabled"}},
+        )
+        finish_reason = None
+        for chunk in response_stream:
+            if not chunk.choices:
+                continue
+
+            choice = chunk.choices[0]
+            finish_reason = choice.finish_reason or finish_reason
+            delta = choice.delta
+            if delta.content:
+                yield TextDelta(content=delta.content)
+
+            for tool_call in delta.tool_calls or []:
+                function = tool_call.function
+                yield ToolCallDelta(
+                    index=tool_call.index,
+                    id=tool_call.id,
+                    name=function.name if function else None,
+                    arguments=(function.arguments if function else None) or "",
+                )
+
+        yield StreamEnd(finish_reason=finish_reason)
 
 
 def read_file(path, offset=1, limit=None):
@@ -298,6 +355,38 @@ def llm(
     return provider.complete(messages=messages, tools=tools)
 
 
+def stream_llm(
+    provider: ModelProvider,
+    messages: list[dict],
+    tools: list[dict],
+) -> ModelResponse:
+    text_parts = []
+    tool_calls_by_index = {}
+
+    for event in provider.stream(messages=messages, tools=tools):
+        if isinstance(event, TextDelta):
+            print(event.content, end="", flush=True)
+            text_parts.append(event.content)
+            continue
+
+        if isinstance(event, ToolCallDelta):
+            tool_call = tool_calls_by_index.setdefault(
+                event.index,
+                ToolCall(id=event.id or "", name=event.name or "", arguments=""),
+            )
+            if event.id:
+                tool_call.id = event.id
+            if event.name:
+                tool_call.name = event.name
+            tool_call.arguments += event.arguments
+
+    print()
+    return ModelResponse(
+        content="".join(text_parts) or None,
+        tool_calls=[tool_calls_by_index[index] for index in sorted(tool_calls_by_index)],
+    )
+
+
 def run_agent(provider: ModelProvider):
     messages = load_messages()
     save_messages(messages)
@@ -319,13 +408,15 @@ def run_agent(provider: ModelProvider):
             save_messages(messages)
 
             while True:
-                response = llm(provider=provider, messages=messages, tools=tools)
+                print("Agent: ", end="", flush=True)
+                response = stream_llm(
+                    provider=provider, messages=messages, tools=tools
+                )
 
                 messages.append(response.to_message())
                 save_messages(messages)
 
                 if not response.tool_calls:
-                    print("Agent:", response.content)
                     break
 
                 for tool_call in response.tool_calls:
