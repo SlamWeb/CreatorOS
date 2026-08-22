@@ -4,6 +4,7 @@ from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
+from .state import AgentState
 from .streaming import stream_llm
 
 
@@ -19,8 +20,8 @@ def run_agent(
     provider: ModelProvider,
     on_stream_event: Callable[[RuntimeStreamEvent], None] | None = None,
 ):
-    messages = load_messages()
-    save_messages(messages)
+    state = AgentState(messages=load_messages())
+    save_messages(state.messages)
 
     try:
         while True:
@@ -30,27 +31,30 @@ def run_agent(
                 break
 
             if user_input == "/reset":
-                messages = new_messages()
-                save_messages(messages)
+                state = AgentState(messages=new_messages())
+                save_messages(state.messages)
                 print("[Session] 已清空当前会话。")
                 continue
 
-            messages.append({"role": "user", "content": user_input})
-            save_messages(messages)
+            state.messages.append({"role": "user", "content": user_input})
+            save_messages(state.messages)
+            state.status = "running"
 
             while True:
+                state.turn += 1
                 print("Agent: ", end="", flush=True)
                 response = stream_llm(
                     provider=provider,
-                    messages=messages,
+                    messages=state.messages,
                     tools=tools,
                     on_event=on_stream_event,
                 )
 
-                messages.append(response.to_message())
-                save_messages(messages)
+                state.messages.append(response.to_message())
+                save_messages(state.messages)
 
                 if not response.tool_calls:
+                    state.status = "idle"
                     break
 
                 for tool_call in response.tool_calls:
@@ -58,15 +62,15 @@ def run_agent(
                     tool_result = execute_tool_call(tool_call)
                     print(f"[Tool result] {tool_result}")
 
-                    messages.append(
+                    state.messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "content": tool_result,
                         }
                     )
-                    save_messages(messages)
+                    save_messages(state.messages)
     except KeyboardInterrupt:
         print("\n[Session] 已保存当前会话。")
     finally:
-        save_messages(messages)
+        save_messages(state.messages)

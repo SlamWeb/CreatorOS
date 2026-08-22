@@ -18,6 +18,7 @@ from creatoros.ai.types import (
     ToolCallEnd,
 )
 from creatoros.agent.loop import llm, run_agent as _run_agent
+from creatoros.agent.state import AgentState
 from creatoros.agent.streaming import stream_llm
 from creatoros.session import (
     load_messages as _load_messages,

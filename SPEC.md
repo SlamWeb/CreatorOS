@@ -31,19 +31,30 @@ Progressive SPEC, not a form.
 - 第二十一个可运行切片接入真实 DeepSeek Streaming：Provider 通过 OpenAI-compatible SDK 消费 SSE，Runtime 用内部增量事件累积文本和工具参数，终端即时显示文本，完整 assistant/tool 消息仍在每个模型 turn 结束后保存。
 - 第二十二个可运行切片让 `stream_llm` 通过可选 `on_event` 把增量事件交给上层，并在完整工具调用形成后发出 `ToolCallEnd`；本轮只建立事件可见性，不提前执行工具。
 - 第二十三个可运行切片只做目录结构重构：把单文件 Runtime 拆成 `ai`、`agent`、`tools`、`session` 和 `cli` 责任域；根目录 `main.py` 保留为兼容入口，不改变工具、Provider、Streaming、会话或 CLI 行为。
+- 第二十四个可运行切片加入最小 `AgentState`：用一个 dataclass 持有当前运行的 `messages`、`status` 和模型调用 `turn` 计数；本轮不加入 Context、pending tool、取消或持久化状态机。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
+## 长期路线与当前定位
+
+CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时问题随机堆功能：
+
+1. **Runtime 学习基础（当前阶段）**：LLM 调用、消息、Agent Loop、Tool Calling、Tool Registry、Pydantic、Provider、Streaming、Session、最小 State。
+2. **Runtime 正确性与可恢复性**：Agent Context、Agent Message / LLM Message 分离、Compaction、错误与重试、Max Turn、重复调用、取消和超时。
+3. **Runtime 运行能力**：Events、Observability、Hooks、并发工具、Human-in-the-loop、MCP 和 Evaluation。
+4. **CreatorOS 业务能力**：Trend Discovery、Creator Routing、PersonaForge Service / Tool、Research、Content Planning、Content Generation、Judge / Review。
+5. **产品闭环**：Human Approval、Publishing、Analytics Feedback、Working Memory / Long-term Memory、权限、账号隔离和多用户运行。
+
+当前位于第 1 阶段；第 4 阶段的 Creator 业务不是遗漏，而是等 Runtime 边界稳定后再接入。现有四个工具是 `get_current_time`、`get_current_date`、`read_file`、`write_file`，它们只是用来验证 Runtime 的工具机制，不是 CreatorOS 最终业务工具。
+
 ## 本轮目标
 
-本轮只做一次保持行为的目录结构重构：
+本轮只加入最小 `AgentState`，并保持现有模型、工具、Streaming、Session 和 CLI 行为：
 
-- `creatoros/ai` 承载内部模型类型、Provider 协议和 DeepSeek 适配器，对应 Pi 的 `packages/ai`。
-- `creatoros/agent` 承载 `llm`、Streaming 消费和 Agent Loop，对应 Pi 的 `packages/agent`。
-- `creatoros/tools` 承载 Pydantic 参数、工具定义、Registry 和执行逻辑，对应 Pi coding-agent 的工具域。
-- `creatoros/session` 只承载当前 JSON 快照函数；不提前引入完整 Session/State 抽象。
-- `creatoros/cli.py` 负责 `.env` 后的 Provider 构造和 CLI 启动；根 `main.py` 只做入口和兼容导出。
-- 除 import、模块连接和兼容入口外，不改变函数逻辑、消息格式、工具行为、Streaming 行为或会话路径。
+- `creatoros/agent/state.py` 定义最小 `AgentState(messages, status, turn)`。
+- `run_agent` 使用 `state.messages` 作为原有消息列表，`state.status` 记录 idle / running，`state.turn` 按模型调用递增。
+- `main.py` 和 `creatoros.agent` 暴露 `AgentState`，方便离线学习和测试。
+- 本轮不加入 Agent Context、pending tool 状态、并发、取消、错误状态、State 持久化或 CreatorOS 业务工具。
 
 ## 当前假设
 
@@ -72,7 +83,9 @@ Progressive SPEC, not a form.
 - `stream_llm(...)` 只负责消费 Provider 的内部流式事件；文本立即刷新到终端，工具调用按 index 拼接，流结束后才交给 Agent Loop。
 - `stream_llm(..., on_event=...)` 仍返回完整 `ModelResponse`，同时把运行时事件通知观察器；观察器可以记录事件，但本轮不改变执行时机。
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
-- 本轮模块拆分不代表已经完成 State、Context、并发执行或事件总线；这些仍保持在后续范围。
+- `AgentState` 是一次 `run_agent` 调用内的内存工作状态；其中 `messages` 仍是原来发给模型和保存到 Session 的消息列表，`status` 当前只使用 `idle` / `running`，`turn` 按模型请求次数递增。
+- 本轮 `run_agent` 仍不返回 State；先验证 State 能承载消息和最小运行元数据，再决定是否开放快照、观察器或恢复接口。
+- 本轮最小 `AgentState` 不代表已经完成 Agent Context、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout，不改变发给模型的 `tool` 消息；结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
 - 当前会话存储是单个 JSON 快照；每次保存先写临时文件再替换目标文件，避免直接覆盖时留下半个 JSON 文件。
@@ -94,7 +107,7 @@ Progressive SPEC, not a form.
 
 - `creatoros` 包的长期公共导出和版本化接口；本轮只保留 `main.py` 兼容导出。
 - 未来 Provider 抽象如何承载 DeepSeek 与其他模型；这留到后续步骤。
-- 多轮消息是否属于 Agent State、Session 或 Context；先不提前命名，等循环和持久化需求出现后再区分。
+- `AgentState`、Session 和 Agent Context 的最终边界；本轮只确定 State 是运行时容器，Session 负责持久化，Context 仍未实现。
 - 模型请求失败时如何恢复、限制轮数和检测重复调用；这些属于后续 Guard/错误处理步骤。
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
 - 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
@@ -137,6 +150,8 @@ Progressive SPEC, not a form.
 - `stream_llm(FakeStreamingProvider)` 能把文本 delta 拼成完整回答，把分片工具参数拼成合法 JSON，并完成工具闭环。
 - `stream_llm(..., on_event=...)` 能按 `TextDelta`、`ToolCallDelta`、`ToolCallEnd`、`StreamEnd` 顺序通知观察器。
 - `run_agent(FakeProvider, on_stream_event=...)` 仍能完成普通回答和工具调用；未提供观察器时行为与上一轮相同。
+- `AgentState(messages=[])` 默认处于 `idle`、`turn == 0`，并能在 Fake Agent Loop 中承载消息列表、切换为 `running` 和递增 `turn`。
+- `run_agent(FakeProvider)` 使用 `state.messages` 后，保存的消息内容和上一轮完全一致；模型调用次数等于 `state.turn` 的递增次数。
 - `python main.py` 仍从根目录启动同一个 CLI；`from main import ...` 的现有内部符号仍可用，作为兼容层验证。
 - 拆分后的所有 `.py` 文件均可通过 `deepcode` 编译，包内导入不产生循环导入。
 - 现有 Fake Streaming、会话恢复和工具参数 smoke 在新目录结构下仍通过。
@@ -158,6 +173,5 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-23
-- 状态：目录拆分完成，逻辑保持不变，兼容入口与 Fake Streaming/会话/工具 smoke 已通过。
-- 已验证：`conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros`；`main` 与 `creatoros.cli` 导入成功且 `.env` 已加载；FakeProvider 完成文本流、工具调用、工具结果、第二次模型回复和会话快照闭环；临时项目目录上的 Pydantic `read_file` / `write_file` Tool smoke 通过；`main.Tool`、Pydantic Tool 参数模型和旧的 `from main import ...` 兼容导出仍可用；`git diff --check` 通过。
-- 已验证：`cmd /c "echo /exit| conda run --no-capture-output -n deepcode python main.py"` 能进入根入口并正常退出；本轮不重复调用真实 API，避免把结构重构与网络行为混在同一验证中。
+- 状态：最小 AgentState 代码与路线记录已完成，回归验证待进行。
+- 计划验证：`deepcode` 编译全部模块；直接构造 `AgentState` 检查默认值；Fake Streaming / 工具 / 会话 smoke；确认保存消息与上一轮一致；根入口导入和 `git diff --check`。
