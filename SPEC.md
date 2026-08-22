@@ -24,16 +24,17 @@ Progressive SPEC, not a form.
 - 第十四个可运行切片加入最小 `DeepSeekProvider`，把模型 SDK 调用从 Agent Loop 中移出。
 - 第十五个可运行切片定义 `ModelProvider`、`ModelResponse` 和 `ToolCall`，让 Agent Loop 不再读取 OpenAI SDK 的响应对象。
 - 第十六个可运行切片让 `run_agent(provider)` 接收 Provider，实现依赖注入，并让导入模块不再自动启动 CLI。
+- 第十七个可运行切片把一次模型请求命名为 Runtime 层的 `llm(...)`，让 Agent Loop 不直接调用 Provider 方法。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
 ## 本轮目标
 
 本轮只迈一个 `small step`：
 
-- 让 `run_agent(provider: ModelProvider)` 接收外部传入的 Provider。
-- 用 FakeProvider 验证普通回答和 Tool Calling 闭环，不调用真实 API。
-- 用 `if __name__ == "__main__"` 保护 CLI 启动。
-- 暂不封装 Runtime 层的 `llm(...)` 函数，不加入模型目录、Streaming、重试或 Responses API 迁移。
+- 定义 `llm(provider, messages, tools) -> ModelResponse`，只封装一次同步模型请求。
+- 让 Agent Loop 通过 `llm(...)` 获取响应，不直接调用 `provider.complete(...)`。
+- 用 FakeProvider 验证普通回答、Tool Calling 闭环和 `llm(...)` 返回值。
+- 不在本轮加入重试、统计、事件、Streaming 或 Responses API 迁移。
 
 ## 当前假设
 
@@ -58,13 +59,15 @@ Progressive SPEC, not a form.
 - `ModelProvider` 是结构化协议；`DeepSeekProvider` 返回 `ModelResponse`，其中的 `ToolCall` 不携带 OpenAI SDK 对象。
 - Agent Loop 使用内部 assistant message 保存历史；DeepSeek Provider 在请求前把内部 assistant tool calls 转换为 OpenAI 的嵌套 function 格式。
 - `run_agent` 只依赖 `ModelProvider`，FakeProvider 可以替换 DeepSeekProvider；`messages` 成为一次 `run_agent` 调用的局部状态。
-- 当前 `provider.complete(...)` 仍是模型调用层；用户提出的 Runtime 层 `llm(...)` 包装留到下一步单独学习，避免和依赖注入混在一起。
+- `llm(...)` 只负责一次模型 turn，并把 Provider 返回的 `ModelResponse` 原样交给循环；它暂不处理错误、统计、事件或重试。
+- `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - 项目早期所有模块共享根级 `SPEC.md`；出现稳定模块边界后，再在最近模块建立独立 `SPEC.md`。
 
 ## 对外影响
 
 - 本轮让 Agent Loop 依赖 `ModelProvider` 协议和内部 `ModelResponse`；DeepSeek 适配器承担厂商响应和 tool-call 格式转换，工具执行行为保持不变。
 - 本轮让 Provider 成为 `run_agent` 的输入依赖，CLI 启动只发生在直接运行 `main.py` 时；导入模块可进行离线测试。
+- 本轮为 Runtime 增加 `llm(...)` 命名边界；未来可以在这个边界逐步加入统一错误、统计或事件，但当前行为不变。
 - `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai`、`python-dotenv` 与 Pydantic 2.x。
 
 暂未确认：
@@ -76,7 +79,7 @@ Progressive SPEC, not a form.
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
 - 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
 - Provider 请求失败如何转换为统一错误结果，以及 Streaming 如何表达增量事件；留到后续错误处理和 Streaming 步骤。
-- Runtime 层 `llm(...)` 是否只负责一次模型 turn，还是同时处理错误、统计和事件；下一步先观察当前循环的重复边界。
+- Runtime 层 `llm(...)` 未来是否需要接收 Context、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
 - Pydantic 验证错误的用户展示格式、错误分类和重试策略；本轮只把验证错误作为工具结果文本返回。
 - 文件内容过大、二进制文件、并发读取和工具超时；这些属于后续 Guard/资源限制步骤。
 - Pi 风格的字节级截断、图片内容块、AbortSignal 和 UI 渲染；这些暂不翻译到 Python 版本。
@@ -98,6 +101,7 @@ Progressive SPEC, not a form.
 - `ModelProvider` 的结果包含 CreatorOS 内部的 `ModelResponse` 和 `ToolCall`，Agent Loop 源码不再读取 `response.choices[0].message`。
 - DeepSeek 请求中的 assistant tool calls 仍能转换为 OpenAI-compatible 的 `function` 嵌套格式。
 - `run_agent(FakeProvider)` 能完成普通回答和一次工具调用闭环；导入 `main` 不会触发输入提示或真实 API 初始化。
+- `llm(FakeProvider, messages, tools)` 返回内部 `ModelResponse`，且 Agent Loop 源码不再直接调用 `provider.complete(...)`。
 - `requirements.txt` 包含 Pydantic 2.x 及其他运行所需依赖；`.env` 被 `.gitignore` 忽略。
 - 仓库没有提交 API Key、完整 `.env`、Python 缓存或其他秘密信息。
 - 本轮出现最小 `Tool` 类和 Registry，不出现 Session、权限或其他未学习的抽象。
@@ -115,6 +119,6 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-22
-- 命令：`python -m py_compile main.py`、FakeProvider 普通回答 smoke、FakeProvider Tool Calling 闭环 smoke、导入安全检查
-- 结果：通过；`run_agent` 可以注入 FakeProvider，完成普通回答和工具后续回答，`provider_injection_check=passed`。
-- 问题：本轮仍依赖本地 `.env`，不将其提交；只有 DeepSeek Provider，`llm(...)`、模型目录、第二个 Provider、Streaming、模型错误分类和重试暂不处理。
+- 命令：`python -m py_compile main.py`、FakeProvider 普通回答 smoke、FakeProvider Tool Calling 闭环 smoke、`llm(...)` 返回值 smoke、导入安全检查
+- 结果：通过；`run_agent` 通过 `llm(...)` 完成普通回答和工具后续回答，`llm_wrapper_check=passed`。
+- 问题：本轮仍依赖本地 `.env`，不将其提交；只有 DeepSeek Provider，模型目录、第二个 Provider、Streaming、模型错误分类和重试暂不处理。

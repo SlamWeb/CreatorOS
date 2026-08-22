@@ -255,6 +255,15 @@ def execute_tool_call(tool_call: ToolCall):
 
 tools = [tool.to_schema() for tool in tool_registry.values()]
 
+
+def llm(
+    provider: ModelProvider,
+    messages: list[dict],
+    tools: list[dict],
+) -> ModelResponse:
+    return provider.complete(messages=messages, tools=tools)
+
+
 def run_agent(provider: ModelProvider):
     messages = []
 
@@ -267,7 +276,7 @@ def run_agent(provider: ModelProvider):
         messages.append({"role": "user", "content": user_input})
 
         while True:
-            response = provider.complete(messages=messages, tools=tools)
+            response = llm(provider=provider, messages=messages, tools=tools)
 
             messages.append(response.to_message())
 
