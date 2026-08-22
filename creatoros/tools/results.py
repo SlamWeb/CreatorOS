@@ -14,3 +14,10 @@ class ToolResult:
 
     def __str__(self) -> str:
         return self.content
+
+    def to_model_content(self) -> str:
+        if not self.is_error:
+            return self.content
+
+        error_type = self.error_type or "unknown_error"
+        return f"[tool_error type={error_type}]\n{self.content}"

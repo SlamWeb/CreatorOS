@@ -66,7 +66,7 @@ def run_agent(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": tool_result.content,
+                            "content": tool_result.to_model_content(),
                         }
                     )
                     save_messages(state.messages)

@@ -33,6 +33,7 @@ Progressive SPEC, not a form.
 - 第二十三个可运行切片只做目录结构重构：把单文件 Runtime 拆成 `ai`、`agent`、`tools`、`session` 和 `cli` 责任域；根目录 `main.py` 保留为兼容入口，不改变工具、Provider、Streaming、会话或 CLI 行为。
 - 第二十四个可运行切片加入最小 `AgentState`：用一个 dataclass 持有当前运行的 `messages`、`status` 和模型调用 `turn` 计数；本轮不加入 Context、pending tool、取消或持久化状态机。
 - 第二十五个可运行切片加入统一 `ToolResult`：所有内置工具返回同一种结果对象，保留原有 `content` 文本，同时增加 `is_error`、`error_type`、`retryable` 和 `details`；本轮不自动重试、不执行终端命令。
+- 第二十六个可运行切片增加 `ToolResult.to_model_content()`：把内部结果投影为安全的模型可见文本；成功结果保持原文，错误结果增加稳定的 `tool_error` 类型前缀，不暴露 `details` 或自动重试策略。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
@@ -50,12 +51,11 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 本轮目标
 
-本轮只加入最小 `ToolResult`，并保持现有模型、Streaming、Session 和 CLI 行为：
+本轮只加入最小的模型结果投影，并保持现有工具执行、Streaming 和 CLI 行为：
 
-- `creatoros/tools/results.py` 定义所有工具共用的 `ToolResult` dataclass。
-- `execute_tool_call` 始终返回 `ToolResult`；未知工具、参数验证失败和未处理异常拥有结构化错误元数据。
-- `read_file`、`write_file`、日期和时间工具也返回 `ToolResult`；Agent Loop 只把 `result.content` 放进模型消息，保持原有可见文本。
-- `main.py` 的文件、日期和时间兼容函数继续返回字符串；`ToolResult` 作为运行时结果从 `creatoros.tools` 暴露。
+- `ToolResult.to_model_content()` 是唯一新增的模型内容投影入口。
+- 成功结果的模型内容仍等于原始 `content`；错误结果使用 `[tool_error type=...]` 前缀，但不拼接 `details` 和 `retryable`。
+- Agent Loop 把 `to_model_content()` 写入 `role="tool"` 消息；终端仍显示原始 `content`。
 - 本轮不加入终端执行、完整 stdout/stderr、自动重试、Guard、Event 总线或 Agent Context。
 
 ## 当前假设
@@ -89,9 +89,10 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 本轮 `run_agent` 仍不返回 State；先验证 State 能承载消息和最小运行元数据，再决定是否开放快照、观察器或恢复接口。
 - 本轮最小 `AgentState` 不代表已经完成 Agent Context、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
-- 当前 Tool trace 直接写到终端 stdout，不改变发给模型的 `tool` 消息；结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
+- 当前 Tool trace 直接写到终端 stdout；模型消息经过 `to_model_content()` 投影，错误可能增加类型前缀，结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
 - `ToolResult.content` 是给模型和当前终端显示的文本；`details` 只保存结构化诊断，当前不写入消息快照，也不包含终端命令输出。
 - `ToolResult.retryable` 只是工具提供的保守提示，本轮没有任何自动重试逻辑；Guard 以后再消费它。
+- `ToolResult.to_model_content()` 是内部结果到 LLM 消息的投影，不是让模型填写 `ToolResult` 的输入 schema；模型仍只生成 `ToolCall`。
 - Pi 的 `AgentToolResult<T>` 同样把模型内容与通用 `details` 分开，并支持 `usage`、动态工具名和 `terminate`；Pi 的工具执行契约要求失败抛出异常，Runtime 再把失败纳入工具结果和事件。参考：[Pi Agent types](https://github.com/earendil-works/pi/blob/main/packages/agent/src/types.ts)。
 - 当前会话存储是单个 JSON 快照；每次保存先写临时文件再替换目标文件，避免直接覆盖时留下半个 JSON 文件。
 - `sessions/latest.json` 只用于本地恢复，可能包含用户输入、工具参数和文件内容，因此必须被 `.gitignore` 忽略。
@@ -99,7 +100,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 对外影响
 
-- 本轮让 Agent Loop 接收 `ToolResult`，只把 `content` 写入原有 tool message；模型可见文本和 CLI 输出保持不变，结构化错误信息留在运行时结果对象中。
+- 本轮让 Agent Loop 把 `ToolResult.to_model_content()` 写入 tool message；正常结果保持不变，错误消息增加稳定类型前缀，CLI 仍显示原始文本。
 - 本轮让 Provider 成为 `run_agent` 的输入依赖，CLI 启动只发生在直接运行 `main.py` 时；导入模块可进行离线测试。
 - 本轮为 Runtime 增加 `llm(...)` 命名边界；未来可以在这个边界逐步加入统一错误、统计或事件，但当前行为不变。
 - 本轮为 Streaming 增加可选事件观察器；默认不传观察器时终端和会话行为保持不变。
@@ -144,6 +145,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 所有内置 Tool 的 `execute_tool_call` 返回值都是 `ToolResult`；成功结果的 `content` 与上一轮字符串结果一致。
 - 文件缺失、路径越界、参数错误和未知工具结果分别带有稳定的 `error_type`；异常详情至少包含验证错误或异常类名。
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
+- 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
 - 没有 args model 的现有 Tool 仍能解析原来的 JSON object 参数。
 - `DeepSeekProvider.complete` 使用原来的 DeepSeek endpoint、模型和 `thinking` 配置，并把完整响应返回给 Agent Loop。
 - `ModelProvider` 的结果包含 CreatorOS 内部的 `ModelResponse` 和 `ToolCall`，Agent Loop 源码不再读取 `response.choices[0].message`。
@@ -185,4 +187,5 @@ git diff --check
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。
+- `model_content_smoke=passed`：成功结果保持原文，文件错误带有 `tool_error` 类型前缀，内部 `details` 未进入模型内容。
 - 提交前还需运行 `git diff --check`，检查 staged diff 后 commit 并 push。
