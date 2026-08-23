@@ -36,6 +36,12 @@
 
 ## 验证、SPEC 与 Git 闭环
 
+### 真实 API 验证偏好
+
+- 用户明确要求：凡是低频、低成本、无破坏性的 API 验证，默认直接调用真实 API/真实本地服务，不用 Fake 或 Mock 替代真实链路。
+- Fake/Mock 只用于纯本地数据变换、故障注入、真实调用会产生大量费用或不可逆副作用，或当前缺少凭证/服务不可用的情况；遇到例外必须在 commentary 和最终说明中明确原因。
+- 真实 API 测试仍必须避免提交密钥、密码、Cookie 等秘密；凭证只从本地 `.env` 或环境变量读取，不在输出中打印。
+
 ```text
 read SPEC -> draft -> small step -> user types/edits -> verify -> update SPEC -> commit -> push
 ```
