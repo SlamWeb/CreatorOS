@@ -45,8 +45,8 @@ def main():
         "tool_result",
         "turn_start",
     ]
-    assert "Agent 思考中" in output.getvalue()
-    assert "[Tool call] 正在调用：get_current_time" in output.getvalue()
+    assert "思考中" in output.getvalue()
+    assert "[Tool call] 正在调用 · get_current_time" in output.getvalue()
     assert "正在调用" in output.getvalue()
     assert "已完成" in output.getvalue()
     assert "done" in output.getvalue()

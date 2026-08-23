@@ -13,9 +13,16 @@ class FakeStreamingProvider:
 
 def main():
     output = StringIO()
-    console = Console(input_fn=lambda prompt: "hello", output=output)
+    prompts = []
 
-    assert console.prompt("你：") == "hello"
+    def fake_input(prompt):
+        prompts.append(prompt)
+        return "hello"
+
+    console = Console(input_fn=fake_input, output=output)
+
+    assert console.prompt() == "hello"
+    assert prompts == ["❯ "]
     console.write("Agent: ", end="", flush=True)
     console.write("answer")
     console.banner()

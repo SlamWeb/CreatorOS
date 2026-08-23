@@ -41,7 +41,7 @@ def run_agent(
 
     try:
         while True:
-            user_input = console.prompt("你：")
+            user_input = console.prompt()
 
             if user_input == "/exit":
                 break
