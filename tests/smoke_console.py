@@ -1,12 +1,13 @@
 from io import StringIO
 
 from creatoros.agent.streaming import stream_llm
+from creatoros.ai.context import ModelContext
 from creatoros.ai.types import StreamEnd, TextDelta
 from creatoros.terminal import Console
 
 
 class FakeStreamingProvider:
-    def stream(self, messages, tools):
+    def stream(self, context):
         yield TextDelta("streamed")
         yield StreamEnd("stop")
 
@@ -27,7 +28,9 @@ def main():
     console.write("answer")
     console.banner()
 
-    response = stream_llm(FakeStreamingProvider(), [], [], console=console)
+    response = stream_llm(
+        FakeStreamingProvider(), ModelContext.from_messages([], []), console=console
+    )
 
     rendered = output.getvalue()
     assert rendered.startswith("Agent: answer\n")

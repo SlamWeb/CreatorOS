@@ -1,3 +1,4 @@
+from .context import ModelContext
 from .deepseek import DeepSeekProvider
 from .provider import ModelProvider
 from .types import (
@@ -13,6 +14,7 @@ from .types import (
 
 __all__ = [
     "DeepSeekProvider",
+    "ModelContext",
     "ModelProvider",
     "ModelResponse",
     "ModelStreamEvent",

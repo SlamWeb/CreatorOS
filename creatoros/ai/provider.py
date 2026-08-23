@@ -1,13 +1,12 @@
 from typing import Iterator, Protocol
 
+from .context import ModelContext
 from .types import ModelResponse, ModelStreamEvent
 
 
 class ModelProvider(Protocol):
-    def complete(self, messages: list[dict], tools: list[dict]) -> ModelResponse:
+    def complete(self, context: ModelContext) -> ModelResponse:
         ...
 
-    def stream(
-        self, messages: list[dict], tools: list[dict]
-    ) -> Iterator[ModelStreamEvent]:
+    def stream(self, context: ModelContext) -> Iterator[ModelStreamEvent]:
         ...

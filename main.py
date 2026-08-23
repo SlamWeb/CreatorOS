@@ -6,6 +6,7 @@ keep the earlier ``from main import ...`` learning examples working.
 
 from creatoros import config as _config
 from creatoros.ai.deepseek import DeepSeekProvider
+from creatoros.ai.context import ModelContext
 from creatoros.ai.provider import ModelProvider
 from creatoros.ai.types import (
     ModelResponse,

@@ -51,6 +51,7 @@ Progressive SPEC, not a form.
 - 第四十一个可运行切片接入独立的 PersonClone FastAPI 服务：CreatorOS 通过薄 HTTP Client 和三个 Tool 完成作者列表/选择、添加作者任务和向指定作者提问；本轮不复制 PersonClone 代码，不实现热点发现、自动路由、发布或分析闭环。
 - 第四十二个可运行切片加入本地 PersonClone 登录助手：在电脑终端隐藏式读取密码、调用 `/api/auth/login` 并只把会话 Cookie 写入被忽略的 `.env`；本轮不接收或保存用户密码，也不把认证流程塞进 Agent Loop。
 - 第四十三个可运行切片加入最小内部异步任务状态：`AgentState.tasks` 持有 `TaskRecord`，用业务状态、heartbeat 和 deadline 区分正常排队、运行中、疑似卡住和已超时；本轮不启动后台 worker、不轮询 PersonClone、不持久化任务表。
+- 第四十四个可运行切片加入最小 `ModelContext`：一次模型请求使用只读快照，把开头连续的 system/developer 指令、稳定的工具 schema 和动态消息尾部显式分开；Provider 在发送前还原为“系统消息在前、对话消息在后，工具仍位于独立 tools 字段”的请求。本轮不实现 token 计数、压缩、缓存 key 或 Responses API 迁移。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -98,6 +99,13 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `AgentState.tasks` 只作为当前进程内的内部容器；用户不看到 task id，当前也不把任务状态写入 messages 或 Session。
 - `add_author` 的用户可见 `ToolResult.content` 不再暴露 PersonClone job ID；内部句柄先放在 `ToolResult.details`，等 Harness 接入后再登记到 `AgentState.tasks`。
 - 本轮不让 LLM 轮询、不创建线程或队列；下一步再决定前台等待、后台恢复和状态持久化如何接入 PersonClone。
+
+## 本轮目标（ModelContext v0 请求边界）
+
+- `ModelContext.from_messages(messages, tools)` 生成一次模型回合的深拷贝快照，避免 Provider 直接持有可变的 `AgentState.messages`。
+- 开头连续的 `system` / `developer` 消息进入稳定前缀；工具 schema 保持独立且稳定；其余 user/assistant/tool 消息保持原顺序作为动态尾部。
+- `to_request()` 在 Provider 边界还原 `messages = system_prefix + conversation_tail` 和独立 `tools` 字段，确保当前 Chat Completions 行为不变并为后续缓存观察留下边界。
+- 本轮不实现上下文窗口计数、ToolResult 截断、摘要压缩、缓存 key、缓存命中遥测、RuntimeContext 注入或 Responses API 迁移。
 
 ## 当前假设
 
@@ -147,10 +155,12 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `llm(...)` 只负责一次模型 turn，并把 Provider 返回的 `ModelResponse` 原样交给循环；它暂不处理错误、统计、事件或重试。
 - `stream_llm(...)` 只负责消费 Provider 的内部流式事件；文本立即刷新到终端，工具调用按 index 拼接，流结束后才交给 Agent Loop。
 - `stream_llm(..., on_event=...)` 仍返回完整 `ModelResponse`，同时把运行时事件通知观察器；观察器可以记录事件，但本轮不改变执行时机。
+- `ModelContext` 是每次模型请求的不可变快照，不是第二份会话历史；它把前导 system/developer 消息和工具 schema 作为稳定输入，把 user/assistant/tool 消息作为动态尾部。
+- `ModelContext.to_request()` 只在 Provider 边界生成新的 `messages` / `tools` 列表；这样 AgentState 可以继续负责可变历史，Provider 不需要知道 ContextAssembler 的拆分细节。
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `AgentState` 是一次 `run_agent` 调用内的内存工作状态；其中 `messages` 仍是原来发给模型和保存到 Session 的消息列表，`status` 当前只使用 `idle` / `running`，`turn` 按模型请求次数递增。
 - 本轮 `run_agent` 仍不返回 State；先验证 State 能承载消息和最小运行元数据，再决定是否开放快照、观察器或恢复接口。
-- 本轮最小 `RuntimeContext` 不代表已经完成 ModelContext、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
+- 本轮最小 `RuntimeContext` 与 `ModelContext` 都不代表已经完成 pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout；模型消息经过 `to_model_content()` 投影，错误可能增加类型前缀，结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
 - `ToolResult.content` 是给模型和当前终端显示的文本；`details` 只保存结构化诊断，当前不写入消息快照，也不包含终端命令输出。
@@ -182,7 +192,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 
 - `creatoros` 包的长期公共导出和版本化接口；本轮只保留 `main.py` 兼容导出。
 - 未来 Provider 抽象如何承载 DeepSeek 与其他模型；这留到后续步骤。
-- `AgentState`、Session、RuntimeContext 和 ModelContext 的最终边界；本轮只确定 State 是运行时容器，Session 负责持久化，两类 Context 仍未实现。
+- `AgentState`、Session、RuntimeContext 和 ModelContext 的最终边界；本轮只确定 State 是可变运行时容器，Session 负责持久化，ModelContext 只实现一次请求的最小投影。
 - 模型请求失败时如何恢复、自动重试、超时和取消；这些属于后续 Guard/错误处理步骤；通用重复检测当前明确暂缓。
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
 - 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
@@ -192,7 +202,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - Tool trace 是否应升级为统一 Event、日志级别或可关闭输出；当前只使用两个固定前缀。
 - 是否从单个 JSON 快照迁移到 Pi 风格 JSONL、SQLite Checkpoint 或生产数据库；等会话查询、并发和分支需求出现后再决定。
 - 会话 ID、多个用户、多会话列表和历史恢复 UI；当前只有 `latest.json`。
-- Runtime 层 `llm(...)` 未来是否需要接收 RuntimeContext、ModelContext、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
+- Runtime 层 `llm(...)` 当前接收 `Provider + ModelContext`；未来是否增加模型选项、取消信号、预算和缓存遥测仍未确定。
 - `ToolCallEnd` 目前由 Runtime 在整轮流结束后派生；未来是否由 Provider 提供每个工具调用的原生结束事件，留到 Provider 能力扩展时决定。
 - Pydantic 验证错误的用户展示格式和自动重试策略仍未确定；本轮已增加 `invalid_arguments` 类型和原始校验详情，但不自动重试。
 - 二进制文件、并发读取和工具超时；文件大小上限已加入，但未来仍可按字节流式读取大文件片段。
@@ -239,7 +249,9 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `ModelProvider` 的结果包含 CreatorOS 内部的 `ModelResponse` 和 `ToolCall`，Agent Loop 源码不再读取 `response.choices[0].message`。
 - DeepSeek 请求中的 assistant tool calls 仍能转换为 OpenAI-compatible 的 `function` 嵌套格式。
 - `run_agent(FakeProvider)` 能完成普通回答和一次工具调用闭环；导入 `main` 不会触发输入提示或真实 API 初始化。
-- `llm(FakeProvider, messages, tools)` 返回内部 `ModelResponse`，且 Agent Loop 源码不再直接调用 `provider.complete(...)`。
+- `llm(FakeProvider, context)` 返回内部 `ModelResponse`，且 Agent Loop 源码不再直接调用 `provider.complete(...)`。
+- `ModelContext` smoke 能确认 system/developer 前缀、工具 schema 和动态消息尾部被正确拆分；输入列表在构造后变化不会污染请求快照。
+- `run_agent(FakeProvider)` 传入的请求能还原为 system 消息在前、历史消息顺序不变，tools 列表与 Registry schema 一致。
 - `run_agent(FakeProvider)` 的第一条请求包含 `role="system"`，第二条工具请求仍保留 system、assistant 和 tool 消息。
 - `DeepSeekProvider._to_openai_messages` 转换 system 消息后仍保留相同角色和内容。
 - FakeProvider Tool Calling smoke 的 stdout 包含 `[Tool call]`、`[Tool result]` 和最终 Agent 回复。
@@ -297,3 +309,5 @@ git diff --check
 - `task_state_smoke=passed`：TaskRecord 状态迁移、heartbeat 健康度、deadline 判断和 AgentState 内部任务容器通过。
 - `personclone_tools_smoke=passed`：`add_author` 只向模型/终端提供自然语言状态，内部 `task_id` 保留在 `ToolResult.details`。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
+- `model_context_smoke=passed`：system 前缀、工具 schema、动态消息尾部和深拷贝快照均通过验证。
+- `smoke_agent_events.py`、`smoke_console.py`、`smoke_rich_console.py`、`smoke_task_state.py` 在 `deepcode` 环境通过；Agent Loop 实际传入的 Provider Context 能还原 system 在前、tools 与 Registry 一致。

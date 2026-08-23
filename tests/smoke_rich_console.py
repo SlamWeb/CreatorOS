@@ -1,19 +1,20 @@
 from io import StringIO
 
 from creatoros.agent.streaming import stream_llm
+from creatoros.ai.context import ModelContext
 from creatoros.ai.types import StreamEnd, TextDelta
 from creatoros.events import AgentEvent
 from creatoros.terminal import RichConsole
 
 
 class FakeProvider:
-    def stream(self, messages, tools):
+    def stream(self, context):
         yield TextDelta("# CreatorOS\n\nRich output")
         yield StreamEnd("stop")
 
 
 class FragmentProvider:
-    def stream(self, messages, tools):
+    def stream(self, context):
         yield TextDelta("搞定！✅ 已创建文件。\n\n")
         yield TextDelta("下一段只应追加一次。")
         yield StreamEnd("stop")
@@ -35,7 +36,8 @@ def main():
     assert prompts == ["❯ "]
 
     console.render_event(AgentEvent("turn_start", {}))
-    response = stream_llm(FakeProvider(), [], [], console=console)
+    empty_context = ModelContext.from_messages([], [])
+    response = stream_llm(FakeProvider(), empty_context, console=console)
     console.render_event(AgentEvent("tool_call", {"name": "read_file"}))
     console.render_event(AgentEvent("tool_result", {"content": "ok"}))
 
@@ -56,7 +58,7 @@ def main():
     output = StringIO()
     console = RichConsole(output=output)
     console.render_event(AgentEvent("turn_start", {}))
-    stream_llm(FragmentProvider(), [], [], console=console)
+    stream_llm(FragmentProvider(), empty_context, console=console)
     streamed = output.getvalue()
     assert streamed.count("搞定！") == 1
     assert streamed.count("下一段只应追加一次") == 1

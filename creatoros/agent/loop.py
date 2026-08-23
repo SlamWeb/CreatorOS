@@ -1,5 +1,6 @@
 from typing import Callable
 
+from ..ai.context import ModelContext
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
@@ -14,10 +15,9 @@ from .streaming import stream_llm
 
 def llm(
     provider: ModelProvider,
-    messages: list[dict],
-    tools: list[dict],
+    context: ModelContext,
 ) -> ModelResponse:
-    return provider.complete(messages=messages, tools=tools)
+    return provider.complete(context)
 
 
 def run_agent(
@@ -66,10 +66,10 @@ def run_agent(
 
                 state.turn += 1
                 emit(AgentEvent("turn_start", {"turn": state.turn}))
+                model_context = ModelContext.from_messages(state.messages, tools)
                 response = stream_llm(
                     provider=provider,
-                    messages=state.messages,
-                    tools=tools,
+                    context=model_context,
                     on_event=on_stream_event,
                     console=console,
                 )

@@ -1,5 +1,6 @@
 from openai import OpenAI
 
+from .context import ModelContext
 from .types import (
     ModelResponse,
     StreamEnd,
@@ -38,7 +39,8 @@ class DeepSeekProvider:
             converted.append(converted_message)
         return converted
 
-    def complete(self, messages, tools):
+    def complete(self, context: ModelContext):
+        messages, tools = context.to_request()
         response = self.client.chat.completions.create(
             model=self.model,
             messages=self._to_openai_messages(messages),
@@ -58,7 +60,8 @@ class DeepSeekProvider:
             ],
         )
 
-    def stream(self, messages, tools):
+    def stream(self, context: ModelContext):
+        messages, tools = context.to_request()
         response_stream = self.client.chat.completions.create(
             model=self.model,
             messages=self._to_openai_messages(messages),

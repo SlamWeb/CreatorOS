@@ -3,14 +3,17 @@ from io import StringIO
 from creatoros.agent import loop as agent_loop
 from creatoros.agent.loop import run_agent
 from creatoros.ai.types import StreamEnd, TextDelta, ToolCallDelta
+from creatoros.tools import tools
 from creatoros.terminal import Console
 
 
 class FakeProvider:
     def __init__(self):
         self.calls = 0
+        self.contexts = []
 
-    def stream(self, messages, tools):
+    def stream(self, context):
+        self.contexts.append(context)
         self.calls += 1
         if self.calls == 1:
             yield ToolCallDelta(0, "call-1", "get_current_time", "{}")
@@ -29,8 +32,9 @@ def main():
         inputs = iter(["what time is it", "/exit"])
         output = StringIO()
         events = []
+        provider = FakeProvider()
         run_agent(
-            FakeProvider(),
+            provider,
             on_agent_event=events.append,
             console=Console(input_fn=lambda prompt: next(inputs), output=output),
             max_turns=3,
@@ -49,6 +53,9 @@ def main():
     assert "↳ get_current_time" in output.getvalue()
     assert "✓ done ·" in output.getvalue()
     assert "done" in output.getvalue()
+    first_messages, first_tools = provider.contexts[0].to_request()
+    assert first_messages[0]["role"] == "system"
+    assert first_tools == tools
     print("agent_events_smoke=passed")
 
 

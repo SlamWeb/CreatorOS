@@ -1,5 +1,6 @@
 from typing import Callable
 
+from ..ai.context import ModelContext
 from ..ai.provider import ModelProvider
 from ..ai.types import (
     ModelResponse,
@@ -15,8 +16,7 @@ from ..terminal import Console
 
 def stream_llm(
     provider: ModelProvider,
-    messages: list[dict],
-    tools: list[dict],
+    context: ModelContext,
     on_event: Callable[[RuntimeStreamEvent], None] | None = None,
     console: Console | None = None,
 ) -> ModelResponse:
@@ -25,7 +25,7 @@ def stream_llm(
     tool_calls_by_index = {}
     stream_end = None
 
-    for event in provider.stream(messages=messages, tools=tools):
+    for event in provider.stream(context):
         if isinstance(event, StreamEnd):
             stream_end = event
             continue

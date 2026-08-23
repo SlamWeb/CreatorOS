@@ -1,4 +1,5 @@
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
+from ..ai.context import ModelContext
 from ..context import RuntimeContext
 from ..events import AgentEvent
 from .loop import llm, run_agent
@@ -15,6 +16,7 @@ __all__ = [
     "DEFAULT_MAX_TURNS",
     "MaxTurnGuard",
     "RuntimeContext",
+    "ModelContext",
     "llm",
     "run_agent",
     "stream_llm",
