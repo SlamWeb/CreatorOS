@@ -236,7 +236,7 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-24
-- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；本轮大彩色字/Windows 段落流式修复 smoke 已通过，待提交。
+- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；大彩色字/Windows 段落流式修复已在 `28ce5fc` 提交、推送。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。
@@ -255,4 +255,4 @@ git diff --check
 - `rich_console_smoke=passed`：Rich 无边框启动画面、prompt、Markdown Live、工具状态和非 TTY 纯文本捕获均通过；旧 subtitle 与边框断言已更新。
 - `rich_console_smoke=passed`：额外确认分片 Markdown 段落中的“搞定”与后续文本各只出现一次，避免旧 Live 重绘残留。
 - Rich 视觉快照：使用 Rich `save_svg` 和 Chrome headless 截图检查七行彩色字标、默认正文色、低饱和工具 trace 与浅绿色完成状态；生成物不加入仓库。
-- `git diff --check` 和 staged diff 检查通过；`8483c13` 已推送到 `origin/main`。
+- `git diff --check` 和 staged diff 检查通过；`28ce5fc` 已推送到 `origin/main`。
