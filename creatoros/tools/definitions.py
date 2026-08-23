@@ -1,7 +1,8 @@
 import json
 
 from .builtins import get_current_date, get_current_time, read_file, write_file
-from .models import ReadFileArgs, WriteFileArgs
+from .models import AddAuthorArgs, AskAuthorArgs, ReadFileArgs, WriteFileArgs
+from .personclone import add_author, ask_author, list_authors
 
 
 class Tool:
@@ -63,6 +64,24 @@ tool_registry = {
             description="在 CreatorOS 项目目录内创建新的 UTF-8 文本文件，不覆盖已有文件。",
             execute=write_file,
             args_model=WriteFileArgs,
+        ),
+        Tool(
+            name="list_authors",
+            description="列出 PersonClone 中已经完成索引、可以被选择回答的作者。",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=list_authors,
+        ),
+        Tool(
+            name="add_author",
+            description="请求 PersonClone 抓取并建立一个新的知乎作者数字分身；返回异步任务状态。",
+            execute=add_author,
+            args_model=AddAuthorArgs,
+        ),
+        Tool(
+            name="ask_author",
+            description="把问题交给指定的 PersonClone 作者数字分身，并返回它生成的回答。",
+            execute=ask_author,
+            args_model=AskAuthorArgs,
         ),
     ]
 }

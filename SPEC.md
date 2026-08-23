@@ -48,6 +48,7 @@ Progressive SPEC, not a form.
 - 第三十八个可运行切片建立 Rich 语义视觉：把大块字母改为单行 `CreatorOS` 字标，把工具 trace 改为 `↳ name` / `✓ done`，并用低饱和品牌紫、灰蓝和浅绿替代高饱和蓝色；本轮不改变 Agent Event、Provider、Session 或消息语义。
 - 第三十九个可运行切片修复 Windows 终端流式重绘：恢复大彩色 CreatorOS 字标，并把增长中的 Markdown Live 改为按完整段落追加渲染，避免 PowerShell 中旧帧残留成重复文本；本轮仍保持启动画面只出现一次。
 - 第四十个可运行切片收紧 Logo 视觉：用 7×10 半块像素字压缩为五行，同时保留更细的上下像素边缘；本轮不改变正文、工具 trace 或 Status 行为。
+- 第四十一个可运行切片接入独立的 PersonClone FastAPI 服务：CreatorOS 通过薄 HTTP Client 和三个 Tool 完成作者列表/选择、添加作者任务和向指定作者提问；本轮不复制 PersonClone 代码，不实现热点发现、自动路由、发布或分析闭环。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -58,7 +59,7 @@ Progressive SPEC, not a form.
 
 ## 长期路线与当前定位
 
-CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时问题随机堆功能：
+CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的路线推进，不按临时问题随机堆功能：
 
 1. **Runtime 学习基础（当前阶段）**：LLM 调用、消息、Agent Loop、Tool Calling、Tool Registry、Pydantic、Provider、Streaming、Session、最小 State。
 2. **Runtime 正确性与可恢复性**：RuntimeContext、ModelContext、Agent Message / LLM Message 分离、Compaction、错误与重试、Max Turn、重复调用、取消和超时。
@@ -66,7 +67,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 4. **CreatorOS 业务能力**：Trend Discovery、Creator Routing、PersonaForge Service / Tool、Research、Content Planning、Content Generation、Judge / Review。
 5. **产品闭环**：Human Approval、Publishing、Analytics Feedback、Working Memory / Long-term Memory、权限、账号隔离和多用户运行。
 
-当前位于第 1 阶段；第 4 阶段的 Creator 业务不是遗漏，而是等 Runtime 边界稳定后再接入。现有四个工具是 `get_current_time`、`get_current_date`、`read_file`、`write_file`，它们只是用来验证 Runtime 的工具机制，不是 CreatorOS 最终业务工具。
+当前 Runtime 基础仍处于第 1 阶段；本轮只增加一个窄的第 4 阶段外部服务接入切片，验证业务 Tool 如何调用已有服务。热点发现、Creator Routing、内容生成编排、发布和分析反馈仍然暂缓。现有内置工具之外，新增的 PersonClone 工具是第一组真实业务边界，不代表完整 CreatorOS 产品已经完成。
 
 ## 本轮目标
 
@@ -77,6 +78,15 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 工具调用显示为 `↳ tool_name`，完成显示为 `✓ done · result`；Rich Theme 为 logo、提示、思考、工具、成功和警告提供语义样式。
 - `tests/smoke_terminal_ui.py`、`tests/smoke_rich_console.py` 和 `tests/smoke_agent_events.py` 验证大字标、语义 trace、段落流式输出、副标题和大框线状态。
 - 本轮不引入 Textual、prompt_toolkit、完整布局系统或改变 Agent Event、Provider、Session 语义。
+
+## 本轮目标（PersonClone 最小业务接口）
+
+- PersonClone 继续作为独立运行的 FastAPI 服务；CreatorOS 不复制它的爬虫、RAG、向量库或生成代码，只持有一个可替换的 `PersonCloneClient`。
+- 用 `list_authors` 读取可用数字分身，让 Agent 能先查看并选择作者；返回时过滤内部 `index_dir` 等服务实现细节。
+- 用 `add_author` 调用 `/api/author-jobs`，返回异步抓取/建库任务状态；本轮不在 CreatorOS 内重复实现抓取，也不等待或编排任务队列。
+- 用 `ask_author` 调用 `/api/chat/stream`，解析 `meta`、`token`、`done`、`error` SSE 事件；只把最终回答放进 `ToolResult.content`，来源和 trace 放入 `details`。
+- 认证只通过本地环境变量 `PERSONCLONE_SESSION_COOKIE` 传递，不把会话值写入仓库；PersonClone 当前若返回 401，统一转换为 `personclone_auth`，不自动猜测或保存账号密码。
+- 验收边界是“能列出/选择作者、能提交添加作者、能向已索引作者提问”；热点发现、自动选题、批量创作和发布属于后续业务切片。
 
 ## 当前假设
 
@@ -105,6 +115,10 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - Rich 视觉使用 `_RICH_THEME` 的语义样式：logo 使用青、蓝、紫、黄、绿的高可读彩色分行，像素字通过 `▀` / `▄` 保留上下边缘细节；思考/工具为低饱和灰蓝，成功为浅绿，警告为柔和黄；回答正文保持终端默认色。
 - Rich 流式文本按 `\n\n` 分隔的完整段落追加 Markdown renderable，不依赖光标回退重绘；模型原文仍按原样保留在 `ModelResponse` 和 messages 中。
 - Rich 的输出使用 `markup=False`，避免模型回答或工具结果中的 `[text]` 被误解释为 Rich 标记。
+- PersonClone 默认地址为 `http://127.0.0.1:8000`，可用 `PERSONCLONE_BASE_URL` 覆盖；请求超时由 `PERSONCLONE_TIMEOUT_SECONDS` 控制。
+- PersonClone 的认证 Cookie 名为 `personaforge_session`，CreatorOS 只从 `PERSONCLONE_SESSION_COOKIE` 读取 Cookie 值；不会读取、打印或提交会话数据库和密钥。
+- `add_author` 返回的是 PersonClone 的异步 job，不等于作者已经完成索引；`list_authors` 是当前最小的完成状态/选择入口，任务轮询留到后续切片。
+- PersonClone 实例服务已通过真实 HTTP `/health` 探测；未提供会话 Cookie 时，真实 `/api/personas` 返回 401，这是预期认证边界，不把它误判为服务离线。
 - `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - `execute_tool_call` 捕获单次工具调用的普通 `Exception` 并返回 `ToolResult`；`ValidationError` 标记为 `invalid_arguments`，未知工具标记为 `unknown_tool`，其他异常标记为 `tool_exception`。
 - `write_file` 是当前第一个有副作用的 Tool；它创建新文件但不覆盖已有文件，路径边界和错误仍由 Tool 自己处理。
@@ -149,6 +163,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 本轮让用户能看到工具调用和工具结果，但它们仍只存在内存和终端，不形成持久化记录。
 - 本轮将当前消息历史持久化到本地快照；这不是多用户数据库，也不支持会话树、并发写入或跨机器共享。
 - `.env` 只存在于本地工作区，不会被提交或推送；代码依赖 `openai`、`python-dotenv` 与 Pydantic 2.x。
+- CreatorOS 现在额外依赖 `httpx`，只用于 PersonClone 的同步 JSON/SSE HTTP 边界；模型 Provider 和 PersonClone 服务仍然是两个独立进程。
 
 暂未确认：
 
@@ -197,6 +212,8 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 所有内置 Tool 的 `execute_tool_call` 返回值都是 `ToolResult`；成功结果的 `content` 与上一轮字符串结果一致。
 - 文件缺失、路径越界、参数错误和未知工具结果分别带有稳定的 `error_type`；异常详情至少包含验证错误或异常类名。
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
+- PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
+- 真实 PersonClone 服务 `/health` 返回 200；未带认证 Cookie 的 `/api/personas` 返回 401，并应由 Client 转换为 `personclone_auth`。
 - 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
 - `MaxTurnGuard(2)` 在使用 0、1 次模型调用时继续，在第 2 次调用前停止；`MaxTurnGuard(0)` 拒绝创建。
 - 未传 `max_turns` 时，`run_agent`、根入口 `main.run_agent` 和 `MaxTurnGuard` 都使用同一个 `DEFAULT_MAX_TURNS == 30`。
@@ -258,3 +275,5 @@ git diff --check
 - `rich_console_smoke=passed`：额外确认分片 Markdown 段落中的“搞定”与后续文本各只出现一次，避免旧 Live 重绘残留。
 - Rich 视觉快照：使用 Rich `save_svg` 和 Chrome headless 截图检查五行高分辨率彩色字标、默认正文色、低饱和工具 trace 与浅绿色完成状态；本轮预览为 `C:\Users\13779\AppData\Local\Temp\creatoros_ui_snapshot_v3.png`，生成物不加入仓库。
 - `git diff --check` 和 staged diff 检查通过；`28ce5fc` 已推送到 `origin/main`。
+- `personclone_smoke=passed`：MockTransport 验证作者列表、添加作者 job、SSE 回答解析、工具 schema 和 `personaforge_session` Cookie。
+- 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
