@@ -54,7 +54,7 @@ tool_registry = {
         ),
         Tool(
             name="read_file",
-            description="读取 CreatorOS 项目目录内的 UTF-8 文本文件。",
+            description="读取 CreatorOS 项目目录内不超过 128 KiB 的 UTF-8 文本文件；敏感路径拒绝读取。",
             execute=read_file,
             args_model=ReadFileArgs,
         ),

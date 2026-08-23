@@ -3,6 +3,24 @@ from datetime import datetime
 from ..config import PROJECT_ROOT
 from .results import ToolResult
 
+MAX_READ_BYTES = 128 * 1024
+SENSITIVE_DIRECTORY_NAMES = {".git", "sessions"}
+
+
+def _is_sensitive_path(requested_path):
+    relative_parts = requested_path.relative_to(PROJECT_ROOT).parts
+    if not relative_parts:
+        return False
+
+    normalized_parts = [part.casefold() for part in relative_parts]
+    if any(part in SENSITIVE_DIRECTORY_NAMES for part in normalized_parts[:-1]):
+        return True
+
+    filename = normalized_parts[-1]
+    return filename == ".env" or filename.startswith(".env.") or filename.endswith(
+        (".pem", ".key")
+    )
+
 
 def get_current_time() -> ToolResult:
     return ToolResult(content=datetime.now().astimezone().isoformat(timespec="seconds"))
@@ -41,7 +59,23 @@ def read_file(path, offset=1, limit=None) -> ToolResult:
             retryable=True,
         )
 
+    if _is_sensitive_path(requested_path):
+        return ToolResult(
+            content=f"错误：出于安全原因，禁止读取敏感路径：{path}",
+            is_error=True,
+            error_type="sensitive_path",
+        )
+
     try:
+        file_size = requested_path.stat().st_size
+        if file_size > MAX_READ_BYTES:
+            return ToolResult(
+                content=f"错误：文件过大（{file_size} bytes），最多读取 {MAX_READ_BYTES} bytes。",
+                is_error=True,
+                error_type="file_too_large",
+                details={"actual_bytes": file_size, "max_bytes": MAX_READ_BYTES},
+            )
+
         lines = requested_path.read_text(encoding="utf-8").splitlines()
         if not lines:
             return ToolResult(content="")
