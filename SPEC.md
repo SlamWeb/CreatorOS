@@ -50,6 +50,7 @@ Progressive SPEC, not a form.
 - 第四十个可运行切片收紧 Logo 视觉：用 7×10 半块像素字压缩为五行，同时保留更细的上下像素边缘；本轮不改变正文、工具 trace 或 Status 行为。
 - 第四十一个可运行切片接入独立的 PersonClone FastAPI 服务：CreatorOS 通过薄 HTTP Client 和三个 Tool 完成作者列表/选择、添加作者任务和向指定作者提问；本轮不复制 PersonClone 代码，不实现热点发现、自动路由、发布或分析闭环。
 - 第四十二个可运行切片加入本地 PersonClone 登录助手：在电脑终端隐藏式读取密码、调用 `/api/auth/login` 并只把会话 Cookie 写入被忽略的 `.env`；本轮不接收或保存用户密码，也不把认证流程塞进 Agent Loop。
+- 第四十三个可运行切片加入最小内部异步任务状态：`AgentState.tasks` 持有 `TaskRecord`，用业务状态、heartbeat 和 deadline 区分正常排队、运行中、疑似卡住和已超时；本轮不启动后台 worker、不轮询 PersonClone、不持久化任务表。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -90,6 +91,13 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `scripts/configure_personclone_auth.py` 是一次性本地配置助手；密码只在终端输入和 HTTP 请求内存中短暂存在，脚本不会打印密码或 Cookie，也不会自动提交 `.env`。
 - 验收边界是“能列出/选择作者、能提交添加作者、能向已索引作者提问”；热点发现、自动选题、批量创作和发布属于后续业务切片。
 
+## 本轮目标（异步任务状态最小切片）
+
+- `TaskStatus` 表示任务业务阶段：`queued`、`running`、`completed`、`failed`、`cancelled`、`timed_out`。
+- `TaskRecord.health()` 单独判断运行健康度：排队任务没有 heartbeat 也不算卡住；运行任务超过 heartbeat 窗口时只标记为 `stalled`（疑似无进展），超过绝对 deadline 才标记 `deadline_exceeded`。
+- `AgentState.tasks` 只作为当前进程内的内部容器；用户不看到 task id，当前也不把任务状态写入 messages 或 Session。
+- 本轮不让 LLM 轮询、不创建线程或队列；下一步再决定前台等待、后台恢复和状态持久化如何接入 PersonClone。
+
 ## 当前假设
 
 - 第一段 Runtime 代码只验证一次 OpenAI-compatible LLM 调用，不包含循环、工具或抽象层；本轮已验证。
@@ -121,6 +129,8 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - PersonClone 的认证 Cookie 名为 `personaforge_session`，CreatorOS 只从 `PERSONCLONE_SESSION_COOKIE` 读取 Cookie 值；不会读取、打印或提交会话数据库和密钥。
 - `add_author` 返回的是 PersonClone 的异步 job，不等于作者已经完成索引；`list_authors` 是当前最小的完成状态/选择入口，任务轮询留到后续切片。
 - PersonClone 实例服务已通过真实 HTTP `/health` 探测；未提供会话 Cookie 时，真实 `/api/personas` 返回 401，这是预期认证边界，不把它误判为服务离线。
+- 长任务不能仅凭“还没有结果”判断卡住：必须同时观察任务阶段、最近 heartbeat 和绝对 deadline；排队阶段可长时间没有 heartbeat，运行阶段才使用 heartbeat 超时。
+- `stalled` 是 Harness 的“疑似无进展”信号，不是证明 worker 崩溃；只有服务明确失败、取消或超过 deadline 时，才把任务视为终态。
 - `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - `execute_tool_call` 捕获单次工具调用的普通 `Exception` 并返回 `ToolResult`；`ValidationError` 标记为 `invalid_arguments`，未知工具标记为 `unknown_tool`，其他异常标记为 `tool_exception`。
 - `write_file` 是当前第一个有副作用的 Tool；它创建新文件但不覆盖已有文件，路径边界和错误仍由 Tool 自己处理。
@@ -217,6 +227,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
 - `personclone_auth_helper_smoke=passed`：本地登录助手能安全更新 `.env` 中的 Cookie 键并保留其他配置，不测试或保存真实凭证。
 - `smoke_personclone_tools.py` 使用 Fake Client 验证 Agent ToolCall、Pydantic 参数解析、三个 PersonClone Tool 和 ToolResult 的完整接线，不需要登录或真实 API。
+- `smoke_task_state.py` 验证排队任务不因没有 heartbeat 被误判、运行任务 heartbeat 超时进入 `stalled`、deadline 超时进入 `deadline_exceeded`，以及终态不再被误判为活动任务。
 - 真实 PersonClone 服务 `/health` 返回 200；未带认证 Cookie 的 `/api/personas` 返回 401，并应由 Client 转换为 `personclone_auth`。
 - 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
 - `MaxTurnGuard(2)` 在使用 0、1 次模型调用时继续，在第 2 次调用前停止；`MaxTurnGuard(0)` 拒绝创建。
@@ -282,4 +293,5 @@ git diff --check
 - `personclone_smoke=passed`：MockTransport 验证作者列表、添加作者 job、SSE 回答解析、工具 schema 和 `personaforge_session` Cookie。
 - `personclone_auth_helper_smoke=passed`：登录助手的 `.env` 更新逻辑通过；未使用真实账号密码。
 - `personclone_tools_smoke=passed`：Fake Client 验证作者列表过滤内部字段、添加作者 job、回答内容/details 投影和 Client 释放。
+- `task_state_smoke=passed`：TaskRecord 状态迁移、heartbeat 健康度、deadline 判断和 AgentState 内部任务容器通过。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
