@@ -21,6 +21,8 @@ def main():
         return "hello"
 
     console = RichConsole(input_fn=fake_input, output=output)
+    for style_name in ("creatoros.brand", "creatoros.tool", "creatoros.success"):
+        assert console.rich.get_style(style_name)
     console.banner()
     assert console.prompt() == "hello"
     assert prompts == ["❯ "]
@@ -34,8 +36,10 @@ def main():
     assert response.content == "# CreatorOS\n\nRich output"
     assert "CreatorOS" in rendered
     assert "Rich output" in rendered
-    assert "[Tool call] 正在调用" in rendered
-    assert "[Tool result] 已完成" in rendered
+    assert "↳ read_file" in rendered
+    assert "✓ done · ok" in rendered
+    assert "[Tool call]" not in rendered
+    assert "[Tool result]" not in rendered
     assert "learning build" not in rendered
     assert "┌" not in rendered
     assert "╭" not in rendered

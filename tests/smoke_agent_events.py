@@ -46,9 +46,8 @@ def main():
         "turn_start",
     ]
     assert "思考中" in output.getvalue()
-    assert "[Tool call] 正在调用 · get_current_time" in output.getvalue()
-    assert "正在调用" in output.getvalue()
-    assert "已完成" in output.getvalue()
+    assert "↳ get_current_time" in output.getvalue()
+    assert "✓ done ·" in output.getvalue()
     assert "done" in output.getvalue()
     print("agent_events_smoke=passed")
 

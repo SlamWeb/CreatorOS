@@ -4,27 +4,32 @@ import sys
 from rich.console import Console as RichTerminalConsole
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.theme import Theme
 from rich.text import Text
 
 from .events import AgentEvent
 
-_GLYPHS = {
-    "C": [" ████ ", "██    ", "██    ", "██    ", " ████ "],
-    "R": ["█████ ", "██  ██", "█████ ", "██ ██ ", "██  ██"],
-    "E": ["██████", "██    ", "████  ", "██    ", "██████"],
-    "A": [" ████ ", "██  ██", "██████", "██  ██", "██  ██"],
-    "T": ["██████", "  ██  ", "  ██  ", "  ██  ", "  ██  "],
-    "O": [" ████ ", "██  ██", "██  ██", "██  ██", " ████ "],
-    "S": [" █████", "██    ", " ████ ", "    ██", "█████ "],
-}
-_COLORS = ["\033[96m", "\033[94m", "\033[95m", "\033[93m", "\033[92m"]
+_WORDMARK = "CreatorOS"
+_BRAND = "\033[35m"
 _RESET = "\033[0m"
 _PROMPT = "❯ "
 _SPINNER_FRAMES = ("◌", "◍", "◎", "●")
-_CYAN = "\033[96m"
-_BLUE = "\033[94m"
-_GREEN = "\033[92m"
-_YELLOW = "\033[93m"
+_CYAN = "\033[36m"
+_SLATE = "\033[90m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+
+_RICH_THEME = Theme(
+    {
+        "creatoros.brand": "bold #c4b5fd",
+        "creatoros.prompt": "#7dd3fc",
+        "creatoros.thinking": "dim #94a3b8",
+        "creatoros.tool": "dim #94a3b8",
+        "creatoros.success": "#86efac",
+        "creatoros.warning": "#fcd34d",
+        "creatoros.secondary": "dim",
+    }
+)
 
 
 class Console:
@@ -57,7 +62,7 @@ class Console:
         if event.kind == "turn_start":
             frame = _SPINNER_FRAMES[self.spinner_index]
             self.spinner_index = (self.spinner_index + 1) % len(_SPINNER_FRAMES)
-            status = self._style(f"{frame} 思考中", _BLUE)
+            status = self._style(f"{frame} 思考中", _SLATE)
             self.write(f"\n  {status}\n  ", end="", flush=True)
         elif event.kind == "session_reset":
             self.write("[Session] 已清空当前会话。")
@@ -65,10 +70,10 @@ class Console:
             text = f"⚠ [Guard] 本次任务已达到最大模型调用次数：{event.data['max_turns']}"
             self.write(self._style(text, _YELLOW))
         elif event.kind == "tool_call":
-            text = f"  ↳ [Tool call] 正在调用 · {event.data['name']}"
-            self.write(self._style(text, _CYAN))
+            text = f"  ↳ {event.data['name']}"
+            self.write(self._style(text, _SLATE))
         elif event.kind == "tool_result":
-            text = f"  ✓ [Tool result] 已完成 · {event.data['content']}"
+            text = f"  ✓ done · {event.data['content']}"
             self.write(self._style(text, _GREEN))
         elif event.kind == "session_saved":
             self.write("\n[Session] 已保存当前会话。")
@@ -81,6 +86,7 @@ class RichConsole(Console):
         super().__init__(input_fn=input_fn, output=output)
         self.rich = RichTerminalConsole(
             file=self.output,
+            theme=_RICH_THEME,
             markup=False,
             emoji=False,
             soft_wrap=True,
@@ -92,7 +98,7 @@ class RichConsole(Console):
 
     def prompt(self, text=_PROMPT):
         if self.input_fn is input:
-            prompt = Text(text, style="bright_cyan")
+            prompt = Text(text, style="creatoros.prompt")
             return self.rich.input(prompt, markup=False, emoji=False)
         return super().prompt(text)
 
@@ -114,12 +120,7 @@ class RichConsole(Console):
             self.output.flush()
 
     def banner(self):
-        text = Text()
-        line_styles = ("bright_cyan", "bright_blue", "magenta", "yellow", "green")
-        for index, line in enumerate(render_banner()):
-            text.append(line + "\n", style=line_styles[index])
-        text.rstrip()
-        self.rich.print(text, justify="center", soft_wrap=False)
+        self.rich.print(Text(_WORDMARK, style="creatoros.brand"), soft_wrap=False)
         self.rich.print()
 
     def render_event(self, event: AgentEvent):
@@ -128,29 +129,29 @@ class RichConsole(Console):
             self._status = self.rich.status(
                 "思考中",
                 spinner="dots",
-                spinner_style="bright_cyan",
+                spinner_style="creatoros.thinking",
             )
             self._status.start()
         elif event.kind == "session_reset":
             self._stop_active()
-            self.rich.print("[Session] 已清空当前会话。", style="yellow")
+            self.rich.print("[Session] 已清空当前会话。", style="creatoros.warning")
         elif event.kind == "guard_stop":
             self._stop_active()
             self.rich.print(
                 f"⚠ [Guard] 本次任务已达到最大模型调用次数：{event.data['max_turns']}",
-                style="bold yellow",
+                style="creatoros.warning",
             )
         elif event.kind == "tool_call":
             self._stop_active()
             self.rich.print(
-                f"  ↳ [Tool call] 正在调用 · {event.data['name']}",
-                style="bright_cyan",
+                f"  ↳ {event.data['name']}",
+                style="creatoros.tool",
             )
         elif event.kind == "tool_result":
             self._stop_active()
             self.rich.print(
-                f"  ✓ [Tool result] 已完成 · {event.data['content']}",
-                style="green",
+                f"  ✓ done · {event.data['content']}",
+                style="creatoros.success",
                 soft_wrap=True,
             )
         elif event.kind == "session_saved":
@@ -186,13 +187,8 @@ class RichConsole(Console):
         self._stop_status()
 
 
-def render_banner(word="CREATOROS"):
-    lines = [""] * 5
-    for character in word:
-        glyph = _GLYPHS[character]
-        for index, row in enumerate(glyph):
-            lines[index] += row + "  "
-    return lines
+def render_banner(word=_WORDMARK):
+    return [word]
 
 
 def print_banner(output=None):
@@ -200,8 +196,8 @@ def print_banner(output=None):
     is_tty = getattr(output, "isatty", lambda: False)()
     use_color = is_tty and "NO_COLOR" not in os.environ
     print(file=output)
-    for index, line in enumerate(render_banner()):
-        prefix = _COLORS[index % len(_COLORS)] if use_color else ""
+    for line in render_banner():
+        prefix = _BRAND if use_color else ""
         suffix = _RESET if use_color else ""
         print(f"{prefix}{line}{suffix}", file=output)
     print(file=output)
