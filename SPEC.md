@@ -49,6 +49,7 @@ Progressive SPEC, not a form.
 - 第三十九个可运行切片修复 Windows 终端流式重绘：恢复大彩色 CreatorOS 字标，并把增长中的 Markdown Live 改为按完整段落追加渲染，避免 PowerShell 中旧帧残留成重复文本；本轮仍保持启动画面只出现一次。
 - 第四十个可运行切片收紧 Logo 视觉：用 7×10 半块像素字压缩为五行，同时保留更细的上下像素边缘；本轮不改变正文、工具 trace 或 Status 行为。
 - 第四十一个可运行切片接入独立的 PersonClone FastAPI 服务：CreatorOS 通过薄 HTTP Client 和三个 Tool 完成作者列表/选择、添加作者任务和向指定作者提问；本轮不复制 PersonClone 代码，不实现热点发现、自动路由、发布或分析闭环。
+- 第四十二个可运行切片加入本地 PersonClone 登录助手：在电脑终端隐藏式读取密码、调用 `/api/auth/login` 并只把会话 Cookie 写入被忽略的 `.env`；本轮不接收或保存用户密码，也不把认证流程塞进 Agent Loop。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -86,6 +87,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 用 `add_author` 调用 `/api/author-jobs`，返回异步抓取/建库任务状态；本轮不在 CreatorOS 内重复实现抓取，也不等待或编排任务队列。
 - 用 `ask_author` 调用 `/api/chat/stream`，解析 `meta`、`token`、`done`、`error` SSE 事件；只把最终回答放进 `ToolResult.content`，来源和 trace 放入 `details`。
 - 认证只通过本地环境变量 `PERSONCLONE_SESSION_COOKIE` 传递，不把会话值写入仓库；PersonClone 当前若返回 401，统一转换为 `personclone_auth`，不自动猜测或保存账号密码。
+- `scripts/configure_personclone_auth.py` 是一次性本地配置助手；密码只在终端输入和 HTTP 请求内存中短暂存在，脚本不会打印密码或 Cookie，也不会自动提交 `.env`。
 - 验收边界是“能列出/选择作者、能提交添加作者、能向已索引作者提问”；热点发现、自动选题、批量创作和发布属于后续业务切片。
 
 ## 当前假设
@@ -213,6 +215,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 文件缺失、路径越界、参数错误和未知工具结果分别带有稳定的 `error_type`；异常详情至少包含验证错误或异常类名。
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
 - PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
+- `personclone_auth_helper_smoke=passed`：本地登录助手能安全更新 `.env` 中的 Cookie 键并保留其他配置，不测试或保存真实凭证。
 - 真实 PersonClone 服务 `/health` 返回 200；未带认证 Cookie 的 `/api/personas` 返回 401，并应由 Client 转换为 `personclone_auth`。
 - 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
 - `MaxTurnGuard(2)` 在使用 0、1 次模型调用时继续，在第 2 次调用前停止；`MaxTurnGuard(0)` 拒绝创建。
@@ -276,4 +279,5 @@ git diff --check
 - Rich 视觉快照：使用 Rich `save_svg` 和 Chrome headless 截图检查五行高分辨率彩色字标、默认正文色、低饱和工具 trace 与浅绿色完成状态；本轮预览为 `C:\Users\13779\AppData\Local\Temp\creatoros_ui_snapshot_v3.png`，生成物不加入仓库。
 - `git diff --check` 和 staged diff 检查通过；`28ce5fc` 已推送到 `origin/main`。
 - `personclone_smoke=passed`：MockTransport 验证作者列表、添加作者 job、SSE 回答解析、工具 schema 和 `personaforge_session` Cookie。
+- `personclone_auth_helper_smoke=passed`：登录助手的 `.env` 更新逻辑通过；未使用真实账号密码。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
