@@ -23,7 +23,7 @@ from creatoros.events import AgentEvent
 from creatoros.agent.state import AgentState
 from creatoros.agent.streaming import stream_llm
 from creatoros.context import RuntimeContext
-from creatoros.terminal import Console
+from creatoros.terminal import Console, RichConsole
 from creatoros.session import (
     load_messages as _load_messages,
     new_messages as _new_messages,
