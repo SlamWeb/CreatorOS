@@ -12,7 +12,8 @@ def main():
     output = StringIO()
     with redirect_stdout(output):
         print_banner()
-    assert "CreatorOS Agent Runtime" in output.getvalue()
+    assert len(output.getvalue().splitlines()) >= 5
+    assert "learning build" not in output.getvalue()
     print("terminal_ui_smoke=passed")
 
 

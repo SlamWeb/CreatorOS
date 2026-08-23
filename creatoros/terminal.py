@@ -1,11 +1,9 @@
 import os
 import sys
 
-from rich.align import Align
 from rich.console import Console as RichTerminalConsole
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.text import Text
 
 from .events import AgentEvent
@@ -121,15 +119,8 @@ class RichConsole(Console):
         for index, line in enumerate(render_banner()):
             text.append(line + "\n", style=line_styles[index])
         text.rstrip()
-        panel = Panel(
-            Align.center(text),
-            title=Text("CreatorOS", style="bold bright_white"),
-            subtitle=Text("Agent Runtime · learning build", style="dim cyan"),
-            border_style="bright_blue",
-            padding=(1, 2),
-            expand=False,
-        )
-        self.rich.print(panel)
+        self.rich.print(text, justify="center", soft_wrap=False)
+        self.rich.print()
 
     def render_event(self, event: AgentEvent):
         if event.kind == "turn_start":
@@ -183,12 +174,7 @@ class RichConsole(Console):
             self.rich.print()
 
     def _stream_renderable(self):
-        return Panel(
-            Markdown(self._stream_buffer or " "),
-            border_style="bright_blue",
-            padding=(0, 1),
-            expand=False,
-        )
+        return Markdown(self._stream_buffer or " ")
 
     def _stop_status(self):
         if self._status is not None:
@@ -218,5 +204,4 @@ def print_banner(output=None):
         prefix = _COLORS[index % len(_COLORS)] if use_color else ""
         suffix = _RESET if use_color else ""
         print(f"{prefix}{line}{suffix}", file=output)
-    print("  CreatorOS Agent Runtime · learning build", file=output)
     print(file=output)

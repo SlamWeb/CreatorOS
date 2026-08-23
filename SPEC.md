@@ -44,6 +44,7 @@ Progressive SPEC, not a form.
 - 第三十四个可运行切片给 `Console.render_event()` 增加可见状态提示：思考中、工具调用中、工具完成和 Guard 警告；本轮只轮换回合级提示，不启动后台动画线程。
 - 第三十五个可运行切片做终端 UI polish：用 `❯` 替代中文输入标签，统一缩进、符号和可选颜色；本轮不改变 Agent 事件和消息语义。
 - 第三十六个可运行切片接入 Rich：`RichConsole` 使用 Panel、颜色、Live、Status 和 Markdown 渲染终端；本轮保留自有 Console/Event 接口，不引入 Textual。
+- 第三十七个可运行切片收敛 Rich 视觉：删除冗余副标题和大边框，保留彩色字母、Spinner、Live Markdown 和工具状态信息流。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
 - 面向未来 CreatorOS 创作者运营 Agent，Guardrail 应按阶段和副作用分层：研究阶段重视来源与不可信内容隔离，创作阶段重视结构/品牌/平台规则，发布阶段重视账号范围、预览、幂等键和人工审批，分析阶段默认只读并要求数据来源与异常校验。
@@ -65,13 +66,11 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 本轮目标
 
-本轮把 Rich 接入现有 Console 边界，并保持 Runtime 行为：
+本轮只调整 Rich 的视觉密度，并保持 Runtime 行为：
 
-- `requirements.txt` 增加 `rich>=14.0,<15.0`。
-- `creatoros/terminal.py` 增加 `RichConsole`，保持 `prompt()`、`write()`、`banner()` 和 `render_event()` 的调用面不变。
-- Rich Console 用 Panel 渲染启动画面；Status 渲染思考 Spinner；Live + Markdown 渲染流式 assistant 文本；工具和 Guard 使用 Rich 样式。
-- `creatoros/cli.py` 默认创建 `RichConsole`；基础 `Console` 仍保留为简单、可测试的 fallback。
-- `tests/smoke_rich_console.py` 用 `StringIO` 验证 Rich banner、prompt、Markdown 流和工具状态。
+- 启动画面删除 `Agent Runtime · learning build` 副标题，Rich 和基础 banner 都只保留彩色 CreatorOS 字母。
+- 流式 assistant 文本从 Panel 改为无边框 Markdown Live，工具和 Guard 状态仍使用颜色和缩进。
+- `tests/smoke_terminal_ui.py` 与 `tests/smoke_rich_console.py` 验证副标题和大框线不再出现。
 - 本轮不引入 Textual、prompt_toolkit、完整布局系统或改变 Agent Event、Provider、Session 语义。
 
 ## 当前假设
@@ -98,7 +97,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - 当前 Spinner 是每个模型回合轮换一个 Unicode 标记的静态提示，不是定时器驱动的持续动画；避免线程与流式输出交错，真正动画留到后续 UI 步骤。
 - 默认用户输入提示为 `❯ `；TTY 下使用青色，非 TTY 或 `NO_COLOR` 下保持纯文本，便于测试和日志捕获。
 - `RichConsole` 是表现层后端；`AgentEvent` 和 `stream_llm` 不依赖 Rich，未来仍可替换为 Textual 或其他 UI。
-- Rich 流式文本先累积到 Live，再以 Markdown renderable 更新；模型原文仍按原样保留在 `ModelResponse` 和 messages 中。
+- Rich 流式文本先累积到无边框 Live，再以 Markdown renderable 更新；模型原文仍按原样保留在 `ModelResponse` 和 messages 中。
 - Rich 的输出使用 `markup=False`，避免模型回答或工具结果中的 `[text]` 被误解释为 Rich 标记。
 - `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - `execute_tool_call` 捕获单次工具调用的普通 `Exception` 并返回 `ToolResult`；`ValidationError` 标记为 `invalid_arguments`，未知工具标记为 `unknown_tool`，其他异常标记为 `tool_exception`。
@@ -182,7 +181,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `run_agent(..., on_agent_event=callback)` 能按模型回合、工具调用、工具结果的顺序收到高层 `AgentEvent`；默认终端文字和消息历史保持不变。
 - AgentEvent smoke 的输出包含 `思考中`、`正在调用`、`已完成`，且原有工具调用闭环仍然成功。
 - Console smoke 确认默认输入提示为 `❯ `，不再出现 `你：`。
-- Rich Console smoke 确认 Panel 启动画面、Markdown 流式回答、工具状态和非 TTY 无 ANSI 输出均可用。
+- Rich Console smoke 确认无 `learning build` 副标题、无 Panel 边框，Markdown 流式回答、工具状态和非 TTY 无 ANSI 输出均可用。
 - `read_file` 的 schema 包含 `path`、`offset`、`limit` 约束，并标记禁止额外字段。
 - `read_file` 拒绝字符串形式的整数、零或负数范围、缺少 `path` 和未知字段；合法参数仍能读取指定行段。
 - 坏 JSON、非 object 参数、未知工具和 Tool 内部异常不会让 Agent Loop 直接退出，而会变成工具结果文本。
@@ -233,7 +232,7 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-24
-- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；本轮 Rich Console smoke 已通过，待提交。
+- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；本轮无边框 UI smoke 已通过，待提交。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。
@@ -249,4 +248,5 @@ git diff --check
 - 状态渲染验证：`agent_events_smoke=passed` 同时确认思考、正在调用、已完成和最终回答均写入注入输出。
 - `console_smoke=passed`：默认 prompt 为 `❯ `，捕获输出无 ANSI 颜色；AgentEvent、RuntimeContext、终端 UI 和 read_file Guardrail smoke 均通过。
 - `rich_console_smoke=passed`：Rich Panel 启动画面、prompt、Markdown 流式输出、工具状态和非 TTY 纯文本捕获均通过。
+- `rich_console_smoke=passed`：Rich 无边框启动画面、prompt、Markdown Live、工具状态和非 TTY 纯文本捕获均通过；旧 subtitle 与边框断言已更新。
 - `git diff --check` 和 staged diff 检查通过；`8483c13` 已推送到 `origin/main`。

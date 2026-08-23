@@ -33,7 +33,8 @@ def main():
     assert rendered.startswith("Agent: answer\n")
     assert response.content == "streamed"
     assert "streamed\n" in rendered
-    assert "CreatorOS Agent Runtime" in rendered
+    assert len(rendered.splitlines()) >= 5
+    assert "learning build" not in rendered
     print("console_smoke=passed")
 
 

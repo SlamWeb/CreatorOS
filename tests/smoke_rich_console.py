@@ -36,6 +36,9 @@ def main():
     assert "Rich output" in rendered
     assert "[Tool call] 正在调用" in rendered
     assert "[Tool result] 已完成" in rendered
+    assert "learning build" not in rendered
+    assert "┌" not in rendered
+    assert "╭" not in rendered
     assert "\033[" not in rendered
     print("rich_console_smoke=passed")
 
