@@ -1,6 +1,6 @@
 from typing import Callable
 
-from ..ai.context import ModelContext
+from ..ai.context import ContextBudget, ModelContext
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
@@ -67,6 +67,14 @@ def run_agent(
                 state.turn += 1
                 emit(AgentEvent("turn_start", {"turn": state.turn}))
                 model_context = ModelContext.from_messages(state.messages, tools)
+                context_budget = ContextBudget.from_context(model_context)
+                if context_budget.needs_attention:
+                    emit(
+                        AgentEvent(
+                            "context_warning",
+                            context_budget.to_event_data(),
+                        )
+                    )
                 response = stream_llm(
                     provider=provider,
                     context=model_context,

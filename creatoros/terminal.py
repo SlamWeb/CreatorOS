@@ -89,6 +89,14 @@ class Console:
         elif event.kind == "guard_stop":
             text = f"⚠ [Guard] 本次任务已达到最大模型调用次数：{event.data['max_turns']}"
             self.write(self._style(text, _YELLOW))
+        elif event.kind == "context_warning":
+            state = "超出" if event.data["over_limit"] else "接近"
+            text = (
+                f"⚠ [Context] 输入上下文{state}预算："
+                f"约 {event.data['estimated_input_tokens']} / "
+                f"{event.data['input_limit']} tokens"
+            )
+            self.write(self._style(text, _YELLOW))
         elif event.kind == "tool_call":
             text = f"  ↳ {event.data['name']}"
             self.write(self._style(text, _SLATE))
@@ -163,6 +171,15 @@ class RichConsole(Console):
             self._stop_active()
             self.rich.print(
                 f"⚠ [Guard] 本次任务已达到最大模型调用次数：{event.data['max_turns']}",
+                style="creatoros.warning",
+            )
+        elif event.kind == "context_warning":
+            self._stop_active()
+            state = "超出" if event.data["over_limit"] else "接近"
+            self.rich.print(
+                f"⚠ [Context] 输入上下文{state}预算："
+                f"约 {event.data['estimated_input_tokens']} / "
+                f"{event.data['input_limit']} tokens",
                 style="creatoros.warning",
             )
         elif event.kind == "tool_call":
