@@ -22,6 +22,7 @@ from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from creatoros.agent.state import AgentState
 from creatoros.agent.streaming import stream_llm
 from creatoros.context import RuntimeContext
+from creatoros.terminal import Console
 from creatoros.session import (
     load_messages as _load_messages,
     new_messages as _new_messages,
@@ -97,12 +98,14 @@ def run_agent(
     provider: ModelProvider,
     on_stream_event=None,
     max_turns: int = DEFAULT_MAX_TURNS,
+    console: Console | None = None,
 ):
     _sync_compat_config()
     return _run_agent(
         provider,
         on_stream_event=on_stream_event,
         max_turns=max_turns,
+        console=console,
     )
 
 

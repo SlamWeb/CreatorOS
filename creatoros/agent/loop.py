@@ -5,6 +5,7 @@ from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
 from ..context import RuntimeContext
+from ..terminal import Console
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .state import AgentState
 from .streaming import stream_llm
@@ -22,7 +23,9 @@ def run_agent(
     provider: ModelProvider,
     on_stream_event: Callable[[RuntimeStreamEvent], None] | None = None,
     max_turns: int = DEFAULT_MAX_TURNS,
+    console: Console | None = None,
 ):
+    console = console or Console()
     guard = MaxTurnGuard(max_turns)
     runtime_context = RuntimeContext.from_defaults()
     state = AgentState(messages=load_messages())
@@ -30,7 +33,7 @@ def run_agent(
 
     try:
         while True:
-            user_input = input("你：")
+            user_input = console.prompt("你：")
 
             if user_input == "/exit":
                 break
@@ -38,7 +41,7 @@ def run_agent(
             if user_input == "/reset":
                 state = AgentState(messages=new_messages())
                 save_messages(state.messages)
-                print("[Session] 已清空当前会话。")
+                console.write("[Session] 已清空当前会话。")
                 continue
 
             state.messages.append({"role": "user", "content": user_input})
@@ -50,16 +53,17 @@ def run_agent(
                 turns_used = state.turn - task_start_turn
                 if guard.should_stop(turns_used):
                     state.status = "idle"
-                    print(f"[Guard] 本次任务已达到最大模型调用次数：{max_turns}")
+                    console.write(f"[Guard] 本次任务已达到最大模型调用次数：{max_turns}")
                     break
 
                 state.turn += 1
-                print("Agent: ", end="", flush=True)
+                console.write("Agent: ", end="", flush=True)
                 response = stream_llm(
                     provider=provider,
                     messages=state.messages,
                     tools=tools,
                     on_event=on_stream_event,
+                    console=console,
                 )
 
                 state.messages.append(response.to_message())
@@ -70,9 +74,9 @@ def run_agent(
                     break
 
                 for tool_call in response.tool_calls:
-                    print(f"[Tool call] {tool_call.name}")
+                    console.write(f"[Tool call] {tool_call.name}")
                     tool_result = execute_tool_call(tool_call, context=runtime_context)
-                    print(f"[Tool result] {tool_result.content}")
+                    console.write(f"[Tool result] {tool_result.content}")
 
                     state.messages.append(
                         {
@@ -83,6 +87,6 @@ def run_agent(
                     )
                     save_messages(state.messages)
     except KeyboardInterrupt:
-        print("\n[Session] 已保存当前会话。")
+        console.write("\n[Session] 已保存当前会话。")
     finally:
         save_messages(state.messages)

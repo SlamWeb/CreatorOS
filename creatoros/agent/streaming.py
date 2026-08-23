@@ -10,6 +10,7 @@ from ..ai.types import (
     ToolCallDelta,
     ToolCallEnd,
 )
+from ..terminal import Console
 
 
 def stream_llm(
@@ -17,7 +18,9 @@ def stream_llm(
     messages: list[dict],
     tools: list[dict],
     on_event: Callable[[RuntimeStreamEvent], None] | None = None,
+    console: Console | None = None,
 ) -> ModelResponse:
+    console = console or Console()
     text_parts = []
     tool_calls_by_index = {}
     stream_end = None
@@ -31,7 +34,7 @@ def stream_llm(
             on_event(event)
 
         if isinstance(event, TextDelta):
-            print(event.content, end="", flush=True)
+            console.write(event.content, end="", flush=True)
             text_parts.append(event.content)
             continue
 
@@ -46,7 +49,7 @@ def stream_llm(
                 tool_call.name = event.name
             tool_call.arguments += event.arguments
 
-    print()
+    console.write()
     for index in sorted(tool_calls_by_index):
         if on_event is not None:
             on_event(
