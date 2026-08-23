@@ -216,6 +216,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
 - PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
 - `personclone_auth_helper_smoke=passed`：本地登录助手能安全更新 `.env` 中的 Cookie 键并保留其他配置，不测试或保存真实凭证。
+- `smoke_personclone_tools.py` 使用 Fake Client 验证 Agent ToolCall、Pydantic 参数解析、三个 PersonClone Tool 和 ToolResult 的完整接线，不需要登录或真实 API。
 - 真实 PersonClone 服务 `/health` 返回 200；未带认证 Cookie 的 `/api/personas` 返回 401，并应由 Client 转换为 `personclone_auth`。
 - 成功结果的 `to_model_content()` 与 `content` 完全一致；失败结果包含 `[tool_error type=...]`，但不包含 `details` 字段内容。
 - `MaxTurnGuard(2)` 在使用 0、1 次模型调用时继续，在第 2 次调用前停止；`MaxTurnGuard(0)` 拒绝创建。
@@ -280,4 +281,5 @@ git diff --check
 - `git diff --check` 和 staged diff 检查通过；`28ce5fc` 已推送到 `origin/main`。
 - `personclone_smoke=passed`：MockTransport 验证作者列表、添加作者 job、SSE 回答解析、工具 schema 和 `personaforge_session` Cookie。
 - `personclone_auth_helper_smoke=passed`：登录助手的 `.env` 更新逻辑通过；未使用真实账号密码。
+- `personclone_tools_smoke=passed`：Fake Client 验证作者列表过滤内部字段、添加作者 job、回答内容/details 投影和 Client 释放。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
