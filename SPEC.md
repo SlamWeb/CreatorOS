@@ -37,6 +37,7 @@ Progressive SPEC, not a form.
 - 第二十七个可运行切片加入最小 `MaxTurnGuard`：按单个用户任务限制模型调用次数，在下一次模型请求前停止；本轮不加入重复调用检测、自动重试或超时。
 - 第二十八个可运行切片把 `MaxTurnGuard` 的默认单任务上限从 12 调整为 30，并集中为 `DEFAULT_MAX_TURNS`；本轮不改变 Guard 的检查时机或累计计数语义。
 - 第二十九个可运行切片给 `read_file` 增加敏感路径拒绝和 128 KiB 文件大小上限，并加入独立 smoke；本轮不引入统一 Guardrail 框架或改变工具调用时机。
+- 第三十个可运行切片加入最小 `RuntimeContext`：记录 `project_root`、操作系统和 Shell，并通过工具执行链传给内置工具；本轮不加入 ModelContext、ArtifactStore、权限、Provider 或消息压缩。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
 - 面向未来 CreatorOS 创作者运营 Agent，Guardrail 应按阶段和副作用分层：研究阶段重视来源与不可信内容隔离，创作阶段重视结构/品牌/平台规则，发布阶段重视账号范围、预览、幂等键和人工审批，分析阶段默认只读并要求数据来源与异常校验。
@@ -58,13 +59,13 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 ## 本轮目标
 
-本轮只给 `read_file` 增加最小的敏感数据和资源边界，并保持其他工具、Provider、Streaming 和 CLI 行为：
+本轮只加入最小 `RuntimeContext`，并保持其他工具、Provider、Streaming 和 CLI 行为：
 
-- `creatoros/tools/builtins.py` 拒绝 `.env*`、`.git`、`sessions`、`.pem` 和 `.key` 敏感路径。
-- 文件在读取前检查 UTF-8 文件的字节大小，超过 `MAX_READ_BYTES == 128 * 1024` 时返回 `file_too_large`，不把内容加载进内存。
-- `read_file` Tool schema 告知模型该大小上限和敏感路径规则。
-- `tests/smoke_read_file.py` 验证普通文件可读、`.env` 被拒绝、超大临时文件被拒绝并清理。
-- 本轮不加入统一 Guardrail 框架、自动重试、工具审批、Provider 超时或重复调用检测。
+- `creatoros/context.py` 定义 `RuntimeContext(project_root, operating_system, shell)`，并提供默认环境探测。
+- `run_agent` 为一次运行创建一个 Context；`execute_tool_call` 把它传给每个 Tool。
+- `read_file` 和 `write_file` 优先使用 Context 的 `project_root`；不传 Context 时保留旧的全局路径兼容行为。
+- `tests/smoke_runtime_context.py` 使用临时项目目录验证同一套 Tool 可以读取 Context 指定的文件，并验证默认环境字段非空。
+- 本轮不加入 ModelContext、ArtifactStore、权限、Provider、消息压缩、自动重试或工具审批。
 
 ## 当前假设
 
@@ -79,6 +80,8 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `read_file` 接收相对于项目根目录的路径；路径会先解析并拒绝项目目录之外的目标；文件按 UTF-8 文本读取。
 - `read_file` 在解析后的相对路径中拒绝 `.env*` 文件、`.git`/`sessions` 目录以及 `.pem`/`.key` 文件；路径比较大小写不敏感。
 - `read_file` 在读取前拒绝超过 `MAX_READ_BYTES == 128 * 1024` 字节的文件；当前限制整个文件，即使调用方传入较小 `limit` 也不会读取超大文件。
+- `RuntimeContext` 位于顶层 `creatoros/context.py`，只依赖标准库和配置，避免 `tools -> agent -> loop -> tools` 循环导入。
+- `RuntimeContext.project_root` 是工具访问范围；`operating_system` 和 `shell` 当前只作为运行时元数据，不自动拼进 messages。
 - `read_file.offset` 从 1 开始，默认为 1；`read_file.limit` 可选，省略时读取到文件结尾；分段结果会提示下一次 `offset`。
 - `execute_tool_call` 捕获单次工具调用的普通 `Exception` 并返回 `ToolResult`；`ValidationError` 标记为 `invalid_arguments`，未知工具标记为 `unknown_tool`，其他异常标记为 `tool_exception`。
 - `write_file` 是当前第一个有副作用的 Tool；它创建新文件但不覆盖已有文件，路径边界和错误仍由 Tool 自己处理。
@@ -97,7 +100,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `AgentState` 是一次 `run_agent` 调用内的内存工作状态；其中 `messages` 仍是原来发给模型和保存到 Session 的消息列表，`status` 当前只使用 `idle` / `running`，`turn` 按模型请求次数递增。
 - 本轮 `run_agent` 仍不返回 State；先验证 State 能承载消息和最小运行元数据，再决定是否开放快照、观察器或恢复接口。
-- 本轮最小 `AgentState` 不代表已经完成 RuntimeContext、ModelContext、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
+- 本轮最小 `RuntimeContext` 不代表已经完成 ModelContext、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout；模型消息经过 `to_model_content()` 投影，错误可能增加类型前缀，结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
 - `ToolResult.content` 是给模型和当前终端显示的文本；`details` 只保存结构化诊断，当前不写入消息快照，也不包含终端命令输出。
@@ -153,6 +156,8 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `read_file` 对项目内 UTF-8 文件返回指定行段，对项目外路径、目录、缺失文件、非 UTF-8 文件和越界行号返回可供模型理解的错误文本。
 - `read_file` 对 `.env`、`.env.*`、`.git`、`sessions`、`.pem` 和 `.key` 路径返回 `sensitive_path`，不读取其内容。
 - `read_file` 对超过 128 KiB 的文件返回 `file_too_large`，结果包含稳定错误类型和大小详情，不把文件内容加载到结果中。
+- `RuntimeContext(project_root=temp_dir)` 通过 `execute_tool_call` 读取临时目录内文件；默认 Context 能检测非空的操作系统和 Shell 字段。
+- `from main import RuntimeContext` 和 `from creatoros.agent import RuntimeContext` 均可用，且 Tools 与 Agent 导入不产生循环依赖。
 - `read_file` 的 schema 包含 `path`、`offset`、`limit` 约束，并标记禁止额外字段。
 - `read_file` 拒绝字符串形式的整数、零或负数范围、缺少 `path` 和未知字段；合法参数仍能读取指定行段。
 - 坏 JSON、非 object 参数、未知工具和 Tool 内部异常不会让 Agent Loop 直接退出，而会变成工具结果文本。
@@ -203,7 +208,7 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-23
-- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；本轮 `read_file` 敏感路径/大小 Guardrail 已通过 smoke，待提交。
+- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；本轮 RuntimeContext smoke 已通过，待提交。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。
@@ -211,4 +216,6 @@ git diff --check
 - `max_turn_guard_smoke=passed`：Guard 的阈值判断和 `max_turns=1` 的 Fake Loop 均通过，只发起一次模型请求。
 - `default_max_turns_smoke=passed`：`DEFAULT_MAX_TURNS`、`MaxTurnGuard()`、`run_agent` 和根入口默认值统一为 30。
 - `read_file_guardrail_smoke=passed`：普通 `SPEC.md` 可读取，`.env` 返回 `sensitive_path`，超过 128 KiB 的临时文件返回 `file_too_large` 并清理。
+- `runtime_context_smoke=passed`：临时 RuntimeContext 能让 `execute_tool_call` 读取指定项目目录，默认 Context 的 project_root、操作系统和 Shell 均有效。
+- `import_boundary_smoke=passed`：`creatoros.agent` 与 `creatoros.tools` 可同时导入，没有循环依赖。
 - `git diff --check` 和 staged diff 检查通过；`8483c13` 已推送到 `origin/main`。

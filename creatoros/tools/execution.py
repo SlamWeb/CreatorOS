@@ -1,11 +1,15 @@
 from pydantic import ValidationError
 
 from ..ai.types import ToolCall
+from ..context import RuntimeContext
 from .definitions import tool_registry
 from .results import ToolResult
 
 
-def execute_tool_call(tool_call: ToolCall) -> ToolResult:
+def execute_tool_call(
+    tool_call: ToolCall,
+    context: RuntimeContext | None = None,
+) -> ToolResult:
     tool_name = tool_call.name
     tool = tool_registry.get(tool_name)
 
@@ -18,7 +22,7 @@ def execute_tool_call(tool_call: ToolCall) -> ToolResult:
 
     try:
         arguments = tool.parse_arguments(tool_call.arguments)
-        result = tool.execute(**arguments)
+        result = tool.execute(context=context, **arguments)
         if isinstance(result, ToolResult):
             return result
         return ToolResult(content=str(result))

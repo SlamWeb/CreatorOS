@@ -4,6 +4,7 @@ from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
+from ..context import RuntimeContext
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .state import AgentState
 from .streaming import stream_llm
@@ -23,6 +24,7 @@ def run_agent(
     max_turns: int = DEFAULT_MAX_TURNS,
 ):
     guard = MaxTurnGuard(max_turns)
+    runtime_context = RuntimeContext.from_defaults()
     state = AgentState(messages=load_messages())
     save_messages(state.messages)
 
@@ -69,7 +71,7 @@ def run_agent(
 
                 for tool_call in response.tool_calls:
                     print(f"[Tool call] {tool_call.name}")
-                    tool_result = execute_tool_call(tool_call)
+                    tool_result = execute_tool_call(tool_call, context=runtime_context)
                     print(f"[Tool result] {tool_result.content}")
 
                     state.messages.append(

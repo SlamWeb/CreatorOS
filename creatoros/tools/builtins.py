@@ -1,14 +1,20 @@
 from datetime import datetime
+from pathlib import Path
 
 from ..config import PROJECT_ROOT
+from ..context import RuntimeContext
 from .results import ToolResult
 
 MAX_READ_BYTES = 128 * 1024
 SENSITIVE_DIRECTORY_NAMES = {".git", "sessions"}
 
 
-def _is_sensitive_path(requested_path):
-    relative_parts = requested_path.relative_to(PROJECT_ROOT).parts
+def _project_root(context: RuntimeContext | None) -> Path:
+    return (context.project_root if context is not None else PROJECT_ROOT).resolve()
+
+
+def _is_sensitive_path(requested_path, project_root):
+    relative_parts = requested_path.relative_to(project_root).parts
     if not relative_parts:
         return False
 
@@ -22,15 +28,15 @@ def _is_sensitive_path(requested_path):
     )
 
 
-def get_current_time() -> ToolResult:
+def get_current_time(context: RuntimeContext | None = None) -> ToolResult:
     return ToolResult(content=datetime.now().astimezone().isoformat(timespec="seconds"))
 
 
-def get_current_date() -> ToolResult:
+def get_current_date(context: RuntimeContext | None = None) -> ToolResult:
     return ToolResult(content=datetime.now().date().isoformat())
 
 
-def read_file(path, offset=1, limit=None) -> ToolResult:
+def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None) -> ToolResult:
     if offset < 1:
         return ToolResult(
             content="错误：offset 必须从 1 开始。",
@@ -47,10 +53,11 @@ def read_file(path, offset=1, limit=None) -> ToolResult:
             retryable=True,
         )
 
-    requested_path = (PROJECT_ROOT / path).resolve()
+    project_root = _project_root(context)
+    requested_path = (project_root / path).resolve()
 
     try:
-        requested_path.relative_to(PROJECT_ROOT)
+        requested_path.relative_to(project_root)
     except ValueError:
         return ToolResult(
             content="错误：只能读取 CreatorOS 项目目录内的文件。",
@@ -59,7 +66,7 @@ def read_file(path, offset=1, limit=None) -> ToolResult:
             retryable=True,
         )
 
-    if _is_sensitive_path(requested_path):
+    if _is_sensitive_path(requested_path, project_root):
         return ToolResult(
             content=f"错误：出于安全原因，禁止读取敏感路径：{path}",
             is_error=True,
@@ -120,10 +127,11 @@ def read_file(path, offset=1, limit=None) -> ToolResult:
         )
 
 
-def write_file(path, content) -> ToolResult:
-    requested_path = (PROJECT_ROOT / path).resolve()
+def write_file(path, content, context: RuntimeContext | None = None) -> ToolResult:
+    project_root = _project_root(context)
+    requested_path = (project_root / path).resolve()
     try:
-        requested_path.relative_to(PROJECT_ROOT)
+        requested_path.relative_to(project_root)
     except ValueError:
         return ToolResult(
             content="错误：只能写入 CreatorOS 项目目录内的文件。",
