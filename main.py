@@ -18,7 +18,7 @@ from creatoros.ai.types import (
     ToolCallEnd,
 )
 from creatoros.agent.loop import llm, run_agent as _run_agent
-from creatoros.agent.guards import MaxTurnGuard
+from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from creatoros.agent.state import AgentState
 from creatoros.agent.streaming import stream_llm
 from creatoros.session import (
@@ -92,7 +92,11 @@ def execute_tool_call(tool_call):
     return _execute_tool_call(tool_call)
 
 
-def run_agent(provider: ModelProvider, on_stream_event=None, max_turns: int = 12):
+def run_agent(
+    provider: ModelProvider,
+    on_stream_event=None,
+    max_turns: int = DEFAULT_MAX_TURNS,
+):
     _sync_compat_config()
     return _run_agent(
         provider,

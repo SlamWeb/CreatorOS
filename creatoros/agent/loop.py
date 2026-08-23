@@ -4,7 +4,7 @@ from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
-from .guards import MaxTurnGuard
+from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .state import AgentState
 from .streaming import stream_llm
 
@@ -20,7 +20,7 @@ def llm(
 def run_agent(
     provider: ModelProvider,
     on_stream_event: Callable[[RuntimeStreamEvent], None] | None = None,
-    max_turns: int = 12,
+    max_turns: int = DEFAULT_MAX_TURNS,
 ):
     guard = MaxTurnGuard(max_turns)
     state = AgentState(messages=load_messages())
