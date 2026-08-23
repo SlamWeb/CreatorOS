@@ -40,6 +40,7 @@ Progressive SPEC, not a form.
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
 - 面向未来 CreatorOS 创作者运营 Agent，Guardrail 应按阶段和副作用分层：研究阶段重视来源与不可信内容隔离，创作阶段重视结构/品牌/平台规则，发布阶段重视账号范围、预览、幂等键和人工审批，分析阶段默认只读并要求数据来源与异常校验。
+- 命名决定：CreatorOS 不使用含义模糊的 `AgentContext` 类名；运行环境和依赖命名为 `RuntimeContext`，发给模型的请求投影命名为 `ModelContext`。`AgentState` 仍只表示可变运行状态。
 - 存储校准：Pi 默认按工作目录把会话保存为 JSONL 文件；OpenAI Agents SDK 提供文件型 SQLite、SQLAlchemy、Redis 等 Session；LangGraph 使用 Checkpointer，可选内存、SQLite、Postgres、Redis 等后端。参考：[Pi Sessions](https://pi.dev/docs/latest/sessions)、[OpenAI Agents Sessions](https://github.com/openai/openai-agents-python/blob/main/docs/sessions/index.md)、[LangGraph Checkpointers](https://docs.langchain.com/oss/python/integrations/checkpointers/index)。CreatorOS 当前选择最小的本地 JSON 快照，不提前引入数据库或完整 Session 抽象。
 - 架构校准：OpenAI Agents SDK 提供 `ModelProvider` / `FunctionTool`，AutoGen 提供 `ChatCompletionClient` / `CreateResult`，LangChain 为不同厂商提供统一 Chat Model 接口；Pi 的 `Provider` 负责认证、模型目录和流式请求，`Models` 负责 Provider 集合。参考：[OpenAI Agents](https://openai.github.io/openai-agents-python/models/)、[AutoGen](https://microsoft.github.io/autogen/stable/user-guide/core-user-guide/components/model-clients.html)、[LangChain](https://docs.langchain.com/oss/python/concepts/providers-and-models)、[Pi](https://github.com/earendil-works/pi/blob/main/packages/agent/docs/models.md)。CreatorOS 当前只翻译最小的同步 `complete` 边界。
 
@@ -48,7 +49,7 @@ Progressive SPEC, not a form.
 CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时问题随机堆功能：
 
 1. **Runtime 学习基础（当前阶段）**：LLM 调用、消息、Agent Loop、Tool Calling、Tool Registry、Pydantic、Provider、Streaming、Session、最小 State。
-2. **Runtime 正确性与可恢复性**：Agent Context、Agent Message / LLM Message 分离、Compaction、错误与重试、Max Turn、重复调用、取消和超时。
+2. **Runtime 正确性与可恢复性**：RuntimeContext、ModelContext、Agent Message / LLM Message 分离、Compaction、错误与重试、Max Turn、重复调用、取消和超时。
 3. **Runtime 运行能力**：Events、Observability、Hooks、并发工具、Human-in-the-loop、MCP 和 Evaluation。
 4. **CreatorOS 业务能力**：Trend Discovery、Creator Routing、PersonaForge Service / Tool、Research、Content Planning、Content Generation、Judge / Review。
 5. **产品闭环**：Human Approval、Publishing、Analytics Feedback、Working Memory / Long-term Memory、权限、账号隔离和多用户运行。
@@ -96,7 +97,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - `run_agent` 仍负责消息历史、工具执行和循环控制；Provider 仍负责厂商 SDK 胶水代码。
 - `AgentState` 是一次 `run_agent` 调用内的内存工作状态；其中 `messages` 仍是原来发给模型和保存到 Session 的消息列表，`status` 当前只使用 `idle` / `running`，`turn` 按模型请求次数递增。
 - 本轮 `run_agent` 仍不返回 State；先验证 State 能承载消息和最小运行元数据，再决定是否开放快照、观察器或恢复接口。
-- 本轮最小 `AgentState` 不代表已经完成 Agent Context、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
+- 本轮最小 `AgentState` 不代表已经完成 RuntimeContext、ModelContext、pending tool 状态、并发执行、取消或事件总线；这些仍保持在后续范围。
 - `SYSTEM_PROMPT` 当前是源码中的固定常量，作为第一条 `role="system"` 消息发送；后续再决定是否由配置或 Runtime Context 提供。
 - 当前 Tool trace 直接写到终端 stdout；模型消息经过 `to_model_content()` 投影，错误可能增加类型前缀，结果可能较长，截断和结构化展示留到后续 Observability/UI 步骤。
 - `ToolResult.content` 是给模型和当前终端显示的文本；`details` 只保存结构化诊断，当前不写入消息快照，也不包含终端命令输出。
@@ -127,7 +128,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 
 - `creatoros` 包的长期公共导出和版本化接口；本轮只保留 `main.py` 兼容导出。
 - 未来 Provider 抽象如何承载 DeepSeek 与其他模型；这留到后续步骤。
-- `AgentState`、Session 和 Agent Context 的最终边界；本轮只确定 State 是运行时容器，Session 负责持久化，Context 仍未实现。
+- `AgentState`、Session、RuntimeContext 和 ModelContext 的最终边界；本轮只确定 State 是运行时容器，Session 负责持久化，两类 Context 仍未实现。
 - 模型请求失败时如何恢复、自动重试、超时和取消；这些属于后续 Guard/错误处理步骤；通用重复检测当前明确暂缓。
 - 无参数 Tool 是否也使用 Pydantic，以及是否为所有 Tool 统一 args model；当前空参数 schema 仍足够简单。
 - 如何支持第二个模型、模型能力差异、认证和模型目录；先用一个真实 Provider 验证接口，再扩展。
@@ -137,7 +138,7 @@ CreatorOS 按“先 Runtime、后业务产品”的路线推进，不按临时�
 - Tool trace 是否应升级为统一 Event、日志级别或可关闭输出；当前只使用两个固定前缀。
 - 是否从单个 JSON 快照迁移到 Pi 风格 JSONL、SQLite Checkpoint 或生产数据库；等会话查询、并发和分支需求出现后再决定。
 - 会话 ID、多个用户、多会话列表和历史恢复 UI；当前只有 `latest.json`。
-- Runtime 层 `llm(...)` 未来是否需要接收 Context、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
+- Runtime 层 `llm(...)` 未来是否需要接收 RuntimeContext、ModelContext、模型选项或取消信号；当前只接收 Provider、messages 和 tools。
 - `ToolCallEnd` 目前由 Runtime 在整轮流结束后派生；未来是否由 Provider 提供每个工具调用的原生结束事件，留到 Provider 能力扩展时决定。
 - Pydantic 验证错误的用户展示格式和自动重试策略仍未确定；本轮已增加 `invalid_arguments` 类型和原始校验详情，但不自动重试。
 - 二进制文件、并发读取和工具超时；文件大小上限已加入，但未来仍可按字节流式读取大文件片段。
