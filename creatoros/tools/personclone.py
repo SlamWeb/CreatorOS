@@ -69,7 +69,17 @@ def add_author(
 
     def operation(client: PersonCloneClient) -> ToolResult:
         job = client.add_author(author, selected_kinds, max_items)
-        return ToolResult(content=json.dumps(job, ensure_ascii=False))
+        status = str(job.get("status") or "queued")
+        display_name = job.get("display_name") or author
+        return ToolResult(
+            content=f"作者 {display_name} 的索引任务已提交，当前状态：{status}。",
+            details={
+                "task_id": job.get("id"),
+                "kind": "author_index",
+                "author": job.get("author") or author,
+                "status": status,
+            },
+        )
 
     return _run_with_client(operation)
 

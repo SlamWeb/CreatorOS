@@ -96,6 +96,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `TaskStatus` 表示任务业务阶段：`queued`、`running`、`completed`、`failed`、`cancelled`、`timed_out`。
 - `TaskRecord.health()` 单独判断运行健康度：排队任务没有 heartbeat 也不算卡住；运行任务超过 heartbeat 窗口时只标记为 `stalled`（疑似无进展），超过绝对 deadline 才标记 `deadline_exceeded`。
 - `AgentState.tasks` 只作为当前进程内的内部容器；用户不看到 task id，当前也不把任务状态写入 messages 或 Session。
+- `add_author` 的用户可见 `ToolResult.content` 不再暴露 PersonClone job ID；内部句柄先放在 `ToolResult.details`，等 Harness 接入后再登记到 `AgentState.tasks`。
 - 本轮不让 LLM 轮询、不创建线程或队列；下一步再决定前台等待、后台恢复和状态持久化如何接入 PersonClone。
 
 ## 当前假设
@@ -294,4 +295,5 @@ git diff --check
 - `personclone_auth_helper_smoke=passed`：登录助手的 `.env` 更新逻辑通过；未使用真实账号密码。
 - `personclone_tools_smoke=passed`：Fake Client 验证作者列表过滤内部字段、添加作者 job、回答内容/details 投影和 Client 释放。
 - `task_state_smoke=passed`：TaskRecord 状态迁移、heartbeat 健康度、deadline 判断和 AgentState 内部任务容器通过。
+- `personclone_tools_smoke=passed`：`add_author` 只向模型/终端提供自然语言状态，内部 `task_id` 保留在 `ToolResult.details`。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。

@@ -65,7 +65,13 @@ def main():
 
     assert not authors.is_error
     assert "index_dir" not in authors.content
-    assert json.loads(job.content)["status"] == "queued"
+    assert "job-1" not in job.content
+    assert job.details == {
+        "task_id": "job-1",
+        "kind": "author_index",
+        "author": "alice",
+        "status": "queued",
+    }
     assert answer.content == "Alice 的回答"
     assert answer.details["trace_id"] == "trace-1"
     assert all(client.closed for client in clients)
