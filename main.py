@@ -19,6 +19,7 @@ from creatoros.ai.types import (
 )
 from creatoros.agent.loop import llm, run_agent as _run_agent
 from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
+from creatoros.events import AgentEvent
 from creatoros.agent.state import AgentState
 from creatoros.agent.streaming import stream_llm
 from creatoros.context import RuntimeContext
@@ -99,11 +100,13 @@ def run_agent(
     on_stream_event=None,
     max_turns: int = DEFAULT_MAX_TURNS,
     console: Console | None = None,
+    on_agent_event=None,
 ):
     _sync_compat_config()
     return _run_agent(
         provider,
         on_stream_event=on_stream_event,
+        on_agent_event=on_agent_event,
         max_turns=max_turns,
         console=console,
     )

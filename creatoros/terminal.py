@@ -1,6 +1,7 @@
 import os
 import sys
 
+from .events import AgentEvent
 
 _GLYPHS = {
     "C": [" ████ ", "██    ", "██    ", "██    ", " ████ "],
@@ -30,6 +31,20 @@ class Console:
 
     def banner(self):
         print_banner(output=self.output)
+
+    def render_event(self, event: AgentEvent):
+        if event.kind == "turn_start":
+            self.write("Agent: ", end="", flush=True)
+        elif event.kind == "session_reset":
+            self.write("[Session] 已清空当前会话。")
+        elif event.kind == "guard_stop":
+            self.write(f"[Guard] 本次任务已达到最大模型调用次数：{event.data['max_turns']}")
+        elif event.kind == "tool_call":
+            self.write(f"[Tool call] {event.data['name']}")
+        elif event.kind == "tool_result":
+            self.write(f"[Tool result] {event.data['content']}")
+        elif event.kind == "session_saved":
+            self.write("\n[Session] 已保存当前会话。")
 
 
 def render_banner(word="CREATOROS"):
