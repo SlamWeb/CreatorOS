@@ -12,6 +12,13 @@ class FakeProvider:
         yield StreamEnd("stop")
 
 
+class FragmentProvider:
+    def stream(self, messages, tools):
+        yield TextDelta("搞定！✅ 已创建文件。\n\n")
+        yield TextDelta("下一段只应追加一次。")
+        yield StreamEnd("stop")
+
+
 def main():
     output = StringIO()
     prompts = []
@@ -21,7 +28,7 @@ def main():
         return "hello"
 
     console = RichConsole(input_fn=fake_input, output=output)
-    for style_name in ("creatoros.brand", "creatoros.tool", "creatoros.success"):
+    for style_name in ("creatoros.logo.cyan", "creatoros.tool", "creatoros.success"):
         assert console.rich.get_style(style_name)
     console.banner()
     assert console.prompt() == "hello"
@@ -35,6 +42,7 @@ def main():
     rendered = output.getvalue()
     assert response.content == "# CreatorOS\n\nRich output"
     assert "CreatorOS" in rendered
+    assert "████" in rendered
     assert "Rich output" in rendered
     assert "↳ read_file" in rendered
     assert "✓ done · ok" in rendered
@@ -44,6 +52,14 @@ def main():
     assert "┌" not in rendered
     assert "╭" not in rendered
     assert "\033[" not in rendered
+
+    output = StringIO()
+    console = RichConsole(output=output)
+    console.render_event(AgentEvent("turn_start", {}))
+    stream_llm(FragmentProvider(), [], [], console=console)
+    streamed = output.getvalue()
+    assert streamed.count("搞定！") == 1
+    assert streamed.count("下一段只应追加一次") == 1
     print("rich_console_smoke=passed")
 
 

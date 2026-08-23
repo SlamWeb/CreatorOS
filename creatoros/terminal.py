@@ -2,15 +2,23 @@ import os
 import sys
 
 from rich.console import Console as RichTerminalConsole
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.theme import Theme
 from rich.text import Text
 
 from .events import AgentEvent
 
-_WORDMARK = "CreatorOS"
-_BRAND = "\033[35m"
+_WORDMARK = "CREATOROS"
+_GLYPHS = {
+    "C": [" █████", "██   ", "██    ", "██    ", "██    ", "██   ", " █████"],
+    "R": ["█████ ", "██  ██", "██  ██", "█████ ", "██ ██ ", "██  ██", "██  ██"],
+    "E": ["██████", "██    ", "██    ", "█████ ", "██    ", "██    ", "██████"],
+    "A": [" ████ ", "██  ██", "██  ██", "██████", "██  ██", "██  ██", "██  ██"],
+    "T": ["██████", "  ██  ", "  ██  ", "  ██  ", "  ██  ", "  ██  ", "  ██  "],
+    "O": [" ████ ", "██  ██", "██  ██", "██  ██", "██  ██", "██  ██", " ████ "],
+    "S": [" █████", "██    ", "██    ", " ████ ", "    ██", "    ██", "█████ "],
+}
+_BANNER_ANSI = ["\033[96m", "\033[94m", "\033[95m", "\033[95m", "\033[93m", "\033[92m", "\033[92m"]
 _RESET = "\033[0m"
 _PROMPT = "❯ "
 _SPINNER_FRAMES = ("◌", "◍", "◎", "●")
@@ -21,7 +29,12 @@ _YELLOW = "\033[33m"
 
 _RICH_THEME = Theme(
     {
-        "creatoros.brand": "bold #c4b5fd",
+        "creatoros.logo.cyan": "bold #22d3ee",
+        "creatoros.logo.blue": "bold #60a5fa",
+        "creatoros.logo.violet": "bold #c084fc",
+        "creatoros.logo.pink": "bold #f472b6",
+        "creatoros.logo.yellow": "bold #fde047",
+        "creatoros.logo.green": "bold #4ade80",
         "creatoros.prompt": "#7dd3fc",
         "creatoros.thinking": "dim #94a3b8",
         "creatoros.tool": "dim #94a3b8",
@@ -93,8 +106,8 @@ class RichConsole(Console):
             no_color=not self.use_color,
         )
         self._status = None
-        self._live = None
         self._stream_buffer = ""
+        self._streaming = False
 
     def prompt(self, text=_PROMPT):
         if self.input_fn is input:
@@ -107,10 +120,10 @@ class RichConsole(Console):
             self._stop_status()
             self._start_stream()
 
-        if self._live is not None:
+        if self._streaming:
             if text:
                 self._stream_buffer += text
-                self._live.update(self._stream_renderable())
+            self._flush_stream(final=bool(end))
             if end:
                 self._stop_stream()
             return
@@ -120,7 +133,19 @@ class RichConsole(Console):
             self.output.flush()
 
     def banner(self):
-        self.rich.print(Text(_WORDMARK, style="creatoros.brand"), soft_wrap=False)
+        text = Text()
+        styles = (
+            "creatoros.logo.cyan",
+            "creatoros.logo.blue",
+            "creatoros.logo.violet",
+            "creatoros.logo.pink",
+            "creatoros.logo.yellow",
+            "creatoros.logo.green",
+        )
+        for index, line in enumerate(render_banner()):
+            text.append(line + "\n", style=styles[index % len(styles)])
+        text.rstrip()
+        self.rich.print(text, soft_wrap=False)
         self.rich.print()
 
     def render_event(self, event: AgentEvent):
@@ -160,22 +185,23 @@ class RichConsole(Console):
 
     def _start_stream(self):
         self._stream_buffer = ""
-        self._live = Live(
-            self._stream_renderable(),
-            console=self.rich,
-            refresh_per_second=12,
-            transient=False,
-        )
-        self._live.start()
+        self._streaming = True
 
     def _stop_stream(self):
-        if self._live is not None:
-            self._live.stop()
-            self._live = None
+        if self._streaming:
+            self._flush_stream(final=True)
+            self._streaming = False
             self.rich.print()
 
-    def _stream_renderable(self):
-        return Markdown(self._stream_buffer or " ")
+    def _flush_stream(self, final=False):
+        blocks = self._stream_buffer.split("\n\n")
+        if not final:
+            ready, self._stream_buffer = blocks[:-1], blocks[-1]
+        else:
+            ready, self._stream_buffer = blocks, ""
+        for block in ready:
+            if block.strip():
+                self.rich.print(Markdown(block), soft_wrap=True)
 
     def _stop_status(self):
         if self._status is not None:
@@ -188,7 +214,13 @@ class RichConsole(Console):
 
 
 def render_banner(word=_WORDMARK):
-    return [word]
+    word = word.upper()
+    lines = [""] * 7
+    for character in word:
+        glyph = _GLYPHS[character]
+        for index, row in enumerate(glyph):
+            lines[index] += row + "  "
+    return lines
 
 
 def print_banner(output=None):
@@ -196,8 +228,8 @@ def print_banner(output=None):
     is_tty = getattr(output, "isatty", lambda: False)()
     use_color = is_tty and "NO_COLOR" not in os.environ
     print(file=output)
-    for line in render_banner():
-        prefix = _BRAND if use_color else ""
+    for index, line in enumerate(render_banner()):
+        prefix = _BANNER_ANSI[index % len(_BANNER_ANSI)] if use_color else ""
         suffix = _RESET if use_color else ""
         print(f"{prefix}{line}{suffix}", file=output)
     print(file=output)
