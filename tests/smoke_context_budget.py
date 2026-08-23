@@ -1,6 +1,7 @@
 from io import StringIO
 
 from creatoros.ai.context import ContextBudget, ModelContext
+from creatoros.ai.types import ModelUsage
 from creatoros.events import AgentEvent
 from creatoros.terminal import Console, RichConsole
 
@@ -17,6 +18,10 @@ def main():
     assert budget.input_limit == 800
     assert budget.remaining_tokens == 800 - budget.estimated_input_tokens
     assert not budget.needs_attention
+    measured = budget.with_usage(ModelUsage(790, 10, 800))
+    assert measured.input_tokens == 790
+    assert measured.measurement == "actual"
+    assert measured.remaining_tokens == 10
 
     over = ContextBudget(100, 20, 90)
     assert over.is_over_limit

@@ -8,10 +8,32 @@ class ToolCall:
     arguments: str
 
 
+@dataclass(frozen=True)
+class ModelUsage:
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    cache_hit_tokens: int | None = None
+    cache_miss_tokens: int | None = None
+
+    def to_dict(self) -> dict[str, int]:
+        data = {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+        }
+        if self.cache_hit_tokens is not None:
+            data["cache_hit_tokens"] = self.cache_hit_tokens
+        if self.cache_miss_tokens is not None:
+            data["cache_miss_tokens"] = self.cache_miss_tokens
+        return data
+
+
 @dataclass
 class ModelResponse:
     content: str | None
     tool_calls: list[ToolCall]
+    usage: ModelUsage | None = None
 
     def to_message(self):
         message = {"role": "assistant", "content": self.content}
@@ -39,6 +61,7 @@ class ToolCallDelta:
 @dataclass
 class StreamEnd:
     finish_reason: str | None
+    usage: ModelUsage | None = None
 
 
 @dataclass

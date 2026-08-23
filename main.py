@@ -11,6 +11,7 @@ from creatoros.ai.provider import ModelProvider
 from creatoros.ai.types import (
     ModelResponse,
     ModelStreamEvent,
+    ModelUsage,
     RuntimeStreamEvent,
     StreamEnd,
     TextDelta,

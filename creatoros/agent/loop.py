@@ -1,6 +1,11 @@
 from typing import Callable
 
-from ..ai.context import ContextBudget, ModelContext
+from ..ai.context import (
+    DEFAULT_CONTEXT_WINDOW,
+    DEFAULT_RESERVE_OUTPUT_TOKENS,
+    ContextBudget,
+    ModelContext,
+)
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
 from ..session.snapshot import load_messages, new_messages, save_messages
@@ -67,7 +72,17 @@ def run_agent(
                 state.turn += 1
                 emit(AgentEvent("turn_start", {"turn": state.turn}))
                 model_context = ModelContext.from_messages(state.messages, tools)
-                context_budget = ContextBudget.from_context(model_context)
+                context_window = getattr(provider, "context_window", None)
+                reserve_output_tokens = getattr(
+                    provider, "reserve_output_tokens", None
+                )
+                context_budget = ContextBudget.from_context(
+                    model_context,
+                    context_window=context_window or DEFAULT_CONTEXT_WINDOW,
+                    reserve_output_tokens=(
+                        reserve_output_tokens or DEFAULT_RESERVE_OUTPUT_TOKENS
+                    ),
+                )
                 if context_budget.needs_attention:
                     emit(
                         AgentEvent(
@@ -81,6 +96,16 @@ def run_agent(
                     on_event=on_stream_event,
                     console=console,
                 )
+                if response.usage is not None:
+                    emit(AgentEvent("model_usage", response.usage.to_dict()))
+                    measured_budget = context_budget.with_usage(response.usage)
+                    if measured_budget.needs_attention and not context_budget.needs_attention:
+                        emit(
+                            AgentEvent(
+                                "context_warning",
+                                measured_budget.to_event_data(),
+                            )
+                        )
 
                 state.messages.append(response.to_message())
                 save_messages(state.messages)

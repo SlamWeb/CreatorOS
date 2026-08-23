@@ -1,7 +1,9 @@
 import json
 import math
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from .types import ModelUsage
 
 
 _STABLE_ROLES = {"system", "developer"}
@@ -63,6 +65,7 @@ class ContextBudget:
     context_window: int
     reserve_output_tokens: int
     estimated_input_tokens: int
+    actual_input_tokens: int | None = None
 
     def __post_init__(self):
         if self.context_window <= 0:
@@ -71,6 +74,8 @@ class ContextBudget:
             raise ValueError("reserve_output_tokens 必须小于 context_window。")
         if self.estimated_input_tokens < 0:
             raise ValueError("estimated_input_tokens 不能小于 0。")
+        if self.actual_input_tokens is not None and self.actual_input_tokens < 0:
+            raise ValueError("actual_input_tokens 不能小于 0。")
 
     @classmethod
     def from_context(
@@ -83,13 +88,28 @@ class ContextBudget:
         estimated = estimate_tokens({"messages": messages, "tools": tools})
         return cls(context_window, reserve_output_tokens, estimated)
 
+    def with_usage(self, usage: ModelUsage) -> "ContextBudget":
+        return replace(self, actual_input_tokens=usage.input_tokens)
+
+    @property
+    def input_tokens(self) -> int:
+        return (
+            self.actual_input_tokens
+            if self.actual_input_tokens is not None
+            else self.estimated_input_tokens
+        )
+
+    @property
+    def measurement(self) -> str:
+        return "actual" if self.actual_input_tokens is not None else "estimate"
+
     @property
     def input_limit(self) -> int:
         return self.context_window - self.reserve_output_tokens
 
     @property
     def remaining_tokens(self) -> int:
-        return self.input_limit - self.estimated_input_tokens
+        return self.input_limit - self.input_tokens
 
     @property
     def is_over_limit(self) -> bool:
@@ -104,11 +124,14 @@ class ContextBudget:
     def needs_attention(self) -> bool:
         return self.is_over_limit or self.is_near_limit
 
-    def to_event_data(self) -> dict[str, int | bool]:
+    def to_event_data(self) -> dict[str, int | bool | str | None]:
         return {
             "context_window": self.context_window,
             "reserve_output_tokens": self.reserve_output_tokens,
             "estimated_input_tokens": self.estimated_input_tokens,
+            "actual_input_tokens": self.actual_input_tokens,
+            "input_tokens": self.input_tokens,
+            "measurement": self.measurement,
             "input_limit": self.input_limit,
             "remaining_tokens": self.remaining_tokens,
             "over_limit": self.is_over_limit,

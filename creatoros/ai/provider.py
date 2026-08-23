@@ -5,6 +5,9 @@ from .types import ModelResponse, ModelStreamEvent
 
 
 class ModelProvider(Protocol):
+    context_window: int | None
+    reserve_output_tokens: int | None
+
     def complete(self, context: ModelContext) -> ModelResponse:
         ...
 

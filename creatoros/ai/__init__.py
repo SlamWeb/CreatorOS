@@ -10,6 +10,7 @@ from .provider import ModelProvider
 from .types import (
     ModelResponse,
     ModelStreamEvent,
+    ModelUsage,
     RuntimeStreamEvent,
     StreamEnd,
     TextDelta,
@@ -27,6 +28,7 @@ __all__ = [
     "ModelProvider",
     "ModelResponse",
     "ModelStreamEvent",
+    "ModelUsage",
     "RuntimeStreamEvent",
     "StreamEnd",
     "TextDelta",

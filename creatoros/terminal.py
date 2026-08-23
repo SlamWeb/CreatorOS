@@ -93,7 +93,7 @@ class Console:
             state = "超出" if event.data["over_limit"] else "接近"
             text = (
                 f"⚠ [Context] 输入上下文{state}预算："
-                f"约 {event.data['estimated_input_tokens']} / "
+                f"约 {event.data['input_tokens']} / "
                 f"{event.data['input_limit']} tokens"
             )
             self.write(self._style(text, _YELLOW))
@@ -178,7 +178,7 @@ class RichConsole(Console):
             state = "超出" if event.data["over_limit"] else "接近"
             self.rich.print(
                 f"⚠ [Context] 输入上下文{state}预算："
-                f"约 {event.data['estimated_input_tokens']} / "
+                f"约 {event.data['input_tokens']} / "
                 f"{event.data['input_limit']} tokens",
                 style="creatoros.warning",
             )
