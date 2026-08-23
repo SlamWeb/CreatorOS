@@ -6,7 +6,7 @@ from creatoros.terminal import print_banner, render_banner
 
 def main():
     lines = render_banner()
-    assert len(lines) == 7
+    assert len(lines) == 5
     assert all(line.strip() for line in lines)
 
     output = StringIO()

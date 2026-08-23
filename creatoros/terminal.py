@@ -10,15 +10,22 @@ from .events import AgentEvent
 
 _WORDMARK = "CREATOROS"
 _GLYPHS = {
-    "C": [" █████", "██   ", "██    ", "██    ", "██    ", "██   ", " █████"],
-    "R": ["█████ ", "██  ██", "██  ██", "█████ ", "██ ██ ", "██  ██", "██  ██"],
-    "E": ["██████", "██    ", "██    ", "█████ ", "██    ", "██    ", "██████"],
-    "A": [" ████ ", "██  ██", "██  ██", "██████", "██  ██", "██  ██", "██  ██"],
-    "T": ["██████", "  ██  ", "  ██  ", "  ██  ", "  ██  ", "  ██  ", "  ██  "],
-    "O": [" ████ ", "██  ██", "██  ██", "██  ██", "██  ██", "██  ██", " ████ "],
-    "S": [" █████", "██    ", "██    ", " ████ ", "    ██", "    ██", "█████ "],
+    "C": ("0011110", "0111111", "1110000", "1100000", "1100000", "1100000", "1100000", "1110000", "0111111", "0011110"),
+    "R": ("1111110", "1111111", "1100011", "1100011", "1111110", "1111000", "1101100", "1100110", "1100011", "1100011"),
+    "E": ("1111111", "1111111", "1100000", "1100000", "1111110", "1111110", "1100000", "1100000", "1111111", "1111111"),
+    "A": ("0011100", "0111110", "0111110", "1100011", "1100011", "1111111", "1111111", "1100011", "1100011", "1100011"),
+    "T": ("1111111", "1111111", "0011100", "0011100", "0011100", "0011100", "0011100", "0011100", "0011100", "0011100"),
+    "O": ("0011100", "0111110", "1100011", "1100011", "1100011", "1100011", "1100011", "1100011", "0111110", "0011100"),
+    "S": ("0111111", "1111111", "1100000", "1100000", "0111110", "0011111", "0000011", "0000011", "1111111", "1111110"),
 }
-_BANNER_ANSI = ["\033[96m", "\033[94m", "\033[95m", "\033[95m", "\033[93m", "\033[92m", "\033[92m"]
+_BANNER_ANSI = ["\033[96m", "\033[94m", "\033[95m", "\033[93m", "\033[92m"]
+_BANNER_RICH_STYLES = (
+    "creatoros.logo.cyan",
+    "creatoros.logo.blue",
+    "creatoros.logo.violet",
+    "creatoros.logo.yellow",
+    "creatoros.logo.green",
+)
 _RESET = "\033[0m"
 _PROMPT = "❯ "
 _SPINNER_FRAMES = ("◌", "◍", "◎", "●")
@@ -134,16 +141,8 @@ class RichConsole(Console):
 
     def banner(self):
         text = Text()
-        styles = (
-            "creatoros.logo.cyan",
-            "creatoros.logo.blue",
-            "creatoros.logo.violet",
-            "creatoros.logo.pink",
-            "creatoros.logo.yellow",
-            "creatoros.logo.green",
-        )
         for index, line in enumerate(render_banner()):
-            text.append(line + "\n", style=styles[index % len(styles)])
+            text.append(line + "\n", style=_BANNER_RICH_STYLES[index])
         text.rstrip()
         self.rich.print(text, soft_wrap=False)
         self.rich.print()
@@ -215,11 +214,22 @@ class RichConsole(Console):
 
 def render_banner(word=_WORDMARK):
     word = word.upper()
-    lines = [""] * 7
+    lines = [""] * 5
     for character in word:
         glyph = _GLYPHS[character]
-        for index, row in enumerate(glyph):
-            lines[index] += row + "  "
+        for index in range(0, len(glyph), 2):
+            top, bottom = glyph[index], glyph[index + 1]
+            row = "".join(
+                "█"
+                if top_pixel == "1" and bottom_pixel == "1"
+                else "▀"
+                if top_pixel == "1"
+                else "▄"
+                if bottom_pixel == "1"
+                else " "
+                for top_pixel, bottom_pixel in zip(top, bottom)
+            )
+            lines[index // 2] += row + "  "
     return lines
 
 
