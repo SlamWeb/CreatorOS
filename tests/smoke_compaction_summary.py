@@ -2,6 +2,7 @@ from creatoros.agent.compaction_summary import (
     MAX_SUMMARY_TOOL_RESULT_CHARS,
     CompactionSummaryRequest,
     serialize_messages_for_summary,
+    validate_summary_markdown,
 )
 from main import CompactionSummaryRequest as RootCompactionSummaryRequest
 
@@ -40,7 +41,8 @@ def main():
     assert "[User]\n读取 SPEC.md" in prompt
     assert "read_file" in prompt and 'SPEC.md' in prompt
     assert "[Tool result id=call-1]" in prompt
-    assert "[truncated: 25 chars omitted]" in prompt
+    assert "[summary-input truncated: 25 chars omitted" in prompt
+    assert "original result remains in session]" in prompt
     assert long_result not in prompt
     assert "学习 Agent Runtime" in prompt
     assert "重点保留 Context 决策" in prompt
@@ -58,6 +60,30 @@ def main():
         pass
     else:
         raise AssertionError("非正数工具结果上限应该被拒绝")
+
+    valid_summary = "\n".join(
+        [
+            "## Goal",
+            "## Constraints & Preferences",
+            "## Progress",
+            "### Done",
+            "### In Progress",
+            "### Blocked",
+            "## Key Decisions",
+            "## Important Facts & IDs",
+            "## Files & Artifacts",
+            "## Next Steps",
+            "## Unresolved Questions",
+        ]
+    )
+    assert validate_summary_markdown(valid_summary) == valid_summary
+
+    try:
+        validate_summary_markdown("## Goal\n只有一个标题")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("缺少必要标题的摘要应该被拒绝")
 
     print("compaction_summary_smoke=passed")
 

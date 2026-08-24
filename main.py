@@ -21,7 +21,11 @@ from creatoros.ai.types import (
 )
 from creatoros.agent.loop import llm, run_agent as _run_agent
 from creatoros.agent.compaction import CompactionPlan, calculate_keep_recent_tokens
-from creatoros.agent.compaction_summary import CompactionSummaryRequest
+from creatoros.agent.compaction_summary import (
+    CompactionSummaryRequest,
+    CompactionSummaryResult,
+    generate_compaction_summary,
+)
 from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from creatoros.events import AgentEvent
 from creatoros.agent.state import AgentState
