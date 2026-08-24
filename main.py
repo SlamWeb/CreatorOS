@@ -26,6 +26,7 @@ from creatoros.agent.compaction_summary import (
     CompactionSummaryResult,
     generate_compaction_summary,
 )
+from creatoros.agent.compactor import compact_session
 from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from creatoros.events import AgentEvent
 from creatoros.agent.state import AgentState

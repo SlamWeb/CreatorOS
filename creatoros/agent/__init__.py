@@ -9,6 +9,7 @@ from .compaction_summary import (
     CompactionSummaryResult,
     generate_compaction_summary,
 )
+from .compactor import compact_session
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from ..ai.context import ModelContext
 from ..context import RuntimeContext
@@ -24,6 +25,7 @@ __all__ = [
     "CompactionSummaryRequest",
     "CompactionSummaryResult",
     "generate_compaction_summary",
+    "compact_session",
     "MAX_KEEP_RECENT_TOKENS",
     "MIN_KEEP_RECENT_TOKENS",
     "calculate_keep_recent_tokens",

@@ -61,6 +61,7 @@ Progressive SPEC, not a form.
 - 第五十一个可运行切片加入真实摘要执行边界：`generate_compaction_summary()` 调用注入的 Provider，拒绝 tool call、空响应和缺少必要 Markdown 标题的响应，并返回摘要文本、真实 usage 和请求元数据；使用真实 DeepSeek 验证，不保存 checkpoint、不接 `/compact`。
 - 第五十二个可运行切片加入持久化 `CompactionCheckpoint`：在 Session 旁原子保存累计摘要、绝对切分位置、完整 retained tail、源消息数量/哈希、压缩前 tokens 和真实 usage；加载时校验源 Session，损坏或失配则安全回退，不接 ModelContext 投影。
 - 第五十三个可运行切片让 Agent Loop 使用有效 checkpoint 投影 `ModelContext`：稳定 system/developer 前缀保持在最前，累计摘要以低权限 user 消息注入，随后拼接 checkpoint retained tail 和 checkpoint 后追加的新消息；原始 Session 不改，`/reset` 清除 checkpoint。
+- 第五十四个可运行切片加入内部 `compact_session()`：把 ContextBudget、完整 turn 切分、摘要请求、真实 Provider 生成和 checkpoint 原子保存串成一次事务；无旧 turn 时不调用模型，重复压缩用旧累计摘要更新出一份新累计摘要。本轮不自动触发。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -181,6 +182,14 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 累计摘要使用带 `<summary>` 边界的 `role="user"` 消息，不提升为 system 指令；稳定 system/developer 和 tools 仍由 `ModelContext` 放在请求前部。
 - `build_model_context()` 统一普通与压缩后的 Context 构造，Agent Loop 启动时加载一次有效 checkpoint；`/reset` 同时清空内存引用和 sidecar checkpoint，避免旧摘要进入新会话。
 - checkpoint 当前只能由代码/测试创建，因此真实 CLI 行为在出现 checkpoint 前不变；本轮不实现 `/compact`、自动压缩、摘要 token 上限、ArtifactStore 或历史 ToolResult 查询。
+
+## 本轮目标（Internal Compaction Operation v0）
+
+- `compact_session()` 先基于 checkpoint-aware 活动上下文计算 `ContextBudget`，再只对未被旧摘要覆盖的 live turns 运行 `CompactionPlan`；切点从 live 索引映射回完整 Session 的绝对 `first_retained_index`。
+- 没有 `messages_to_summarize` 时直接返回 `None`，不调用 Provider、不写空 checkpoint；有旧 turns 时依次生成并校验 Markdown、建立自包含 checkpoint，最后才原子 replace sidecar，摘要或写盘失败不会先破坏旧 checkpoint/Session。
+- 首次压缩输入为旧 turns；重复压缩输入为 `previous cumulative summary + newly old turns`，输出覆盖为一份新累计摘要。正常 Context 仍只投影最新摘要、retained tail 和新增消息。
+- `keep_recent_tokens` 可显式覆盖仅用于确定性/真实集成测试；实际运行默认继续使用 Provider `input_limit` 的动态八分之一策略。
+- 本轮加入低成本真实 DeepSeek 全链路验证，但尚未让 Agent Loop 根据 `ContextBudget` 自动调用 `compact_session()`，也不暴露 `/compact`。
 
 ## 当前假设
 
@@ -406,3 +415,5 @@ git diff --check
 - `live_compaction_summary=passed`：真实 `deepseek-v4-flash` 使用 817 input tokens / 313 output tokens，返回完整结构化 Markdown，保留 `D:\CreatorOS\SPEC.md`、`trace-creatoros-42`、status 200 和已完成状态；没有 tool call。测试只读取本地 `.env` 的密钥且未打印或提交。
 - `compaction_checkpoint_smoke=passed`：checkpoint 原子保存/加载、ModelUsage 往返、追加消息后继续有效、源消息改写失效、损坏 JSON 回退和显式清除均通过；既有 ModelContext、AgentEvent 与编译验证继续通过。
 - `compacted_model_context_smoke=passed`：纯投影和实际 Agent Loop 均验证 system 在前、累计摘要注入、retained tail 与 checkpoint 后新消息保留、旧消息不发送、tools 不变、原始 Session 列表不修改；既有 Checkpoint、AgentEvent、ModelContext 与编译验证继续通过。Fake Provider 仅用于无网络的 Loop 投影隔离，不替代任何需要验证的真实 API 行为。
+- `compact_session_smoke=passed`：首次绝对切点、retained tail、无旧 turn 不调用 Provider、重复压缩传入旧累计摘要、旧原文不重复进入摘要和 checkpoint replace 均通过；既有 Checkpoint、Summary、投影与编译验证继续通过。
+- `live_compact_session=passed`：真实 `deepseek-v4-flash` 使用 774 input tokens / 283 output tokens，完成 Plan → ToolResult 摘要副本截断 → 结构化 Markdown → 原子 checkpoint 全链路；`first_retained_index=5`、recent turn 完整保留，临时 Session 未触碰真实 `sessions/latest.json`。
