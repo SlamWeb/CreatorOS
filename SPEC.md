@@ -335,6 +335,8 @@ git diff --check
 - `task_state_smoke=passed`：TaskRecord 状态迁移、heartbeat 健康度、deadline 判断和 AgentState 内部任务容器通过。
 - `personclone_tools_smoke=passed`：`add_author` 只向模型/终端提供自然语言状态，内部 `task_id` 保留在 `ToolResult.details`。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
+- 真实认证联调：配置本地 `PERSONCLONE_SESSION_COOKIE` 后，CreatorOS `PersonCloneClient.list_personas()` 真实返回 7 个作者；`ask_author("22-85-32-51", ...)` 真实收到 `personclone_generation_error`（缺少 `narrative_schema.json`），`ask_author("wu-ren-jun-28", ...)` 真实通过 SSE 返回回答和 `trace_id`。
+- 联调事实：作者有已抓取内容（`content_count > 0`）不代表默认 `mrprompt` 可以生成；当前应同时观察 `persona_pack_available` 和 `narrative_schema_available`。下一小步优先让 `list_authors` 暴露明确的 `can_answer` 能力标记/过滤，再回到 Context 压缩；暂不增加更多 PersonClone 端点或任务轮询。
 - `model_context_smoke=passed`：system 前缀、工具 schema、动态消息尾部和深拷贝快照均通过验证。
 - `smoke_agent_events.py`、`smoke_console.py`、`smoke_rich_console.py`、`smoke_task_state.py` 在 `deepcode` 环境通过；Agent Loop 实际传入的 Provider Context 能还原 system 在前、tools 与 Registry 一致。
 - `context_budget_smoke=passed`：粗略输入估算、输出空间预留、超限判断和 Console 警告事件通过；既有 Agent Loop/UI smoke 仍通过。
