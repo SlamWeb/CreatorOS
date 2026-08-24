@@ -33,8 +33,13 @@ from creatoros.agent.streaming import stream_llm
 from creatoros.context import RuntimeContext
 from creatoros.terminal import Console, RichConsole
 from creatoros.session import (
+    CompactionCheckpoint,
+    checkpoint_path,
+    clear_compaction_checkpoint,
+    load_compaction_checkpoint,
     load_messages as _load_messages,
     new_messages as _new_messages,
+    save_compaction_checkpoint,
     save_messages as _save_messages,
 )
 from creatoros.session import snapshot as _snapshot
