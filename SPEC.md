@@ -57,6 +57,7 @@ Progressive SPEC, not a form.
 - 第四十七个可运行切片修正 PersonClone 外部回答策略：`ask_author` 默认使用不依赖 Narrative Schema 的 `strong_identity`，默认传 `parent_top_k=20`；有 Schema 的作者仍可显式使用 `mrprompt`；`list_authors` 增加 `recommended_writer_prompt`，避免把“有索引”误判为“可使用 mrprompt”。
 - 第四十八个可运行切片加入纯本地 `CompactionPlan`：按最近 token 预算从后向前保留完整 user turn，把更早的完整回合划入待摘要区；system/tools 不参与切割，assistant tool call 与对应 tool result 不会被拆开。本轮不调用摘要模型、不修改 Session 或 Agent Loop。
 - 第四十九个可运行切片把固定 20k 尾部预算改为 Provider 窗口驱动的动态策略：默认保留可用输入窗口的八分之一，并限制在 8k～128k；DeepSeek 1M 窗口预留 32,768 输出后，保留 120,904 tokens。本轮仍只生成计划，不接入自动压缩。
+- 第五十个可运行切片加入纯本地 `CompactionSummaryRequest`：把待摘要消息序列化为明确的 User/Assistant/Tool 历史资料，用独立 system prompt 要求模型只生成结构化 checkpoint，并把单个 ToolResult 截到 4,000 字符；本轮不调用模型、不保存 checkpoint、不接 `/compact`。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -147,6 +148,14 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 只允许在 `role="user"` 处形成保留边界，因此一个 turn 内的 assistant tool call、一个或多个 tool result 和后续 assistant 回复会整体进入摘要区或保留区。
 - ToolResult 采用两阶段原则：新鲜结果向模型提供“最小但足够继续判断”的关键内容；结果变旧后才由 Compaction 或未来 ArtifactStore 缩减。返回内容型工具不能只回复“成功”，大型原始输出未来保存引用和可重读句柄。
 - 本轮纯本地确定性切点测试不调用真实 API，因为没有 API 行为需要验证；真实 DeepSeek 调用留给下一切片的手动摘要。
+
+## 本轮目标（CompactionSummaryRequest v0）
+
+- `CompactionSummaryRequest.from_messages()` 把 `CompactionPlan.messages_to_summarize` 转成一次全新的 `ModelContext`；摘要请求只有专用 system prompt 和一个承载历史资料的 user message，`tools=[]`，不会继续原 Agent Tool Loop。
+- 序列化结果显式区分 `[User]`、`[Assistant]`、`[Assistant tool calls]` 和 `[Tool result id=...]`，让摘要模型把旧消息当作资料而不是当前对话；工具名称、参数和 call id 保留。
+- 单个 ToolResult 最多进入摘要请求 4,000 字符，超出部分写明省略字符数；这只缩小摘要请求，原始 Session 和原 ToolResult 不修改。
+- 摘要格式固定保留 Goal、约束、进度、关键决策、精确 ID、文件/产物、下一步和未决问题；支持可选 previous summary 与用户 focus，为后续重复压缩和 `/compact [focus]` 留出稳定接口。
+- 本轮属于纯本地数据变换，使用确定性 smoke 而非真实 API；下一切片调用 `provider.complete(request.context)` 时按用户规则直接验证真实 DeepSeek，不使用 Fake/Mock。
 
 ## 当前假设
 
@@ -368,3 +377,4 @@ git diff --check
 - DeepSeek 官方模型规格已核对：`deepseek-v4-flash` / `deepseek-v4-pro` 当前上下文长度为 1M；CreatorOS 已把该能力作为 Provider 元数据，而不是写死在通用 ContextBudget 中。参考：[DeepSeek Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing/)。
 - `compaction_plan_smoke=passed`：DeepSeek 动态尾部预算为 120,904，通用小窗口下限和极小窗口钳制、完整 user turn 切点、assistant tool call/tool result 成对归属、显式覆盖、最近单回合超预算提示和非法预算拒绝均通过；既有 ModelContext、ContextBudget 与编译验证继续通过。
 - 当前真实本地 Session 快照含 18 条消息，连同稳定前缀和工具 schema 粗估为 3,474 input tokens；DeepSeek 可用输入上限 967,232、动态保留尾部 120,904，因此当前 `can_compact=false`。这是本地上下文规划验收，没有调用模型；真实 DeepSeek 摘要留给手动 `/compact` 切片。
+- `compaction_summary_smoke=passed`：摘要专用 system/user 边界、空工具列表、角色序列化、工具名称/参数/call id、4,000 字符 ToolResult 截断、previous summary、用户 focus 和空输入拒绝均通过；既有 CompactionPlan、ModelContext 与编译验证继续通过。

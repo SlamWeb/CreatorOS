@@ -4,6 +4,7 @@ from .compaction import (
     CompactionPlan,
     calculate_keep_recent_tokens,
 )
+from .compaction_summary import CompactionSummaryRequest
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from ..ai.context import ModelContext
 from ..context import RuntimeContext
@@ -16,6 +17,7 @@ from .task_state import TaskHealth, TaskRecord, TaskStatus
 __all__ = [
     "AgentState",
     "CompactionPlan",
+    "CompactionSummaryRequest",
     "MAX_KEEP_RECENT_TOKENS",
     "MIN_KEEP_RECENT_TOKENS",
     "calculate_keep_recent_tokens",
