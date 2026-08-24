@@ -29,10 +29,11 @@
 
 ## 当前范围边界
 
-1. 先完成最小 Runtime，再逐步学习 Agent Loop、Tool Calling、Tool Registry、Provider、State/Context、Session、Memory、Compaction、Streaming、Events、Observability、Guards、Hooks、MCP、Human-in-the-loop 和 Evaluation。
-2. 暂不实现 Trend Discovery、Creator Routing、内容生成、发布、分析反馈等 CreatorOS 业务能力。
-3. 暂不接入 PersonaForge；未来把它视为 Tool 或 Service。
-4. `SlamWeb/DeepSeek-Coding-Agent` 只代表旧的 Runtime v0 学习经验，不修改、不复制进本仓库。
+1. 最小 Runtime 已足够承载第一条业务链路；后续只在真实业务暴露痛点时继续补 Runtime，不为完整复刻通用 Coding Agent 而扩张。
+2. 当前产品主线是知乎创作者矩阵的“热点发现 → Creator Routing → PersonClone 生成 → 质量评估 → 发布 → 效果反馈”；仍按可运行的小切片逐段接通。
+3. PersonClone 作为独立 FastAPI Service 接入 CreatorOS，不复制其代码和环境；CreatorOS 负责业务编排、状态、评测与发布。
+4. 当前只实现热点发现的数据获取边界；定时调度、评分路由、自动发布和反馈学习在前一段真实验收后再引入。
+5. `SlamWeb/DeepSeek-Coding-Agent` 只代表旧的 Runtime v0 学习经验，不修改、不复制进本仓库。
 
 ## 验证、SPEC 与 Git 闭环
 
