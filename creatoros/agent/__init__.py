@@ -1,3 +1,4 @@
+from .compaction import CompactionPlan, DEFAULT_KEEP_RECENT_TOKENS
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from ..ai.context import ModelContext
 from ..context import RuntimeContext
@@ -9,6 +10,8 @@ from .task_state import TaskHealth, TaskRecord, TaskStatus
 
 __all__ = [
     "AgentState",
+    "CompactionPlan",
+    "DEFAULT_KEEP_RECENT_TOKENS",
     "TaskHealth",
     "TaskRecord",
     "TaskStatus",

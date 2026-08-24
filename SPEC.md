@@ -55,6 +55,7 @@ Progressive SPEC, not a form.
 - 第四十五个可运行切片加入最小上下文预算：对 `ModelContext` 做 Provider 无关的粗略输入 token 估算，预留输出空间；接近或超过预算时发出 `context_warning`，但本轮不自动删除消息、不压缩、不阻断模型请求。
 - 第四十六个可运行切片接入 Provider 返回的真实 usage：DeepSeek 非流式响应和流式最后一个 `choices=[]` chunk 都转换为内部 `ModelUsage`；`ModelResponse` 携带 usage，AgentEvent 只做内部 usage 观察，不把统计写进 messages。本轮仍不自动压缩或截断。
 - 第四十七个可运行切片修正 PersonClone 外部回答策略：`ask_author` 默认使用不依赖 Narrative Schema 的 `strong_identity`，默认传 `parent_top_k=20`；有 Schema 的作者仍可显式使用 `mrprompt`；`list_authors` 增加 `recommended_writer_prompt`，避免把“有索引”误判为“可使用 mrprompt”。
+- 第四十八个可运行切片加入纯本地 `CompactionPlan`：按最近 token 预算从后向前保留完整 user turn，把更早的完整回合划入待摘要区；system/tools 不参与切割，assistant tool call 与对应 tool result 不会被拆开。本轮不调用摘要模型、不修改 Session 或 Agent Loop。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -135,6 +136,14 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - DeepSeek 上下文缓存由服务端自动完成，只对可复用前缀生效；缓存降低重复计算的成本和时延，但不替代上下文裁剪、摘要或长期记忆。当前 system/tools 稳定前缀与 `cache_hit_tokens` 观察方向正确。参考：[DeepSeek 上下文硬盘缓存](https://api-docs.deepseek.com/zh-cn/guides/kv_cache/)。
 - CreatorOS 下一步按四个独立切片推进：① 纯本地 `CompactionPlan` 只计算完整 turn 切点；② 手动 `/compact` 用真实 DeepSeek 生成结构化摘要并持久化 checkpoint，但不删除原始 Session；③ 根据 `ContextBudget` 自动触发并处理超限重试；④ 再把大型工具结果外置为 artifact/reference，按需重新读取。
 - 第一切片只学习“哪些消息能一起切”：保留 system/tools、最近完整 user turn，以及完整的 assistant tool call → tool result 组合；不调用模型、不改 Session 格式、不引入向量库、长期 Memory、分支摘要、Provider 原生 opaque compaction 或自动重试。
+
+## 本轮目标（CompactionPlan v0）
+
+- `CompactionPlan.from_context()` 只读取 `ModelContext.messages`；system/developer 稳定前缀和 tools 已由 `ModelContext` 分离，因此不会被放进摘要区。
+- 默认 `DEFAULT_KEEP_RECENT_TOKENS == 20_000`，以 token 预算而非固定轮数向前保留 user turn；最近一个 turn 即使本身超预算也完整保留，并通过 `retained_turn_exceeds_budget` 暴露该事实，split-turn 留到后续。
+- 只允许在 `role="user"` 处形成保留边界，因此一个 turn 内的 assistant tool call、一个或多个 tool result 和后续 assistant 回复会整体进入摘要区或保留区。
+- ToolResult 采用两阶段原则：新鲜结果向模型提供“最小但足够继续判断”的关键内容；结果变旧后才由 Compaction 或未来 ArtifactStore 缩减。返回内容型工具不能只回复“成功”，大型原始输出未来保存引用和可重读句柄。
+- 本轮纯本地确定性切点测试不调用真实 API，因为没有 API 行为需要验证；真实 DeepSeek 调用留给下一切片的手动摘要。
 
 ## 当前假设
 
@@ -354,3 +363,4 @@ git diff --check
 - `context_budget_smoke=passed`：粗略输入估算、输出空间预留、超限判断和 Console 警告事件通过；既有 Agent Loop/UI smoke 仍通过。
 - `model_usage_smoke=passed`：DeepSeek Fake SSE 的最终 usage chunk、`StreamEnd.usage`、`ModelResponse.usage` 和缓存字段映射通过；AgentEvent smoke 同时验证 `model_usage` 事件。
 - DeepSeek 官方模型规格已核对：`deepseek-v4-flash` / `deepseek-v4-pro` 当前上下文长度为 1M；CreatorOS 已把该能力作为 Provider 元数据，而不是写死在通用 ContextBudget 中。参考：[DeepSeek Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing/)。
+- `compaction_plan_smoke=passed`：20k 默认保留预算、完整 user turn 切点、assistant tool call/tool result 成对归属、宽松预算不压缩、最近单回合超预算提示和零预算拒绝均通过；既有 ModelContext、ContextBudget 与编译验证继续通过。
