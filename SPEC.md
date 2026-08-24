@@ -126,6 +126,16 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `DeepSeekProvider` 暴露 `context_window` 和 `reserve_output_tokens`，Agent Loop 优先使用 Provider 元数据，只有 Fake/未知 Provider 才回退到通用默认值。
 - 本轮不把 usage 写入 Session/messages，不实现跨轮 usage 聚合、计费报表或 Provider tokenizer/count endpoint。
 
+## Context 调研结论与后续切片（2026-08-24）
+
+- Context 不是另一份会话存储，而是一次模型请求的可丢弃投影；完整 Session 应继续保存原始消息，`ModelContext` 只选择本轮需要发送的稳定前缀、压缩摘要和最近完整回合。
+- Pi 使用“追加式 Session + CompactionEntry + Context Builder”：旧历史仍留在 JSONL，会话上下文只投影最新摘要和保留尾部；切点优先落在完整 turn 边界，并避免把 assistant tool call 与 tool result 拆开。参考：[Pi Compaction](https://pi.dev/docs/latest/compaction)。
+- Claude Code 会先清理旧工具输出，再进行会话摘要；项目根规则和长期记忆从磁盘重新注入，说明长期规则不应只依赖早期聊天消息。参考：[Claude Code Context Window](https://code.claude.com/docs/en/context-window)。
+- OpenAI Responses 提供厂商原生 `/responses/compact`，返回可供后续请求继续使用的 opaque compaction item；CreatorOS 当前使用 DeepSeek Chat Completions，因此本阶段不把 Runtime 绑定到该厂商能力。参考：[OpenAI Compact a response](https://developers.openai.com/api/reference/java/resources/responses/methods/compact)。
+- DeepSeek 上下文缓存由服务端自动完成，只对可复用前缀生效；缓存降低重复计算的成本和时延，但不替代上下文裁剪、摘要或长期记忆。当前 system/tools 稳定前缀与 `cache_hit_tokens` 观察方向正确。参考：[DeepSeek 上下文硬盘缓存](https://api-docs.deepseek.com/zh-cn/guides/kv_cache/)。
+- CreatorOS 下一步按四个独立切片推进：① 纯本地 `CompactionPlan` 只计算完整 turn 切点；② 手动 `/compact` 用真实 DeepSeek 生成结构化摘要并持久化 checkpoint，但不删除原始 Session；③ 根据 `ContextBudget` 自动触发并处理超限重试；④ 再把大型工具结果外置为 artifact/reference，按需重新读取。
+- 第一切片只学习“哪些消息能一起切”：保留 system/tools、最近完整 user turn，以及完整的 assistant tool call → tool result 组合；不调用模型、不改 Session 格式、不引入向量库、长期 Memory、分支摘要、Provider 原生 opaque compaction 或自动重试。
+
 ## 当前假设
 
 - 第一段 Runtime 代码只验证一次 OpenAI-compatible LLM 调用，不包含循环、工具或抽象层；本轮已验证。
