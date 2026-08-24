@@ -60,6 +60,7 @@ Progressive SPEC, not a form.
 - 第五十个可运行切片加入纯本地 `CompactionSummaryRequest`：把待摘要消息序列化为明确的 User/Assistant/Tool 历史资料，用独立 system prompt 要求模型只生成结构化 checkpoint，并把单个 ToolResult 截到 4,000 字符；本轮不调用模型、不保存 checkpoint、不接 `/compact`。
 - 第五十一个可运行切片加入真实摘要执行边界：`generate_compaction_summary()` 调用注入的 Provider，拒绝 tool call、空响应和缺少必要 Markdown 标题的响应，并返回摘要文本、真实 usage 和请求元数据；使用真实 DeepSeek 验证，不保存 checkpoint、不接 `/compact`。
 - 第五十二个可运行切片加入持久化 `CompactionCheckpoint`：在 Session 旁原子保存累计摘要、绝对切分位置、完整 retained tail、源消息数量/哈希、压缩前 tokens 和真实 usage；加载时校验源 Session，损坏或失配则安全回退，不接 ModelContext 投影。
+- 第五十三个可运行切片让 Agent Loop 使用有效 checkpoint 投影 `ModelContext`：稳定 system/developer 前缀保持在最前，累计摘要以低权限 user 消息注入，随后拼接 checkpoint retained tail 和 checkpoint 后追加的新消息；原始 Session 不改，`/reset` 清除 checkpoint。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -173,6 +174,13 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `source_digest` 对 checkpoint 创建时的全部源消息做稳定 SHA-256；恢复时允许 Session 在末尾追加新消息，但源前缀被重写、Session 变短、checkpoint JSON 损坏或字段非法时返回 `None`，不把旧摘要套到错误会话。
 - checkpoint 文件位于 Session 同目录的 `latest.compaction.json`，写入先落临时文件再 replace；原始 `latest.json` 不删除、不重写，checkpoint 可独立清除。
 - 本轮只完成存储与失效规则，不让 Agent Loop 读取 checkpoint，也不实现 `/compact`、自动触发、ArtifactStore 或 ToolResult 查询。
+
+## 本轮目标（Compacted ModelContext Projection v0）
+
+- `CompactionCheckpoint.project_messages()` 只生成本轮活动消息副本：`stable prefix + cumulative summary + retained_messages + raw[source_message_count:]`；已经摘要的原始旧消息不进入 Provider 请求，但继续完整保存在 Session。
+- 累计摘要使用带 `<summary>` 边界的 `role="user"` 消息，不提升为 system 指令；稳定 system/developer 和 tools 仍由 `ModelContext` 放在请求前部。
+- `build_model_context()` 统一普通与压缩后的 Context 构造，Agent Loop 启动时加载一次有效 checkpoint；`/reset` 同时清空内存引用和 sidecar checkpoint，避免旧摘要进入新会话。
+- checkpoint 当前只能由代码/测试创建，因此真实 CLI 行为在出现 checkpoint 前不变；本轮不实现 `/compact`、自动压缩、摘要 token 上限、ArtifactStore 或历史 ToolResult 查询。
 
 ## 当前假设
 
@@ -397,3 +405,4 @@ git diff --check
 - `compaction_summary_smoke=passed`：摘要专用 system/user 边界、空工具列表、角色序列化、工具名称/参数/call id、4,000 字符 ToolResult 截断、previous summary、用户 focus 和空输入拒绝均通过；既有 CompactionPlan、ModelContext 与编译验证继续通过。
 - `live_compaction_summary=passed`：真实 `deepseek-v4-flash` 使用 817 input tokens / 313 output tokens，返回完整结构化 Markdown，保留 `D:\CreatorOS\SPEC.md`、`trace-creatoros-42`、status 200 和已完成状态；没有 tool call。测试只读取本地 `.env` 的密钥且未打印或提交。
 - `compaction_checkpoint_smoke=passed`：checkpoint 原子保存/加载、ModelUsage 往返、追加消息后继续有效、源消息改写失效、损坏 JSON 回退和显式清除均通过；既有 ModelContext、AgentEvent 与编译验证继续通过。
+- `compacted_model_context_smoke=passed`：纯投影和实际 Agent Loop 均验证 system 在前、累计摘要注入、retained tail 与 checkpoint 后新消息保留、旧消息不发送、tools 不变、原始 Session 列表不修改；既有 Checkpoint、AgentEvent、ModelContext 与编译验证继续通过。Fake Provider 仅用于无网络的 Loop 投影隔离，不替代任何需要验证的真实 API 行为。

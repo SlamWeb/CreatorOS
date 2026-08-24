@@ -19,7 +19,7 @@ from creatoros.ai.types import (
     ToolCallDelta,
     ToolCallEnd,
 )
-from creatoros.agent.loop import llm, run_agent as _run_agent
+from creatoros.agent.loop import build_model_context, llm, run_agent as _run_agent
 from creatoros.agent.compaction import CompactionPlan, calculate_keep_recent_tokens
 from creatoros.agent.compaction_summary import (
     CompactionSummaryRequest,

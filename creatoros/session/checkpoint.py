@@ -9,6 +9,14 @@ from ..ai.types import ModelUsage
 from . import snapshot
 
 
+COMPACTION_SUMMARY_PREFIX = (
+    "The conversation history before this point was compacted into the "
+    "following summary:\n\n<summary>\n"
+)
+COMPACTION_SUMMARY_SUFFIX = "\n</summary>"
+_STABLE_ROLES = {"system", "developer"}
+
+
 def _messages_digest(messages) -> str:
     serialized = json.dumps(
         messages,
@@ -89,6 +97,35 @@ class CompactionCheckpoint:
             return False
         source_messages = current_messages[: self.source_message_count]
         return _messages_digest(source_messages) == self.source_digest
+
+    def project_messages(self, messages) -> list[dict]:
+        current_messages = deepcopy(list(messages))
+        if not self.matches_session(current_messages):
+            raise ValueError("checkpoint 与当前 Session 不匹配。")
+
+        stable_prefix = []
+        for message in current_messages:
+            if message.get("role") not in _STABLE_ROLES:
+                break
+            stable_prefix.append(message)
+        if self.first_retained_index < len(stable_prefix):
+            raise ValueError("checkpoint 不能压缩稳定 system/developer 前缀。")
+
+        summary_message = {
+            "role": "user",
+            "content": (
+                COMPACTION_SUMMARY_PREFIX
+                + self.summary
+                + COMPACTION_SUMMARY_SUFFIX
+            ),
+        }
+        appended_messages = current_messages[self.source_message_count :]
+        return [
+            *stable_prefix,
+            summary_message,
+            *deepcopy(list(self.retained_messages)),
+            *appended_messages,
+        ]
 
     def to_dict(self) -> dict:
         return {

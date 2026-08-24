@@ -13,7 +13,7 @@ from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from ..ai.context import ModelContext
 from ..context import RuntimeContext
 from ..events import AgentEvent
-from .loop import llm, run_agent
+from .loop import build_model_context, llm, run_agent
 from .state import AgentState
 from .streaming import stream_llm
 from .task_state import TaskHealth, TaskRecord, TaskStatus
@@ -36,6 +36,7 @@ __all__ = [
     "RuntimeContext",
     "ModelContext",
     "llm",
+    "build_model_context",
     "run_agent",
     "stream_llm",
 ]

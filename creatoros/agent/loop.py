@@ -8,6 +8,11 @@ from ..ai.context import (
 )
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
+from ..session.checkpoint import (
+    CompactionCheckpoint,
+    clear_compaction_checkpoint,
+    load_compaction_checkpoint,
+)
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
 from ..context import RuntimeContext
@@ -23,6 +28,17 @@ def llm(
     context: ModelContext,
 ) -> ModelResponse:
     return provider.complete(context)
+
+
+def build_model_context(
+    messages,
+    tools,
+    checkpoint: CompactionCheckpoint | None = None,
+) -> ModelContext:
+    active_messages = (
+        checkpoint.project_messages(messages) if checkpoint else messages
+    )
+    return ModelContext.from_messages(active_messages, tools)
 
 
 def run_agent(
@@ -42,6 +58,7 @@ def run_agent(
     guard = MaxTurnGuard(max_turns)
     runtime_context = RuntimeContext.from_defaults()
     state = AgentState(messages=load_messages())
+    checkpoint = load_compaction_checkpoint(state.messages)
     save_messages(state.messages)
 
     try:
@@ -53,6 +70,8 @@ def run_agent(
 
             if user_input == "/reset":
                 state = AgentState(messages=new_messages())
+                checkpoint = None
+                clear_compaction_checkpoint()
                 save_messages(state.messages)
                 emit(AgentEvent("session_reset", {}))
                 continue
@@ -71,7 +90,11 @@ def run_agent(
 
                 state.turn += 1
                 emit(AgentEvent("turn_start", {"turn": state.turn}))
-                model_context = ModelContext.from_messages(state.messages, tools)
+                model_context = build_model_context(
+                    state.messages,
+                    tools,
+                    checkpoint,
+                )
                 context_window = getattr(provider, "context_window", None)
                 reserve_output_tokens = getattr(
                     provider, "reserve_output_tokens", None
