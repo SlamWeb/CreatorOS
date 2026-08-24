@@ -16,3 +16,14 @@ try:
     PERSONCLONE_TIMEOUT_SECONDS = float(os.getenv("PERSONCLONE_TIMEOUT_SECONDS", "180"))
 except ValueError:
     PERSONCLONE_TIMEOUT_SECONDS = 180.0
+
+ZHIHU_OPENAPI_BASE_URL = os.getenv(
+    "ZHIHU_OPENAPI_BASE_URL",
+    "https://developer.zhihu.com",
+).rstrip("/")
+ZHIHU_ACCESS_SECRET = os.getenv("ZHIHU_ACCESS_SECRET", "").strip()
+
+try:
+    ZHIHU_TIMEOUT_SECONDS = float(os.getenv("ZHIHU_TIMEOUT_SECONDS", "30"))
+except ValueError:
+    ZHIHU_TIMEOUT_SECONDS = 30.0

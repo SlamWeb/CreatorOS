@@ -38,7 +38,7 @@ Progressive SPEC, not a form.
 优先运行：
 
 ```powershell
-conda run --no-capture-output -n deepcode python tests/smoke_zhihu_hot_list.py
+conda run --no-capture-output -n deepcode python -m tests.smoke_zhihu_hot_list
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros
 git diff --check
 ```
@@ -49,3 +49,7 @@ git diff --check
 - 真实边界探测：未带官方 Access Secret 请求 `/api/v1/content/hot_list`，HTTP 200 内返回 `Code=20001, Message=Authorization failed`。
 - 公开网页端点探测：终端直接访问热榜 API/页面分别返回 401/403，不能作为稳定的无凭证后端。
 - 结论：第一版坚持官方 OpenAPI；配置凭证前不伪造“真实热榜成功”。
+- `zhihu_hot_list_smoke=passed`：验证官方字段映射、Bearer/时间戳/Limit 请求、ToolResult、Pydantic 1～30 限制、缺少凭证和官方 `Code=20001` 错误转换。
+- `model_context_smoke=passed`、`agent_events_smoke=passed`：新增 Tool 没有破坏模型上下文投影或 Agent 事件闭环。
+- `python -m compileall -q main.py creatoros tests/smoke_zhihu_hot_list.py` 通过。
+- 尚缺真实成功结果：本机 `.env` 只有 DeepSeek 与 PersonClone 凭证，没有 `ZHIHU_ACCESS_SECRET`；配置后应立即运行一次低成本官方热榜验收。

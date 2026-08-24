@@ -72,3 +72,14 @@ class AskAuthorArgs(BaseModel):
         ge=1,
         description="grounded 检索时最多使用多少条父级内容，默认 20。",
     )
+
+
+class ZhihuHotListArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="返回多少条知乎热榜候选，默认 10，最多 30。",
+    )

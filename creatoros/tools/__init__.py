@@ -13,9 +13,11 @@ from .models import (
     ReadFileArgs,
     ReadToolResultArgs,
     WriteFileArgs,
+    ZhihuHotListArgs,
 )
 from .personclone import add_author, ask_author, list_authors
 from .results import ToolResult
+from .zhihu import get_zhihu_hot_list
 
 __all__ = [
     "ReadFileArgs",
@@ -25,9 +27,11 @@ __all__ = [
     "Tool",
     "ToolResult",
     "WriteFileArgs",
+    "ZhihuHotListArgs",
     "execute_tool_call",
     "get_current_date",
     "get_current_time",
+    "get_zhihu_hot_list",
     "list_authors",
     "add_author",
     "ask_author",

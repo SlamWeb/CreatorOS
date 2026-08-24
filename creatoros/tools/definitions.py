@@ -13,8 +13,10 @@ from .models import (
     ReadFileArgs,
     ReadToolResultArgs,
     WriteFileArgs,
+    ZhihuHotListArgs,
 )
 from .personclone import add_author, ask_author, list_authors
+from .zhihu import get_zhihu_hot_list
 
 
 class Tool:
@@ -100,6 +102,12 @@ tool_registry = {
             description="把问题交给指定的 PersonClone 作者数字分身，并返回它生成的回答。",
             execute=ask_author,
             args_model=AskAuthorArgs,
+        ),
+        Tool(
+            name="get_zhihu_hot_list",
+            description="从知乎官方开放平台读取当前结构化热榜，作为选题候选，不负责判断是否值得追。",
+            execute=get_zhihu_hot_list,
+            args_model=ZhihuHotListArgs,
         ),
     ]
 }
