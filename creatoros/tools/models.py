@@ -18,6 +18,26 @@ class WriteFileArgs(BaseModel):
     content: str = Field(description="要写入文件的完整文本内容。")
 
 
+class ReadToolResultArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    result_ref: str = Field(
+        min_length=1,
+        description="被截断工具结果标记中的 result_ref。",
+    )
+    offset: int = Field(
+        default=1,
+        ge=1,
+        description="从第几个字符开始读取，第一个字符是 1。",
+    )
+    limit: int = Field(
+        default=8_000,
+        ge=1,
+        le=16_000,
+        description="最多读取多少个字符，最大 16000。",
+    )
+
+
 class AddAuthorArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 

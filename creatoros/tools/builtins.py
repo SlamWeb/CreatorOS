@@ -3,6 +3,7 @@ from pathlib import Path
 
 from ..config import PROJECT_ROOT
 from ..context import RuntimeContext
+from ..session.snapshot import find_tool_result, load_messages
 from .results import ToolResult
 
 MAX_READ_BYTES = 128 * 1024
@@ -125,6 +126,66 @@ def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None)
             is_error=True,
             error_type="not_utf8_text",
         )
+
+
+def read_tool_result(
+    result_ref,
+    offset=1,
+    limit=8_000,
+    context: RuntimeContext | None = None,
+) -> ToolResult:
+    if offset < 1 or limit < 1 or limit > 16_000:
+        return ToolResult(
+            content="offset 必须从 1 开始，limit 必须在 1 到 16000 之间。",
+            is_error=True,
+            error_type="invalid_arguments",
+            retryable=True,
+        )
+
+    message = find_tool_result(load_messages(), result_ref)
+    if message is None:
+        return ToolResult(
+            content=f"找不到工具结果：{result_ref}",
+            is_error=True,
+            error_type="tool_result_not_found",
+            retryable=True,
+        )
+
+    content = message.get("content")
+    if not isinstance(content, str):
+        return ToolResult(
+            content=f"工具结果不是可读取的文本：{result_ref}",
+            is_error=True,
+            error_type="tool_result_not_text",
+        )
+
+    if not content:
+        return ToolResult(content=f"[tool_result result_ref={result_ref} is empty]")
+
+    start = offset - 1
+    if start >= len(content):
+        return ToolResult(
+            content=(
+                f"offset {offset} 超出工具结果范围"
+                f"（共 {len(content)} 个字符）。"
+            ),
+            is_error=True,
+            error_type="offset_out_of_range",
+            retryable=True,
+        )
+
+    end = min(start + limit, len(content))
+    chunk = content[start:end]
+    header = (
+        f"[tool_result result_ref={result_ref} "
+        f"chars={offset}-{end} of {len(content)}]"
+    )
+    if end < len(content):
+        chunk += f"\n\n[还有 {len(content) - end} 个字符；next_offset={end + 1}]"
+    return ToolResult(
+        content=f"{header}\n{chunk}",
+        details={"result_ref": result_ref, "offset": offset, "end": end},
+    )
 
 
 def write_file(path, content, context: RuntimeContext | None = None) -> ToolResult:

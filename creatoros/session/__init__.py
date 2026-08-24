@@ -1,4 +1,4 @@
-from .snapshot import load_messages, new_messages, save_messages
+from .snapshot import find_tool_result, load_messages, new_messages, save_messages
 from .checkpoint import (
     CompactionCheckpoint,
     checkpoint_path,
@@ -14,6 +14,7 @@ __all__ = [
     "load_compaction_checkpoint",
     "save_compaction_checkpoint",
     "load_messages",
+    "find_tool_result",
     "new_messages",
     "save_messages",
 ]

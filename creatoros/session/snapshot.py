@@ -33,3 +33,13 @@ def save_messages(messages):
         encoding="utf-8",
     )
     temporary_file.replace(SESSION_FILE)
+
+
+def find_tool_result(messages, result_ref: str) -> dict | None:
+    for message in reversed(list(messages)):
+        if (
+            message.get("role") == "tool"
+            and message.get("tool_call_id") == result_ref
+        ):
+            return message
+    return None

@@ -1,7 +1,19 @@
 import json
 
-from .builtins import get_current_date, get_current_time, read_file, write_file
-from .models import AddAuthorArgs, AskAuthorArgs, ReadFileArgs, WriteFileArgs
+from .builtins import (
+    get_current_date,
+    get_current_time,
+    read_file,
+    read_tool_result,
+    write_file,
+)
+from .models import (
+    AddAuthorArgs,
+    AskAuthorArgs,
+    ReadFileArgs,
+    ReadToolResultArgs,
+    WriteFileArgs,
+)
 from .personclone import add_author, ask_author, list_authors
 
 
@@ -58,6 +70,12 @@ tool_registry = {
             description="读取 CreatorOS 项目目录内不超过 128 KiB 的 UTF-8 文本文件；敏感路径拒绝读取。",
             execute=read_file,
             args_model=ReadFileArgs,
+        ),
+        Tool(
+            name="read_tool_result",
+            description="按 result_ref 分段读取 Session 中未截断的历史工具结果文本。",
+            execute=read_tool_result,
+            args_model=ReadToolResultArgs,
         ),
         Tool(
             name="write_file",

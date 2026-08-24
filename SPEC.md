@@ -64,6 +64,7 @@ Progressive SPEC, not a form.
 - 第五十四个可运行切片加入内部 `compact_session()`：把 ContextBudget、完整 turn 切分、摘要请求、真实 Provider 生成和 checkpoint 原子保存串成一次事务；无旧 turn 时不调用模型，重复压缩用旧累计摘要更新出一份新累计摘要。本轮不自动触发。
 - 第五十五个可运行切片把自动压缩接入 Agent Loop：主模型请求前若 `ContextBudget.needs_attention`，先尝试生成 checkpoint 并重建 `ModelContext`；没有可压缩旧回合或压缩后仍接近上限时才发出警告。本轮不做超限重试或 split-turn。
 - 第五十六个可运行切片加入大型 ToolResult 的模型投影：完整内容继续保存在原始 Session，正常主模型请求只接收首尾合计 16,000 字符和 `result_ref`；摘要模型的旧历史副本也改为首尾合计 4,000 字符。本轮不实现按 ID 重读工具。
+- 第五十七个可运行切片加入 `read_tool_result`：模型可用投影 marker 中的 `result_ref` 在完整 Session 内精确找到对应 `role="tool"` 消息，并按字符分页读取未截断文本；本轮不引入 ArtifactStore 或数据库索引。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -210,6 +211,14 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 原始 `AgentState.messages`、`sessions/latest.json` 和 checkpoint retained messages 都保存完整内容；ContextBudget 对真正发送的投影后请求计量。
 - 当前 marker 只能告诉模型完整结果仍在 Session，尚未提供 `read_tool_result(result_ref, offset, limit)`；ArtifactStore、Session 索引和按需重读留到下一独立切片。
 - 16,000/4,000 字符是 CreatorOS v0 的可解释启发式，不冒充行业统一标准；Pi、Claude Code 等共同采用旧工具输出裁剪/清理，但具体额度和保留首尾策略不同。
+
+## 本轮目标（ToolResult Read-back v0）
+
+- `read_tool_result(result_ref, offset=1, limit=8000)` 只扫描当前 `sessions/latest.json` 中 `role="tool"` 且 `tool_call_id == result_ref` 的消息；用户/assistant 消息即使带同名字段也不会被读取。
+- `offset` 和 `limit` 都按字符计数，不冒充 token；单次最多返回 16,000 字符，并提供总字符数与 `next_offset`。
+- 找不到、非文本、offset 越界和参数范围错误均返回结构化 `ToolResult`；读取不修改原 Session，普通 `read_file` 仍禁止访问整个 `sessions/` 敏感目录。
+- 当前完整持久化内容是 `ToolResult.to_model_content()` 产生的未截断文本，保存字段为 `role`、`tool_call_id`、`content`；`details`、`retryable` 等内部 metadata 尚未写入 Session。
+- v0 每次按 ID 反向扫描 JSON 消息，复杂度 O(n)；等出现多 Session、大型 Artifact 或性能证据后再增加索引/ArtifactStore，不提前引入数据库。
 
 ## 当前假设
 
@@ -440,3 +449,6 @@ git diff --check
 - `auto_compaction_smoke=passed`：小窗口 Provider 验证 Agent Loop 只触发一次摘要、更新 checkpoint、重建主模型请求、删除旧原文投影并保留最近与当前 user turn；压缩后估算 tokens 下降。该测试只隔离自动触发编排，不替代上一轮真实 DeepSeek 摘要链路。
 - `tool_result_projection_smoke=passed`：验证普通主模型投影保留首尾、省略量和 `result_ref`，短结果不变，`build_model_context()` 确实使用投影，同时原消息不被修改；摘要 smoke 验证 4,000 字符副本也保留首尾。
 - `live_tool_result_projection=passed`：真实 `deepseek-v4-flash` 通过 OpenAI-compatible Tool 消息接收投影后的 2,111 input tokens，并只用 12 output tokens 同时识别 `HEAD_MARKER` 与 `TAIL_MARKER`；本地完整 20,024 字符 ToolResult 保持不变。
+- `read_tool_result_smoke=passed`：精确 result_ref、角色隔离、字符分页、next_offset、16,000 上限、找不到/越界错误、Registry schema 和 Session 原文不变均通过。
+- `live_read_tool_result=passed`：真实 `deepseek-v4-flash` 先看到省略 marker，再调用 `read_tool_result(result_ref="call-source", offset=8950, limit=200)` 取回中间验证码并完成回答；两次请求合计 11,302 input / 88 output tokens，临时 Session 未触碰真实 `sessions/latest.json`。
+- 当前本地 `D:\CreatorOS\sessions\latest.json` 含 18 条消息和 3 条未截断 `role="tool"` 文本结果；该文件被 `.gitignore` 排除，不提交 GitHub。
