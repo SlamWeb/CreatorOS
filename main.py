@@ -20,7 +20,7 @@ from creatoros.ai.types import (
     ToolCallEnd,
 )
 from creatoros.agent.loop import llm, run_agent as _run_agent
-from creatoros.agent.compaction import CompactionPlan, DEFAULT_KEEP_RECENT_TOKENS
+from creatoros.agent.compaction import CompactionPlan, calculate_keep_recent_tokens
 from creatoros.agent.guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from creatoros.events import AgentEvent
 from creatoros.agent.state import AgentState

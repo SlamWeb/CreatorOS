@@ -4,11 +4,21 @@ from dataclasses import dataclass
 from ..ai.context import ModelContext, estimate_tokens
 
 
-DEFAULT_KEEP_RECENT_TOKENS = 20_000
+MIN_KEEP_RECENT_TOKENS = 8_000
+MAX_KEEP_RECENT_TOKENS = 128_000
+KEEP_RECENT_INPUT_DIVISOR = 8
 
 
 def _message_tokens(messages: list[dict]) -> int:
     return estimate_tokens(messages) if messages else 0
+
+
+def calculate_keep_recent_tokens(input_limit: int) -> int:
+    if input_limit <= 0:
+        raise ValueError("input_limit 必须大于 0。")
+    proportional = input_limit // KEEP_RECENT_INPUT_DIVISOR
+    bounded = max(MIN_KEEP_RECENT_TOKENS, min(MAX_KEEP_RECENT_TOKENS, proportional))
+    return min(input_limit, bounded)
 
 
 @dataclass(frozen=True)
@@ -19,16 +29,25 @@ class CompactionPlan:
     retained_messages: tuple[dict, ...]
     first_retained_index: int
     estimated_retained_tokens: int
+    input_limit: int
     keep_recent_tokens: int
 
     @classmethod
     def from_context(
         cls,
         context: ModelContext,
-        keep_recent_tokens: int = DEFAULT_KEEP_RECENT_TOKENS,
+        *,
+        input_limit: int,
+        keep_recent_tokens: int | None = None,
     ) -> "CompactionPlan":
+        if input_limit <= 0:
+            raise ValueError("input_limit 必须大于 0。")
+        if keep_recent_tokens is None:
+            keep_recent_tokens = calculate_keep_recent_tokens(input_limit)
         if keep_recent_tokens <= 0:
             raise ValueError("keep_recent_tokens 必须大于 0。")
+        if keep_recent_tokens > input_limit:
+            raise ValueError("keep_recent_tokens 不能超过 input_limit。")
 
         messages = [deepcopy(message) for message in context.messages]
         turn_starts = [
@@ -42,6 +61,7 @@ class CompactionPlan:
                 retained_messages=tuple(messages),
                 first_retained_index=0,
                 estimated_retained_tokens=_message_tokens(messages),
+                input_limit=input_limit,
                 keep_recent_tokens=keep_recent_tokens,
             )
 
@@ -59,6 +79,7 @@ class CompactionPlan:
             retained_messages=tuple(retained_messages),
             first_retained_index=first_retained_index,
             estimated_retained_tokens=_message_tokens(retained_messages),
+            input_limit=input_limit,
             keep_recent_tokens=keep_recent_tokens,
         )
 
