@@ -35,6 +35,9 @@ def main():
             body = json.loads(request.content)
             assert body["author"] == "alice"
             assert body["query"] == "热点问题"
+            assert body["query_mode"] == "grounded"
+            assert body["writer_prompt"] == "strong_identity"
+            assert body["parent_top_k"] == 20
             sse = (
                 'event: meta\ndata: {"trace_id":"trace-1"}\n\n'
                 'event: token\ndata: {"text":"回答"}\n\n'

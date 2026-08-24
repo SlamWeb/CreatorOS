@@ -67,7 +67,7 @@ tool_registry = {
         ),
         Tool(
             name="list_authors",
-            description="列出 PersonClone 中已经完成索引、可以被选择回答的作者。",
+            description="列出 PersonClone 作者及推荐的回答模式；没有 Narrative Schema 的作者默认使用 strong_identity。",
             parameters={"type": "object", "properties": {}, "required": []},
             execute=list_authors,
         ),

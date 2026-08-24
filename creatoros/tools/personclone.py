@@ -35,10 +35,16 @@ def _public_persona(item: dict) -> dict:
         "content_count",
         "persona_pack_available",
         "narrative_schema_available",
+        "recommended_writer_prompt",
         "profile_url",
         "last_synced_at",
     )
-    return {field: item.get(field) for field in fields if field in item}
+    result = {field: item.get(field) for field in fields if field in item}
+    if "recommended_writer_prompt" not in result:
+        result["recommended_writer_prompt"] = (
+            "mrprompt" if item.get("narrative_schema_available") else "strong_identity"
+        )
+    return result
 
 
 def list_authors(context: RuntimeContext | None = None) -> ToolResult:
@@ -88,7 +94,8 @@ def ask_author(
     author: str,
     question: str,
     query_mode: str = "grounded",
-    writer_prompt: str = "mrprompt",
+    writer_prompt: str = "strong_identity",
+    parent_top_k: int = 20,
     context: RuntimeContext | None = None,
 ) -> ToolResult:
     del context
@@ -99,6 +106,7 @@ def ask_author(
             question,
             query_mode=query_mode,
             writer_prompt=writer_prompt,
+            parent_top_k=parent_top_k,
         )
         return ToolResult(
             content=answer.answer,

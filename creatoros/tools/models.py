@@ -44,6 +44,11 @@ class AskAuthorArgs(BaseModel):
         description="grounded 使用作者知识库和查询理解；raw 用于旁路调试。",
     )
     writer_prompt: Literal["current", "strong_identity", "persona_pack", "mrprompt"] = Field(
-        default="mrprompt",
-        description="PersonClone 使用的作者写作策略；mrprompt 需要作者已有 Narrative Schema。",
+        default="strong_identity",
+        description="PersonClone 写作策略；默认 strong_identity 不依赖 Narrative Schema，确认作者有 Schema 后可用 mrprompt。",
+    )
+    parent_top_k: int = Field(
+        default=20,
+        ge=1,
+        description="grounded 检索时最多使用多少条父级内容，默认 20。",
     )

@@ -98,13 +98,15 @@ class PersonCloneClient:
         question: str,
         *,
         query_mode: str = "grounded",
-        writer_prompt: str = "mrprompt",
+        writer_prompt: str = "strong_identity",
+        parent_top_k: int = 20,
     ) -> PersonaAnswer:
         payload = {
             "author": author,
             "query": question,
             "query_mode": query_mode,
             "writer_prompt": writer_prompt,
+            "parent_top_k": parent_top_k,
         }
         try:
             with self._http.stream(

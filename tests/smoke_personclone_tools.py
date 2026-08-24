@@ -16,19 +16,25 @@ class FakePersonCloneClient:
     def list_personas(self):
         return {
             "default_author": "alice",
-            "personas": [{"author": "alice", "display_name": "Alice", "index_dir": "internal"}],
+            "personas": [{
+                "author": "alice",
+                "display_name": "Alice",
+                "index_dir": "internal",
+                "narrative_schema_available": False,
+            }],
         }
 
     def add_author(self, author, kinds, max_items):
         assert (author, kinds, max_items) == ("alice", ["answer"], 10)
         return {"id": "job-1", "status": "queued"}
 
-    def ask_author(self, author, question, *, query_mode, writer_prompt):
-        assert (author, question, query_mode, writer_prompt) == (
+    def ask_author(self, author, question, *, query_mode, writer_prompt, parent_top_k):
+        assert (author, question, query_mode, writer_prompt, parent_top_k) == (
             "alice",
             "热点问题",
             "grounded",
-            "mrprompt",
+            "strong_identity",
+            20,
         )
         return PersonaAnswer(
             author=author,
@@ -65,6 +71,7 @@ def main():
 
     assert not authors.is_error
     assert "index_dir" not in authors.content
+    assert '"recommended_writer_prompt": "strong_identity"' in authors.content
     assert "job-1" not in job.content
     assert job.details == {
         "task_id": "job-1",

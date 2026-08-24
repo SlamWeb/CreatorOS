@@ -54,6 +54,7 @@ Progressive SPEC, not a form.
 - 第四十四个可运行切片加入最小 `ModelContext`：一次模型请求使用只读快照，把开头连续的 system/developer 指令、稳定的工具 schema 和动态消息尾部显式分开；Provider 在发送前还原为“系统消息在前、对话消息在后，工具仍位于独立 tools 字段”的请求。本轮不实现 token 计数、压缩、缓存 key 或 Responses API 迁移。
 - 第四十五个可运行切片加入最小上下文预算：对 `ModelContext` 做 Provider 无关的粗略输入 token 估算，预留输出空间；接近或超过预算时发出 `context_warning`，但本轮不自动删除消息、不压缩、不阻断模型请求。
 - 第四十六个可运行切片接入 Provider 返回的真实 usage：DeepSeek 非流式响应和流式最后一个 `choices=[]` chunk 都转换为内部 `ModelUsage`；`ModelResponse` 携带 usage，AgentEvent 只做内部 usage 观察，不把统计写进 messages。本轮仍不自动压缩或截断。
+- 第四十七个可运行切片修正 PersonClone 外部回答策略：`ask_author` 默认使用不依赖 Narrative Schema 的 `strong_identity`，默认传 `parent_top_k=20`；有 Schema 的作者仍可显式使用 `mrprompt`；`list_authors` 增加 `recommended_writer_prompt`，避免把“有索引”误判为“可使用 mrprompt”。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -336,7 +337,8 @@ git diff --check
 - `personclone_tools_smoke=passed`：`add_author` 只向模型/终端提供自然语言状态，内部 `task_id` 保留在 `ToolResult.details`。
 - 真实 HTTP 探测：`http://127.0.0.1:8000/health` 返回 200，`/api/personas` 返回 401；CreatorOS `list_authors` 已将该响应转换为 `personclone_auth`，当前服务要求登录会话，未进行未授权的作者抓取或生成调用。
 - 真实认证联调：配置本地 `PERSONCLONE_SESSION_COOKIE` 后，CreatorOS `PersonCloneClient.list_personas()` 真实返回 7 个作者；`ask_author("22-85-32-51", ...)` 真实收到 `personclone_generation_error`（缺少 `narrative_schema.json`），`ask_author("wu-ren-jun-28", ...)` 真实通过 SSE 返回回答和 `trace_id`。
-- 联调事实：作者有已抓取内容（`content_count > 0`）不代表默认 `mrprompt` 可以生成；当前应同时观察 `persona_pack_available` 和 `narrative_schema_available`。下一小步优先让 `list_authors` 暴露明确的 `can_answer` 能力标记/过滤，再回到 Context 压缩；暂不增加更多 PersonClone 端点或任务轮询。
+- 联调事实：作者有已抓取内容（`content_count > 0`）不代表默认 `mrprompt` 可以生成；当前应同时观察 `persona_pack_available` 和 `narrative_schema_available`。`list_authors` 已通过 `recommended_writer_prompt` 暴露该选择依据；下一步回到 Context 压缩，暂不增加更多 PersonClone 端点或任务轮询。
+- PersonClone 外部策略真实验收：`an-ling-91` 使用默认 `strong_identity + parent_top_k=20` 成功通过 SSE 返回回答；`wu-ren-jun-28` 显式使用 `mrprompt + parent_top_k=20` 成功返回回答和 `trace_id`；CreatorOS `list_authors` 真实返回每个作者的推荐模式。
 - `model_context_smoke=passed`：system 前缀、工具 schema、动态消息尾部和深拷贝快照均通过验证。
 - `smoke_agent_events.py`、`smoke_console.py`、`smoke_rich_console.py`、`smoke_task_state.py` 在 `deepcode` 环境通过；Agent Loop 实际传入的 Provider Context 能还原 system 在前、tools 与 Registry 一致。
 - `context_budget_smoke=passed`：粗略输入估算、输出空间预留、超限判断和 Console 警告事件通过；既有 Agent Loop/UI smoke 仍通过。
