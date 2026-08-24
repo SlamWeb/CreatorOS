@@ -97,6 +97,13 @@ class Console:
                 f"{event.data['input_limit']} tokens"
             )
             self.write(self._style(text, _YELLOW))
+        elif event.kind == "context_compacted":
+            text = (
+                "◇ [Context] 已自动压缩：约 "
+                f"{event.data['tokens_before']} → "
+                f"{event.data['tokens_after']} tokens"
+            )
+            self.write(self._style(text, _GREEN))
         elif event.kind == "tool_call":
             text = f"  ↳ {event.data['name']}"
             self.write(self._style(text, _SLATE))
@@ -181,6 +188,14 @@ class RichConsole(Console):
                 f"约 {event.data['input_tokens']} / "
                 f"{event.data['input_limit']} tokens",
                 style="creatoros.warning",
+            )
+        elif event.kind == "context_compacted":
+            self._stop_active()
+            self.rich.print(
+                "◇ [Context] 已自动压缩：约 "
+                f"{event.data['tokens_before']} → "
+                f"{event.data['tokens_after']} tokens",
+                style="creatoros.secondary",
             )
         elif event.kind == "tool_call":
             self._stop_active()

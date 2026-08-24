@@ -19,6 +19,7 @@ from ..context import RuntimeContext
 from ..terminal import Console
 from ..events import AgentEvent
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
+from .compactor import compact_session
 from .state import AgentState
 from .streaming import stream_llm
 
@@ -107,12 +108,46 @@ def run_agent(
                     ),
                 )
                 if context_budget.needs_attention:
-                    emit(
-                        AgentEvent(
-                            "context_warning",
-                            context_budget.to_event_data(),
-                        )
+                    compacted = compact_session(
+                        provider,
+                        state.messages,
+                        tools,
+                        checkpoint=checkpoint,
                     )
+                    if compacted is not None:
+                        tokens_before = context_budget.input_tokens
+                        checkpoint = compacted
+                        model_context = build_model_context(
+                            state.messages,
+                            tools,
+                            checkpoint,
+                        )
+                        context_budget = ContextBudget.from_context(
+                            model_context,
+                            context_window=(
+                                context_window or DEFAULT_CONTEXT_WINDOW
+                            ),
+                            reserve_output_tokens=(
+                                reserve_output_tokens
+                                or DEFAULT_RESERVE_OUTPUT_TOKENS
+                            ),
+                        )
+                        emit(
+                            AgentEvent(
+                                "context_compacted",
+                                {
+                                    "tokens_before": tokens_before,
+                                    "tokens_after": context_budget.input_tokens,
+                                },
+                            )
+                        )
+                    if context_budget.needs_attention:
+                        emit(
+                            AgentEvent(
+                                "context_warning",
+                                context_budget.to_event_data(),
+                            )
+                        )
                 response = stream_llm(
                     provider=provider,
                     context=model_context,

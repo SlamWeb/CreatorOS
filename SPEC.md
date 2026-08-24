@@ -62,6 +62,7 @@ Progressive SPEC, not a form.
 - 第五十二个可运行切片加入持久化 `CompactionCheckpoint`：在 Session 旁原子保存累计摘要、绝对切分位置、完整 retained tail、源消息数量/哈希、压缩前 tokens 和真实 usage；加载时校验源 Session，损坏或失配则安全回退，不接 ModelContext 投影。
 - 第五十三个可运行切片让 Agent Loop 使用有效 checkpoint 投影 `ModelContext`：稳定 system/developer 前缀保持在最前，累计摘要以低权限 user 消息注入，随后拼接 checkpoint retained tail 和 checkpoint 后追加的新消息；原始 Session 不改，`/reset` 清除 checkpoint。
 - 第五十四个可运行切片加入内部 `compact_session()`：把 ContextBudget、完整 turn 切分、摘要请求、真实 Provider 生成和 checkpoint 原子保存串成一次事务；无旧 turn 时不调用模型，重复压缩用旧累计摘要更新出一份新累计摘要。本轮不自动触发。
+- 第五十五个可运行切片把自动压缩接入 Agent Loop：主模型请求前若 `ContextBudget.needs_attention`，先尝试生成 checkpoint 并重建 `ModelContext`；没有可压缩旧回合或压缩后仍接近上限时才发出警告。本轮不做超限重试或 split-turn。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -140,7 +141,8 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - Claude Code 会先清理旧工具输出，再进行会话摘要；项目根规则和长期记忆从磁盘重新注入，说明长期规则不应只依赖早期聊天消息。参考：[Claude Code Context Window](https://code.claude.com/docs/en/context-window)。
 - OpenAI Responses 提供厂商原生 `/responses/compact`，返回可供后续请求继续使用的 opaque compaction item；CreatorOS 当前使用 DeepSeek Chat Completions，因此本阶段不把 Runtime 绑定到该厂商能力。参考：[OpenAI Compact a response](https://developers.openai.com/api/reference/java/resources/responses/methods/compact)。
 - DeepSeek 上下文缓存由服务端自动完成，只对可复用前缀生效；缓存降低重复计算的成本和时延，但不替代上下文裁剪、摘要或长期记忆。当前 system/tools 稳定前缀与 `cache_hit_tokens` 观察方向正确。参考：[DeepSeek 上下文硬盘缓存](https://api-docs.deepseek.com/zh-cn/guides/kv_cache/)。
-- CreatorOS 下一步按四个独立切片推进：① 纯本地 `CompactionPlan` 只计算完整 turn 切点；② 手动 `/compact` 用真实 DeepSeek 生成结构化摘要并持久化 checkpoint，但不删除原始 Session；③ 根据 `ContextBudget` 自动触发并处理超限重试；④ 再把大型工具结果外置为 artifact/reference，按需重新读取。
+- CreatorOS 按四个独立切片推进：① 纯本地 `CompactionPlan` 只计算完整 turn 切点；② 用真实 DeepSeek 生成结构化摘要并持久化 checkpoint，但不删除原始 Session；③ 根据 `ContextBudget` 自动触发；④ 再把大型工具结果外置为 artifact/reference，按需重新读取。超限重试仍是后续独立切片。
+- 行业校准：Pi、Claude Code、LangChain 都采用“接近窗口上限自动压缩旧历史并保留近期消息”的模式；Claude Code 还会先清理旧工具输出，OpenAI Responses 则提供厂商原生 opaque compaction。共同方向是分离完整持久历史与模型工作上下文，具体阈值、摘要格式和 ToolResult 截断长度并无统一标准。参考：[Pi Compaction](https://pi.dev/docs/latest/compaction)、[Claude Code context](https://code.claude.com/docs/en/how-claude-code-works)、[LangChain SummarizationMiddleware](https://docs.langchain.com/oss/python/langchain/middleware/built-in)、[OpenAI Compaction](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.2)。
 - 第一切片只学习“哪些消息能一起切”：保留 system/tools、最近完整 user turn，以及完整的 assistant tool call → tool result 组合；不调用模型、不改 Session 格式、不引入向量库、长期 Memory、分支摘要、Provider 原生 opaque compaction 或自动重试。
 
 ## 本轮目标（CompactionPlan v0）
@@ -190,6 +192,14 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 首次压缩输入为旧 turns；重复压缩输入为 `previous cumulative summary + newly old turns`，输出覆盖为一份新累计摘要。正常 Context 仍只投影最新摘要、retained tail 和新增消息。
 - `keep_recent_tokens` 可显式覆盖仅用于确定性/真实集成测试；实际运行默认继续使用 Provider `input_limit` 的动态八分之一策略。
 - 本轮加入低成本真实 DeepSeek 全链路验证，但尚未让 Agent Loop 根据 `ContextBudget` 自动调用 `compact_session()`，也不暴露 `/compact`。
+
+## 本轮目标（Automatic Compaction Trigger v0）
+
+- Agent Loop 在每次主模型请求前构造 checkpoint-aware `ModelContext` 并计算预算；只有 `needs_attention` 为真才调用 `compact_session()`，普通短会话不增加摘要 API 调用。
+- 成功后更新 Loop 内存中的 checkpoint，重新构造并重新计量本轮请求；主模型不会先收到超限旧上下文。
+- 成功发出 `context_compacted` 观察事件，记录压缩前后估算 tokens；若无完整旧 turn 可压缩，或压缩后仍接近预算，则保留 `context_warning`。
+- 单个超大回合的 split-turn、摘要失败降级和 Provider 超限后的 retry 暂缓；自动触发只尝试一次，避免 compaction thrashing。
+- 触发编排使用小窗口确定性 Provider smoke，因为用真实 DeepSeek 1M 窗口强行触发需要构造约 87 万 tokens，属于明显高成本例外；摘要 API 与 checkpoint 全链路已经由上一切片的真实 DeepSeek 测试覆盖。
 
 ## 当前假设
 
@@ -340,7 +350,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `ModelContext` smoke 能确认 system/developer 前缀、工具 schema 和动态消息尾部被正确拆分；输入列表在构造后变化不会污染请求快照。
 - `run_agent(FakeProvider)` 传入的请求能还原为 system 消息在前、历史消息顺序不变，tools 列表与 Registry schema 一致。
 - `context_budget_smoke.py` 能验证输入估算、输出预留、剩余预算、超限判断和 `context_warning` 的终端提示。
-- 短请求不会增加额外提示；接近或超过预算时只发出警告，仍继续调用 Provider，不自动修改消息。
+- 短请求不会增加额外提示或摘要调用；接近或超过预算时先尝试自动压缩，无法压缩或压缩后仍接近上限时才发出警告。
 - `model_usage_smoke.py` 能验证 DeepSeek 流式最后一个空 `choices` chunk 的 usage 被转换并传到 `ModelResponse`，缓存命中/未命中字段不丢失。
 - `run_agent(FakeProvider)` 在收到 usage 后发出 `model_usage` 观察事件，但保存的 assistant message 不包含 usage 字段。
 - `DeepSeekProvider` 的 Agent Loop 预算使用 1,000,000 context window 与 32,768 output reserve；缺少 Provider 元数据的 FakeProvider 才使用通用 fallback。
@@ -374,7 +384,7 @@ git diff --check
 
 ## 最近验证
 
-- 日期：2026-08-24
+- 日期：2026-08-25
 - 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；大彩色字/Windows 段落流式修复已在 `28ce5fc` 提交、推送；本轮高分辨率紧凑 Logo smoke 已通过，待提交。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
@@ -417,3 +427,4 @@ git diff --check
 - `compacted_model_context_smoke=passed`：纯投影和实际 Agent Loop 均验证 system 在前、累计摘要注入、retained tail 与 checkpoint 后新消息保留、旧消息不发送、tools 不变、原始 Session 列表不修改；既有 Checkpoint、AgentEvent、ModelContext 与编译验证继续通过。Fake Provider 仅用于无网络的 Loop 投影隔离，不替代任何需要验证的真实 API 行为。
 - `compact_session_smoke=passed`：首次绝对切点、retained tail、无旧 turn 不调用 Provider、重复压缩传入旧累计摘要、旧原文不重复进入摘要和 checkpoint replace 均通过；既有 Checkpoint、Summary、投影与编译验证继续通过。
 - `live_compact_session=passed`：真实 `deepseek-v4-flash` 使用 774 input tokens / 283 output tokens，完成 Plan → ToolResult 摘要副本截断 → 结构化 Markdown → 原子 checkpoint 全链路；`first_retained_index=5`、recent turn 完整保留，临时 Session 未触碰真实 `sessions/latest.json`。
+- `auto_compaction_smoke=passed`：小窗口 Provider 验证 Agent Loop 只触发一次摘要、更新 checkpoint、重建主模型请求、删除旧原文投影并保留最近与当前 user turn；压缩后估算 tokens 下降。该测试只隔离自动触发编排，不替代上一轮真实 DeepSeek 摘要链路。
