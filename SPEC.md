@@ -63,6 +63,7 @@ Progressive SPEC, not a form.
 - 第五十三个可运行切片让 Agent Loop 使用有效 checkpoint 投影 `ModelContext`：稳定 system/developer 前缀保持在最前，累计摘要以低权限 user 消息注入，随后拼接 checkpoint retained tail 和 checkpoint 后追加的新消息；原始 Session 不改，`/reset` 清除 checkpoint。
 - 第五十四个可运行切片加入内部 `compact_session()`：把 ContextBudget、完整 turn 切分、摘要请求、真实 Provider 生成和 checkpoint 原子保存串成一次事务；无旧 turn 时不调用模型，重复压缩用旧累计摘要更新出一份新累计摘要。本轮不自动触发。
 - 第五十五个可运行切片把自动压缩接入 Agent Loop：主模型请求前若 `ContextBudget.needs_attention`，先尝试生成 checkpoint 并重建 `ModelContext`；没有可压缩旧回合或压缩后仍接近上限时才发出警告。本轮不做超限重试或 split-turn。
+- 第五十六个可运行切片加入大型 ToolResult 的模型投影：完整内容继续保存在原始 Session，正常主模型请求只接收首尾合计 16,000 字符和 `result_ref`；摘要模型的旧历史副本也改为首尾合计 4,000 字符。本轮不实现按 ID 重读工具。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -159,7 +160,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 
 - `CompactionSummaryRequest.from_messages()` 把 `CompactionPlan.messages_to_summarize` 转成一次全新的 `ModelContext`；摘要请求只有专用 system prompt 和一个承载历史资料的 user message，`tools=[]`，不会继续原 Agent Tool Loop。
 - 序列化结果显式区分 `[User]`、`[Assistant]`、`[Assistant tool calls]` 和 `[Tool result id=...]`，让摘要模型把旧消息当作资料而不是当前对话；工具名称、参数和 call id 保留。
-- 单个 ToolResult 最多进入摘要请求 4,000 字符，超出部分写明省略字符数；这只缩小摘要请求，原始 Session 和原 ToolResult 不修改。
+- 单个 ToolResult 最多以首尾合计 4,000 字符进入摘要请求，超出部分在中间写明省略字符数和 `result_ref`；这只缩小摘要请求，原始 Session 和原 ToolResult 不修改。
 - 摘要格式固定保留 Goal、约束、进度、关键决策、精确 ID、文件/产物、下一步和未决问题；支持可选 previous summary 与用户 focus，为后续重复压缩和 `/compact [focus]` 留出稳定接口。
 - 本轮属于纯本地数据变换，使用确定性 smoke 而非真实 API；下一切片调用 `provider.complete(request.context)` 时按用户规则直接验证真实 DeepSeek，不使用 Fake/Mock。
 
@@ -200,6 +201,15 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 成功发出 `context_compacted` 观察事件，记录压缩前后估算 tokens；若无完整旧 turn 可压缩，或压缩后仍接近预算，则保留 `context_warning`。
 - 单个超大回合的 split-turn、摘要失败降级和 Provider 超限后的 retry 暂缓；自动触发只尝试一次，避免 compaction thrashing。
 - 触发编排使用小窗口确定性 Provider smoke，因为用真实 DeepSeek 1M 窗口强行触发需要构造约 87 万 tokens，属于明显高成本例外；摘要 API 与 checkpoint 全链路已经由上一切片的真实 DeepSeek 测试覆盖。
+
+## 本轮目标（ToolResult Model Projection v0）
+
+- 区分两个边界：`summary-input projection` 只在压缩旧历史时服务摘要模型；`model-context projection` 在每次正常主模型请求前处理仍处于活动上下文中的大型 ToolResult。
+- `project_tool_results_for_model()` 深拷贝活动消息；普通主模型最多看到单个 ToolResult 的首尾合计 16,000 字符，中间标记省略字符数，并把现有 `tool_call_id` 暴露为稳定 `result_ref`。
+- 摘要输入沿用更紧的 4,000 字符预算，但从“只留开头”升级为首尾各半；终端日志尾部的 traceback 和最终状态不再必然丢失。
+- 原始 `AgentState.messages`、`sessions/latest.json` 和 checkpoint retained messages 都保存完整内容；ContextBudget 对真正发送的投影后请求计量。
+- 当前 marker 只能告诉模型完整结果仍在 Session，尚未提供 `read_tool_result(result_ref, offset, limit)`；ArtifactStore、Session 索引和按需重读留到下一独立切片。
+- 16,000/4,000 字符是 CreatorOS v0 的可解释启发式，不冒充行业统一标准；Pi、Claude Code 等共同采用旧工具输出裁剪/清理，但具体额度和保留首尾策略不同。
 
 ## 当前假设
 
@@ -428,3 +438,5 @@ git diff --check
 - `compact_session_smoke=passed`：首次绝对切点、retained tail、无旧 turn 不调用 Provider、重复压缩传入旧累计摘要、旧原文不重复进入摘要和 checkpoint replace 均通过；既有 Checkpoint、Summary、投影与编译验证继续通过。
 - `live_compact_session=passed`：真实 `deepseek-v4-flash` 使用 774 input tokens / 283 output tokens，完成 Plan → ToolResult 摘要副本截断 → 结构化 Markdown → 原子 checkpoint 全链路；`first_retained_index=5`、recent turn 完整保留，临时 Session 未触碰真实 `sessions/latest.json`。
 - `auto_compaction_smoke=passed`：小窗口 Provider 验证 Agent Loop 只触发一次摘要、更新 checkpoint、重建主模型请求、删除旧原文投影并保留最近与当前 user turn；压缩后估算 tokens 下降。该测试只隔离自动触发编排，不替代上一轮真实 DeepSeek 摘要链路。
+- `tool_result_projection_smoke=passed`：验证普通主模型投影保留首尾、省略量和 `result_ref`，短结果不变，`build_model_context()` 确实使用投影，同时原消息不被修改；摘要 smoke 验证 4,000 字符副本也保留首尾。
+- `live_tool_result_projection=passed`：真实 `deepseek-v4-flash` 通过 OpenAI-compatible Tool 消息接收投影后的 2,111 input tokens，并只用 12 output tokens 同时识别 `HEAD_MARKER` 与 `TAIL_MARKER`；本地完整 20,024 字符 ToolResult 保持不变。

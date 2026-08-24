@@ -6,6 +6,7 @@ from ..ai.context import (
     DEFAULT_RESERVE_OUTPUT_TOKENS,
     ContextBudget,
     ModelContext,
+    project_tool_results_for_model,
 )
 from ..ai.provider import ModelProvider
 from ..session.checkpoint import (
@@ -48,7 +49,10 @@ def compact_session(
     active_messages = (
         checkpoint.project_messages(raw_messages) if checkpoint else raw_messages
     )
-    active_context = ModelContext.from_messages(active_messages, tools)
+    active_context = ModelContext.from_messages(
+        project_tool_results_for_model(active_messages),
+        tools,
+    )
     context_budget = ContextBudget.from_context(
         active_context,
         context_window=(

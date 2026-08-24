@@ -9,7 +9,11 @@ from main import CompactionSummaryRequest as RootCompactionSummaryRequest
 
 def main():
     assert RootCompactionSummaryRequest is CompactionSummaryRequest
-    long_result = "x" * (MAX_SUMMARY_TOOL_RESULT_CHARS + 25)
+    long_result = (
+        "HEAD"
+        + "x" * (MAX_SUMMARY_TOOL_RESULT_CHARS + 17)
+        + "TAIL"
+    )
     messages = [
         {"role": "user", "content": "读取 SPEC.md"},
         {
@@ -41,8 +45,9 @@ def main():
     assert "[User]\n读取 SPEC.md" in prompt
     assert "read_file" in prompt and 'SPEC.md' in prompt
     assert "[Tool result id=call-1]" in prompt
-    assert "[summary-input truncated: 25 chars omitted" in prompt
-    assert "original result remains in session]" in prompt
+    assert "[summary-input projection: 25 chars omitted from middle" in prompt
+    assert "full result retained in session; result_ref=call-1]" in prompt
+    assert "HEAD" in prompt and "TAIL" in prompt
     assert long_result not in prompt
     assert "学习 Agent Runtime" in prompt
     assert "重点保留 Context 决策" in prompt

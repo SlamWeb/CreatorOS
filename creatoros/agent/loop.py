@@ -5,6 +5,7 @@ from ..ai.context import (
     DEFAULT_RESERVE_OUTPUT_TOKENS,
     ContextBudget,
     ModelContext,
+    project_tool_results_for_model,
 )
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
@@ -39,7 +40,8 @@ def build_model_context(
     active_messages = (
         checkpoint.project_messages(messages) if checkpoint else messages
     )
-    return ModelContext.from_messages(active_messages, tools)
+    projected_messages = project_tool_results_for_model(active_messages)
+    return ModelContext.from_messages(projected_messages, tools)
 
 
 def run_agent(

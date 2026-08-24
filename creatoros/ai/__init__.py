@@ -1,9 +1,12 @@
 from .context import (
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_RESERVE_OUTPUT_TOKENS,
+    MAX_MODEL_TOOL_RESULT_CHARS,
     ContextBudget,
     ModelContext,
     estimate_tokens,
+    project_tool_result_content,
+    project_tool_results_for_model,
 )
 from .deepseek import DeepSeekProvider
 from .provider import ModelProvider
@@ -24,6 +27,7 @@ __all__ = [
     "ContextBudget",
     "DEFAULT_CONTEXT_WINDOW",
     "DEFAULT_RESERVE_OUTPUT_TOKENS",
+    "MAX_MODEL_TOOL_RESULT_CHARS",
     "ModelContext",
     "ModelProvider",
     "ModelResponse",
@@ -36,4 +40,6 @@ __all__ = [
     "ToolCallDelta",
     "ToolCallEnd",
     "estimate_tokens",
+    "project_tool_result_content",
+    "project_tool_results_for_model",
 ]
