@@ -39,21 +39,40 @@ def main():
     empty_context = ModelContext.from_messages([], [])
     response = stream_llm(FakeProvider(), empty_context, console=console)
     console.render_event(AgentEvent("tool_call", {"name": "read_file"}))
-    console.render_event(AgentEvent("tool_result", {"content": "ok"}))
+    assert console._status is not None
+    assert console._active_tool_name == "read_file"
+    console.render_event(
+        AgentEvent(
+            "tool_result",
+            {"name": "read_file", "is_error": False, "error_type": None},
+        )
+    )
+    assert console._status is None
+    assert console._active_tool_name is None
 
     rendered = output.getvalue()
     assert response.content == "# CreatorOS\n\nRich output"
     assert "CreatorOS" in rendered
     assert "████" in rendered
     assert "Rich output" in rendered
-    assert "↳ read_file" in rendered
-    assert "✓ done · ok" in rendered
+    assert "正在调用 read_file" not in rendered
+    assert "✓ read_file" in rendered
+    assert "done · ok" not in rendered
     assert "[Tool call]" not in rendered
     assert "[Tool result]" not in rendered
     assert "learning build" not in rendered
     assert "┌" not in rendered
     assert "╭" not in rendered
     assert "\033[" not in rendered
+
+    console.render_event(AgentEvent("tool_call", {"name": "write_file"}))
+    console.render_event(
+        AgentEvent(
+            "tool_result",
+            {"name": "write_file", "is_error": True, "error_type": "file_exists"},
+        )
+    )
+    assert "✗ write_file · file_exists" in output.getvalue()
 
     output = StringIO()
     console = RichConsole(output=output)

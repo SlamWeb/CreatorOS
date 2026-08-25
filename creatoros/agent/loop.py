@@ -177,7 +177,17 @@ def run_agent(
                 for tool_call in response.tool_calls:
                     emit(AgentEvent("tool_call", {"name": tool_call.name}))
                     tool_result = execute_tool_call(tool_call, context=runtime_context)
-                    emit(AgentEvent("tool_result", {"content": tool_result.content}))
+                    emit(
+                        AgentEvent(
+                            "tool_result",
+                            {
+                                "name": tool_call.name,
+                                "content": tool_result.content,
+                                "is_error": tool_result.is_error,
+                                "error_type": tool_result.error_type,
+                            },
+                        )
+                    )
 
                     state.messages.append(
                         {

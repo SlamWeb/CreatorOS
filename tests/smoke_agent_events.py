@@ -52,7 +52,11 @@ def main():
     ]
     assert "思考中" in output.getvalue()
     assert "↳ get_current_time" in output.getvalue()
-    assert "✓ done ·" in output.getvalue()
+    assert "✓ get_current_time" in output.getvalue()
+    assert events[2].data["name"] == "get_current_time"
+    assert events[2].data["content"]
+    assert events[2].data["is_error"] is False
+    assert events[2].data["error_type"] is None
     assert "done" in output.getvalue()
     assert events[-1].data["input_tokens"] == 18
     first_messages, first_tools = provider.contexts[0].to_request()

@@ -108,8 +108,12 @@ class Console:
             text = f"  ↳ {event.data['name']}"
             self.write(self._style(text, _SLATE))
         elif event.kind == "tool_result":
-            text = f"  ✓ done · {event.data['content']}"
-            self.write(self._style(text, _GREEN))
+            name = event.data.get("name", "tool")
+            if event.data.get("is_error"):
+                error_type = event.data.get("error_type") or "failed"
+                self.write(self._style(f"  ✗ {name} · {error_type}", _YELLOW))
+            else:
+                self.write(self._style(f"  ✓ {name}", _GREEN))
         elif event.kind == "session_saved":
             self.write("\n[Session] 已保存当前会话。")
 
@@ -128,6 +132,7 @@ class RichConsole(Console):
             no_color=not self.use_color,
         )
         self._status = None
+        self._active_tool_name = None
         self._stream_buffer = ""
         self._streaming = False
 
@@ -199,17 +204,25 @@ class RichConsole(Console):
             )
         elif event.kind == "tool_call":
             self._stop_active()
-            self.rich.print(
-                f"  ↳ {event.data['name']}",
-                style="creatoros.tool",
+            self._active_tool_name = str(event.data["name"])
+            self._status = self.rich.status(
+                f"正在调用 {self._active_tool_name}",
+                spinner="dots",
+                spinner_style="creatoros.tool",
             )
+            self._status.start()
         elif event.kind == "tool_result":
-            self._stop_active()
-            self.rich.print(
-                f"  ✓ done · {event.data['content']}",
-                style="creatoros.success",
-                soft_wrap=True,
-            )
+            name = str(event.data.get("name") or self._active_tool_name or "tool")
+            self._stop_status()
+            self._active_tool_name = None
+            if event.data.get("is_error"):
+                error_type = event.data.get("error_type") or "failed"
+                self.rich.print(
+                    f"  ✗ {name} · {error_type}",
+                    style="creatoros.warning",
+                )
+            else:
+                self.rich.print(f"  ✓ {name}", style="creatoros.success")
         elif event.kind == "session_saved":
             self._stop_active()
             self.rich.print("\n[Session] 已保存当前会话。", style="dim")
