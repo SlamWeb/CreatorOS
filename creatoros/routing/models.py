@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -83,6 +83,22 @@ class AuthorRoutingProfile(RoutingModel):
     @property
     def can_use_perspective(self) -> bool:
         return self.status == "ready" and bool(self.perspective_prototypes)
+
+
+class RoutePrototypeDoc(RoutingModel):
+    """CreatorOS-owned, embedding-ready projection of one profile prototype."""
+
+    doc_id: str
+    author_id: str
+    prototype_id: str
+    prototype_type: Literal["domain", "perspective"]
+    label: str
+    embedding_text: str
+    confidence: float = Field(ge=0, le=1)
+    evidence_doc_ids: list[str]
+    corpus_version: str
+    embedding_model: str
+    embedding_dimension: int = Field(gt=0)
 
 
 class RoutingProfileEnvelope(RoutingModel):
