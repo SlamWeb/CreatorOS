@@ -65,6 +65,8 @@ Progressive SPEC, not a form.
 - 第五十五个可运行切片把自动压缩接入 Agent Loop：主模型请求前若 `ContextBudget.needs_attention`，先尝试生成 checkpoint 并重建 `ModelContext`；没有可压缩旧回合或压缩后仍接近上限时才发出警告。本轮不做超限重试或 split-turn。
 - 第五十六个可运行切片加入大型 ToolResult 的模型投影：完整内容继续保存在原始 Session，正常主模型请求只接收首尾合计 16,000 字符和 `result_ref`；摘要模型的旧历史副本也改为首尾合计 4,000 字符。本轮不实现按 ID 重读工具。
 - 第五十七个可运行切片加入 `read_tool_result`：模型可用投影 marker 中的 `result_ref` 在完整 Session 内精确找到对应 `role="tool"` 消息，并按字符分页读取未截断文本；本轮不引入 ArtifactStore 或数据库索引。
+- 第五十八个可运行切片接入知乎官方热榜：薄 HTTP Client 使用 Access Secret 和秒级时间戳读取结构化候选，Agent 只获得标题、链接、摘要与缩略图；本轮不评分、不路由。
+- 第五十九个可运行切片接入知乎官方站内搜索：`search_zhihu(query, count)` 返回问题、回答和文章的最小结构化投影，为热榜候选补充作者、互动量、摘要与原文来源；本轮不接 CLI、MCP 或自动选题。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -452,3 +454,4 @@ git diff --check
 - `read_tool_result_smoke=passed`：精确 result_ref、角色隔离、字符分页、next_offset、16,000 上限、找不到/越界错误、Registry schema 和 Session 原文不变均通过。
 - `live_read_tool_result=passed`：真实 `deepseek-v4-flash` 先看到省略 marker，再调用 `read_tool_result(result_ref="call-source", offset=8950, limit=200)` 取回中间验证码并完成回答；两次请求合计 11,302 input / 88 output tokens，临时 Session 未触碰真实 `sessions/latest.json`。
 - 当前本地 `D:\CreatorOS\sessions\latest.json` 含 18 条消息和 3 条未截断 `role="tool"` 文本结果；该文件被 `.gitignore` 排除，不提交 GitHub。
+- `zhihu_search_smoke=passed`：官方 Query/Count 请求、字段投影、Registry schema 和空查询拒绝通过；既有热榜、ModelContext、AgentEvent 与编译验证继续通过。真实无凭证探测返回官方 `Code=20001`，本机尚未配置 `ZHIHU_ACCESS_SECRET`，因此没有伪造真实成功结果。

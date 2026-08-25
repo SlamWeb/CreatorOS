@@ -14,9 +14,10 @@ from .models import (
     ReadToolResultArgs,
     WriteFileArgs,
     ZhihuHotListArgs,
+    ZhihuSearchArgs,
 )
 from .personclone import add_author, ask_author, list_authors
-from .zhihu import get_zhihu_hot_list
+from .zhihu import get_zhihu_hot_list, search_zhihu
 
 
 class Tool:
@@ -108,6 +109,12 @@ tool_registry = {
             description="从知乎官方开放平台读取当前结构化热榜，作为选题候选，不负责判断是否值得追。",
             execute=get_zhihu_hot_list,
             args_model=ZhihuHotListArgs,
+        ),
+        Tool(
+            name="search_zhihu",
+            description="通过知乎官方开放平台搜索问题、回答和文章，为热点补充社区观点与原文来源。",
+            execute=search_zhihu,
+            args_model=ZhihuSearchArgs,
         ),
     ]
 }

@@ -83,3 +83,19 @@ class ZhihuHotListArgs(BaseModel):
         le=30,
         description="返回多少条知乎热榜候选，默认 10，最多 30。",
     )
+
+
+class ZhihuSearchArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    query: str = Field(
+        min_length=1,
+        max_length=100,
+        description="要在知乎站内搜索的具体关键词或问题。",
+    )
+    count: int = Field(
+        default=10,
+        ge=1,
+        le=10,
+        description="返回多少条搜索结果，默认 10，最多 10。",
+    )

@@ -10,7 +10,12 @@ from ..config import (
     ZHIHU_OPENAPI_BASE_URL,
     ZHIHU_TIMEOUT_SECONDS,
 )
-from ..discovery import HotListSnapshot, HotTopic
+from ..discovery import (
+    HotListSnapshot,
+    HotTopic,
+    ZhihuSearchItem,
+    ZhihuSearchSnapshot,
+)
 
 
 class ZhihuOpenAPIError(RuntimeError):
@@ -115,6 +120,75 @@ class ZhihuOpenAPIClient:
             topics=topics,
         )
 
+    def search(self, query: str, count: int = 10) -> ZhihuSearchSnapshot:
+        query = query.strip()
+        if not query:
+            raise ValueError("知乎搜索 query 不能为空。")
+        if len(query) > 100:
+            raise ValueError("知乎搜索 query 最多 100 个字符。")
+        if not 1 <= count <= 10:
+            raise ValueError("知乎搜索 count 必须在 1 到 10 之间。")
+        if not self._access_secret:
+            raise ZhihuOpenAPIError(
+                "缺少 ZHIHU_ACCESS_SECRET，无法调用知乎官方搜索。",
+                error_type="zhihu_auth",
+            )
+
+        headers = {
+            "Authorization": f"Bearer {self._access_secret}",
+            "X-Request-Timestamp": str(int(time.time())),
+            "Content-Type": "application/json",
+        }
+        try:
+            response = self._http.get(
+                "/api/v1/content/zhihu_search",
+                params={"Query": query, "Count": count},
+                headers=headers,
+            )
+        except httpx.TimeoutException as error:
+            raise ZhihuOpenAPIError(
+                "知乎官方搜索请求超时。",
+                error_type="zhihu_timeout",
+                retryable=True,
+            ) from error
+        except httpx.RequestError as error:
+            raise ZhihuOpenAPIError(
+                f"无法连接知乎开放平台：{error}",
+                error_type="zhihu_unavailable",
+                retryable=True,
+            ) from error
+
+        payload = self._read_payload(response)
+        code = payload.get("Code")
+        if code != 0:
+            message = str(payload.get("Message") or "未知错误")
+            error_type = "zhihu_auth" if code == 20001 else "zhihu_api_error"
+            raise ZhihuOpenAPIError(
+                f"知乎开放平台返回错误：{message}",
+                error_type=error_type,
+                details={"code": code, "status_code": response.status_code},
+            )
+
+        data = payload.get("Data")
+        if not isinstance(data, dict) or not isinstance(data.get("Items"), list):
+            raise ZhihuOpenAPIError(
+                "知乎官方搜索返回的数据结构无效。",
+                error_type="zhihu_protocol_error",
+            )
+
+        items = tuple(
+            self._parse_search_item(item)
+            for item in data["Items"]
+            if isinstance(item, dict)
+        )
+        return ZhihuSearchSnapshot(
+            query=query,
+            search_hash_id=self._string(data.get("SearchHashId")),
+            has_more=data.get("HasMore") is True,
+            empty_reason=self._string(data.get("EmptyReason")),
+            items=items,
+        )
+
     @staticmethod
     def _read_payload(response: httpx.Response) -> dict[str, Any]:
         if response.status_code == 429 or response.status_code >= 500:
@@ -128,12 +202,12 @@ class ZhihuOpenAPIClient:
             payload = response.json()
         except ValueError as error:
             raise ZhihuOpenAPIError(
-                "知乎官方热榜返回的不是 JSON。",
+                "知乎开放平台返回的不是 JSON。",
                 error_type="zhihu_protocol_error",
             ) from error
         if not isinstance(payload, dict):
             raise ZhihuOpenAPIError(
-                "知乎官方热榜返回的 JSON 不是 object。",
+                "知乎开放平台返回的 JSON 不是 object。",
                 error_type="zhihu_protocol_error",
             )
         return payload
@@ -156,3 +230,40 @@ class ZhihuOpenAPIClient:
             summary=summary if isinstance(summary, str) else "",
             thumbnail_url=thumbnail_url if isinstance(thumbnail_url, str) else "",
         )
+
+    @classmethod
+    def _parse_search_item(cls, item: dict[str, Any]) -> ZhihuSearchItem:
+        title = item.get("Title")
+        url = item.get("Url")
+        if not isinstance(title, str) or not isinstance(url, str):
+            raise ZhihuOpenAPIError(
+                "知乎官方搜索条目缺少 Title 或 Url。",
+                error_type="zhihu_protocol_error",
+            )
+        return ZhihuSearchItem(
+            title=title,
+            content_type=cls._string(item.get("ContentType")),
+            content_id=cls._string(item.get("ContentID")),
+            content_text=cls._string(item.get("ContentText")),
+            url=url,
+            author_name=cls._string(item.get("AuthorName")),
+            vote_up_count=cls._integer(item.get("VoteUpCount")),
+            comment_count=cls._integer(item.get("CommentCount")),
+            edit_time=cls._integer(item.get("EditTime")),
+            authority_level=cls._string(item.get("AuthorityLevel")),
+            ranking_score=cls._number(item.get("RankingScore")),
+        )
+
+    @staticmethod
+    def _string(value: Any) -> str:
+        return value if isinstance(value, str) else ""
+
+    @staticmethod
+    def _integer(value: Any) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    @staticmethod
+    def _number(value: Any) -> float:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return 0.0
