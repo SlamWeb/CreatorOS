@@ -9,6 +9,7 @@ from .models import (
     RoutingProfileEnvelope,
     VectorRef,
 )
+from .embedding import BGEEmbeddingProvider, EmbeddedRoutePrototype, EmbeddingError
 
 __all__ = [
     "AuthorRoutingProfile",
@@ -18,4 +19,7 @@ __all__ = [
     "RoutingEvidence",
     "RoutingProfileEnvelope",
     "VectorRef",
+    "BGEEmbeddingProvider",
+    "EmbeddedRoutePrototype",
+    "EmbeddingError",
 ]
