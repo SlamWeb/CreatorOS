@@ -6,12 +6,14 @@ from typing import Any, Iterator
 from urllib.parse import quote
 
 import httpx
+from pydantic import ValidationError
 
 from ..config import (
     PERSONCLONE_BASE_URL,
     PERSONCLONE_SESSION_COOKIE,
     PERSONCLONE_TIMEOUT_SECONDS,
 )
+from ..routing import RoutingProfileEnvelope
 
 PERSONCLONE_SESSION_COOKIE_NAME = "personaforge_session"
 
@@ -76,14 +78,22 @@ class PersonCloneClient:
         response = self._request("GET", "/api/personas", operation="列出作者")
         return self._json_object(response, "作者列表")
 
-    def get_routing_profile(self, author: str) -> dict[str, Any]:
+    def get_routing_profile(self, author: str) -> RoutingProfileEnvelope:
         encoded_author = quote(author, safe="")
         response = self._request(
             "GET",
             f"/api/personas/{encoded_author}/routing-profile",
             operation="获取作者路由画像",
         )
-        return self._json_object(response, "作者路由画像")
+        payload = self._json_object(response, "作者路由画像")
+        try:
+            return RoutingProfileEnvelope.model_validate(payload)
+        except ValidationError as error:
+            raise PersonCloneError(
+                "PersonClone 作者路由画像不符合 CreatorOS 数据合同。",
+                error_type="personclone_protocol_error",
+                details={"validation_errors": error.errors()},
+            ) from error
 
     def add_author(
         self,

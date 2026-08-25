@@ -70,6 +70,7 @@ Progressive SPEC, not a form.
 - 第六十个可运行切片收敛工具状态栏：Rich 在工具执行期间只在底部单行动态显示“正在调用 tool_name”，完成后清除状态并只在正文保留一条简洁结果；完整 ToolResult 仍发送模型并保存 Session。
 - 第六十一个可运行切片开始消费 PersonClone 作者路由画像：`PersonCloneClient.get_routing_profile(author)` 只通过正式 GET API 和既有登录 Cookie 读取画像；本轮不注册 LLM Tool、不触发 rebuild、不访问 PersonClone 本地文件或 Qdrant，也不实现作者排序。
 - 项目学习资料新增 `creatoros-search-routing-guide.pdf`：用 13 页区分当前已实现的热榜/搜索/画像接口与尚待实现的 HotspotBrief、CreatorOS 路由索引、双通道召回和 LLM 重排，并整理 12 个面试高频问答；文档不把目标设计误写成完成项。
+- 第六十二个可运行切片把 routing profile 接口响应解析为严格 Pydantic 模型：`RoutingProfileEnvelope` 包含 `AuthorRoutingProfile`，画像下再拆分 domain/perspective prototype、evidence 与不透明 `VectorRef`；本轮不实现索引、向量召回或 LLM 重排。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -262,6 +263,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - PersonClone 默认地址为 `http://127.0.0.1:8000`，可用 `PERSONCLONE_BASE_URL` 覆盖；请求超时由 `PERSONCLONE_TIMEOUT_SECONDS` 控制。
 - PersonClone 的认证 Cookie 名为 `personaforge_session`，CreatorOS 只从 `PERSONCLONE_SESSION_COOKIE` 读取 Cookie 值；不会读取、打印或提交会话数据库和密钥。
 - PersonClone 路由画像正式来源仅为 HTTP API；`vector_ref` 是不透明引用且受 `corpus_version` 约束，CreatorOS 当前不自行解析或连接其底层 collection。
+- Routing profile Pydantic 使用 `strict=True`、`extra="forbid"`；`field`、`claim_id`、`excerpt` 按真实响应允许为 null，`can_use_domain` 与 `can_use_perspective` 根据 profile.status 提供只读能力判断。
 - `add_author` 返回的是 PersonClone 的异步 job，不等于作者已经完成索引；`list_authors` 是当前最小的完成状态/选择入口，任务轮询留到后续切片。
 - PersonClone 实例服务已通过真实 HTTP `/health` 探测；未提供会话 Cookie 时，真实 `/api/personas` 返回 401，这是预期认证边界，不把它误判为服务离线。
 - 长任务不能仅凭“还没有结果”判断卡住：必须同时观察任务阶段、最近 heartbeat 和绝对 deadline；排队阶段可长时间没有 heartbeat，运行阶段才使用 heartbeat 超时。
@@ -366,6 +368,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
 - PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
 - PersonClone smoke 能验证路由画像 GET 路径、ready/corpus_version 字段读取，并确认它复用同一 `personaforge_session` Cookie。
+- `smoke_routing_models.py` 验证 ready/domain_ready 能力、可空 evidence 字段和额外字段拒绝；`smoke_personclone.py` 验证 HTTP Client 返回 `RoutingProfileEnvelope` 而不是未解析的 dict。
 - `personclone_auth_helper_smoke=passed`：本地登录助手能安全更新 `.env` 中的 Cookie 键并保留其他配置，不测试或保存真实凭证。
 - `smoke_personclone_tools.py` 使用 Fake Client 验证 Agent ToolCall、Pydantic 参数解析、三个 PersonClone Tool 和 ToolResult 的完整接线，不需要登录或真实 API。
 - `smoke_task_state.py` 验证排队任务不因没有 heartbeat 被误判、运行任务 heartbeat 超时进入 `stalled`、deadline 超时进入 `deadline_exceeded`，以及终态不再被误判为活动任务。
@@ -474,3 +477,5 @@ git diff --check
 - 2026-08-26 PersonClone 服务启动后真实复验通过：CreatorOS 使用本地 Cookie 列出 7 位作者，并逐个通过正式 GET 获取画像；7 份 profile 均为 `ready`，合计 83 个 domain prototypes、37 个 perspective prototypes，统一声明 `BAAI/bge-m3`、1024 维且各自带 corpus_version。
 - 真实响应形状确认：envelope 为 `status + profile`；domain/perspective evidence 均额外包含 `claim_id`、`excerpt`、`field`、`source_method`，vector_ref 字段与接口约定一致。下一步 Pydantic 模型以真实 wire shape 为准，不从 PersonClone 文件或 Qdrant 补数据。
 - `pdf_validation=passed`：搜索与作者匹配学习手册为 13 页 A4，已逐页渲染检查封面、流程图、表格、公式、面试问答与页脚；Pypdf/pdfplumber 复验页数、元数据、文本和页面边界，无异常替换字符或内容截断。
+- `routing_models_smoke=passed`、`personclone_smoke=passed`：严格模型、可空 evidence、状态能力属性、HTTP 边界解析和全包编译均通过。
+- `real_routing_models=passed`：本地登录态下 7 位作者的真实 routing profile 全部解析为 Pydantic；7 份均为 `ready`，83 个 domain 与 37 个 perspective prototypes 的计数和之前原始 JSON 验收一致。

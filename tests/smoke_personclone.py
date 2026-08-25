@@ -3,6 +3,7 @@ import json
 import httpx
 
 from creatoros.integrations.personclone import PersonCloneClient
+from creatoros.routing import RoutingProfileEnvelope
 from creatoros.tools import tool_registry
 
 
@@ -33,8 +34,16 @@ def main():
                 json={
                     "status": "reused",
                     "profile": {
+                        "schema_version": 1,
                         "author_id": "alice",
+                        "display_name": "Alice",
+                        "source": "zhihu",
+                        "generated_at": "2026-08-26T00:00:00Z",
+                        "config_hash": "config-v1",
                         "status": "ready",
+                        "embedding_model": "BAAI/bge-m3",
+                        "embedding_dimension": 1024,
+                        "qdrant_collection": "creator_routing_profiles",
                         "corpus_version": "corpus-v1",
                         "domain_prototypes": [],
                         "perspective_prototypes": [],
@@ -76,8 +85,10 @@ def main():
         assert personas["personas"][0]["author"] == "alice"
 
         routing = client.get_routing_profile("alice")
-        assert routing["profile"]["status"] == "ready"
-        assert routing["profile"]["corpus_version"] == "corpus-v1"
+        assert isinstance(routing, RoutingProfileEnvelope)
+        assert routing.profile.status == "ready"
+        assert routing.profile.corpus_version == "corpus-v1"
+        assert not routing.profile.can_use_domain
 
         job = client.add_author(
             "https://www.zhihu.com/people/alice",
