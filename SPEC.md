@@ -470,3 +470,5 @@ git diff --check
 - 真实 DeepSeek CLI 验收：模型真实请求 `get_current_time`，执行期使用瞬时底部状态，完成后正文只保留 `✓ get_current_time` 和一次最终回答；完整结果仍写入本地忽略的 Session。
 - `personclone_smoke=passed`：新增路由画像 GET 契约验证，确认 `/api/personas/alice/routing-profile`、ready 状态、corpus_version 与既有 Cookie 复用。
 - 2026-08-26 真实 PersonClone 复验未完成：`http://127.0.0.1:8000` 当前返回 WinError 10061（无服务监听），请求尚未进入认证或画像接口；不得据此宣称真实画像链路已经通过。
+- 2026-08-26 PersonClone 服务启动后真实复验通过：CreatorOS 使用本地 Cookie 列出 7 位作者，并逐个通过正式 GET 获取画像；7 份 profile 均为 `ready`，合计 83 个 domain prototypes、37 个 perspective prototypes，统一声明 `BAAI/bge-m3`、1024 维且各自带 corpus_version。
+- 真实响应形状确认：envelope 为 `status + profile`；domain/perspective evidence 均额外包含 `claim_id`、`excerpt`、`field`、`source_method`，vector_ref 字段与接口约定一致。下一步 Pydantic 模型以真实 wire shape 为准，不从 PersonClone 文件或 Qdrant 补数据。
