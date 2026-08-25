@@ -20,7 +20,7 @@ Progressive SPEC, not a form.
 - 官方接口参数使用 `Limit`，第一版限制为 1～30 条。
 - 搜索接口使用 `Query/Count`，query 限制 1～100 字符，count 限制 1～10 条。
 - Access Secret 只从 `ZHIHU_ACCESS_SECRET` 读取，不进入代码、日志、ToolResult 或 Git。
-- 当前本机没有该凭证；允许用 `MockTransport` 验证纯适配逻辑，但真实成功链路必须在配置凭证后补验收。
+- 本机已通过被 Git 忽略的 `.env` 配置 Access Secret；凭证只用于真实请求，不输出、不进入 ToolResult 或提交。
 
 ## 对外影响
 
@@ -59,4 +59,6 @@ git diff --check
 - `model_context_smoke=passed`、`agent_events_smoke=passed`：新增 Tool 没有破坏模型上下文投影或 Agent 事件闭环。
 - `python -m compileall -q main.py creatoros tests/smoke_zhihu_hot_list.py tests/smoke_zhihu_search.py` 通过。
 - 真实搜索端点探测：未带 Access Secret 请求 `/api/v1/content/zhihu_search`，HTTP 200 内返回 `Code=20001, Message=Authorization failed`，与客户端错误映射一致。
-- 尚缺真实成功结果：本机仍没有 `ZHIHU_ACCESS_SECRET`；配置后应立即各运行一次低成本热榜和搜索验收。
+- 真实 `get_zhihu_hot_list(5)` 通过：返回 5 条当前话题，包含标题、知乎问题链接、长摘要和缩略图。
+- 真实 `search_zhihu("AI Agent", 5)` 通过：混合返回 Article/Answer，作者、互动量、权威等级、排序分数、内容摘要和带 OpenAPI 溯源参数的原文链接均成功映射。
+- 真实数据观察：`ContentText` 可能很长，且正文内部可能保留作者原本写错的 URL；后续事实来源应优先使用搜索条目的顶层 `url`，正文只作为候选摘要素材。现有大型 ToolResult 投影会限制下一次模型请求大小，完整结果仍保存在 Session。
