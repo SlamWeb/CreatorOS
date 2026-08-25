@@ -69,6 +69,7 @@ Progressive SPEC, not a form.
 - 第五十九个可运行切片接入知乎官方站内搜索：`search_zhihu(query, count)` 返回问题、回答和文章的最小结构化投影，为热榜候选补充作者、互动量、摘要与原文来源；本轮不接 CLI、MCP 或自动选题。
 - 第六十个可运行切片收敛工具状态栏：Rich 在工具执行期间只在底部单行动态显示“正在调用 tool_name”，完成后清除状态并只在正文保留一条简洁结果；完整 ToolResult 仍发送模型并保存 Session。
 - 第六十一个可运行切片开始消费 PersonClone 作者路由画像：`PersonCloneClient.get_routing_profile(author)` 只通过正式 GET API 和既有登录 Cookie 读取画像；本轮不注册 LLM Tool、不触发 rebuild、不访问 PersonClone 本地文件或 Qdrant，也不实现作者排序。
+- 项目学习资料新增 `creatoros-search-routing-guide.pdf`：用 13 页区分当前已实现的热榜/搜索/画像接口与尚待实现的 HotspotBrief、CreatorOS 路由索引、双通道召回和 LLM 重排，并整理 12 个面试高频问答；文档不把目标设计误写成完成项。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -472,3 +473,4 @@ git diff --check
 - 2026-08-26 真实 PersonClone 复验未完成：`http://127.0.0.1:8000` 当前返回 WinError 10061（无服务监听），请求尚未进入认证或画像接口；不得据此宣称真实画像链路已经通过。
 - 2026-08-26 PersonClone 服务启动后真实复验通过：CreatorOS 使用本地 Cookie 列出 7 位作者，并逐个通过正式 GET 获取画像；7 份 profile 均为 `ready`，合计 83 个 domain prototypes、37 个 perspective prototypes，统一声明 `BAAI/bge-m3`、1024 维且各自带 corpus_version。
 - 真实响应形状确认：envelope 为 `status + profile`；domain/perspective evidence 均额外包含 `claim_id`、`excerpt`、`field`、`source_method`，vector_ref 字段与接口约定一致。下一步 Pydantic 模型以真实 wire shape 为准，不从 PersonClone 文件或 Qdrant 补数据。
+- `pdf_validation=passed`：搜索与作者匹配学习手册为 13 页 A4，已逐页渲染检查封面、流程图、表格、公式、面试问答与页脚；Pypdf/pdfplumber 复验页数、元数据、文本和页面边界，无异常替换字符或内容截断。
