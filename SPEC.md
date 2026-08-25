@@ -68,6 +68,7 @@ Progressive SPEC, not a form.
 - 第五十八个可运行切片接入知乎官方热榜：薄 HTTP Client 使用 Access Secret 和秒级时间戳读取结构化候选，Agent 只获得标题、链接、摘要与缩略图；本轮不评分、不路由。
 - 第五十九个可运行切片接入知乎官方站内搜索：`search_zhihu(query, count)` 返回问题、回答和文章的最小结构化投影，为热榜候选补充作者、互动量、摘要与原文来源；本轮不接 CLI、MCP 或自动选题。
 - 第六十个可运行切片收敛工具状态栏：Rich 在工具执行期间只在底部单行动态显示“正在调用 tool_name”，完成后清除状态并只在正文保留一条简洁结果；完整 ToolResult 仍发送模型并保存 Session。
+- 第六十一个可运行切片开始消费 PersonClone 作者路由画像：`PersonCloneClient.get_routing_profile(author)` 只通过正式 GET API 和既有登录 Cookie 读取画像；本轮不注册 LLM Tool、不触发 rebuild、不访问 PersonClone 本地文件或 Qdrant，也不实现作者排序。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -107,6 +108,13 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 认证只通过本地环境变量 `PERSONCLONE_SESSION_COOKIE` 传递，不把会话值写入仓库；PersonClone 当前若返回 401，统一转换为 `personclone_auth`，不自动猜测或保存账号密码。
 - `scripts/configure_personclone_auth.py` 是一次性本地配置助手；密码只在终端输入和 HTTP 请求内存中短暂存在，脚本不会打印密码或 Cookie，也不会自动提交 `.env`。
 - 验收边界是“能列出/选择作者、能提交添加作者、能向已索引作者提问”；热点发现、自动选题、批量创作和发布属于后续业务切片。
+
+## 本轮目标（PersonClone Routing Profile 只读边界）
+
+- 在既有 `PersonCloneClient` 增加 `GET /api/personas/{author}/routing-profile`，复用同一 HTTP Session 的 Cookie、超时与错误映射。
+- 作者标识先做 URL 编码；响应暂按 JSON object 原样返回，下一切片再用实际响应校准 Pydantic 模型与 ready/domain-only/pending 状态。
+- 路由画像属于 Creator Routing 的内部数据，不直接注册成 LLM Tool，避免把整份画像无条件塞进模型上下文。
+- CreatorOS 不调用管理员 rebuild，不读取 `routing_profile.json`、`narrative_schema.json` 或 PersonClone Qdrant；404 继续使用现有 `personclone_not_found` 错误边界。
 
 ## 本轮目标（异步任务状态最小切片）
 
@@ -252,6 +260,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - Rich 的输出使用 `markup=False`，避免模型回答或工具结果中的 `[text]` 被误解释为 Rich 标记。
 - PersonClone 默认地址为 `http://127.0.0.1:8000`，可用 `PERSONCLONE_BASE_URL` 覆盖；请求超时由 `PERSONCLONE_TIMEOUT_SECONDS` 控制。
 - PersonClone 的认证 Cookie 名为 `personaforge_session`，CreatorOS 只从 `PERSONCLONE_SESSION_COOKIE` 读取 Cookie 值；不会读取、打印或提交会话数据库和密钥。
+- PersonClone 路由画像正式来源仅为 HTTP API；`vector_ref` 是不透明引用且受 `corpus_version` 约束，CreatorOS 当前不自行解析或连接其底层 collection。
 - `add_author` 返回的是 PersonClone 的异步 job，不等于作者已经完成索引；`list_authors` 是当前最小的完成状态/选择入口，任务轮询留到后续切片。
 - PersonClone 实例服务已通过真实 HTTP `/health` 探测；未提供会话 Cookie 时，真实 `/api/personas` 返回 401，这是预期认证边界，不把它误判为服务离线。
 - 长任务不能仅凭“还没有结果”判断卡住：必须同时观察任务阶段、最近 heartbeat 和绝对 deadline；排队阶段可长时间没有 heartbeat，运行阶段才使用 heartbeat 超时。
@@ -355,6 +364,7 @@ CreatorOS 按“先 Runtime、再接入业务边界、最后产品闭环”的�
 - 文件缺失、路径越界、参数错误和未知工具结果分别带有稳定的 `error_type`；异常详情至少包含验证错误或异常类名。
 - `ToolResult` 的 `details` 不会被自动拼进模型消息，避免把内部诊断和未来的原始终端输出无限扩大到上下文。
 - PersonClone smoke 能验证 `list_authors`、`add_author`、`ask_author` 的注册 schema、请求路径、Cookie、异步 job 响应和 SSE `done.answer` 提取；不会伪造真实生成成功。
+- PersonClone smoke 能验证路由画像 GET 路径、ready/corpus_version 字段读取，并确认它复用同一 `personaforge_session` Cookie。
 - `personclone_auth_helper_smoke=passed`：本地登录助手能安全更新 `.env` 中的 Cookie 键并保留其他配置，不测试或保存真实凭证。
 - `smoke_personclone_tools.py` 使用 Fake Client 验证 Agent ToolCall、Pydantic 参数解析、三个 PersonClone Tool 和 ToolResult 的完整接线，不需要登录或真实 API。
 - `smoke_task_state.py` 验证排队任务不因没有 heartbeat 被误判、运行任务 heartbeat 超时进入 `stalled`、deadline 超时进入 `deadline_exceeded`，以及终态不再被误判为活动任务。
@@ -458,3 +468,5 @@ git diff --check
 - `zhihu_search_smoke=passed`：官方 Query/Count 请求、字段投影、Registry schema 和空查询拒绝通过；既有热榜、ModelContext、AgentEvent 与编译验证继续通过。真实无凭证探测返回官方 `Code=20001`，本机尚未配置 `ZHIHU_ACCESS_SECRET`，因此没有伪造真实成功结果。
 - `rich_console_smoke=passed` 和 `agent_events_smoke=passed`：工具开始时底部 Status 存在并记住工具名，结束后清理；终端只保留 `✓ tool_name`，`tool_result` 事件仍保留完整 `content`、错误标记和工具名。
 - 真实 DeepSeek CLI 验收：模型真实请求 `get_current_time`，执行期使用瞬时底部状态，完成后正文只保留 `✓ get_current_time` 和一次最终回答；完整结果仍写入本地忽略的 Session。
+- `personclone_smoke=passed`：新增路由画像 GET 契约验证，确认 `/api/personas/alice/routing-profile`、ready 状态、corpus_version 与既有 Cookie 复用。
+- 2026-08-26 真实 PersonClone 复验未完成：`http://127.0.0.1:8000` 当前返回 WinError 10061（无服务监听），请求尚未进入认证或画像接口；不得据此宣称真实画像链路已经通过。

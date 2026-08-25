@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any, Iterator
+from urllib.parse import quote
 
 import httpx
 
@@ -74,6 +75,15 @@ class PersonCloneClient:
     def list_personas(self) -> dict[str, Any]:
         response = self._request("GET", "/api/personas", operation="列出作者")
         return self._json_object(response, "作者列表")
+
+    def get_routing_profile(self, author: str) -> dict[str, Any]:
+        encoded_author = quote(author, safe="")
+        response = self._request(
+            "GET",
+            f"/api/personas/{encoded_author}/routing-profile",
+            operation="获取作者路由画像",
+        )
+        return self._json_object(response, "作者路由画像")
 
     def add_author(
         self,

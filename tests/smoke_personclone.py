@@ -27,6 +27,21 @@ def main():
                 },
                 request=request,
             )
+        if request.method == "GET" and request.url.path == "/api/personas/alice/routing-profile":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "reused",
+                    "profile": {
+                        "author_id": "alice",
+                        "status": "ready",
+                        "corpus_version": "corpus-v1",
+                        "domain_prototypes": [],
+                        "perspective_prototypes": [],
+                    },
+                },
+                request=request,
+            )
         if request.method == "POST" and request.url.path == "/api/author-jobs":
             body = json.loads(request.content)
             assert body == {"author": "https://www.zhihu.com/people/alice", "kinds": ["answer"]}
@@ -59,6 +74,10 @@ def main():
     try:
         personas = client.list_personas()
         assert personas["personas"][0]["author"] == "alice"
+
+        routing = client.get_routing_profile("alice")
+        assert routing["profile"]["status"] == "ready"
+        assert routing["profile"]["corpus_version"] == "corpus-v1"
 
         job = client.add_author(
             "https://www.zhihu.com/people/alice",
