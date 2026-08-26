@@ -485,3 +485,18 @@ git diff --check
 - `real_routing_models=passed`：本地登录态下 7 位作者的真实 routing profile 全部解析为 Pydantic；7 份均为 `ready`，83 个 domain 与 37 个 perspective prototypes 的计数和之前原始 JSON 验收一致。
 - `real_routing_projection=passed`：本地登录态下 7 位作者投影出 120 个 `RoutePrototypeDoc`，domain/perspective 两类均存在且 corpus_version 与画像一致；当前 deepcode 环境没有 sentence-transformers、torch、numpy 或 qdrant-client，因此本轮没有伪造 embedding 或索引成功。
 - `live_routing_embedding=passed`：本地 Hugging Face cache 中已有 BAAI/bge-m3；deepcode 离线加载成功，真实 7 位作者的 120 个 RoutePrototypeDoc 全部生成 1024 维归一化向量，未重新下载模型、未连接 Qdrant。
+
+## 本轮目标（domain-only 热点路由）
+
+- 不引入 perspective、回答爬取、回答聚类或 Qdrant；先用知乎热榜的 `Title + Summary` 作为领域查询文本。
+- `BGEEmbeddingProvider` 增加批量 `embed_texts` 和单条 `embed_text`，与已有画像原型使用同一个本地 BGE-M3 模型。
+- `build_domain_query` 只做标题/介绍的清洗与有上限拼接，不调用 LLM，避免模型自由改写热点语义。
+- `rank_domain_matches` 只比较 `prototype_type == "domain"`，按每个作者所有领域原型的最大 cosine similarity 排名；perspective 原型暂时忽略。
+- 当前路由结果仅作为候选召回，不代表最终选题；搜索 API 只在候选热点被选中后按需调用。
+
+## 本轮验证（domain-only 热点路由）
+
+- `domain_routing_smoke=passed`：标题/摘要查询拼接、空摘要、作者级最大相似度、perspective 过滤、top-k 和维度错误均通过。
+- `live_domain_routing=passed`：真实知乎热榜 5 条、真实 PersonClone 7 位作者的 83 个 domain prototypes，经本地缓存 BGE-M3 生成查询向量并完成 Top-3 作者排序；未调用回答爬虫、LLM 或 Qdrant。
+- `live_routing_embedding=passed`：重构后的批量编码仍能处理 120 个 domain/perspective RoutePrototypeDoc，输出 1024 维归一化向量。
+- 观察：domain-only 会把“网络热点事件杂谈”等宽泛原型排在前面，因此当前结果是召回候选，不作为最终作者决策；后续质量问题再引入阈值、领域层级或 perspective。

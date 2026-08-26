@@ -62,3 +62,15 @@ git diff --check
 - 真实 `get_zhihu_hot_list(5)` 通过：返回 5 条当前话题，包含标题、知乎问题链接、长摘要和缩略图。
 - 真实 `search_zhihu("AI Agent", 5)` 通过：混合返回 Article/Answer，作者、互动量、权威等级、排序分数、内容摘要和带 OpenAPI 溯源参数的原文链接均成功映射。
 - 真实数据观察：`ContentText` 可能很长，且正文内部可能保留作者原本写错的 URL；后续事实来源应优先使用搜索条目的顶层 `url`，正文只作为候选摘要素材。现有大型 ToolResult 投影会限制下一次模型请求大小，完整结果仍保存在 Session。
+
+## 本轮目标（domain-only 路由）
+
+- 暂不为热点生成 perspective，也不抓取或逐条 embedding 回答。
+- 使用 `HotTopic.title + HotTopic.summary` 形成有上限的领域查询文本，交给已有本地 BGE-M3。
+- 搜索 API 只在领域召回后的候选热点阶段按需调用，且同一热点可被多个作者复用搜索结果。
+
+## 本轮验证（domain-only 路由）
+
+- `domain_routing_smoke=passed`：查询文本、作者级最大 cosine、prototype 类型过滤和 top-k 通过。
+- `live_domain_routing=passed`：真实热榜 5 条与真实 PersonClone 7 位作者画像完成 83 个 domain prototypes 的内存排序；没有网页爬取、回答 embedding、LLM 或 Qdrant。
+- 当前结果只表示领域候选召回；宽泛的“热点事件”原型可能排名靠前，最终选题暂不在本切片解决。

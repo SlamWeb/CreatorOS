@@ -10,6 +10,7 @@ from .models import (
     VectorRef,
 )
 from .embedding import BGEEmbeddingProvider, EmbeddedRoutePrototype, EmbeddingError
+from .domain import DomainMatch, build_domain_query, rank_domain_matches
 
 __all__ = [
     "AuthorRoutingProfile",
@@ -22,4 +23,7 @@ __all__ = [
     "BGEEmbeddingProvider",
     "EmbeddedRoutePrototype",
     "EmbeddingError",
+    "DomainMatch",
+    "build_domain_query",
+    "rank_domain_matches",
 ]
