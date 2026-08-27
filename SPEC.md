@@ -528,3 +528,15 @@ git diff --check
 ## 本轮验证（CLI 菜单导航）
 
 - `cli_menu_smoke=passed`：主菜单、作者目录、作者详情、返回/退出和 Agent 回调入口通过；无边框断言通过。
+
+## 本轮目标（上下键菜单）
+
+- 用 `prompt_toolkit` 为菜单增加 ↑/↓、Enter、Esc 和 q 操作；Agent 对话仍沿用 Rich Console。
+- 菜单选择期间允许局部重绘，退出菜单后继续保留正文单向追加和底部状态栏原则。
+- 非 TTY 或测试环境自动回退为数字输入，不改变无交互验证方式。
+
+## 本轮验证（上下键菜单）
+
+- `cli_menu_smoke=passed`：数字回退路径、作者目录、详情页、返回/退出和 Agent 回调通过。
+- 真实入口启动后立即结束通过；真实 PersonClone 作者目录仍返回 7 位作者。
+- `prompt_toolkit` 已加入 `requirements.txt`，本轮不引入 Textual。

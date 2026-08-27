@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from rich.text import Text
 
+from .menu_input import MenuSelect
 from .terminal import Console, RichConsole
 
 
@@ -31,6 +32,7 @@ class CreatorOSMenu:
         self.console = console
         self.authors_loader = authors_loader
         self.agent_runner = agent_runner
+        self.selector = MenuSelect(console)
 
     def run(self) -> None:
         screen = "home"
@@ -78,22 +80,16 @@ class CreatorOSMenu:
         self._heading("CreatorOS  ·  运营控制台")
         self._write("当前：作者矩阵 / 热点路由 / Agent Runtime", "creatoros.secondary")
         self._write("")
-        self._write("目录", "creatoros.logo.violet")
-        self._write("  1  今日运营")
-        self._write("  2  作者矩阵")
-        self._write("  3  热点雷达")
-        self._write("  4  运行记录")
-        self._write("  5  Agent 对话")
-        self._write("  q  退出", "creatoros.secondary")
-        choice = self._choice("选择操作 › ")
-        return {
-            "1": "today",
-            "2": "authors",
-            "3": "radar",
-            "4": "history",
-            "5": "chat",
-            "q": "quit",
-        }.get(choice, "invalid")
+        choice = self.selector.choose(
+            "目录",
+            ("今日运营", "作者矩阵", "热点雷达", "运行记录", "Agent 对话"),
+            escape_result="q",
+        )
+        if choice == "q":
+            return "quit"
+        if isinstance(choice, int):
+            return ("today", "authors", "radar", "history", "chat")[choice]
+        return "invalid"
 
     def _authors(
         self,
@@ -102,24 +98,19 @@ class CreatorOSMenu:
         self._heading("CreatorOS / 作者矩阵")
         if not authors:
             self._write("暂无可用作者。请先在 PersonClone 中添加作者。", "creatoros.warning")
-        else:
-            for index, author in enumerate(authors, start=1):
-                self._write(
-                    f"  {index}  {author.display_name}  "
-                    f"{author.author_id}  ·  {author.status}"
-                )
         self._write("")
-        self._write("输入作者编号进入详情，b 返回，q 退出", "creatoros.secondary")
-        choice = self._choice("选择作者 › ")
-        if choice == "b":
+        labels = tuple(
+            f"{author.display_name}  {author.author_id}  ·  {author.status}"
+            for author in authors
+        )
+        choice = self.selector.choose("选择作者", labels, escape_result="back")
+        if choice == "back":
             return "back"
         if choice == "q":
             return "quit"
-        if choice.isdigit():
-            index = int(choice) - 1
-            if 0 <= index < len(authors):
-                return authors[index]
-        self._notice("无效的作者编号。", warning=True)
+        if isinstance(choice, int):
+            return authors[choice]
+        self._notice("无效的作者选择。", warning=True)
         return "stay"
 
     def _author_detail(self, author: AuthorSummary | None) -> str:
@@ -129,20 +120,19 @@ class CreatorOSMenu:
         self._write(f"作者：{author.display_name}")
         self._write(f"状态：{author.status}  ·  推荐模式：{author.recommended_writer_prompt}")
         self._write("")
-        self._write("  1  热点队列")
-        self._write("  2  常青队列")
-        self._write("  3  实验队列")
-        self._write("  4  查看作者画像")
-        self._write("  b  返回    q  退出", "creatoros.secondary")
-        choice = self._choice("选择入口 › ")
-        if choice == "b":
+        choice = self.selector.choose(
+            "选择入口",
+            ("热点队列", "常青队列", "实验队列", "查看作者画像"),
+            escape_result="back",
+        )
+        if choice == "back":
             return "back"
         if choice == "q":
             return "quit"
-        if choice in {"1", "2", "3", "4"}:
-            self._placeholder(f"author_detail_{choice}")
+        if isinstance(choice, int):
+            self._placeholder(f"author_detail_{choice + 1}")
         else:
-            self._notice("无效的入口编号。", warning=True)
+            self._notice("无效的入口选择。", warning=True)
         return "stay"
 
     def _placeholder(self, action: str) -> None:
@@ -164,12 +154,6 @@ class CreatorOSMenu:
 
     def _notice(self, message: str, *, warning: bool = False) -> None:
         self._write(("⚠ " if warning else "◇ ") + message, "creatoros.warning" if warning else "creatoros.secondary")
-
-    def _choice(self, prompt: str) -> str:
-        try:
-            return self.console.prompt(prompt).strip().lower()
-        except EOFError:
-            return "q"
 
     def _write(self, message: str, style: str | None = None) -> None:
         if isinstance(self.console, RichConsole) and style:
