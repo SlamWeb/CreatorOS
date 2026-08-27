@@ -84,6 +84,10 @@ def add_author(
                 "kind": "author_index",
                 "author": job.get("author") or author,
                 "status": status,
+                "stage": job.get("stage"),
+                "label": job.get("label"),
+                "updated_at": job.get("updated_at"),
+                "error_message": job.get("error_message"),
             },
         )
 

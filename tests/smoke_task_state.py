@@ -33,6 +33,24 @@ def main():
 
     state = AgentState(messages=[], tasks={record.task_id: record})
     assert state.tasks["job-1"].status is TaskStatus.TIMED_OUT
+
+    remote_state = AgentState(messages=[])
+    remote = remote_state.register_remote_task(
+        task_id="job-2",
+        kind="author_index",
+        remote_status="running",
+        progress="正在生成作者领域画像",
+    )
+    assert remote.status is TaskStatus.RUNNING
+    assert remote.progress == "正在生成作者领域画像"
+    remote_state.register_remote_task(
+        task_id="job-2",
+        kind="author_index",
+        remote_status="ready",
+        progress="作者已就绪",
+    )
+    assert remote.status is TaskStatus.COMPLETED
+    assert remote.result_ref == "job-2"
     print("task_state_smoke=passed")
 
 

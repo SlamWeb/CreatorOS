@@ -211,6 +211,30 @@ def run_agent(
                         )
                     )
 
+                    task_id = tool_result.details.get("task_id")
+                    if tool_call.name == "add_author" and isinstance(task_id, str) and task_id:
+                        task = state.register_remote_task(
+                            task_id=task_id,
+                            kind=str(tool_result.details.get("kind") or "external"),
+                            remote_status=str(tool_result.details.get("status") or "queued"),
+                            progress=(
+                                tool_result.details.get("label")
+                                or tool_result.details.get("stage")
+                            ),
+                            error=tool_result.details.get("error_message"),
+                        )
+                        emit(
+                            AgentEvent(
+                                "task_updated",
+                                {
+                                    "task_id": task.task_id,
+                                    "kind": task.kind,
+                                    "status": task.status.value,
+                                    "progress": task.progress,
+                                },
+                            )
+                        )
+
                     state.messages.append(
                         {
                             "role": "tool",

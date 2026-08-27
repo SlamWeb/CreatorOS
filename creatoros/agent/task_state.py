@@ -102,6 +102,40 @@ class TaskRecord:
         self.error = self.error or "任务超过允许的最大运行时间。"
         self.updated_at = current
 
+    def sync_remote_status(
+        self,
+        remote_status: str,
+        *,
+        progress: str | None = None,
+        error: str | None = None,
+        result_ref: str | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Map one PersonClone-style status update into local task state."""
+        if self.status.is_terminal:
+            return
+        current = now or utc_now()
+        if progress:
+            self.progress = progress
+        if remote_status == "queued":
+            self.status = TaskStatus.QUEUED
+            self.updated_at = current
+        elif remote_status == "running":
+            if self.status is TaskStatus.QUEUED:
+                self.mark_running(now=current)
+            else:
+                self.heartbeat(progress=progress, now=current)
+        elif remote_status == "ready":
+            self.complete(result_ref=result_ref, now=current)
+        elif remote_status == "failed":
+            self.fail(error or "远端任务失败。", now=current)
+        elif remote_status == "cancelled":
+            self.cancel(now=current)
+        elif remote_status == "interrupted":
+            self.fail(error or "远端任务被中断。", now=current)
+        else:
+            raise ValueError(f"未知的远端任务状态：{remote_status}")
+
     def health(
         self,
         *,

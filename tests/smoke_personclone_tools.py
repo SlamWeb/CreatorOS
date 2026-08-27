@@ -78,6 +78,10 @@ def main():
         "kind": "author_index",
         "author": "alice",
         "status": "queued",
+        "stage": None,
+        "label": None,
+        "updated_at": None,
+        "error_message": None,
     }
     assert answer.content == "Alice 的回答"
     assert answer.details["trace_id"] == "trace-1"
