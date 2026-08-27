@@ -76,6 +76,7 @@ Progressive SPEC, not a form.
 - 第六十五个可运行切片打磨菜单型 CLI 外观：主页改为“运营工作台”产品文案，菜单项补充业务入口说明，作者目录显示接入数量，箭头菜单统一使用低饱和紫色选中态；本轮不改变 Agent、Tool 或业务数据流。
 - 第六十六个可运行切片收紧主页品牌文案：主页标题只保留 `CreatorOS`，移除“运营工作台”和“工作区”等额外中文标题；菜单结构、箭头交互和业务入口说明保持不变。
 - 第六十七个可运行切片继续收紧主页：移除菜单页的小号 CreatorOS 标题和业务链路副标题；给 `prompt_toolkit` 菜单窗口隐藏文本光标，避免光标默认停在第一个 `↑` 上造成“被选中”的白色方块；大 Logo、真正的 `❯` 选中标记和菜单交互保持不变。
+- 第六十八个可运行切片补齐 Agent 菜单返回和最小会话壳：进入 Agent 前显示命令提示，支持 `/help`、`/menu`、`/reset` 和 `/exit`，其中 `/menu` 与 `/exit` 返回上一级菜单；空输入不发给模型。本轮不引入 transcript 全屏查看、后台任务或新的模型语义。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -428,7 +429,7 @@ git diff --check
 ## 最近验证
 
 - 日期：2026-08-25
-- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；大彩色字/Windows 段落流式修复已在 `28ce5fc` 提交、推送；菜单导航已在 `bc70db4`、`f862ba5` 提交、推送；运营工作台菜单 polish 已在 `3789572` 提交、推送；主页文案收紧已在 `e652d79` 提交、推送；本轮菜单光标与主页留白 smoke 已通过，待提交。
+- 状态：最小 AgentState、ToolResult 和模型内容投影已通过既有 smoke；MaxTurnGuard 默认值调整已完成验证并在 `8483c13` 提交、推送；`502b9d7` 已记录“不实现通用 RepetitionGuard”；`read_file` 敏感路径/大小 Guardrail 已在 `f187fa4` 提交、推送；RuntimeContext 已在 `5182cd2` 提交、推送；终端启动画面已在 `b8bf0e6` 提交、推送；Console 适配层已在 `bf8b136` 提交、推送；AgentEvent 已在 `d584da9` 提交、推送；状态渲染已在 `86e9e86` 提交、推送；Rich Console 已在 `bd86ccf` 提交、推送；大彩色字/Windows 段落流式修复已在 `28ce5fc` 提交、推送；菜单导航已在 `bc70db4`、`f862ba5` 提交、推送；运营工作台菜单 polish 已在 `3789572` 提交、推送；主页文案收紧已在 `e652d79` 提交、推送；菜单光标与主页留白已在 `5f4e9f2` 提交、推送；本轮 Agent 页面与返回命令 smoke 已通过，待提交。
 - `conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros` 通过。
 - `tool_result_smoke=passed`：成功读取、文件不存在、Pydantic 参数错误和未知工具均返回结构化 `ToolResult`。
 - `compat_smoke=passed`：根入口 `main.read_file`、`main.get_current_date` 等兼容函数仍返回字符串，`main.execute_tool_call` 暴露 `ToolResult`。

@@ -68,8 +68,15 @@ def run_agent(
         while True:
             user_input = console.prompt()
 
-            if user_input == "/exit":
+            if user_input in {"/menu", "/exit"}:
                 break
+
+            if user_input in {"/help", "?"}:
+                console.write("/menu 返回菜单  ·  /reset 清空会话  ·  /exit 返回菜单")
+                continue
+
+            if not user_input.strip():
+                continue
 
             if user_input == "/reset":
                 state = AgentState(messages=new_messages())
