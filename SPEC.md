@@ -79,6 +79,7 @@ Progressive SPEC, not a form.
 - 第六十八个可运行切片补齐 Agent 菜单返回和最小会话壳：进入 Agent 前显示命令提示，支持 `/help`、`/menu`、`/reset` 和 `/exit`，其中 `/menu` 与 `/exit` 返回上一级菜单；空输入不发给模型。本轮不引入 transcript 全屏查看、后台任务或新的模型语义。
 - 第六十九个可运行切片加入 Agent 的 slash command palette：TTY 下使用 `prompt_toolkit` 在输入 `/` 时提供带描述的命令补全并支持前缀过滤；Agent 页面只提示输入 `/`，新增 `/context` 展示当前请求的估算上下文、模型窗口、输出预留和剩余预算；不把估算冒充 Provider 真实 usage，也不改变模型调用语义。
 - 第七十个可运行切片收紧 Agent 页面：移除每次进入对话都会重复出现的 `CreatorOS / Agent` 标题和分隔线，只保留一次简短的任务/命令提示；slash command palette、Agent Loop 和返回菜单语义不变。
+- 第七十一个可运行切片收敛终端视觉：全局颜色改为低饱和雾青、灰紫、鼠尾草和纸金；slash command palette 使用近黑底色和柔和选中态；`/context` 改为一行环形 glyph + `已用 / 可用输入上限`，不再展开窗口、输出预留和剩余预算明细。本轮不改变补全命令和预算计算语义。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。

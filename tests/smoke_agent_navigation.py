@@ -49,7 +49,10 @@ def main():
     assert provider.calls == 0
     rendered = output.getvalue()
     assert "/context  查看当前上下文使用量" in rendered
-    assert "上下文：约" in rendered
+    assert "◌ 上下文" in rendered
+    assert "tokens · estimate" in rendered
+    assert "窗口 1,000,000" not in rendered
+    assert "输出预留" not in rendered
     print("agent_navigation_smoke=passed")
 
 

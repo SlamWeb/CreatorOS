@@ -19,7 +19,14 @@ _GLYPHS = {
     "O": ("0011100", "0111110", "1100011", "1100011", "1100011", "1100011", "1100011", "1100011", "0111110", "0011100"),
     "S": ("0111111", "1111111", "1100000", "1100000", "0111110", "0011111", "0000011", "0000011", "1111111", "1111110"),
 }
-_BANNER_ANSI = ["\033[96m", "\033[94m", "\033[95m", "\033[93m", "\033[92m"]
+# A muted palette keeps the fallback renderer close to the Rich theme.
+_BANNER_ANSI = [
+    "\033[38;2;159;200;199m",  # mist teal
+    "\033[38;2;167;183;211m",  # dusty periwinkle
+    "\033[38;2;194;173;208m",  # soft violet
+    "\033[38;2;216;200;150m",  # parchment gold
+    "\033[38;2;158;199;174m",  # sage green
+]
 _BANNER_RICH_STYLES = (
     "creatoros.logo.cyan",
     "creatoros.logo.blue",
@@ -30,24 +37,37 @@ _BANNER_RICH_STYLES = (
 _RESET = "\033[0m"
 _PROMPT = "❯ "
 _SPINNER_FRAMES = ("◌", "◍", "◎", "●")
-_CYAN = "\033[36m"
-_SLATE = "\033[90m"
-_GREEN = "\033[32m"
-_YELLOW = "\033[33m"
+_CYAN = "\033[38;2;197;180;216m"
+_SLATE = "\033[38;2;161;154;170m"
+_GREEN = "\033[38;2;168;207;181m"
+_YELLOW = "\033[38;2;221;196;142m"
+
+_CONTEXT_RING = ("◌", "◔", "◑", "◕", "●")
+
+
+def context_ring(input_tokens: int, input_limit: int) -> str:
+    """Return a small progress glyph for the current context usage."""
+    if input_limit <= 0:
+        return _CONTEXT_RING[0]
+    ratio = max(0.0, min(1.0, input_tokens / input_limit))
+    index = min(len(_CONTEXT_RING) - 1, int(ratio * len(_CONTEXT_RING)))
+    return _CONTEXT_RING[index]
 
 _RICH_THEME = Theme(
     {
-        "creatoros.logo.cyan": "bold #22d3ee",
-        "creatoros.logo.blue": "bold #60a5fa",
-        "creatoros.logo.violet": "bold #c084fc",
-        "creatoros.logo.pink": "bold #f472b6",
-        "creatoros.logo.yellow": "bold #fde047",
-        "creatoros.logo.green": "bold #4ade80",
-        "creatoros.prompt": "#7dd3fc",
-        "creatoros.thinking": "dim #94a3b8",
-        "creatoros.tool": "dim #94a3b8",
-        "creatoros.success": "#86efac",
-        "creatoros.warning": "#fcd34d",
+        "creatoros.logo.cyan": "bold #9fc8c7",
+        "creatoros.logo.blue": "bold #a7b7d3",
+        "creatoros.logo.violet": "bold #c2add0",
+        "creatoros.logo.pink": "bold #d0acc1",
+        "creatoros.logo.yellow": "bold #d8c896",
+        "creatoros.logo.green": "bold #9ec7ae",
+        "creatoros.prompt": "#c5b4d8",
+        "creatoros.thinking": "dim #a19baa",
+        "creatoros.tool": "dim #a19baa",
+        "creatoros.success": "#a8cfb5",
+        "creatoros.warning": "#ddc48e",
+        "creatoros.context": "#c4b5d8",
+        "creatoros.context.value": "#d8c7e4",
         "creatoros.secondary": "dim",
     }
 )
@@ -73,6 +93,12 @@ class Console:
 
     def banner(self):
         print_banner(output=self.output)
+
+    def context_status(self, input_tokens: int, input_limit: int, measurement: str):
+        self.write(
+            f"{context_ring(input_tokens, input_limit)} 上下文 "
+            f"{input_tokens:,} / {input_limit:,} tokens · {measurement}"
+        )
 
     def _style(self, text, color):
         if not self.use_color:
@@ -155,11 +181,13 @@ class RichConsole(Console):
             complete_while_typing=True,
             style=Style.from_dict(
                 {
-                    "prompt": "#7dd3fc",
-                    "completion-menu.completion": "#cbd5e1",
-                    "completion-menu.completion.current": "bg:#ddd6fe #111827",
-                    "completion-menu.meta.completion": "#64748b",
-                    "completion-menu.meta.completion.current": "bg:#ddd6fe #111827",
+                    "prompt": "#c5b4d8",
+                    "completion-menu.completion": "bg:#1e1b22 #c9c0cf",
+                    "completion-menu.completion.current": "bg:#403747 #f0e7f5",
+                    "completion-menu.meta.completion": "bg:#1e1b22 #918898",
+                    "completion-menu.meta.completion.current": "bg:#403747 #d7c8df",
+                    "completion-menu.scrollbar": "bg:#1e1b22 #6e6575",
+                    "completion-menu.scrollbar.arrow": "bg:#1e1b22 #6e6575",
                 }
             ),
         )
@@ -209,6 +237,17 @@ class RichConsole(Console):
         text.rstrip()
         self.rich.print(text, soft_wrap=False)
         self.rich.print()
+
+    def context_status(self, input_tokens: int, input_limit: int, measurement: str):
+        self._stop_active()
+        line = Text.assemble(
+            (f"{context_ring(input_tokens, input_limit)} ", "creatoros.context"),
+            ("上下文 ", "creatoros.secondary"),
+            (f"{input_tokens:,}", "creatoros.context.value"),
+            (f" / {input_limit:,} tokens", "creatoros.secondary"),
+            (f" · {measurement}", "creatoros.secondary"),
+        )
+        self.rich.print(line, soft_wrap=True)
 
     def render_event(self, event: AgentEvent):
         if event.kind == "turn_start":

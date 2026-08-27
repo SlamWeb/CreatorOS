@@ -29,7 +29,13 @@ def main():
         return "hello"
 
     console = RichConsole(input_fn=fake_input, output=output)
-    for style_name in ("creatoros.logo.cyan", "creatoros.tool", "creatoros.success"):
+    for style_name in (
+        "creatoros.logo.cyan",
+        "creatoros.tool",
+        "creatoros.success",
+        "creatoros.context",
+        "creatoros.context.value",
+    ):
         assert console.rich.get_style(style_name)
     console.banner()
     assert console.prompt() == "hello"
@@ -73,6 +79,9 @@ def main():
         )
     )
     assert "✗ write_file · file_exists" in output.getvalue()
+
+    console.context_status(4236, 967232, "estimate")
+    assert "◌ 上下文 4,236 / 967,232 tokens · estimate" in output.getvalue()
 
     output = StringIO()
     console = RichConsole(output=output)

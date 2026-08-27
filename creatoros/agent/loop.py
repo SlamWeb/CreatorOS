@@ -47,15 +47,10 @@ def _context_budget_for(provider: ModelProvider, model_context: ModelContext):
 
 
 def _write_context_status(console: Console, budget: ContextBudget) -> None:
-    console.write(
-        "上下文：约 "
-        f"{budget.input_tokens:,} / {budget.input_limit:,} tokens"
-        f"（{budget.measurement}）"
-    )
-    console.write(
-        f"窗口 {budget.context_window:,}  ·  "
-        f"输出预留 {budget.reserve_output_tokens:,}  ·  "
-        f"剩余约 {max(0, budget.remaining_tokens):,}"
+    console.context_status(
+        budget.input_tokens,
+        budget.input_limit,
+        budget.measurement,
     )
 
 
