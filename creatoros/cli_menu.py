@@ -77,11 +77,11 @@ class CreatorOSMenu:
                     return
 
     def _home(self) -> str:
-        self._heading("CreatorOS  /  运营工作台")
+        self._heading("CreatorOS")
         self._write("热点发现  ·  作者路由  ·  内容生产  ·  发布", "creatoros.secondary")
         self._write("")
         choice = self.selector.choose(
-            "工作区",
+            "",
             (
                 "今日运营    热点与待办",
                 "作者矩阵    选择作者与队列",

@@ -40,7 +40,8 @@ class MenuSelect:
             self.console.write(f"  {index}  {option}")
         self.console.write("↑↓ 移动 · Enter 进入 · Esc 返回 · q 退出", end="")
         try:
-            raw = self.console.prompt(f"\n{title} › ").strip().lower()
+            prompt = f"\n{title} › " if title else "\n❯ "
+            raw = self.console.prompt(prompt).strip().lower()
         except EOFError:
             return "q"
         if raw == "q":
@@ -69,10 +70,10 @@ class MenuSelect:
         selected = 0
 
         def render() -> FormattedText:
-            fragments: list[tuple[str, str]] = [
-                ("class:title", f"{title}\n"),
-                ("class:hint", "↑↓ 移动 · Enter 进入 · Esc 返回 · q 退出\n\n"),
-            ]
+            fragments: list[tuple[str, str]] = []
+            if title:
+                fragments.append(("class:title", f"{title}\n"))
+            fragments.append(("class:hint", "↑↓ 移动 · Enter 进入 · Esc 返回 · q 退出\n\n"))
             for index, option in enumerate(options):
                 marker = "❯" if index == selected else " "
                 style = "class:selected" if index == selected else "class:option"
