@@ -9,6 +9,7 @@ from ..ai.context import (
 )
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
+from ..commands import render_command_help
 from ..session.checkpoint import (
     CompactionCheckpoint,
     clear_compaction_checkpoint,
@@ -30,6 +31,32 @@ def llm(
     context: ModelContext,
 ) -> ModelResponse:
     return provider.complete(context)
+
+
+def _context_budget_for(provider: ModelProvider, model_context: ModelContext):
+    return ContextBudget.from_context(
+        model_context,
+        context_window=(
+            getattr(provider, "context_window", None) or DEFAULT_CONTEXT_WINDOW
+        ),
+        reserve_output_tokens=(
+            getattr(provider, "reserve_output_tokens", None)
+            or DEFAULT_RESERVE_OUTPUT_TOKENS
+        ),
+    )
+
+
+def _write_context_status(console: Console, budget: ContextBudget) -> None:
+    console.write(
+        "上下文：约 "
+        f"{budget.input_tokens:,} / {budget.input_limit:,} tokens"
+        f"（{budget.measurement}）"
+    )
+    console.write(
+        f"窗口 {budget.context_window:,}  ·  "
+        f"输出预留 {budget.reserve_output_tokens:,}  ·  "
+        f"剩余约 {max(0, budget.remaining_tokens):,}"
+    )
 
 
 def build_model_context(
@@ -72,7 +99,19 @@ def run_agent(
                 break
 
             if user_input in {"/help", "?"}:
-                console.write("/menu 返回菜单  ·  /reset 清空会话  ·  /exit 返回菜单")
+                console.write(render_command_help())
+                continue
+
+            if user_input == "/context":
+                current_context = build_model_context(
+                    state.messages,
+                    tools,
+                    checkpoint,
+                )
+                _write_context_status(
+                    console,
+                    _context_budget_for(provider, current_context),
+                )
                 continue
 
             if not user_input.strip():
@@ -105,17 +144,7 @@ def run_agent(
                     tools,
                     checkpoint,
                 )
-                context_window = getattr(provider, "context_window", None)
-                reserve_output_tokens = getattr(
-                    provider, "reserve_output_tokens", None
-                )
-                context_budget = ContextBudget.from_context(
-                    model_context,
-                    context_window=context_window or DEFAULT_CONTEXT_WINDOW,
-                    reserve_output_tokens=(
-                        reserve_output_tokens or DEFAULT_RESERVE_OUTPUT_TOKENS
-                    ),
-                )
+                context_budget = _context_budget_for(provider, model_context)
                 if context_budget.needs_attention:
                     compacted = compact_session(
                         provider,
@@ -131,16 +160,7 @@ def run_agent(
                             tools,
                             checkpoint,
                         )
-                        context_budget = ContextBudget.from_context(
-                            model_context,
-                            context_window=(
-                                context_window or DEFAULT_CONTEXT_WINDOW
-                            ),
-                            reserve_output_tokens=(
-                                reserve_output_tokens
-                                or DEFAULT_RESERVE_OUTPUT_TOKENS
-                            ),
-                        )
+                        context_budget = _context_budget_for(provider, model_context)
                         emit(
                             AgentEvent(
                                 "context_compacted",

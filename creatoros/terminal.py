@@ -6,6 +6,7 @@ from rich.markdown import Markdown
 from rich.theme import Theme
 from rich.text import Text
 
+from .commands import AGENT_SLASH_COMMANDS
 from .events import AgentEvent
 
 _WORDMARK = "CREATOROS"
@@ -135,12 +136,54 @@ class RichConsole(Console):
         self._active_tool_name = None
         self._stream_buffer = ""
         self._streaming = False
+        self._prompt_session = None
 
     def prompt(self, text=_PROMPT):
-        if self.input_fn is input:
-            prompt = Text(text, style="creatoros.prompt")
-            return self.rich.input(prompt, markup=False, emoji=False)
+        if self.input_fn is input and self.use_color:
+            if self._prompt_session is None:
+                self._prompt_session = self._build_prompt_session()
+            return self._prompt_session.prompt(text)
         return super().prompt(text)
+
+    @staticmethod
+    def _build_prompt_session():
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.styles import Style
+
+        return PromptSession(
+            completer=RichConsole._build_slash_completer(),
+            complete_while_typing=True,
+            style=Style.from_dict(
+                {
+                    "prompt": "#7dd3fc",
+                    "completion-menu.completion": "#cbd5e1",
+                    "completion-menu.completion.current": "bg:#ddd6fe #111827",
+                    "completion-menu.meta.completion": "#64748b",
+                    "completion-menu.meta.completion.current": "bg:#ddd6fe #111827",
+                }
+            ),
+        )
+
+    @staticmethod
+    def _build_slash_completer():
+        from prompt_toolkit.completion import Completer, Completion
+        from prompt_toolkit.document import Document
+
+        class SlashCompleter(Completer):
+            def get_completions(self, document: Document, complete_event):
+                text = document.text_before_cursor
+                if not text.startswith("/") or " " in text:
+                    return
+                for command in AGENT_SLASH_COMMANDS:
+                    if command.name.startswith(text):
+                        yield Completion(
+                            command.name,
+                            start_position=-len(text),
+                            display=command.name,
+                            display_meta=command.description,
+                        )
+
+        return SlashCompleter()
 
     def write(self, text="", end="\n", flush=False):
         if self._status is not None and text:

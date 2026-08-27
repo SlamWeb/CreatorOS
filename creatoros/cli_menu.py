@@ -164,7 +164,7 @@ class CreatorOSMenu:
     def _agent_intro(self) -> None:
         self._heading("CreatorOS / Agent")
         self._write("直接输入任务，Agent 会在需要时调用工具。", "creatoros.secondary")
-        self._write("/menu 返回菜单  ·  /help 查看命令  ·  /reset 清空会话", "creatoros.secondary")
+        self._write("输入 / 查看命令  ·  ↑↓ 选择  ·  Ctrl+C 中断", "creatoros.secondary")
         self._write("")
 
     def _heading(self, title: str) -> None:
