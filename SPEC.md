@@ -547,3 +547,18 @@ git diff --check
 - `cli_menu_smoke=passed`：数字回退路径、作者目录、详情页、返回/退出和 Agent 回调通过。
 - 真实入口启动后立即结束通过；真实 PersonClone 作者目录仍返回 7 位作者。
 - `prompt_toolkit` 已加入 `requirements.txt`，本轮不引入 Textual。
+
+## 本轮审计（PersonClone 异步作者入库）
+
+- PersonClone 当前作者任务链路为 `queued → crawling → building → indexing → clustering → activating → ready`；画像在 staging 目录构建并校验通过后才激活，失败不会替换旧作者数据。
+- PersonClone 对外提供 `POST /api/author-jobs` 提交任务、`GET /api/author-jobs/{job_id}` 查询状态、`GET /api/personas/{author}/routing-profile` 读取正式画像；作者任务提交和查询需要管理员会话，画像读取需要协作者会话。
+- PersonClone 的工作树当前包含其他未提交的认证与 Web 改动，本轮只读审计，没有替它提交或推送；CreatorOS 不读取其本地语料、索引或 Qdrant。
+- CreatorOS 目前只能提交 `add_author` 并把内部任务句柄放在 `ToolResult.details`，尚未消费任务查询接口，也没有把 `AgentState.tasks` 与远端 job 生命周期接通。
+- 运行中的 PersonClone 服务真实返回 `/health=200`、作者任务列表 `200`、7 位作者和 ready 路由画像；历史任务的新增画像字段为 `null` 属于迁移前数据，不代表画像生成失败。
+- 发现的生产边界：PersonClone 当前只在阶段切换时更新 `updated_at`，长时间运行的 crawl/build/index/embedding 阶段没有独立 heartbeat 或进度百分比；CreatorOS 在实现轮询前不能仅凭长时间无变化判定任务卡死。
+
+## 本轮验证（PersonClone 异步作者入库）
+
+- PersonClone `pytest -q`：`246 passed`；作者任务和路由画像专项测试 `18 passed`。
+- CreatorOS 真实只读验证：`live_domain_routing=passed`（5 条热榜、7 位作者、83 个领域原型），`live_content_planning=passed`（7 位作者、5 条热点）；未触发新的爬取、生成或发布副作用。
+- 下一小步固定为：在 CreatorOS 增加 Pydantic `AuthorJobStatus` 和 `PersonCloneClient.get_author_job(job_id)`，先验证状态读取，再决定前台等待还是后台恢复；不在本轮直接把长任务塞进 LLM 调用。
