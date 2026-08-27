@@ -28,10 +28,10 @@ def main():
     assert "CreatorOS" in rendered
     assert "运营工作台" not in rendered
     assert "工作区" not in rendered
+    assert "热点发现  ·  作者路由  ·  内容生产  ·  发布" not in rendered
     assert "CreatorOS / 作者矩阵" in rendered
     assert "CreatorOS / 作者矩阵 / alice" in rendered
     assert "已接入 2 位作者" in rendered
-    assert "热点发现  ·  作者路由  ·  内容生产  ·  发布" in rendered
     assert "热点队列将在下一步接入" in rendered
     assert "常青队列" in rendered
     assert "实验队列" in rendered

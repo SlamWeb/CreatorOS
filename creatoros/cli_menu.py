@@ -77,9 +77,6 @@ class CreatorOSMenu:
                     return
 
     def _home(self) -> str:
-        self._heading("CreatorOS")
-        self._write("热点发现  ·  作者路由  ·  内容生产  ·  发布", "creatoros.secondary")
-        self._write("")
         choice = self.selector.choose(
             "",
             (

@@ -116,7 +116,12 @@ class MenuSelect:
                 event.app.exit(result="back")
 
         application = Application(
-            layout=Layout(Window(FormattedTextControl(render))),
+            layout=Layout(
+                Window(
+                    FormattedTextControl(render),
+                    always_hide_cursor=True,
+                )
+            ),
             key_bindings=bindings,
             full_screen=False,
             mouse_support=False,
