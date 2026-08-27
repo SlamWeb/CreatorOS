@@ -512,3 +512,8 @@ git diff --check
 
 - `content_planning_smoke=passed`：作者侧排序、Top-N、三队列空位、未知作者和输入校验通过。
 - `live_content_planning=passed`：真实知乎热榜、PersonClone 作者画像和本地缓存 BGE-M3 生成每位作者的 Top-3 热点队列；未调用生成或发布接口。
+
+## 本轮文档（README）
+
+- 根目录新增 `README.md`，公开说明项目定位、当前已实现边界、架构分层、环境变量、验证命令和后续路线。
+- README 明确区分已实现的 Runtime/路由/作者队列与尚待接入的生成、评审、发布、反馈和 Web 控制台，不把路线图写成完成项。
