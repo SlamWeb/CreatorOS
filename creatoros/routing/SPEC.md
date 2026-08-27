@@ -28,6 +28,11 @@
 - `real_routing_projection=passed`：真实登录态下 7 位作者投影出 120 个 `RoutePrototypeDoc`，domain/perspective 两类均存在，corpus_version 与画像一致；未调用 embedding 或 Qdrant。
 - `live_routing_embedding=passed`：真实 7 位作者画像投影出的 120 个文档通过本地缓存 BGE-M3 生成 1024 维归一化向量；未下载模型、未连接 Qdrant。
 
+## 与 Planning 的边界
+
+- `rank_domain_matches` 仍只负责单条热点的作者级候选召回。
+- `creatoros.planning` 负责把多条热点的分数矩阵反转为作者侧队列，不在 routing 层引入发布策略或日计划状态。
+
 ## 本轮目标（domain-only 查询与排序）
 
 - 增加 `build_domain_query(HotTopic)`，只保留热点标题和有上限的问题介绍，不让 LLM 改写领域语义。

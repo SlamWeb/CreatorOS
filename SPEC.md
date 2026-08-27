@@ -500,3 +500,15 @@ git diff --check
 - `live_domain_routing=passed`：真实知乎热榜 5 条、真实 PersonClone 7 位作者的 83 个 domain prototypes，经本地缓存 BGE-M3 生成查询向量并完成 Top-3 作者排序；未调用回答爬虫、LLM 或 Qdrant。
 - `live_routing_embedding=passed`：重构后的批量编码仍能处理 120 个 domain/perspective RoutePrototypeDoc，输出 1024 维归一化向量。
 - 观察：domain-only 会把“网络热点事件杂谈”等宽泛原型排在前面，因此当前结果是召回候选，不作为最终作者决策；后续质量问题再引入阈值、领域层级或 perspective。
+
+## 本轮目标（作者侧内容队列）
+
+- 将每条热点对每位作者的 domain Max Similarity 结果反转为作者侧候选队列。
+- 用 `ContentOpportunity` 表示一张热点候选卡片，用 `DailyPlan` 固定 `hot`、`evergreen`、`experiment` 三条队列。
+- 本轮只填充 `hot`，每位作者独立 Top-N；同一热点可以同时进入多个作者队列。
+- CLI 与网页暂时不实现，只先稳定共享的数据结构和排序结果。
+
+## 本轮验证（作者侧内容队列）
+
+- `content_planning_smoke=passed`：作者侧排序、Top-N、三队列空位、未知作者和输入校验通过。
+- `live_content_planning=passed`：真实知乎热榜、PersonClone 作者画像和本地缓存 BGE-M3 生成每位作者的 Top-3 热点队列；未调用生成或发布接口。
