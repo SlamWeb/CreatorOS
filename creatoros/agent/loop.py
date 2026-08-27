@@ -213,7 +213,7 @@ def run_agent(
 
                     task_id = tool_result.details.get("task_id")
                     if (
-                        tool_call.name in {"add_author", "get_author_job"}
+                        tool_call.name in {"add_author", "get_author_job", "wait_author_job"}
                         and isinstance(task_id, str)
                         and task_id
                     ):

@@ -10,6 +10,7 @@ from creatoros.tools.execution import execute_tool_call
 class FakePersonCloneClient:
     def __init__(self):
         self.closed = False
+        self.job_polls = 0
 
     def close(self):
         self.closed = True
@@ -31,6 +32,15 @@ class FakePersonCloneClient:
 
     def get_author_job(self, job_id):
         assert job_id == "job-1"
+        self.job_polls += 1
+        if self.job_polls > 1:
+            return AuthorJobStatus(
+                id="job-1",
+                author="alice",
+                status="ready",
+                stage="ready",
+                label="作者领域画像已就绪",
+            )
         return AuthorJobStatus(
             id="job-1",
             author="alice",
@@ -55,14 +65,26 @@ class FakePersonCloneClient:
         )
 
 
+class StuckPersonCloneClient(FakePersonCloneClient):
+    def get_author_job(self, job_id):
+        assert job_id == "job-1"
+        return AuthorJobStatus(
+            id="job-1",
+            author="alice",
+            status="running",
+            stage="indexing",
+            label="正在建立索引",
+        )
+
+
 def main():
     clients = []
+    shared_client = FakePersonCloneClient()
     previous_factory = personclone_tools._client_factory
 
     def factory():
-        client = FakePersonCloneClient()
-        clients.append(client)
-        return client
+        clients.append(shared_client)
+        return shared_client
 
     personclone_tools._client_factory = factory
     try:
@@ -76,6 +98,13 @@ def main():
         )
         refreshed = execute_tool_call(
             ToolCall("2b", "get_author_job", json.dumps({"job_id": "job-1"}))
+        )
+        waited = execute_tool_call(
+            ToolCall(
+                "2c",
+                "wait_author_job",
+                json.dumps({"job_id": "job-1", "timeout_seconds": 1}),
+            )
         )
         answer = execute_tool_call(
             ToolCall("3", "ask_author", json.dumps({"author": "alice", "question": "热点问题"}))
@@ -99,10 +128,26 @@ def main():
     }
     assert refreshed.content == "作者任务 job-1 当前状态：running/clustering。正在生成作者领域画像"
     assert refreshed.details["stage"] == "clustering"
+    assert waited.content == "作者任务 job-1 当前状态：ready/ready。作者领域画像已就绪"
+    assert waited.details["poll_count"] == 1
+    assert waited.details["timed_out"] is False
     assert answer.content == "Alice 的回答"
     assert answer.details["trace_id"] == "trace-1"
     assert all(client.closed for client in clients)
-    assert {"add_author", "get_author_job"}.issubset(tool_registry)
+    assert {"add_author", "get_author_job", "wait_author_job"}.issubset(tool_registry)
+
+    personclone_tools._client_factory = StuckPersonCloneClient
+    timed_out = execute_tool_call(
+        ToolCall(
+            "2d",
+            "wait_author_job",
+            json.dumps({"job_id": "job-1", "timeout_seconds": 1, "poll_interval_seconds": 0.1}),
+        )
+    )
+    personclone_tools._client_factory = previous_factory
+    assert timed_out.is_error
+    assert timed_out.error_type == "author_job_wait_timeout"
+    assert timed_out.details["timed_out"] is True
     print("personclone_tools_smoke=passed")
 
 

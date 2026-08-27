@@ -60,6 +60,24 @@ class GetAuthorJobArgs(BaseModel):
     job_id: str = Field(min_length=1, description="PersonClone 返回的作者入库任务句柄。")
 
 
+class WaitAuthorJobArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    job_id: str = Field(min_length=1, description="PersonClone 返回的作者入库任务句柄。")
+    timeout_seconds: int = Field(
+        default=600,
+        ge=1,
+        le=1_800,
+        description="最多在当前请求中等待多少秒，超时只停止等待，不代表远端任务失败。",
+    )
+    poll_interval_seconds: float = Field(
+        default=3.0,
+        ge=0.1,
+        le=30.0,
+        description="查询任务状态的间隔秒数，默认每 3 秒查询一次。",
+    )
+
+
 class AskAuthorArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 

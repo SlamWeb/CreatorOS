@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 
 from ..context import RuntimeContext
-from ..integrations.personclone import PersonCloneClient, PersonCloneError
+from ..integrations.personclone import AuthorJobStatus, PersonCloneClient, PersonCloneError
 from .models import AddAuthorArgs, AskAuthorArgs
 from .results import ToolResult
 
@@ -97,6 +98,49 @@ def add_author(
     return _run_with_client(operation)
 
 
+def _author_job_result(
+    job: AuthorJobStatus,
+    *,
+    poll_count: int = 1,
+    waited_seconds: float = 0.0,
+    timed_out: bool = False,
+) -> ToolResult:
+    status_text = f"{job.status}/{job.stage}"
+    if timed_out:
+        content = (
+            f"作者任务 {job.id} 仍在运行：{status_text}。"
+            f"已等待 {waited_seconds:.1f} 秒，已停止前台等待。"
+        )
+    else:
+        content = f"作者任务 {job.id} 当前状态：{status_text}。{job.label}"
+    if job.error_message:
+        content += f"错误：{job.error_message}"
+    return ToolResult(
+        content=content,
+        is_error=timed_out or job.status in {"failed", "cancelled", "interrupted"},
+        error_type=(
+            "author_job_wait_timeout"
+            if timed_out
+            else "personclone_job_failed"
+            if job.status == "failed"
+            else None
+        ),
+        details={
+            "task_id": job.id,
+            "kind": "author_index",
+            "author": job.author,
+            "status": job.status,
+            "stage": job.stage,
+            "label": job.label,
+            "updated_at": job.updated_at,
+            "error_message": job.error_message,
+            "poll_count": poll_count,
+            "waited_seconds": round(waited_seconds, 1),
+            "timed_out": timed_out,
+        },
+    )
+
+
 def get_author_job(
     job_id: str,
     context: RuntimeContext | None = None,
@@ -105,25 +149,41 @@ def get_author_job(
 
     def operation(client: PersonCloneClient) -> ToolResult:
         job = client.get_author_job(job_id)
-        status_text = f"{job.status}/{job.stage}"
-        content = f"作者任务 {job.id} 当前状态：{status_text}。{job.label}"
-        if job.error_message:
-            content += f"错误：{job.error_message}"
-        return ToolResult(
-            content=content,
-            is_error=job.status in {"failed", "cancelled", "interrupted"},
-            error_type="personclone_job_failed" if job.status == "failed" else None,
-            details={
-                "task_id": job.id,
-                "kind": "author_index",
-                "author": job.author,
-                "status": job.status,
-                "stage": job.stage,
-                "label": job.label,
-                "updated_at": job.updated_at,
-                "error_message": job.error_message,
-            },
-        )
+        return _author_job_result(job)
+
+    return _run_with_client(operation)
+
+
+def wait_author_job(
+    job_id: str,
+    timeout_seconds: int = 600,
+    poll_interval_seconds: float = 3.0,
+    context: RuntimeContext | None = None,
+) -> ToolResult:
+    del context
+
+    def operation(client: PersonCloneClient) -> ToolResult:
+        started = time.monotonic()
+        poll_count = 0
+        while True:
+            job = client.get_author_job(job_id)
+            poll_count += 1
+            elapsed = time.monotonic() - started
+            if job.is_terminal:
+                return _author_job_result(
+                    job,
+                    poll_count=poll_count,
+                    waited_seconds=elapsed,
+                )
+            remaining = timeout_seconds - elapsed
+            if remaining <= 0:
+                return _author_job_result(
+                    job,
+                    poll_count=poll_count,
+                    waited_seconds=elapsed,
+                    timed_out=True,
+                )
+            time.sleep(min(poll_interval_seconds, remaining))
 
     return _run_with_client(operation)
 

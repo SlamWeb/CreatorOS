@@ -14,10 +14,11 @@ from .models import (
     ReadFileArgs,
     ReadToolResultArgs,
     WriteFileArgs,
+    WaitAuthorJobArgs,
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
-from .personclone import add_author, ask_author, get_author_job, list_authors
+from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .zhihu import get_zhihu_hot_list, search_zhihu
 
 
@@ -104,6 +105,12 @@ tool_registry = {
             description="查询 PersonClone 作者入库任务的最新状态和阶段。",
             execute=get_author_job,
             args_model=GetAuthorJobArgs,
+        ),
+        Tool(
+            name="wait_author_job",
+            description="在当前请求中轮询 PersonClone 作者入库任务，直到 ready、失败或超时。",
+            execute=wait_author_job,
+            args_model=WaitAuthorJobArgs,
         ),
         Tool(
             name="ask_author",
