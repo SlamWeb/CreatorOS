@@ -32,7 +32,7 @@ def main():
     assert "CreatorOS / 作者矩阵" in rendered
     assert "CreatorOS / 作者矩阵 / alice" in rendered
     assert "已接入 2 位作者" in rendered
-    assert "CreatorOS / Agent" in rendered
+    assert "CreatorOS / Agent" not in rendered
     assert "输入 / 查看命令" in rendered
     assert "热点队列将在下一步接入" in rendered
     assert "常青队列" in rendered

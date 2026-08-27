@@ -162,7 +162,6 @@ class CreatorOSMenu:
         self._notice(f"{labels.get(action, action)}将在下一步接入。")
 
     def _agent_intro(self) -> None:
-        self._heading("CreatorOS / Agent")
         self._write("直接输入任务，Agent 会在需要时调用工具。", "creatoros.secondary")
         self._write("输入 / 查看命令  ·  ↑↓ 选择  ·  Ctrl+C 中断", "creatoros.secondary")
         self._write("")
