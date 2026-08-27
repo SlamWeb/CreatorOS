@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 from urllib.parse import quote
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ..config import (
     PERSONCLONE_BASE_URL,
@@ -39,6 +39,37 @@ class PersonaAnswer:
     answer: str
     sources: list[dict[str, Any]] = field(default_factory=list)
     trace_id: str | None = None
+
+
+class AuthorJobStatus(BaseModel):
+    """Typed status returned by PersonClone's persistent author-job API."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    author: str
+    status: Literal["queued", "running", "ready", "failed", "cancelled", "interrupted"]
+    stage: str
+    label: str
+    operation: str | None = None
+    display_name: str | None = None
+    error_message: str | None = None
+    cancel_requested: bool = False
+    routing_profile_status: str | None = None
+    routing_profile_corpus_version: str | None = None
+    domain_prototype_count: int | None = None
+    perspective_prototype_count: int | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {"ready", "failed", "cancelled", "interrupted"}
+
+    @property
+    def is_ready(self) -> bool:
+        return self.status == "ready" and self.stage == "ready"
 
 
 class PersonCloneClient:
@@ -111,6 +142,23 @@ class PersonCloneClient:
             operation="添加作者",
         )
         return self._json_object(response, "添加作者")
+
+    def get_author_job(self, job_id: str) -> AuthorJobStatus:
+        encoded_job_id = quote(job_id, safe="")
+        response = self._request(
+            "GET",
+            f"/api/author-jobs/{encoded_job_id}",
+            operation="查询作者任务",
+        )
+        payload = self._json_object(response, "作者任务")
+        try:
+            return AuthorJobStatus.model_validate(payload)
+        except ValidationError as error:
+            raise PersonCloneError(
+                "PersonClone 作者任务状态不符合 CreatorOS 数据合同。",
+                error_type="personclone_protocol_error",
+                details={"validation_errors": error.errors()},
+            ) from error
 
     def ask_author(
         self,

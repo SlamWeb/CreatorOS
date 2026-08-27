@@ -80,6 +80,7 @@ Progressive SPEC, not a form.
 - 第六十九个可运行切片加入 Agent 的 slash command palette：TTY 下使用 `prompt_toolkit` 在输入 `/` 时提供带描述的命令补全并支持前缀过滤；Agent 页面只提示输入 `/`，新增 `/context` 展示当前请求的估算上下文、模型窗口、输出预留和剩余预算；不把估算冒充 Provider 真实 usage，也不改变模型调用语义。
 - 第七十个可运行切片收紧 Agent 页面：移除每次进入对话都会重复出现的 `CreatorOS / Agent` 标题和分隔线，只保留一次简短的任务/命令提示；slash command palette、Agent Loop 和返回菜单语义不变。
 - 第七十一个可运行切片收敛终端视觉：全局颜色改为低饱和雾青、灰紫、鼠尾草和纸金；slash command palette 使用近黑底色和柔和选中态；`/context` 改为一行环形 glyph + `已用 / 可用输入上限`，不再展开窗口、输出预留和剩余预算明细。本轮不改变补全命令和预算计算语义。
+- 第七十二个可运行切片增加 PersonClone 作者任务状态适配器：`PersonCloneClient.get_author_job(job_id)` 将任务响应校验为 `AuthorJobStatus`，保留终态/就绪判断并忽略服务端未来新增字段；本轮不轮询、不启动后台线程、不改变 `add_author` 的用户可见行为。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -561,4 +562,4 @@ git diff --check
 
 - PersonClone `pytest -q`：`246 passed`；作者任务和路由画像专项测试 `18 passed`。
 - CreatorOS 真实只读验证：`live_domain_routing=passed`（5 条热榜、7 位作者、83 个领域原型），`live_content_planning=passed`（7 位作者、5 条热点）；未触发新的爬取、生成或发布副作用。
-- 下一小步固定为：在 CreatorOS 增加 Pydantic `AuthorJobStatus` 和 `PersonCloneClient.get_author_job(job_id)`，先验证状态读取，再决定前台等待还是后台恢复；不在本轮直接把长任务塞进 LLM 调用。
+- `AuthorJobStatus` 与 `PersonCloneClient.get_author_job(job_id)` 已完成；下一步再把远端状态接入 `AgentState.tasks`，并用 heartbeat 约束轮询/卡死判断，不在本轮直接把长任务塞进 LLM 调用。

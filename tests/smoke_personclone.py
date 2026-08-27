@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from creatoros.integrations.personclone import PersonCloneClient
+from creatoros.integrations.personclone import AuthorJobStatus, PersonCloneClient
 from creatoros.routing import RoutingProfileEnvelope
 from creatoros.tools import tool_registry
 
@@ -55,6 +55,22 @@ def main():
             body = json.loads(request.content)
             assert body == {"author": "https://www.zhihu.com/people/alice", "kinds": ["answer"]}
             return httpx.Response(200, json={"id": "job-1", "status": "queued"}, request=request)
+        if request.method == "GET" and request.url.path == "/api/author-jobs/job-1":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "job-1",
+                    "author": "alice",
+                    "status": "running",
+                    "stage": "clustering",
+                    "label": "正在生成作者领域画像",
+                    "routing_profile_status": None,
+                    "domain_prototype_count": None,
+                    "perspective_prototype_count": None,
+                    "future_field": "ignored for forward compatibility",
+                },
+                request=request,
+            )
         if request.method == "POST" and request.url.path == "/api/chat/stream":
             body = json.loads(request.content)
             assert body["author"] == "alice"
@@ -95,6 +111,12 @@ def main():
             ["answer"],
         )
         assert job == {"id": "job-1", "status": "queued"}
+
+        job_status = client.get_author_job("job-1")
+        assert isinstance(job_status, AuthorJobStatus)
+        assert job_status.stage == "clustering"
+        assert not job_status.is_terminal
+        assert not job_status.is_ready
 
         answer = client.ask_author("alice", "热点问题")
         assert answer.answer == "回答完成"
