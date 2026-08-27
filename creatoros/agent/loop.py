@@ -212,7 +212,11 @@ def run_agent(
                     )
 
                     task_id = tool_result.details.get("task_id")
-                    if tool_call.name == "add_author" and isinstance(task_id, str) and task_id:
+                    if (
+                        tool_call.name in {"add_author", "get_author_job"}
+                        and isinstance(task_id, str)
+                        and task_id
+                    ):
                         task = state.register_remote_task(
                             task_id=task_id,
                             kind=str(tool_result.details.get("kind") or "external"),

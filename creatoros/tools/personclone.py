@@ -78,7 +78,10 @@ def add_author(
         status = str(job.get("status") or "queued")
         display_name = job.get("display_name") or author
         return ToolResult(
-            content=f"作者 {display_name} 的索引任务已提交，当前状态：{status}。",
+            content=(
+                f"作者 {display_name} 的索引任务已提交，当前状态：{status}。"
+                f"任务句柄：{job.get('id') or '不可用'}。"
+            ),
             details={
                 "task_id": job.get("id"),
                 "kind": "author_index",
@@ -88,6 +91,37 @@ def add_author(
                 "label": job.get("label"),
                 "updated_at": job.get("updated_at"),
                 "error_message": job.get("error_message"),
+            },
+        )
+
+    return _run_with_client(operation)
+
+
+def get_author_job(
+    job_id: str,
+    context: RuntimeContext | None = None,
+) -> ToolResult:
+    del context
+
+    def operation(client: PersonCloneClient) -> ToolResult:
+        job = client.get_author_job(job_id)
+        status_text = f"{job.status}/{job.stage}"
+        content = f"作者任务 {job.id} 当前状态：{status_text}。{job.label}"
+        if job.error_message:
+            content += f"错误：{job.error_message}"
+        return ToolResult(
+            content=content,
+            is_error=job.status in {"failed", "cancelled", "interrupted"},
+            error_type="personclone_job_failed" if job.status == "failed" else None,
+            details={
+                "task_id": job.id,
+                "kind": "author_index",
+                "author": job.author,
+                "status": job.status,
+                "stage": job.stage,
+                "label": job.label,
+                "updated_at": job.updated_at,
+                "error_message": job.error_message,
             },
         )
 

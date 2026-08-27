@@ -2,7 +2,8 @@ import json
 
 import creatoros.tools.personclone as personclone_tools
 from creatoros.ai.types import ToolCall
-from creatoros.integrations.personclone import PersonaAnswer
+from creatoros.integrations.personclone import AuthorJobStatus, PersonaAnswer
+from creatoros.tools.definitions import tool_registry
 from creatoros.tools.execution import execute_tool_call
 
 
@@ -27,6 +28,16 @@ class FakePersonCloneClient:
     def add_author(self, author, kinds, max_items):
         assert (author, kinds, max_items) == ("alice", ["answer"], 10)
         return {"id": "job-1", "status": "queued"}
+
+    def get_author_job(self, job_id):
+        assert job_id == "job-1"
+        return AuthorJobStatus(
+            id="job-1",
+            author="alice",
+            status="running",
+            stage="clustering",
+            label="正在生成作者领域画像",
+        )
 
     def ask_author(self, author, question, *, query_mode, writer_prompt, parent_top_k):
         assert (author, question, query_mode, writer_prompt, parent_top_k) == (
@@ -63,6 +74,9 @@ def main():
                 json.dumps({"author": "alice", "kinds": ["answer"], "max_items": 10}),
             )
         )
+        refreshed = execute_tool_call(
+            ToolCall("2b", "get_author_job", json.dumps({"job_id": "job-1"}))
+        )
         answer = execute_tool_call(
             ToolCall("3", "ask_author", json.dumps({"author": "alice", "question": "热点问题"}))
         )
@@ -72,7 +86,7 @@ def main():
     assert not authors.is_error
     assert "index_dir" not in authors.content
     assert '"recommended_writer_prompt": "strong_identity"' in authors.content
-    assert "job-1" not in job.content
+    assert "任务句柄：job-1" in job.content
     assert job.details == {
         "task_id": "job-1",
         "kind": "author_index",
@@ -83,9 +97,12 @@ def main():
         "updated_at": None,
         "error_message": None,
     }
+    assert refreshed.content == "作者任务 job-1 当前状态：running/clustering。正在生成作者领域画像"
+    assert refreshed.details["stage"] == "clustering"
     assert answer.content == "Alice 的回答"
     assert answer.details["trace_id"] == "trace-1"
     assert all(client.closed for client in clients)
+    assert {"add_author", "get_author_job"}.issubset(tool_registry)
     print("personclone_tools_smoke=passed")
 
 

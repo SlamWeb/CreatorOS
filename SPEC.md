@@ -82,6 +82,7 @@ Progressive SPEC, not a form.
 - 第七十一个可运行切片收敛终端视觉：全局颜色改为低饱和雾青、灰紫、鼠尾草和纸金；slash command palette 使用近黑底色和柔和选中态；`/context` 改为一行环形 glyph + `已用 / 可用输入上限`，不再展开窗口、输出预留和剩余预算明细。本轮不改变补全命令和预算计算语义。
 - 第七十二个可运行切片增加 PersonClone 作者任务状态适配器：`PersonCloneClient.get_author_job(job_id)` 将任务响应校验为 `AuthorJobStatus`，保留终态/就绪判断并忽略服务端未来新增字段；本轮不轮询、不启动后台线程、不改变 `add_author` 的用户可见行为。
 - 第七十三个可运行切片把 `add_author` 的远端初始状态登记到 `AgentState.tasks`：`TaskRecord.sync_remote_status()` 统一映射 PersonClone 的 queued/running/ready/failed/cancelled/interrupted；本轮只同步 ToolResult 中已有状态，不轮询、不持久化任务、不改变前台等待策略。
+- 第七十四个可运行切片增加 `get_author_job(job_id)` Tool：通过 PersonClone 的 GET 接口取得最新任务状态，复用同一个 `TaskRecord` 更新阶段/进度/终态；任务句柄只进入模型消息和内部状态，终端不展示。本轮仍不自动轮询、不持久化任务、不改变前台等待策略。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -555,7 +556,7 @@ git diff --check
 - PersonClone 当前作者任务链路为 `queued → crawling → building → indexing → clustering → activating → ready`；画像在 staging 目录构建并校验通过后才激活，失败不会替换旧作者数据。
 - PersonClone 对外提供 `POST /api/author-jobs` 提交任务、`GET /api/author-jobs/{job_id}` 查询状态、`GET /api/personas/{author}/routing-profile` 读取正式画像；作者任务提交和查询需要管理员会话，画像读取需要协作者会话。
 - PersonClone 的工作树当前包含其他未提交的认证与 Web 改动，本轮只读审计，没有替它提交或推送；CreatorOS 不读取其本地语料、索引或 Qdrant。
-- CreatorOS 目前只能提交 `add_author` 并把内部任务句柄放在 `ToolResult.details`，尚未消费任务查询接口，也没有把 `AgentState.tasks` 与远端 job 生命周期接通。
+- CreatorOS 先提交 `add_author`，再通过正式任务查询接口刷新状态；不读取 PersonClone 本地语料、索引或 Qdrant。
 - 运行中的 PersonClone 服务真实返回 `/health=200`、作者任务列表 `200`、7 位作者和 ready 路由画像；历史任务的新增画像字段为 `null` 属于迁移前数据，不代表画像生成失败。
 - 发现的生产边界：PersonClone 当前只在阶段切换时更新 `updated_at`，长时间运行的 crawl/build/index/embedding 阶段没有独立 heartbeat 或进度百分比；CreatorOS 在实现轮询前不能仅凭长时间无变化判定任务卡死。
 
@@ -563,5 +564,8 @@ git diff --check
 
 - PersonClone `pytest -q`：`246 passed`；作者任务和路由画像专项测试 `18 passed`。
 - CreatorOS 真实只读验证：`live_domain_routing=passed`（5 条热榜、7 位作者、83 个领域原型），`live_content_planning=passed`（7 位作者、5 条热点）；未触发新的爬取、生成或发布副作用。
-- `AuthorJobStatus`、`PersonCloneClient.get_author_job(job_id)` 和 `AgentState.tasks` 初始登记已完成；下一步再把 GET 状态查询接入同一映射，并用 heartbeat 约束轮询/卡死判断，不在本轮直接把长任务塞进 LLM 调用。
-- `agent_task_tracking_smoke=passed`：Agent Loop 执行 `add_author` 后能把远端 `running/clustering/label` 登记为本地 `TaskRecord` 并发出 `task_updated` 观察事件；当前仅证明初始登记，不代表任务已完成。
+- `AuthorJobStatus`、`PersonCloneClient.get_author_job(job_id)` 和 `AgentState.tasks` 已完成；`get_author_job` Tool 查询后的状态会回写同一个 `TaskRecord`，并发出 `task_updated` 观察事件。
+- `agent_task_tracking_smoke=passed`：Agent Loop 执行 `add_author` 后能把远端 `running/clustering/label` 登记为本地 `TaskRecord`，并验证后续状态刷新沿用同一任务句柄。
+- `personclone_tools_smoke=passed`：`get_author_job` 能读取 typed `AuthorJobStatus`、返回阶段信息；任务句柄只给模型/内部状态使用，不进入终端工具状态行。
+- 真实 `live_personclone_job=passed`：通过本地 `.env` Cookie 只读查询已有任务，返回 `status=ready`、`stage=ready`；未触发任何副作用。
+- 暂缓：自动轮询、heartbeat/卡住判断、任务持久化和“热点 → 选作者 → ask_author”的单一编排入口；前者需先补远端 heartbeat 语义，后者作为下一条业务切片实现。

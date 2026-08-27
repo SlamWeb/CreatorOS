@@ -10,13 +10,14 @@ from .execution import execute_tool_call
 from .models import (
     AddAuthorArgs,
     AskAuthorArgs,
+    GetAuthorJobArgs,
     ReadFileArgs,
     ReadToolResultArgs,
     WriteFileArgs,
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
-from .personclone import add_author, ask_author, list_authors
+from .personclone import add_author, ask_author, get_author_job, list_authors
 from .results import ToolResult
 from .zhihu import get_zhihu_hot_list, search_zhihu
 
@@ -25,6 +26,7 @@ __all__ = [
     "ReadToolResultArgs",
     "AddAuthorArgs",
     "AskAuthorArgs",
+    "GetAuthorJobArgs",
     "Tool",
     "ToolResult",
     "WriteFileArgs",
@@ -37,6 +39,7 @@ __all__ = [
     "search_zhihu",
     "list_authors",
     "add_author",
+    "get_author_job",
     "ask_author",
     "read_file",
     "read_tool_result",

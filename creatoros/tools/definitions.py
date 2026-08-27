@@ -10,13 +10,14 @@ from .builtins import (
 from .models import (
     AddAuthorArgs,
     AskAuthorArgs,
+    GetAuthorJobArgs,
     ReadFileArgs,
     ReadToolResultArgs,
     WriteFileArgs,
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
-from .personclone import add_author, ask_author, list_authors
+from .personclone import add_author, ask_author, get_author_job, list_authors
 from .zhihu import get_zhihu_hot_list, search_zhihu
 
 
@@ -97,6 +98,12 @@ tool_registry = {
             description="请求 PersonClone 抓取并建立一个新的知乎作者数字分身；返回异步任务状态。",
             execute=add_author,
             args_model=AddAuthorArgs,
+        ),
+        Tool(
+            name="get_author_job",
+            description="查询 PersonClone 作者入库任务的最新状态和阶段。",
+            execute=get_author_job,
+            args_model=GetAuthorJobArgs,
         ),
         Tool(
             name="ask_author",

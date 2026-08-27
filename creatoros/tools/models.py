@@ -54,6 +54,12 @@ class AddAuthorArgs(BaseModel):
     )
 
 
+class GetAuthorJobArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    job_id: str = Field(min_length=1, description="PersonClone 返回的作者入库任务句柄。")
+
+
 class AskAuthorArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
