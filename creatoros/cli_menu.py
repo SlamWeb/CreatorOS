@@ -77,12 +77,18 @@ class CreatorOSMenu:
                     return
 
     def _home(self) -> str:
-        self._heading("CreatorOS  ·  运营控制台")
-        self._write("当前：作者矩阵 / 热点路由 / Agent Runtime", "creatoros.secondary")
+        self._heading("CreatorOS  /  运营工作台")
+        self._write("热点发现  ·  作者路由  ·  内容生产  ·  发布", "creatoros.secondary")
         self._write("")
         choice = self.selector.choose(
-            "目录",
-            ("今日运营", "作者矩阵", "热点雷达", "运行记录", "Agent 对话"),
+            "工作区",
+            (
+                "今日运营    热点与待办",
+                "作者矩阵    选择作者与队列",
+                "热点雷达    发现新的选题",
+                "运行记录    查看历史任务",
+                "Agent 对话   直接提出任务",
+            ),
             escape_result="q",
         )
         if choice == "q":
@@ -96,6 +102,10 @@ class CreatorOSMenu:
         authors: Sequence[AuthorSummary],
     ) -> AuthorSummary | str:
         self._heading("CreatorOS / 作者矩阵")
+        self._write(
+            f"已接入 {len(authors)} 位作者  ·  选择作者进入运营空间",
+            "creatoros.secondary",
+        )
         if not authors:
             self._write("暂无可用作者。请先在 PersonClone 中添加作者。", "creatoros.warning")
         self._write("")
@@ -117,12 +127,17 @@ class CreatorOSMenu:
         if author is None:
             return "back"
         self._heading(f"CreatorOS / 作者矩阵 / {author.author_id}")
-        self._write(f"作者：{author.display_name}")
-        self._write(f"状态：{author.status}  ·  推荐模式：{author.recommended_writer_prompt}")
+        self._write(f"{author.display_name}  ·  {author.status}", "creatoros.secondary")
+        self._write(f"回答模式：{author.recommended_writer_prompt}", "creatoros.secondary")
         self._write("")
         choice = self.selector.choose(
-            "选择入口",
-            ("热点队列", "常青队列", "实验队列", "查看作者画像"),
+            "运营入口",
+            (
+                "热点队列    从今日热点中选题",
+                "常青队列    维护长期选题",
+                "实验队列    测试新的内容方向",
+                "作者画像    查看路由依据",
+            ),
             escape_result="back",
         )
         if choice == "back":

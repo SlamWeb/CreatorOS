@@ -25,9 +25,11 @@ def main():
 
     rendered = output.getvalue()
     assert agent_calls == ["called"]
-    assert "CreatorOS  ·  运营控制台" in rendered
+    assert "CreatorOS  /  运营工作台" in rendered
     assert "CreatorOS / 作者矩阵" in rendered
     assert "CreatorOS / 作者矩阵 / alice" in rendered
+    assert "已接入 2 位作者" in rendered
+    assert "热点发现  ·  作者路由  ·  内容生产  ·  发布" in rendered
     assert "热点队列将在下一步接入" in rendered
     assert "常青队列" in rendered
     assert "实验队列" in rendered

@@ -38,7 +38,7 @@ class MenuSelect:
     ) -> int | str:
         for index, option in enumerate(options, start=1):
             self.console.write(f"  {index}  {option}")
-        self.console.write("↑↓ 移动 · Enter 确认 · Esc 返回 · q 退出", end="")
+        self.console.write("↑↓ 移动 · Enter 进入 · Esc 返回 · q 退出", end="")
         try:
             raw = self.console.prompt(f"\n{title} › ").strip().lower()
         except EOFError:
@@ -71,12 +71,13 @@ class MenuSelect:
         def render() -> FormattedText:
             fragments: list[tuple[str, str]] = [
                 ("class:title", f"{title}\n"),
-                ("class:hint", "↑↓ 移动 · Enter 确认 · Esc 返回 · q 退出\n"),
+                ("class:hint", "↑↓ 移动 · Enter 进入 · Esc 返回 · q 退出\n\n"),
             ]
             for index, option in enumerate(options):
                 marker = "❯" if index == selected else " "
                 style = "class:selected" if index == selected else "class:option"
-                fragments.append((style, f"{marker} {index + 1}  {option}\n"))
+                fragments.append(("class:number", f"  {index + 1:>2}  "))
+                fragments.append((style, f"{marker} {option}\n"))
             return FormattedText(fragments)
 
         bindings = KeyBindings()
@@ -121,10 +122,11 @@ class MenuSelect:
             erase_when_done=True,
             style=Style.from_dict(
                 {
-                    "title": "bold #c084fc",
+                    "title": "bold #d8b4fe",
                     "hint": "#64748b",
-                    "selected": "bold #7dd3fc",
+                    "selected": "bold #ddd6fe",
                     "option": "#cbd5e1",
+                    "number": "#64748b",
                 }
             ),
         )
