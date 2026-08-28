@@ -26,6 +26,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **PersonClone 接入**：通过独立 FastAPI 服务读取作者列表和 `AuthorRoutingProfile`，复用登录 Cookie；CreatorOS 不读取 PersonClone 本地文件、Qdrant 或原始语料。
 - **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，以作者内部 Max Similarity 完成第一阶段候选召回。
 - **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列；`evergreen`、`experiment` 队列的数据结构已预留。
+- **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -55,6 +56,8 @@ rank_domain_matches() → build_daily_plans()
         ↓
 每位作者的 DailyPlan.hot
 ```
+
+Agent 也可以直接调用 `route_hotspots` 获取上述作者侧候选队列；当前仍是 domain-only 召回，不负责生成、评审或发布。
 
 ## 快速开始
 

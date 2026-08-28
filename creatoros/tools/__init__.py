@@ -13,12 +13,14 @@ from .models import (
     GetAuthorJobArgs,
     ReadFileArgs,
     ReadToolResultArgs,
+    RouteHotspotsArgs,
     WriteFileArgs,
     WaitAuthorJobArgs,
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
+from .creator_routing import route_hotspots
 from .results import ToolResult
 from .zhihu import get_zhihu_hot_list, search_zhihu
 
@@ -29,6 +31,7 @@ __all__ = [
     "AskAuthorArgs",
     "GetAuthorJobArgs",
     "WaitAuthorJobArgs",
+    "RouteHotspotsArgs",
     "Tool",
     "ToolResult",
     "WriteFileArgs",
@@ -43,6 +46,7 @@ __all__ = [
     "add_author",
     "get_author_job",
     "wait_author_job",
+    "route_hotspots",
     "ask_author",
     "read_file",
     "read_tool_result",

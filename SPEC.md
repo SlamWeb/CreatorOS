@@ -84,6 +84,7 @@ Progressive SPEC, not a form.
 - 第七十三个可运行切片把 `add_author` 的远端初始状态登记到 `AgentState.tasks`：`TaskRecord.sync_remote_status()` 统一映射 PersonClone 的 queued/running/ready/failed/cancelled/interrupted；本轮只同步 ToolResult 中已有状态，不轮询、不持久化任务、不改变前台等待策略。
 - 第七十四个可运行切片增加 `get_author_job(job_id)` Tool：通过 PersonClone 的 GET 接口取得最新任务状态，复用同一个 `TaskRecord` 更新阶段/进度/终态；任务句柄只进入模型消息和内部状态，终端不展示。本轮仍不自动轮询、不持久化任务、不改变前台等待策略。
 - 第七十五个可运行切片增加 `wait_author_job(job_id)` 前台等待 Tool：在一次同步工具调用内按固定间隔轮询，遇到 `ready`/失败终态立即返回，超过有界超时时间只停止等待并保留远端任务继续运行；不调用 LLM、不启动后台线程。
+- 第七十六个可运行切片增加 `route_hotspots(limit, top_k)` Tool：复用实时知乎热榜、PersonClone 正式 routing-profile API、本地离线 BGE-M3 和 `build_daily_plans()`，把 domain-only 作者候选队列作为单次结构化 ToolResult 暴露给 Agent；不引入新的相似度算法、LLM 重排、MCP 或发布副作用。
 - 长期终端渲染原则：状态只允许使用底部单行 `Status` 做重绘；正文、工具 trace 和结果只增不改、单向滚动；不再让增长中的正文依赖光标回退或全屏 Live。
 - 设计决定：当前不实现通用 `RepetitionGuard`。先让模型利用工具结果自行修正，保留 `MaxTurnGuard` 作为确定性的资源保险丝；只有出现可复现的无进展循环证据时，才引入最小、可解释的提醒或停止策略。Pi 核心提供停止/工具钩子，重复检测主要存在于第三方扩展，而不是核心 Runtime 的强制行为。
 - Guardrail 审计结论：当前 `MaxTurnGuard` 只覆盖模型调用次数；Pydantic、路径边界和 `ToolResult` 已覆盖一部分输入/结果正确性，但仍缺少敏感文件保护、内容/大小上限、Provider 超时/取消、工具调用预算、风险分级/审批、审计记录和不可信工具结果边界。
@@ -570,4 +571,6 @@ git diff --check
 - `personclone_tools_smoke=passed`：`get_author_job` 能读取 typed `AuthorJobStatus`、返回阶段信息；任务句柄只给模型/内部状态使用，不进入终端工具状态行。
 - 真实 `live_personclone_job=passed`：通过本地 `.env` Cookie 只读查询已有任务，返回 `status=ready`、`stage=ready`；未触发任何副作用。
 - `wait_author_job` 前台等待验证：Fake Client 覆盖 ready 和超时分支；超时结果标记 `author_job_wait_timeout`，不会伪造远端失败。
+- `route_hotspots_tool_smoke=passed`：验证热榜与作者画像接线、作者侧 Top-N、摘要长度控制、客户端释放和 Registry schema；Fake Embedding 只隔离本地数据变换，不替代真实联调。
+- 真实 `live_route_hotspots=passed`：读取 5 条真实热榜和 7 位真实作者画像，经本地缓存 BGE-M3 生成每位作者 Top-3 候选队列；未调用 PersonClone 生成、发布或 Qdrant。
 - 暂缓：后台恢复、任务持久化、细粒度 heartbeat/卡住判断和“热点 → 选作者 → ask_author”的单一编排入口；后者作为下一条业务切片实现。

@@ -13,12 +13,14 @@ from .models import (
     GetAuthorJobArgs,
     ReadFileArgs,
     ReadToolResultArgs,
+    RouteHotspotsArgs,
     WriteFileArgs,
     WaitAuthorJobArgs,
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
+from .creator_routing import route_hotspots
 from .zhihu import get_zhihu_hot_list, search_zhihu
 
 
@@ -111,6 +113,12 @@ tool_registry = {
             description="在当前请求中轮询 PersonClone 作者入库任务，直到 ready、失败或超时。",
             execute=wait_author_job,
             args_model=WaitAuthorJobArgs,
+        ),
+        Tool(
+            name="route_hotspots",
+            description="获取知乎热榜并按作者 domain prototype 生成每位作者的 Top-N 热点候选队列。",
+            execute=route_hotspots,
+            args_model=RouteHotspotsArgs,
         ),
         Tool(
             name="ask_author",

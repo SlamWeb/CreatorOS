@@ -78,6 +78,23 @@ class WaitAuthorJobArgs(BaseModel):
     )
 
 
+class RouteHotspotsArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="读取多少条知乎热榜候选，默认 10，最多 30。",
+    )
+    top_k: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="每位作者保留多少条最匹配的热点，默认 3，最多 10。",
+    )
+
+
 class AskAuthorArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
