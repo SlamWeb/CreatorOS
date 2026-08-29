@@ -13,6 +13,7 @@ from .models import (
     GetAuthorJobArgs,
     ReadFileArgs,
     ReadToolResultArgs,
+    RouteAndAnswerArgs,
     RouteHotspotsArgs,
     WriteFileArgs,
     WaitAuthorJobArgs,
@@ -22,6 +23,13 @@ from .models import (
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .zhihu import get_zhihu_hot_list, search_zhihu
+
+
+def _run_route_and_answer(*args, **kwargs):
+    # Lazy import keeps the skills package independent from Tool Registry startup.
+    from ..skills.route_and_answer.runner import run_route_and_answer
+
+    return run_route_and_answer(*args, **kwargs)
 
 
 class Tool:
@@ -119,6 +127,12 @@ tool_registry = {
             description="获取知乎热榜并按作者 domain prototype 生成每位作者的 Top-N 热点候选队列。",
             execute=route_hotspots,
             args_model=RouteHotspotsArgs,
+        ),
+        Tool(
+            name="route_and_answer",
+            description="根据热点候选选择作者并调用数字分身生成回答；支持预览、确认和自动选择。",
+            execute=_run_route_and_answer,
+            args_model=RouteAndAnswerArgs,
         ),
         Tool(
             name="ask_author",

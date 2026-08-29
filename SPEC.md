@@ -574,3 +574,16 @@ git diff --check
 - `route_hotspots_tool_smoke=passed`：验证热榜与作者画像接线、作者侧 Top-N、摘要长度控制、客户端释放和 Registry schema；Fake Embedding 只隔离本地数据变换，不替代真实联调。
 - 真实 `live_route_hotspots=passed`：读取 5 条真实热榜和 7 位真实作者画像，经本地缓存 BGE-M3 生成每位作者 Top-3 候选队列；未调用 PersonClone 生成、发布或 Qdrant。
 - 暂缓：后台恢复、任务持久化、细粒度 heartbeat/卡住判断和“热点 → 选作者 → ask_author”的单一编排入口；后者作为下一条业务切片实现。
+
+## 本轮目标（route-and-answer Skill）
+
+- 用一个高层 Tool 固化现有 `route_hotspots` 与 `ask_author` 的最小业务链路，不复制两边的 HTTP 或向量匹配逻辑。
+- `preview` 生成作者侧候选队列并保存进程内快照；`confirm` 只允许从快照中选择作者与热点；`auto` 按最高匹配分确定性选择一个候选后调用数字分身。
+- 当前只负责候选、选择和回答，不负责 perspective 重排、质量评审、发布、定时任务或后台恢复。
+
+## 本轮验证（route-and-answer Skill）
+
+- `route_and_answer_skill_smoke=passed`：通过 Tool Registry 验证 preview、confirm、auto、快照不存在和候选校验；嵌套调用只允许 `route_hotspots` 与 `ask_author`。
+- 候选快照目前保存在当前进程内，最多保留 32 个；重启后快照失效，后续再决定是否持久化到 Session。
+- 自动模式当前使用已有 domain-only 匹配分，不额外调用 LLM 重排；真实 PersonClone 生成联调留给用户确认后的低频验证。
+- 本轮真实 preview 联调时 PersonClone 未监听 `127.0.0.1:8000`，返回 WinError 10061；因此没有伪造“真实成功”，本地编排 smoke 已通过，服务启动后再复验。

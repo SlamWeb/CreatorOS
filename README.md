@@ -27,6 +27,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，以作者内部 Max Similarity 完成第一阶段候选召回。
 - **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列；`evergreen`、`experiment` 队列的数据结构已预留。
 - **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
+- **route-and-answer Skill**：用 `preview → confirm/auto → ask_author` 固化一次“热点匹配→选择作者→生成回答”的最小流程；预览返回候选快照，确认复用同一快照，自动模式选择最高匹配候选。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -112,7 +113,7 @@ conda run --no-capture-output -n deepcode python -m tests.live_content_planning
 
 ## 路线图
 
-1. **队列预览与选择**：在 Rich CLI 展示每位作者的三个队列，支持选择一个热点进入生成流程。
+1. **队列预览与选择**：在 Rich CLI 展示每位作者的三个队列，支持从 `route-and-answer` 候选快照选择一个热点进入生成流程。
 2. **热点增强**：对选中的热点按需调用知乎搜索，补充问题、回答和证据，而不是为所有热点预先爬取全文。
 3. **Creator Routing v2**：引入领域层级、阈值和可选的 perspective 原型，再增加基于证据的 LLM 重排。
 4. **生成与评审**：调用 PersonClone 生成草稿，增加结构、事实、风格和平台规则评审。

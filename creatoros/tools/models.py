@@ -95,6 +95,47 @@ class RouteHotspotsArgs(BaseModel):
     )
 
 
+class RouteAndAnswerArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    mode: Literal["preview", "confirm", "auto"] = Field(
+        default="preview",
+        description="preview 只展示候选；confirm 使用用户选择；auto 自动选择最高分候选并回答。",
+    )
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="读取多少条知乎热榜候选，默认 10，最多 30。",
+    )
+    top_k: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="每位作者保留多少条候选，默认 3，最多 10。",
+    )
+    snapshot_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="preview 返回的候选快照 ID；confirm 时优先复用它。",
+    )
+    author_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="confirm 时选择的作者标识。",
+    )
+    hotspot_rank: int | None = Field(
+        default=None,
+        ge=1,
+        description="confirm 时选择的热榜名次。",
+    )
+    question: str | None = Field(
+        default=None,
+        min_length=1,
+        description="可选的自定义提问；不填写则使用所选热点标题和介绍。",
+    )
+
+
 class AskAuthorArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
