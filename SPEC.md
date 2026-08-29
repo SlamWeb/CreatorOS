@@ -587,3 +587,14 @@ git diff --check
 - 候选快照目前保存在当前进程内，最多保留 32 个；重启后快照失效，后续再决定是否持久化到 Session。
 - 自动模式当前使用已有 domain-only 匹配分，不额外调用 LLM 重排；真实 PersonClone 生成联调留给用户确认后的低频验证。
 - 本轮真实 preview 联调时 PersonClone 未监听 `127.0.0.1:8000`，返回 WinError 10061；因此没有伪造“真实成功”，本地编排 smoke 已通过，服务启动后再复验。
+
+## 本轮目标（Skill Loader）
+
+- 递归发现项目 Skill 目录中的 `SKILL.md`，解析 `name`、`description`，并在主模型请求的 system message 中注入可用 Skill 清单。
+- 提供按名称读取完整 Skill 的接口，保持 Skill Loader、原子 Tool Registry 和可选 Python Runner 三层分离。
+- 当前不自动执行 Skill 脚本、不实现 `/skill:name` 命令、不持久化 Skill 激活状态。
+
+## 本轮验证（Skill Loader）
+
+- `skill_loader_smoke=passed`：有效 Skill 发现、无效 frontmatter 诊断、重复名称诊断、完整正文按需读取、调用格式化和原消息不修改均通过。
+- `model_context_skill_metadata=passed`：`route-and-answer` 的 Skill 元数据已进入 `ModelContext` 的 system message；完整正文没有默认塞入上下文。

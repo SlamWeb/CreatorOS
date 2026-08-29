@@ -20,6 +20,7 @@ from ..tools import execute_tool_call, tools
 from ..context import RuntimeContext
 from ..terminal import Console
 from ..events import AgentEvent
+from ..skills.loader import SkillLoader
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .compactor import compact_session
 from .state import AgentState
@@ -58,11 +59,14 @@ def build_model_context(
     messages,
     tools,
     checkpoint: CompactionCheckpoint | None = None,
+    skill_loader: SkillLoader | None = None,
 ) -> ModelContext:
     active_messages = (
         checkpoint.project_messages(messages) if checkpoint else messages
     )
     projected_messages = project_tool_results_for_model(active_messages)
+    if skill_loader is not None:
+        projected_messages = skill_loader.inject_available_skills(projected_messages)
     return ModelContext.from_messages(projected_messages, tools)
 
 
@@ -82,6 +86,7 @@ def run_agent(
 
     guard = MaxTurnGuard(max_turns)
     runtime_context = RuntimeContext.from_defaults()
+    skill_loader = SkillLoader.from_defaults()
     state = AgentState(messages=load_messages())
     checkpoint = load_compaction_checkpoint(state.messages)
     save_messages(state.messages)
@@ -102,6 +107,7 @@ def run_agent(
                     state.messages,
                     tools,
                     checkpoint,
+                    skill_loader,
                 )
                 _write_context_status(
                     console,
@@ -138,6 +144,7 @@ def run_agent(
                     state.messages,
                     tools,
                     checkpoint,
+                    skill_loader,
                 )
                 context_budget = _context_budget_for(provider, model_context)
                 if context_budget.needs_attention:
@@ -154,6 +161,7 @@ def run_agent(
                             state.messages,
                             tools,
                             checkpoint,
+                            skill_loader,
                         )
                         context_budget = _context_budget_for(provider, model_context)
                         emit(
