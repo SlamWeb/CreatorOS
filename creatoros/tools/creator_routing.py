@@ -25,10 +25,11 @@ MAX_QUEUE_SUMMARY_CHARS = 800
 
 def _plan_to_dict(plan: DailyPlan, display_names: dict[str, str]) -> dict:
     opportunities = []
-    for item in plan.hot:
+    for position, item in enumerate(plan.hot, start=1):
         summary = item.hotspot_summary.strip()
         opportunities.append(
             {
+                "position": position,
                 "rank": item.hotspot_rank,
                 "title": item.hotspot_title,
                 "url": item.hotspot_url,

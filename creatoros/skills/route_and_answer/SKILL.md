@@ -18,6 +18,13 @@ description: 通过 route_hotspots 获取作者候选，并在用户选择后调
 - 不读取 PersonClone 本地文件或 Qdrant，不负责发布。
 - 普通 Agent 对话只调用上面的原子工具；`route_and_answer` 是宿主侧固定 Runner，不在模型工具列表中。
 
+## 选择规则
+
+- `route_hotspots` 返回的是作者侧队列；每个作者的 `hot` 数组已经按匹配分数降序排列。
+- `position` 是该作者队列中的显示序号，`rank` 是全局热榜名次；向用户展示时优先使用作者名和 `position`。
+- 默认一次只确认一个“作者 + 一个热点”，用户不需要为所有热点逐一分配作者。
+- 只有用户明确要求批量回答时，才逐个处理多个组合；未确认前不要调用 `ask_author`。
+
 ## 模式
 
 - 交互模式：`route_hotspots` → 展示候选 → 用户选择 → `ask_author`。

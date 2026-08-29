@@ -139,6 +139,8 @@ def main():
     assert payload["author_count"] == 2
     assert [item["title"] for item in payload["plans"][0]["hot"]] == ["平台治理"]
     assert [item["title"] for item in payload["plans"][1]["hot"]] == ["教育选择"]
+    assert payload["plans"][0]["hot"][0]["position"] == 1
+    assert payload["plans"][0]["hot"][0]["rank"] == 1
     assert result.details == {
         "hotspot_count": 2,
         "author_count": 2,
