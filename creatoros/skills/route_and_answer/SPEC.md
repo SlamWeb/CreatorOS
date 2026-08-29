@@ -10,7 +10,8 @@
 - Skill 只处理一次热点到一次回答，不负责质量评审、发布、调度或后台恢复。
 - Skill 不计算热点分数、不重排候选；`route_hotspots` 返回的匹配结果直接作为候选依据。
 - 当前候选快照保存在进程内，服务重启后失效；不重复实现路由或 PersonClone HTTP 逻辑。
-- `auto` 是确定性的最高相似度选择，不额外调用 LLM 做重排。
+- 普通 Agent 对话使用 `route_hotspots` 和 `ask_author` 两个原子工具；组合 Runner `route_and_answer` 仅供宿主侧固定编排，不进入默认模型工具 schema。
+- `auto` 是确定性的最高相似度选择，不额外调用 LLM 做重排；只由宿主侧 Runner 执行。
 
 ## 验收
 

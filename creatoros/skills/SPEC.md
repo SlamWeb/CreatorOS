@@ -3,7 +3,7 @@
 ## 目标
 
 - 递归发现项目 `creatoros/skills/**/SKILL.md`，读取 `name` 和 `description` 元数据。
-- 在构建主模型请求时注入可用 Skill 清单；完整 Skill 正文只通过 `load()` 或显式调用按需读取。
+- 在构建主模型请求时注入可用 Skill 清单；完整 Skill 正文由模型按 location 调用 `read_file` 按需读取，Python `load()` 仅作为内部读取接口保留。
 
 ## 边界
 

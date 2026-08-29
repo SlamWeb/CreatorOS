@@ -28,7 +28,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，并按 `corpus_version` 与文本指纹复用作者原型向量，以作者内部 Max Similarity 完成第一阶段候选召回。
 - **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列；`evergreen`、`experiment` 队列的数据结构已预留。
 - **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
-- **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程，并保留 Python Runner 作为自动化工作流入口；预览返回候选快照，确认复用同一快照，自动模式选择最高匹配候选。
+- **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程；普通 Agent 只看到 `read_file`、`route_hotspots`、`ask_author` 等原子工具，Python Runner 作为宿主侧自动化入口保留。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 

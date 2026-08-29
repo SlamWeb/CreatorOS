@@ -33,12 +33,21 @@ def _run_route_and_answer(*args, **kwargs):
 
 
 class Tool:
-    def __init__(self, name, description, execute, parameters=None, args_model=None):
+    def __init__(
+        self,
+        name,
+        description,
+        execute,
+        parameters=None,
+        args_model=None,
+        expose_to_model=True,
+    ):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.execute = execute
         self.args_model = args_model
+        self.expose_to_model = expose_to_model
 
     def to_schema(self):
         parameters = (
@@ -133,6 +142,7 @@ tool_registry = {
             description="根据热点候选选择作者并调用数字分身生成回答；支持预览、确认和自动选择。",
             execute=_run_route_and_answer,
             args_model=RouteAndAnswerArgs,
+            expose_to_model=False,
         ),
         Tool(
             name="ask_author",
@@ -156,4 +166,6 @@ tool_registry = {
 }
 
 
-tools = [tool.to_schema() for tool in tool_registry.values()]
+# ``tool_registry`` is the complete execution catalog. ``tools`` is the
+# provider-facing schema list and deliberately omits internal-only tools.
+tools = [tool.to_schema() for tool in tool_registry.values() if tool.expose_to_model]

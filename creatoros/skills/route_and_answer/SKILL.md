@@ -16,11 +16,12 @@ description: 通过 route_hotspots 获取作者候选，并在用户选择后调
 - 交互模式下先展示候选并等待用户选择，选择完成后才使用 `ask_author`。
 - `ask_author` 使用用户选择的作者和热点标题/介绍；不要重新调用 `route_hotspots`。
 - 不读取 PersonClone 本地文件或 Qdrant，不负责发布。
+- 普通 Agent 对话只调用上面的原子工具；`route_and_answer` 是宿主侧固定 Runner，不在模型工具列表中。
 
 ## 模式
 
 - 交互模式：`route_hotspots` → 展示候选 → 用户选择 → `ask_author`。
-- 自动模式：仅当用户明确要求自动选择时，才调用 `route_and_answer(mode="auto")`；自动选择规则由 Runner 执行。
+- 自动模式（宿主侧）：固定式 Runner 可在用户明确授权后调用 `route_and_answer(mode="auto")`；普通 Agent 仍按 `route_hotspots` → 选择最高分候选 → `ask_author` 执行。
 
 ## 输出
 

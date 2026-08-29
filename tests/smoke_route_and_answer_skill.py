@@ -2,7 +2,7 @@ import json
 
 import creatoros.skills.route_and_answer.runner as skill_runner
 from creatoros.ai.types import ToolCall
-from creatoros.tools.definitions import tool_registry
+from creatoros.tools.definitions import tool_registry, tools
 from creatoros.tools.execution import execute_tool_call
 from creatoros.tools.results import ToolResult
 
@@ -107,6 +107,12 @@ def main():
     assert [name for name, _ in calls] == ["route_hotspots", "ask_author", "route_hotspots", "ask_author"]
     assert "route_and_answer" in tool_registry
     assert "mode" in tool_registry["route_and_answer"].to_schema()["function"]["parameters"]["properties"]
+    model_tool_names = {
+        schema["function"]["name"]
+        for schema in tools
+    }
+    assert "route_and_answer" not in model_tool_names
+    assert {"read_file", "route_hotspots", "ask_author"}.issubset(model_tool_names)
     print("route_and_answer_skill_smoke=passed")
 
 
