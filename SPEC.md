@@ -577,8 +577,9 @@ git diff --check
 
 ## 本轮目标（route-and-answer Skill）
 
-- 用一个高层 Tool 固化现有 `route_hotspots` 与 `ask_author` 的最小业务链路，不复制两边的 HTTP 或向量匹配逻辑。
-- `preview` 生成作者侧候选队列并保存进程内快照；`confirm` 只允许从快照中选择作者与热点；`auto` 按最高匹配分确定性选择一个候选后调用数字分身。
+- 用 Skill 说明现有 `route_hotspots` 与 `ask_author` 的调用顺序，不在 Skill 中复制 HTTP、向量匹配或评分逻辑。
+- 交互模式由 LLM 执行 `route_hotspots → 用户选择 → ask_author`；固定 Runner 的 `preview/confirm/auto` 作为自动化入口保留。
+- Skill 不自行计算热点分数或重排候选；自动模式沿用 Runner 已有的确定性选择规则。
 - 当前只负责候选、选择和回答，不负责 perspective 重排、质量评审、发布、定时任务或后台恢复。
 
 ## 本轮验证（route-and-answer Skill）
