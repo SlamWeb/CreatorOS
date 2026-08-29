@@ -7,12 +7,19 @@ from ..context import RuntimeContext
 from ..integrations.personclone import PersonCloneClient, PersonCloneError
 from ..integrations.zhihu import ZhihuOpenAPIClient, ZhihuOpenAPIError
 from ..planning import DailyPlan, build_daily_plans
-from ..routing import BGEEmbeddingProvider, EmbeddingError, build_domain_query
+from ..routing import (
+    BGEEmbeddingProvider,
+    EmbeddedRoutePrototype,
+    EmbeddingError,
+    RoutingEmbeddingCache,
+    build_domain_query,
+)
 from ..routing.projection import project_profile
 from .results import ToolResult
 
 _zhihu_client_factory: Callable[[], ZhihuOpenAPIClient] = ZhihuOpenAPIClient.from_env
 _personclone_client_factory: Callable[[], PersonCloneClient] = PersonCloneClient.from_env
+_embedding_cache_factory: Callable[[], RoutingEmbeddingCache] = RoutingEmbeddingCache.from_defaults
 MAX_QUEUE_SUMMARY_CHARS = 800
 
 
@@ -96,7 +103,28 @@ def route_hotspots(
             )
 
         embedder = BGEEmbeddingProvider()
-        embedded_domains = embedder.embed_documents(documents)
+        embedding_cache = _embedding_cache_factory()
+        embedded_by_id: dict[str, EmbeddedRoutePrototype] = {}
+        missing_documents = []
+        cache_hit_count = 0
+        for document in documents:
+            cached_vector = embedding_cache.get(document)
+            if cached_vector is None:
+                missing_documents.append(document)
+                continue
+            embedded_by_id[document.doc_id] = EmbeddedRoutePrototype(document, cached_vector)
+            cache_hit_count += 1
+
+        if missing_documents:
+            for embedded in embedder.embed_documents(missing_documents):
+                embedded_by_id[embedded.document.doc_id] = embedded
+                embedding_cache.put(embedded.document, embedded.vector)
+            try:
+                embedding_cache.save()
+            except OSError:
+                pass
+
+        embedded_domains = tuple(embedded_by_id[document.doc_id] for document in documents)
         query_vectors = embedder.embed_texts(
             [build_domain_query(topic) for topic in hot_list.topics]
         )
@@ -122,6 +150,8 @@ def route_hotspots(
                 "author_count": len(plans),
                 "top_k": top_k,
                 "skipped_author_count": len(skipped_authors),
+                "prototype_cache_hits": cache_hit_count,
+                "prototype_cache_misses": len(missing_documents),
             },
         )
     except (ZhihuOpenAPIError, PersonCloneError) as error:

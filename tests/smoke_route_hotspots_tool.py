@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import creatoros.tools.creator_routing as creator_routing_tools
 from creatoros.ai.types import ToolCall
@@ -8,6 +10,7 @@ from creatoros.routing import (
     DomainPrototype,
     EmbeddedRoutePrototype,
     RoutingProfileEnvelope,
+    RoutingEmbeddingCache,
     VectorRef,
 )
 from creatoros.tools.definitions import tool_registry
@@ -111,17 +114,23 @@ def main():
     previous_zhihu = creator_routing_tools._zhihu_client_factory
     previous_personclone = creator_routing_tools._personclone_client_factory
     previous_embedder = creator_routing_tools.BGEEmbeddingProvider
+    previous_cache = creator_routing_tools._embedding_cache_factory
     creator_routing_tools._zhihu_client_factory = lambda: zhihu_client
     creator_routing_tools._personclone_client_factory = lambda: personclone_client
     creator_routing_tools.BGEEmbeddingProvider = FakeEmbeddingProvider
-    try:
-        result = execute_tool_call(
-            ToolCall("route-1", "route_hotspots", json.dumps({"limit": 2, "top_k": 1}))
+    with TemporaryDirectory() as temporary:
+        creator_routing_tools._embedding_cache_factory = lambda: RoutingEmbeddingCache(
+            Path(temporary) / "routing-cache.json"
         )
-    finally:
-        creator_routing_tools._zhihu_client_factory = previous_zhihu
-        creator_routing_tools._personclone_client_factory = previous_personclone
-        creator_routing_tools.BGEEmbeddingProvider = previous_embedder
+        try:
+            result = execute_tool_call(
+                ToolCall("route-1", "route_hotspots", json.dumps({"limit": 2, "top_k": 1}))
+            )
+        finally:
+            creator_routing_tools._zhihu_client_factory = previous_zhihu
+            creator_routing_tools._personclone_client_factory = previous_personclone
+            creator_routing_tools.BGEEmbeddingProvider = previous_embedder
+            creator_routing_tools._embedding_cache_factory = previous_cache
 
     payload = json.loads(result.content)
     assert not result.is_error
@@ -135,6 +144,8 @@ def main():
         "author_count": 2,
         "top_k": 1,
         "skipped_author_count": 0,
+        "prototype_cache_hits": 0,
+        "prototype_cache_misses": 2,
     }
     assert zhihu_client.closed and personclone_client.closed
     assert "route_hotspots" in tool_registry

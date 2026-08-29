@@ -25,7 +25,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **知乎数据接入**：官方热榜 API 和站内搜索 API，映射为内部不可变数据模型；只从环境变量读取 Access Secret。
 - **PersonClone 接入**：通过独立 FastAPI 服务读取作者列表和 `AuthorRoutingProfile`，复用登录 Cookie；CreatorOS 不读取 PersonClone 本地文件、Qdrant 或原始语料。
 - **Skill Loader**：递归发现 `creatoros/skills/**/SKILL.md`，解析名称和描述并注入模型上下文；完整 Skill 正文按需读取，暂不自动执行脚本或持久化激活状态。
-- **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，以作者内部 Max Similarity 完成第一阶段候选召回。
+- **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，并按 `corpus_version` 与文本指纹复用作者原型向量，以作者内部 Max Similarity 完成第一阶段候选召回。
 - **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列；`evergreen`、`experiment` 队列的数据结构已预留。
 - **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
 - **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程，并保留 Python Runner 作为自动化工作流入口；预览返回候选快照，确认复用同一快照，自动模式选择最高匹配候选。

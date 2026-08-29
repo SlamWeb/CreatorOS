@@ -589,6 +589,17 @@ git diff --check
 - 自动模式当前使用已有 domain-only 匹配分，不额外调用 LLM 重排；真实 PersonClone 生成联调留给用户确认后的低频验证。
 - 本轮真实 preview 联调时 PersonClone 未监听 `127.0.0.1:8000`，返回 WinError 10061；因此没有伪造“真实成功”，本地编排 smoke 已通过，服务启动后再复验。
 
+## 本轮目标（路由向量缓存）
+
+- 缓存稳定的作者 domain prototype embedding，避免每天读取热榜时重复编码不变画像。
+- 使用 `corpus_version`、模型、维度和 embedding 文本 SHA-256 作为失效条件；画像 rebuild 或原型文本变化时重新计算并覆盖。
+- 暂不缓存变化频繁的热点 query embedding，不连接 Qdrant。
+
+## 本轮验证（路由向量缓存）
+
+- `routing_embedding_cache_smoke=passed`：缓存冷启动、跨实例命中、版本/文本失效、覆盖和损坏回退通过。
+- `route_hotspots_tool_smoke=passed`：缓存命中/未命中统计和原有作者队列输出通过。
+
 ## 本轮目标（Skill Loader）
 
 - 递归发现项目 Skill 目录中的 `SKILL.md`，解析 `name`、`description`，并在主模型请求的 system message 中注入可用 Skill 清单。

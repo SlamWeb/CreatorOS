@@ -14,6 +14,7 @@
 - domain 和 perspective 必须分别保留 prototype_type；不能把两类文本混成一个作者向量。
 - embedding-ready 文本只来自 PersonClone API 暴露的画像字段和代表性证据，不读取原始语料。
 - BGE-M3 权重必须从本机 Hugging Face cache 加载，Provider 使用 `local_files_only=True`，禁止运行时联网下载。
+- 作者原型向量缓存必须记录 `corpus_version`、模型、维度和 embedding 文本指纹；画像更新或文本变化时自动失效并覆盖旧条目。
 
 ## 验收
 
@@ -27,6 +28,18 @@
 - `real_routing_models=passed`：真实登录态下 7 位作者全部解析成功，均为 ready，合计 83 个 domain 与 37 个 perspective prototypes。
 - `real_routing_projection=passed`：真实登录态下 7 位作者投影出 120 个 `RoutePrototypeDoc`，domain/perspective 两类均存在，corpus_version 与画像一致；未调用 embedding 或 Qdrant。
 - `live_routing_embedding=passed`：真实 7 位作者画像投影出的 120 个文档通过本地缓存 BGE-M3 生成 1024 维归一化向量；未下载模型、未连接 Qdrant。
+
+## 本轮目标（作者原型向量缓存）
+
+- 将 domain prototype 的 embedding 向量保存到 Git 忽略的本地缓存，避免每次读取热点都重复编码不变的作者画像。
+- 缓存键保留作者、原型、画像版本、模型、维度和文本指纹；PersonClone rebuild 后 `corpus_version` 或文本变化即可触发重新计算并覆盖。
+- 热点 query embedding 暂不持久化，因为热榜内容按请求变化；本轮只优化稳定的作者侧向量。
+
+## 本轮验证（作者原型向量缓存）
+
+- `routing_embedding_cache_smoke=passed`：冷启动 miss、跨实例读取、corpus_version 变化、文本变化、覆盖写入和损坏缓存回退均通过。
+- `route_hotspots_tool_smoke=passed`：路由 Tool 记录 prototype cache hit/miss，测试使用临时缓存，不污染真实缓存。
+- 真实缓存文件位于 `D:\CreatorOS\tmp\routing_embedding_cache.json`，已被 `.gitignore` 忽略，不提交 Git。
 
 ## 与 Planning 的边界
 

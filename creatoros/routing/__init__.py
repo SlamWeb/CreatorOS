@@ -10,6 +10,7 @@ from .models import (
     VectorRef,
 )
 from .embedding import BGEEmbeddingProvider, EmbeddedRoutePrototype, EmbeddingError
+from .cache import RoutingEmbeddingCache
 from .domain import DomainMatch, build_domain_query, rank_domain_matches
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "BGEEmbeddingProvider",
     "EmbeddedRoutePrototype",
     "EmbeddingError",
+    "RoutingEmbeddingCache",
     "DomainMatch",
     "build_domain_query",
     "rank_domain_matches",
