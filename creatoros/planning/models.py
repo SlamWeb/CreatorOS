@@ -44,6 +44,22 @@ class DailyPlan:
         raise ValueError(f"未知内容队列：{name}")
 
 
+@dataclass(frozen=True)
+class SelectionAssignment:
+    """One concrete author-candidate task expanded from a SelectionPlan."""
+
+    author_id: str
+    display_name: str
+    queue: ContentQueue
+    position: int
+    hotspot_rank: int
+    title: str
+    url: str
+    summary: str
+    score: float
+    instruction: str | None = None
+
+
 class SelectionModel(BaseModel):
     """Strict input contract for model-produced selection plans."""
 
