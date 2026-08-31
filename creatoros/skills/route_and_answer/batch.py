@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from uuid import uuid4
 
-from ...ai.types import ToolCall
 from ...context import RuntimeContext
+from ...integrations.personclone import AsyncPersonCloneClient, PersonCloneError
 from ...planning import SelectionAssignment
-from ...tools.execution import execute_tool_call
 from ...tools.results import ToolResult
+
+_async_client_factory: Callable[[], AsyncPersonCloneClient] = AsyncPersonCloneClient.from_env
 
 
 @dataclass(frozen=True)
@@ -34,25 +33,43 @@ def build_assignment_question(assignment: SelectionAssignment) -> str:
     return "\n\n".join(parts)
 
 
-def _execute_assignment(
+async def _execute_assignment(
+    client: AsyncPersonCloneClient,
     assignment: SelectionAssignment,
     context: RuntimeContext | None,
 ) -> ToolResult:
-    arguments = {
-        "author": assignment.author_id,
-        "question": build_assignment_question(assignment),
-        "query_mode": "grounded",
-        "writer_prompt": "strong_identity",
-        "parent_top_k": 20,
-    }
-    return execute_tool_call(
-        ToolCall(
-            id=f"batch-answer-{uuid4().hex}",
-            name="ask_author",
-            arguments=json.dumps(arguments, ensure_ascii=False),
-        ),
-        context=context,
-    )
+    del context
+    try:
+        answer = await client.ask_author(
+            assignment.author_id,
+            build_assignment_question(assignment),
+            query_mode="grounded",
+            writer_prompt="strong_identity",
+            parent_top_k=20,
+        )
+        return ToolResult(
+            content=answer.answer,
+            details={
+                "author": answer.author,
+                "sources": answer.sources,
+                "trace_id": answer.trace_id,
+            },
+        )
+    except PersonCloneError as error:
+        return ToolResult(
+            content=str(error),
+            is_error=True,
+            error_type=error.error_type,
+            retryable=error.retryable,
+            details=error.details,
+        )
+    except Exception as error:
+        return ToolResult(
+            content=f"批量回答执行失败：{error}",
+            is_error=True,
+            error_type="tool_exception",
+            details={"exception_type": type(error).__name__},
+        )
 
 
 async def answer_assignments(
@@ -61,14 +78,22 @@ async def answer_assignments(
     max_concurrency: int = 3,
     context: RuntimeContext | None = None,
 ) -> tuple[AssignmentAnswer, ...]:
-    """Run existing synchronous ask_author calls concurrently in worker threads."""
+    """Run native-async PersonClone streams with a bounded concurrency limit."""
     if max_concurrency < 1:
         raise ValueError("max_concurrency 必须大于 0。")
+    if not assignments:
+        return ()
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def answer_one(assignment: SelectionAssignment) -> AssignmentAnswer:
+    async def answer_one(
+        client: AsyncPersonCloneClient,
+        assignment: SelectionAssignment,
+    ) -> AssignmentAnswer:
         async with semaphore:
-            result = await asyncio.to_thread(_execute_assignment, assignment, context)
+            result = await _execute_assignment(client, assignment, context)
             return AssignmentAnswer(assignment=assignment, result=result)
 
-    return tuple(await asyncio.gather(*(answer_one(item) for item in assignments)))
+    async with _async_client_factory() as client:
+        return tuple(
+            await asyncio.gather(*(answer_one(client, item) for item in assignments))
+        )

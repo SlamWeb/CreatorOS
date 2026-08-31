@@ -1,10 +1,9 @@
 import asyncio
 import threading
-import time
 
 import creatoros.skills.route_and_answer.batch as batch
+from creatoros.integrations.personclone import PersonaAnswer, PersonCloneError
 from creatoros.planning import SelectionAssignment
-from creatoros.tools.results import ToolResult
 
 
 def assignment(author: str, rank: int) -> SelectionAssignment:
@@ -27,30 +26,41 @@ def main() -> None:
     peak = 0
     lock = threading.Lock()
     prompts: dict[str, str] = {}
-
-    def fake_execute(item, context):
-        nonlocal active, peak
-        assert context is None
-        with lock:
-            active += 1
-            peak = max(peak, active)
-        try:
-            prompts[item.author_id] = batch.build_assignment_question(item)
-            time.sleep(0.05)
-            if item.author_id == "bob":
-                return ToolResult("生成失败", is_error=True, error_type="test_error")
-            return ToolResult(f"{item.author_id} 的回答")
-        finally:
-            with lock:
-                active -= 1
-
-    previous = batch._execute_assignment
-    batch._execute_assignment = fake_execute
     items = [assignment("alice", 1), assignment("bob", 2), assignment("carol", 3)]
+
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def ask_author(self, author, question, **kwargs):
+            nonlocal active, peak
+            assert kwargs == {
+                "query_mode": "grounded",
+                "writer_prompt": "strong_identity",
+                "parent_top_k": 20,
+            }
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                prompts[author] = question
+                await asyncio.sleep(0.05)
+                if author == "bob":
+                    raise PersonCloneError("生成失败", error_type="test_error")
+                return PersonaAnswer(author=author, answer=f"{author} 的回答")
+            finally:
+                with lock:
+                    active -= 1
+
+    previous_factory = batch._async_client_factory
+    batch._async_client_factory = FakeAsyncClient
     try:
         results = asyncio.run(batch.answer_assignments(items, max_concurrency=2))
     finally:
-        batch._execute_assignment = previous
+        batch._async_client_factory = previous_factory
 
     assert peak == 2
     assert [item.assignment.author_id for item in results] == ["alice", "bob", "carol"]

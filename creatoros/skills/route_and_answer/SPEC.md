@@ -22,21 +22,20 @@
 - Agent 交互路径默认只确认一个作者队列中的一个 `position`；未明确要求批量时不要求用户遍历全部热点。
 - Agent smoke 能验证 `read_file → route_hotspots → 等待选择 → ask_author`，且不会暴露组合 Runner。
 
-## 本轮目标（并发回答执行器）
+## 本轮目标（原生异步回答执行器）
 
-- 接收已经确定性展开的 `SelectionAssignment`，复用现有同步 `ask_author` Tool，通过 `asyncio.to_thread` 并发等待多个 PersonClone SSE 回答。
-- 使用 `asyncio.Semaphore` 限制同时运行的请求数，默认最多 3 个；`asyncio.gather` 保持输出与输入任务顺序一致。
-- 每个任务保留独立 `ToolResult`，一个作者失败时不取消其他作者的回答。
+- 新增 `AsyncPersonCloneClient`，使用 `httpx.AsyncClient` 原生读取 PersonClone SSE，不修改现有请求字段或事件协议。
+- 接收已经确定性展开的 `SelectionAssignment`，共享一个异步 Client，通过 `asyncio.Semaphore` 限制同时运行的请求数，默认最多 3 个。
+- `asyncio.gather` 保持输出与输入任务顺序一致；每个任务保留独立 `ToolResult`，一个作者失败时不取消其他作者的回答。
 
-## 当前边界（并发回答执行器）
+## 当前边界（原生异步回答执行器）
 
-- 本轮不把 PersonClone HTTP Client 改成原生异步，不汇聚 token 级 SSE 到终端，也不实现后台任务恢复。
-- 执行器属于宿主侧固定编排，不新增模型可见 Tool；模型仍只看到原子 `ask_author`。
-- 每个同步调用都会创建并关闭独立的 PersonClone Client，不在线程间共享同一个 `httpx.Client`。
+- 保留同步 `PersonCloneClient` 和模型可见的同步 `ask_author` Tool；原生异步 Client 仅供宿主侧批量执行器使用。
+- 本轮不汇聚 token 级 SSE 到终端，不实现后台任务恢复，也不改变 PersonClone 服务端容量策略。
+- 一个批次共享一个 `AsyncClient`，批次结束后显式 `aclose`；不同批次不共享生命周期不明的全局 Client。
 
-## 验收（并发回答执行器）
+## 验收（原生异步回答执行器）
 
 - 本地并发 smoke 验证并发上限、结果顺序、单任务失败隔离、问题拼接、空任务和非法并发数。
-- 真实验证从实时路由结果中选择两位作者，以并发数 2 同时调用 PersonClone `ask_author`；不使用 Fake 代替真实生成。
-- `batch_answers_smoke=passed`，并回归通过 selection expansion、route-and-answer Skill 和全包 `compileall`。
-- `live_batch_answers=passed count=2 max_concurrency=2`：真实并发生成两份回答，分别返回 616、548 个字符和独立 trace_id；使用现有 `deepcode` 环境与真实 PersonClone SSE，没有伪造生成成功。
+- `batch_answers_smoke=passed`、`personclone_async_smoke=passed`，并回归通过同步 PersonClone、selection expansion、route-and-answer Skill 和全包 `compileall`。
+- 本轮真实复验已尝试使用 `deepcode` 环境，但 `127.0.0.1:8000` 返回 WinError 10061，PersonClone 服务未监听；因此没有伪造“原生异步真实生成成功”。服务部署交接分支 `5f8ac815f8b9278ef58ea515fe3876f6c5b75bb7` 后重新运行 `tests/live_batch_answers.py`。

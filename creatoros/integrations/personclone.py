@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Literal
+from typing import Any, AsyncIterator, Iterator, Literal
 from urllib.parse import quote
 
 import httpx
@@ -350,6 +350,201 @@ class PersonCloneClient:
 
         for raw_line in response.iter_lines():
             line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            if not line:
+                event = flush()
+                if event is not None:
+                    yield event
+            elif line.startswith(":"):
+                continue
+            elif line.startswith("event:"):
+                event_name = line[6:].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[5:].lstrip())
+
+        event = flush()
+        if event is not None:
+            yield event
+
+
+class AsyncPersonCloneClient:
+    """Native-async HTTP client for concurrent PersonClone SSE streams."""
+
+    def __init__(
+        self,
+        base_url: str = PERSONCLONE_BASE_URL,
+        session_cookie: str = PERSONCLONE_SESSION_COOKIE,
+        timeout: float = PERSONCLONE_TIMEOUT_SECONDS,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
+        cookies = {}
+        if session_cookie:
+            cookies[PERSONCLONE_SESSION_COOKIE_NAME] = session_cookie
+        self._http = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
+            timeout=timeout,
+            cookies=cookies,
+            transport=transport,
+        )
+
+    @classmethod
+    def from_env(cls) -> "AsyncPersonCloneClient":
+        return cls()
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def __aenter__(self) -> "AsyncPersonCloneClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback) -> None:
+        await self.aclose()
+
+    async def ask_author(
+        self,
+        author: str,
+        question: str,
+        *,
+        query_mode: str = "grounded",
+        writer_prompt: str = "strong_identity",
+        parent_top_k: int = 20,
+    ) -> PersonaAnswer:
+        payload = {
+            "author": author,
+            "query": question,
+            "query_mode": query_mode,
+            "writer_prompt": writer_prompt,
+            "parent_top_k": parent_top_k,
+        }
+        try:
+            async with self._http.stream(
+                "POST",
+                "/api/chat/stream",
+                json=payload,
+                headers={"Accept": "text/event-stream"},
+            ) as response:
+                if response.status_code >= 400:
+                    await self._raise_http_error(response, "回答作者")
+                return await self._read_answer(response, author)
+        except PersonCloneError:
+            raise
+        except httpx.TimeoutException as error:
+            raise PersonCloneError(
+                "PersonClone 回答超时。",
+                error_type="personclone_timeout",
+                retryable=True,
+            ) from error
+        except httpx.RequestError as error:
+            raise PersonCloneError(
+                f"无法连接 PersonClone：{error}",
+                error_type="personclone_unavailable",
+                retryable=True,
+            ) from error
+
+    @staticmethod
+    async def _raise_http_error(response: httpx.Response, operation: str) -> None:
+        try:
+            await response.aread()
+        except RuntimeError:
+            pass
+        try:
+            payload = response.json()
+            detail = payload.get("detail") or payload.get("error") or payload
+        except ValueError:
+            detail = response.text[:500]
+
+        status = response.status_code
+        if status in (401, 403):
+            error_type = "personclone_auth"
+            retryable = False
+            message = f"PersonClone {operation}需要有效的登录会话。"
+        elif status == 404:
+            error_type = "personclone_not_found"
+            retryable = False
+            message = f"PersonClone 找不到请求的作者或接口：{detail}"
+        elif status == 429 or status >= 500:
+            error_type = "personclone_unavailable"
+            retryable = True
+            message = f"PersonClone 暂时不可用：{detail}"
+        else:
+            error_type = "personclone_http_error"
+            retryable = False
+            message = f"PersonClone {operation}失败（HTTP {status}）：{detail}"
+        raise PersonCloneError(
+            message,
+            error_type=error_type,
+            retryable=retryable,
+            details={"status_code": status},
+        )
+
+    @classmethod
+    async def _read_answer(cls, response: httpx.Response, author: str) -> PersonaAnswer:
+        tokens: list[str] = []
+        done_payload: dict[str, Any] | None = None
+        meta_payload: dict[str, Any] = {}
+
+        async for event_name, payload in cls._iter_sse_events(response):
+            if event_name == "meta" and isinstance(payload, dict):
+                meta_payload = payload
+            elif event_name == "token" and isinstance(payload, dict):
+                text = payload.get("text")
+                if isinstance(text, str):
+                    tokens.append(text)
+            elif event_name == "error":
+                detail = payload.get("error") if isinstance(payload, dict) else payload
+                raise PersonCloneError(
+                    f"PersonClone 生成失败：{detail}",
+                    error_type="personclone_generation_error",
+                    details=payload if isinstance(payload, dict) else {},
+                )
+            elif event_name == "done" and isinstance(payload, dict):
+                done_payload = payload
+
+        if done_payload is None:
+            raise PersonCloneError(
+                "PersonClone 流结束前没有收到 done 事件。",
+                error_type="personclone_protocol_error",
+                retryable=True,
+            )
+
+        answer = done_payload.get("answer") or "".join(tokens)
+        if not isinstance(answer, str) or not answer.strip():
+            raise PersonCloneError(
+                "PersonClone 返回了空回答。",
+                error_type="personclone_empty_answer",
+            )
+
+        sources = done_payload.get("sources") or []
+        if not isinstance(sources, list):
+            sources = []
+        trace_id = done_payload.get("trace_id") or meta_payload.get("trace_id")
+        return PersonaAnswer(
+            author=author,
+            answer=answer,
+            sources=sources,
+            trace_id=trace_id if isinstance(trace_id, str) else None,
+        )
+
+    @staticmethod
+    async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[tuple[str, Any]]:
+        event_name: str | None = None
+        data_lines: list[str] = []
+
+        def flush() -> tuple[str, Any] | None:
+            nonlocal event_name, data_lines
+            if not data_lines:
+                event_name = None
+                return None
+            raw_data = "\n".join(data_lines)
+            current_event = event_name or "message"
+            event_name = None
+            data_lines = []
+            try:
+                payload = json.loads(raw_data)
+            except json.JSONDecodeError:
+                payload = {"text": raw_data}
+            return current_event, payload
+
+        async for line in response.aiter_lines():
             if not line:
                 event = flush()
                 if event is not None:
