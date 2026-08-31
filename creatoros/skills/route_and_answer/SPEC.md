@@ -38,4 +38,5 @@
 
 - 本地并发 smoke 验证并发上限、结果顺序、单任务失败隔离、问题拼接、空任务和非法并发数。
 - `batch_answers_smoke=passed`、`personclone_async_smoke=passed`，并回归通过同步 PersonClone、selection expansion、route-and-answer Skill 和全包 `compileall`。
-- 本轮真实复验已尝试使用 `deepcode` 环境，但 `127.0.0.1:8000` 返回 WinError 10061，PersonClone 服务未监听；因此没有伪造“原生异步真实生成成功”。服务部署交接分支 `5f8ac815f8b9278ef58ea515fe3876f6c5b75bb7` 后重新运行 `tests/live_batch_answers.py`。
+- 首次复验时 PersonClone 未监听，记录为 WinError 10061；服务部署交接分支 `5f8ac815f8b9278ef58ea515fe3876f6c5b75bb7` 后已完成真实复验。
+- `live_batch_answers=passed count=2 max_concurrency=2`：两个真实 PersonClone SSE 请求并发成功，分别返回 674、669 个字符和同秒生成的独立 trace_id；没有伪造成功结果。
