@@ -77,6 +77,24 @@ class DeepSeekProvider:
             cache_miss_tokens=cache_miss,
         )
 
+    @classmethod
+    def _to_responses_usage(cls, usage):
+        if usage is None:
+            return None
+        input_tokens = cls._usage_value(usage, "input_tokens")
+        output_tokens = cls._usage_value(usage, "output_tokens")
+        if input_tokens is None or output_tokens is None:
+            return None
+        input_details = cls._usage_value(usage, "input_tokens_details")
+        cache_hit = cls._usage_value(input_details, "cached_tokens")
+        total_tokens = cls._usage_value(usage, "total_tokens")
+        return ModelUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=total_tokens or input_tokens + output_tokens,
+            cache_hit_tokens=cache_hit,
+        )
+
     def complete(self, context: ModelContext):
         messages, tools = context.to_request()
         response = self.client.chat.completions.create(
@@ -97,6 +115,35 @@ class DeepSeekProvider:
                 for tool_call in assistant_message.tool_calls or []
             ],
             usage=self._to_model_usage(getattr(response, "usage", None)),
+        )
+
+    def complete_structured(
+        self,
+        *,
+        instructions,
+        input_text,
+        schema_name,
+        schema,
+        max_output_tokens=4_096,
+    ):
+        response = self.client.responses.create(
+            model=self.model,
+            instructions=instructions,
+            input=input_text,
+            reasoning={"effort": "none"},
+            max_output_tokens=max_output_tokens,
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": schema_name,
+                    "schema": schema,
+                }
+            },
+        )
+        return ModelResponse(
+            content=response.output_text,
+            tool_calls=[],
+            usage=self._to_responses_usage(getattr(response, "usage", None)),
         )
 
     def stream(self, context: ModelContext):

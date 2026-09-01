@@ -9,7 +9,7 @@ from .context import (
     project_tool_results_for_model,
 )
 from .deepseek import DeepSeekProvider
-from .provider import ModelProvider
+from .provider import ModelProvider, StructuredModelProvider
 from .types import (
     ModelResponse,
     ModelStreamEvent,
@@ -30,6 +30,7 @@ __all__ = [
     "MAX_MODEL_TOOL_RESULT_CHARS",
     "ModelContext",
     "ModelProvider",
+    "StructuredModelProvider",
     "ModelResponse",
     "ModelStreamEvent",
     "ModelUsage",

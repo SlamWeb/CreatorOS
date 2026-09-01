@@ -675,3 +675,17 @@ git diff --check
 - 校验覆盖空计划、未知 action、重复 Topic、额外字段、未知 Series 和不完整调序。
 - Preview 不写数据库；外部新增 Topic 后旧 token 失效；真实 SQLite trigger 使第二项失败时第一项也未落库。
 - 回归通过 storage、content planning、SelectionPlan、CodexProducer smoke 和全包 `compileall`。
+
+## 本轮目标（自然语言 OperationPlan Parser）
+
+- 给 Provider 增加独立 Structured Output 边界，使用 DeepSeek Responses API `json_schema` 返回严格解析决策。
+- 把当前 Series 名称、固定 Skill 和有序 Topic 作为解析目录，使“把 MCP 放第一条”等指代能还原成完整调序。
+- 用 `ready / needs_clarification / unsupported` 区分可执行、缺信息和超范围意图；模型仍不获得执行权。
+- 原 Agent Loop 保持 Chat Completions，不在本轮迁移 Streaming、Tool Calling 或 Session。
+
+## 本轮验证（自然语言 OperationPlan Parser）
+
+- `operation_parser_smoke=passed catalog=passed validation=passed`：目录投影、合法响应和非法/空响应拒绝通过。
+- 真实 DeepSeek：新增 MCP 与 Tool Calling 并把 MCP 调到第一条，解析为 2 个操作，随后通过 Preview 与临时数据库执行；input 1,040、output 94 tokens。
+- 第二次真实请求“删除整个栏目”返回 `unsupported` 且 `plan=null`，证明超范围意图不会被强行映射为写操作。
+- 回归通过 OperationPlan、ModelUsage、storage smoke 和全包 `compileall`；未修改正式数据库或调用发布能力。

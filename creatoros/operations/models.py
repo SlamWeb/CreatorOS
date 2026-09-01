@@ -66,6 +66,22 @@ class OperationPlan(OperationModel):
         return self
 
 
+class OperationParseDecision(OperationModel):
+    status: Literal["ready", "needs_clarification", "unsupported"]
+    plan: OperationPlan | None = None
+    message: str | None = None
+
+    @model_validator(mode="after")
+    def validate_decision(self) -> "OperationParseDecision":
+        if self.status == "ready":
+            if self.plan is None:
+                raise ValueError("ready 决策必须包含 plan。")
+            return self
+        if self.plan is not None or not self.message:
+            raise ValueError("未就绪决策不能包含 plan，并且必须解释原因。")
+        return self
+
+
 class OperationChange(OperationModel):
     action: Literal["add_topics", "reorder_topics"]
     series_id: str

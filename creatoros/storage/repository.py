@@ -98,6 +98,13 @@ class ContentRepository:
         with self._session() as session:
             return session.get(Series, series_id)
 
+    def list_series(self, creator_id: str | None = None) -> tuple[Series, ...]:
+        with self._session() as session:
+            statement = select(Series)
+            if creator_id is not None:
+                statement = statement.where(Series.creator_id == creator_id)
+            return tuple(session.scalars(statement.order_by(Series.created_at, Series.id)))
+
     def get_topic(self, topic_id: str) -> Topic | None:
         with self._session() as session:
             return session.get(Topic, topic_id)

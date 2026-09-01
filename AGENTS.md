@@ -32,7 +32,7 @@
 1. 最小 Runtime 已足够承载第一条业务链路；后续只在真实业务暴露痛点时继续补 Runtime，不为完整复刻通用 Coding Agent 而扩张。
 2. 当前产品主线是自有内容栏目的“栏目选题 → Skill 生产 → SocialContentPack → 审批/发布 → 效果反馈”；CreatorOS 负责选题、栏目、调度和产物管理，Codex 作为端到端内容生产工具。
 3. 知乎热点、Creator Routing 与 PersonClone 数字分身作为已打通的另一条业务实验线保留；PersonClone 仍是独立 FastAPI Service，不复制其代码和环境。
-4. 当前已完成 `knowledge-to-carousel → CodexProducer → SocialContentPack`、Series/Topic 持久化和 OperationPlan 预览/事务执行；下一步优先接自然语言计划入口与 ContentRun，不提前扩张后台调度与复杂权限。
+4. 当前已完成 `knowledge-to-carousel → CodexProducer → SocialContentPack`、Series/Topic 持久化，以及自然语言 `OperationPlan → Preview → 事务执行`；下一步优先接交互确认入口与 ContentRun，不提前扩张后台调度与复杂权限。
 5. `SlamWeb/DeepSeek-Coding-Agent` 只代表旧的 Runtime v0 学习经验，不修改、不复制进本仓库。
 
 ## 验证、SPEC 与 Git 闭环

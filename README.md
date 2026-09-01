@@ -32,7 +32,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **图片轮播生产**：`knowledge-to-carousel` 把知识主题约束成原创、零基础友好的小红书图片轮播；`produce_content_pack` 调用已登录 Codex CLI，一篇内容创建一个可恢复 thread，并以 Structured Outputs 返回生产回执。
 - **产物契约**：CreatorOS 只接受当前 Codex thread 的真实生成图片，自行复制、写入 Manifest，并用严格 Pydantic `SocialContentPack` 验证卡片顺序、图片路径、发布文案和来源。
 - **栏目持久化**：用 SQLAlchemy 建模 `Creator → Series → Topic`，以 Alembic 管理 schema 版本；SQLite 默认本地可用，Repository 支持有序选题和事务化调序。
-- **可确认运营计划**：严格 `OperationPlan` 统一批量加选题和整列调序；Preview 只读，宿主确认后才在一个事务中执行，并用状态指纹拒绝过期确认。
+- **可确认运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`，支持 `ready/needs_clarification/unsupported`；Preview 只读，宿主确认后才在一个事务中执行，并用状态指纹拒绝过期确认。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -121,13 +121,14 @@ conda run --no-capture-output -n deepcode python -m compileall -q main.py creato
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.live_content_planning
 conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
+conda run --no-capture-output -n deepcode python -m tests.live_operation_parser
 ```
 
 `live_content_planning` 只读热点与画像；`live_codex_producer` 会真实消费 Codex 用量并生成本地图片，但不会发布到平台。
 
 ## 路线图
 
-1. **自然语言运营入口**：让 Provider 以 Structured Output 把用户表达解析成现有 `OperationPlan`，通过 Agent Tool/UI 展示 Preview，并由用户确认后提交。
+1. **交互确认入口**：在 Agent/CLI 中展示自然语言计划的 Preview，保存待确认状态，并只在明确确认后调用现有事务执行器。
 2. **生产运行记录**：用 `ContentRun` 把 Topic、Codex thread、SocialContentPack 与运行状态串起来，再接同篇返工 revision。
 3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
 4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
