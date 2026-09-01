@@ -18,3 +18,5 @@
 - Skill 明确要求输出真实图片和 `social_content_pack.json`，并引用可独立阅读的文件契约。
 - 首次真实运行以 Agent State、Runtime Context 和 Messages 为主题生成 5 张原创轮播图；Manifest 通过 `SocialContentPack.load()` 验证。
 - 真实运营产物保存到本地 `outputs/`，默认不进入 Git；确认满意的展示样例后再单独复制到公开文档资源目录。
+- `codex exec` 能在独立非交互任务中读取本 Skill、调用内置图片生成能力，并产出真实 1086×1448 PNG；外部 CreatorOS 再次加载单卡 Manifest 通过。
+- Windows `workspace-write` 的 Shell 在隔离目录探针中遇到 split writable roots 限制；正式 Producer 不依赖子任务 Shell 搬运文件，改由 Codex 返回结构化生产回执、CreatorOS 负责受控落盘和最终 Pydantic 验收。

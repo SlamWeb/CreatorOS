@@ -633,3 +633,5 @@ git diff --check
 - `knowledge_to_carousel_skill_smoke=passed`：默认 Loader 能发现并按需读取 Skill；正文包含图片产出、非 HTML 和 Manifest 约束，契约引用文件存在。
 - `knowledge_to_carousel_live=passed cards=5`：内置图片生成能力真实生成 5 张原创 3:4 轮播图，中文标题、卡片顺序和核心包含关系经人工检查通过；最终文件写入本地 `outputs/creatoros-lab/agent-runtime-basics/20260902-agent-state-context-messages/`。
 - `outputs/` 作为运行时产物目录加入 Git 忽略；未确认的二进制图片不进入源码历史，后续精选样例再进入 README 展示资源。
+- `codex_exec_imagegen=passed cards=1`：本机 ChatGPT 登录态下，`codex exec --json --ephemeral` 在仓库外隔离目录读取 `knowledge-to-carousel`，真实调用内置图片生成并产出 1086×1448 PNG；CreatorOS 使用现有 `SocialContentPack.load()` 反向验收通过。
+- 探针观察到 Windows `workspace-write` Shell 的 split writable roots 限制，但内置图片生成与 JSONL 事件流可用；正式 `CodexProducer` 采用“Codex 返回结构化生产回执，CreatorOS 受控复制图片并写入/验收 Manifest”的边界，不依赖子任务 Shell 直接管理最终产物。
