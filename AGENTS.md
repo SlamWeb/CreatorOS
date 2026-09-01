@@ -30,9 +30,9 @@
 ## 当前范围边界
 
 1. 最小 Runtime 已足够承载第一条业务链路；后续只在真实业务暴露痛点时继续补 Runtime，不为完整复刻通用 Coding Agent 而扩张。
-2. 当前产品主线是知乎创作者矩阵的“热点发现 → Creator Routing → PersonClone 生成 → 质量评估 → 发布 → 效果反馈”；仍按可运行的小切片逐段接通。
-3. PersonClone 作为独立 FastAPI Service 接入 CreatorOS，不复制其代码和环境；CreatorOS 负责业务编排、状态、评测与发布。
-4. 当前只实现热点发现的数据获取边界；定时调度、评分路由、自动发布和反馈学习在前一段真实验收后再引入。
+2. 当前产品主线是自有内容栏目的“栏目选题 → Skill 生产 → SocialContentPack → 审批/发布 → 效果反馈”；CreatorOS 负责选题、栏目、调度和产物管理，Codex 作为端到端内容生产工具。
+3. 知乎热点、Creator Routing 与 PersonClone 数字分身作为已打通的另一条业务实验线保留；PersonClone 仍是独立 FastAPI Service，不复制其代码和环境。
+4. 当前已完成 `knowledge-to-carousel → CodexProducer → SocialContentPack` 的真实生产闭环；下一步优先补 Series/Topic 状态、同篇内容返工和发布边界，不提前扩张后台调度与复杂权限。
 5. `SlamWeb/DeepSeek-Coding-Agent` 只代表旧的 Runtime v0 学习经验，不修改、不复制进本仓库。
 
 ## 验证、SPEC 与 Git 闭环

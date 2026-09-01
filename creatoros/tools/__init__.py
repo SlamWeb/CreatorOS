@@ -11,6 +11,7 @@ from .models import (
     AddAuthorArgs,
     AskAuthorArgs,
     GetAuthorJobArgs,
+    ProduceContentPackArgs,
     ReadFileArgs,
     ReadToolResultArgs,
     RouteAndAnswerArgs,
@@ -20,6 +21,7 @@ from .models import (
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
+from .content import produce_content_pack
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .results import ToolResult
@@ -31,6 +33,7 @@ __all__ = [
     "AddAuthorArgs",
     "AskAuthorArgs",
     "GetAuthorJobArgs",
+    "ProduceContentPackArgs",
     "WaitAuthorJobArgs",
     "RouteAndAnswerArgs",
     "RouteHotspotsArgs",
@@ -49,6 +52,7 @@ __all__ = [
     "get_author_job",
     "wait_author_job",
     "route_hotspots",
+    "produce_content_pack",
     "ask_author",
     "read_file",
     "read_tool_result",

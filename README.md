@@ -2,7 +2,7 @@
 
 面向内容创作者矩阵的自治运营 Agent。CreatorOS 目前也是一个从零构建的 Python Agent Runtime 学习项目：先把模型调用、工具执行、上下文与会话等底层能力做小、做实，再逐步接通创作者运营业务。
 
-> 当前阶段：已打通 Agent Runtime、知乎热榜/搜索、PersonClone 路由画像和作者侧热点队列；内容生成、质量评审、发布与效果反馈仍在逐步接入。
+> 当前阶段：已打通 Agent Runtime、热点/作者路由，以及 `Skill → Codex 内容生产 → SocialContentPack 验收`；栏目状态、质量评审、发布与效果反馈仍在逐步接入。
 
 [源码仓库](https://github.com/SlamWeb/CreatorOS) · [Pi Agent 参考实现](https://github.com/earendil-works/pi) · [Pi 文档](https://pi.dev/docs/latest)
 
@@ -11,11 +11,11 @@
 CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 Agent：
 
 ```text
-热点发现 → 热点拆解 → Creator Routing → PersonClone 生成
-        → 质量评审 → 人工审批/自动发布 → 效果反馈
+栏目/热点选题 → Creator/Series Routing → Skill + Content Producer
+           → SocialContentPack → 质量评审 → 发布 → 效果反馈
 ```
 
-运营者最终只需要配置作者、日更目标和发布策略；系统负责为每个作者维护热点、常青和实验三个内容队列，并把异常交给人工处理。
+运营者最终只需要配置创作者、栏目、日更目标和发布策略；系统负责维护选题列表、内容包与运行状态。PersonClone 实验线继续为数字分身作者维护热点、常青和实验三个候选队列。
 
 ## 当前已实现
 
@@ -29,6 +29,8 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列，并提供作者内 `position` 供交互选择；`evergreen`、`experiment` 队列的数据结构已预留。
 - **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
 - **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程；普通 Agent 只看到 `read_file`、`route_hotspots`、`ask_author` 等原子工具，Python Runner 作为宿主侧自动化入口保留。
+- **图片轮播生产**：`knowledge-to-carousel` 把知识主题约束成原创、零基础友好的小红书图片轮播；`produce_content_pack` 调用已登录 Codex CLI，一篇内容创建一个可恢复 thread，并以 Structured Outputs 返回生产回执。
+- **产物契约**：CreatorOS 只接受当前 Codex thread 的真实生成图片，自行复制、写入 Manifest，并用严格 Pydantic `SocialContentPack` 验证卡片顺序、图片路径、发布文案和来源。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -40,7 +42,7 @@ creatoros/
 ├── agent/         Agent Loop、State、Guard、Compaction
 ├── tools/         Tool、Registry、Pydantic Args、ToolResult
 ├── discovery/     HotTopic、知乎搜索/热榜领域模型
-├── integrations/  知乎 OpenAPI、PersonClone FastAPI Client
+├── integrations/  知乎 OpenAPI、PersonClone、CodexProducer
 ├── routing/       Profile 模型、投影、BGE-M3、domain 召回
 ├── planning/      ContentOpportunity、DailyPlan、作者侧队列
 ├── skills/        Skill Loader、SKILL.md、业务 Skill Runner
@@ -84,9 +86,10 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 ZHIHU_ACCESS_SECRET=你的知乎开放平台 Access Secret
 PERSONCLONE_BASE_URL=http://127.0.0.1:8000
 PERSONCLONE_SESSION_COOKIE=你的 PersonClone 登录 Cookie
+CODEX_PRODUCER_TIMEOUT_SECONDS=1800
 ```
 
-不要把 Key、Token、Cookie 或密码提交到 Git。PersonClone 服务需要先独立启动并保持可访问。
+不要把 Key、Token、Cookie 或密码提交到 Git。PersonClone 服务需要先独立启动；图片生产还需要本机完成 `codex login`，CreatorOS 复用该登录态，不读取或保存认证文件。
 
 ### 3. 启动当前 CLI
 
@@ -102,6 +105,7 @@ python .\main.py
 
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.smoke_content_planning
+conda run --no-capture-output -n deepcode python -m tests.smoke_codex_producer
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros tests
 ```
 
@@ -109,18 +113,19 @@ conda run --no-capture-output -n deepcode python -m compileall -q main.py creato
 
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.live_content_planning
+conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
 ```
 
-真实联调只读取当前热榜、作者路由画像并生成内存中的候选队列，不调用数字分身生成和平台发布接口。
+`live_content_planning` 只读热点与画像；`live_codex_producer` 会真实消费 Codex 用量并生成本地图片，但不会发布到平台。
 
 ## 路线图
 
-1. **队列预览与选择**：在 Rich CLI 展示每位作者的三个队列，支持从 `route-and-answer` 候选快照选择一个热点进入生成流程。
-2. **热点增强**：对选中的热点按需调用知乎搜索，补充问题、回答和证据，而不是为所有热点预先爬取全文。
-3. **Creator Routing v2**：引入领域层级、阈值和可选的 perspective 原型，再增加基于证据的 LLM 重排。
-4. **生成与评审**：调用 PersonClone 生成草稿，增加结构、事实、风格和平台规则评审。
-5. **发布与反馈**：接入审批、幂等发布、定时调度、效果指标和可恢复任务状态。
-6. **Web 控制台**：CLI 保留为调试入口，网页负责矩阵管理、队列操作、审批和运行观测。
+1. **栏目与选题状态**：建立 Creator、Series 和 Topic List，让栏目固定 Skill、默认按列表顺序生产，并记录已选/已发状态。
+2. **同篇返工**：读取内容包保存的 `thread_id`，通过 `codex exec resume` 修改指定卡片，再生成新 revision 并重新验收。
+3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
+4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
+5. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。
+6. **Web 控制台**：CLI 保留为调试入口，网页负责栏目、选题、内容包、审批和运行观测。
 
 每个阶段都以一个可运行、可验证、可回退的 Git commit 完成；详细假设、边界和验证记录见根目录 [`SPEC.md`](./SPEC.md) 及各模块 SPEC。
 

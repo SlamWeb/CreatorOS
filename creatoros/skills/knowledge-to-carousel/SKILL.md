@@ -12,7 +12,7 @@ Explain the given topic for someone with no prior knowledge as one publish-ready
 - Create an original visual system. Do not copy a named creator's exact composition, lettering, characters, or signature style.
 - Use only as many cards as the topic needs. Build a clear arc: curiosity → intuition → mechanism → takeaway.
 - Keep each card understandable at phone size and keep the whole carousel visually consistent.
-- Write the final images and `social_content_pack.json` into the output directory supplied by the caller.
+- Follow the caller's handoff mode. In filesystem mode, write the final images and `social_content_pack.json` into the supplied output directory. In receipt mode, generate the final images and return their real source paths in the requested structured receipt; the caller materializes the manifest.
 - Follow [the SocialContentPack contract](references/social-content-pack.md). Do not return an HTML page or only describe images.
 
 If essential facts are uncertain, research them before production and record the useful sources in the manifest. Otherwise, produce the final pack directly.

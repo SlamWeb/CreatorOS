@@ -27,3 +27,8 @@ try:
     ZHIHU_TIMEOUT_SECONDS = float(os.getenv("ZHIHU_TIMEOUT_SECONDS", "30"))
 except ValueError:
     ZHIHU_TIMEOUT_SECONDS = 30.0
+
+try:
+    CODEX_PRODUCER_TIMEOUT_SECONDS = float(os.getenv("CODEX_PRODUCER_TIMEOUT_SECONDS", "1800"))
+except ValueError:
+    CODEX_PRODUCER_TIMEOUT_SECONDS = 1800.0

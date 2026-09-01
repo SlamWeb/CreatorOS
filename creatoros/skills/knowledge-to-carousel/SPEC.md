@@ -4,7 +4,7 @@
 
 - 将一个知识点转成面向零基础读者、可直接发布的小红书图片轮播。
 - 借鉴 ELI5 的最小约束思想，不复制特定创作者的独特画风或作品。
-- 让外部 Codex 作为端到端生产工具，把最终图片和 `SocialContentPack` 写入指定目录。
+- 让外部 Codex 作为端到端生产工具；filesystem mode 可直接写目录，CreatorOS receipt mode 只返回真实图片路径与结构化回执，由宿主生成 `SocialContentPack`。
 
 ## 当前边界
 
@@ -20,3 +20,4 @@
 - 真实运营产物保存到本地 `outputs/`，默认不进入 Git；确认满意的展示样例后再单独复制到公开文档资源目录。
 - `codex exec` 能在独立非交互任务中读取本 Skill、调用内置图片生成能力，并产出真实 1086×1448 PNG；外部 CreatorOS 再次加载单卡 Manifest 通过。
 - Windows `workspace-write` 的 Shell 在隔离目录探针中遇到 split writable roots 限制；正式 Producer 不依赖子任务 Shell 搬运文件，改由 Codex 返回结构化生产回执、CreatorOS 负责受控落盘和最终 Pydantic 验收。
+- 正式 `CodexProducer` 真实生成“HTTP 404 到底是什么意思”6 张 3:4 轮播图；逐张人工检查中文、视觉一致性和叙事顺序通过，卡片数量由 Skill 判断而非 Tool 写死。

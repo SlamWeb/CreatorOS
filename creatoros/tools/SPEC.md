@@ -18,3 +18,10 @@
 - `route_and_answer` 出现在 `tool_registry`，但不出现在默认 `tools` schema。
 - `read_file`、`route_hotspots`、`ask_author` 等原子工具仍出现在默认 schema。
 - 既有工具执行 smoke 通过，新增验证能证明模型工具暴露边界稳定。
+
+## Codex 内容生产 Tool
+
+- `produce_content_pack(creator_id, series_id, topic_id, topic_title)` 把已选题目交给固定的 `knowledge-to-carousel` Skill，不让 Codex 决定栏目或选题。
+- 一次 Tool 调用对应一个新 Codex thread；结果返回内容包路径与 `thread_id`，前台等待期间不重复调用主 Agent LLM。
+- 生产失败返回结构化 ToolResult；成功结果只向模型投影摘要，不把图片字节或完整 JSONL 塞入上下文。
+- `codex_producer_smoke=passed`，Registry schema、参数路径约束、回执解析、图片归属和 Manifest 验收通过。

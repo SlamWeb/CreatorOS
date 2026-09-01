@@ -635,3 +635,16 @@ git diff --check
 - `outputs/` 作为运行时产物目录加入 Git 忽略；未确认的二进制图片不进入源码历史，后续精选样例再进入 README 展示资源。
 - `codex_exec_imagegen=passed cards=1`：本机 ChatGPT 登录态下，`codex exec --json --ephemeral` 在仓库外隔离目录读取 `knowledge-to-carousel`，真实调用内置图片生成并产出 1086×1448 PNG；CreatorOS 使用现有 `SocialContentPack.load()` 反向验收通过。
 - 探针观察到 Windows `workspace-write` Shell 的 split writable roots 限制，但内置图片生成与 JSONL 事件流可用；正式 `CodexProducer` 采用“Codex 返回结构化生产回执，CreatorOS 受控复制图片并写入/验收 Manifest”的边界，不依赖子任务 Shell 直接管理最终产物。
+
+## 本轮目标（Codex Content Producer）
+
+- 新增模型可调用的 `produce_content_pack` Tool，通过 `codex exec --json --output-schema` 把已选知识主题交给固定 Skill。
+- 一篇内容新建一个持久化 Codex thread；Codex 返回结构化生产回执和当前 thread 下的真实图片路径，CreatorOS 负责复制图片、写 Manifest 与保存 `production_session.json`。
+- 当前前台同步等待，不实现队列、调度、取消、自动重试或 revision Tool；失败的空输出目录会回收，非空产物不会被自动删除。
+
+## 本轮验证（Codex Content Producer）
+
+- `codex_producer_smoke=passed thread=thread-1 cards=1`：JSONL、Structured Outputs 必填字段、短暂 error 后成功、usage 额外字段、图片 thread 归属、路径参数和 Tool Registry 通过。
+- `live_codex_producer=passed cards=6`：真实生成 HTTP 404 知识轮播，Manifest/Session/6 张 PNG 完整落盘；input 371,066、cached 287,232、output 7,608。
+- 真实 `codex exec resume` 使用保存的 thread ID 返回 `RESUME_OK`；WebSocket 重试后自动回退 HTTPS，usage 为 input 47,341、cached 46,720、output 7。
+- 逐张视觉闭环通过：3:4、中文清晰、风格一致，叙事覆盖直觉、机制、原因、404 与断网区别及处理方式；未发布到外部平台。

@@ -95,6 +95,31 @@ class RouteHotspotsArgs(BaseModel):
     )
 
 
+class ProduceContentPackArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    creator_id: str = Field(
+        min_length=1,
+        pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+        description="CreatorOS 中的创作者标识。",
+    )
+    series_id: str = Field(
+        min_length=1,
+        pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+        description="创作者名下的栏目标识；该栏目固定使用 knowledge-to-carousel Skill。",
+    )
+    topic_id: str = Field(
+        min_length=1,
+        pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+        description="本次选题的稳定标识。",
+    )
+    topic_title: str = Field(
+        min_length=1,
+        max_length=200,
+        description="已经由 CreatorOS 选定、交给 Codex 制作的知识主题。",
+    )
+
+
 class RouteAndAnswerArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 

@@ -11,6 +11,7 @@ from .models import (
     AddAuthorArgs,
     AskAuthorArgs,
     GetAuthorJobArgs,
+    ProduceContentPackArgs,
     ReadFileArgs,
     ReadToolResultArgs,
     RouteAndAnswerArgs,
@@ -20,6 +21,7 @@ from .models import (
     ZhihuHotListArgs,
     ZhihuSearchArgs,
 )
+from .content import produce_content_pack
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .zhihu import get_zhihu_hot_list, search_zhihu
@@ -130,6 +132,12 @@ tool_registry = {
             description="在当前请求中轮询 PersonClone 作者入库任务，直到 ready、失败或超时。",
             execute=wait_author_job,
             args_model=WaitAuthorJobArgs,
+        ),
+        Tool(
+            name="produce_content_pack",
+            description="把已选知识主题交给 Codex，生成并验收一篇小红书图片轮播；一次调用对应一个可恢复的内容会话。",
+            execute=produce_content_pack,
+            args_model=ProduceContentPackArgs,
         ),
         Tool(
             name="route_hotspots",
