@@ -33,34 +33,42 @@ class OperationExecutor:
 
     def execute(self, plan: OperationPlan, confirmation_token: str) -> OperationReceipt:
         with self.repository.transaction() as transaction:
-            preview = self._build_preview(transaction, plan)
-            if preview.confirmation_token != confirmation_token:
-                raise OperationConflictError("数据库状态已变化，请重新预览后再确认。")
-            for operation in plan.operations:
-                if isinstance(operation, AddTopicsOperation):
-                    for topic in operation.topics:
-                        transaction.add_topic(
-                            topic_id=topic.topic_id,
-                            series_id=operation.series_id,
-                            title=topic.title,
-                            brief=topic.brief,
-                            source=TopicSource(topic.source),
-                        )
-                else:
-                    transaction.reorder_topics(
-                        operation.series_id,
-                        operation.ordered_topic_ids,
+            return self.execute_in_transaction(transaction, plan, confirmation_token)
+
+    def execute_in_transaction(
+        self,
+        repository: ContentRepository,
+        plan: OperationPlan,
+        confirmation_token: str,
+    ) -> OperationReceipt:
+        preview = self._build_preview(repository, plan)
+        if preview.confirmation_token != confirmation_token:
+            raise OperationConflictError("数据库状态已变化，请重新预览后再确认。")
+        for operation in plan.operations:
+            if isinstance(operation, AddTopicsOperation):
+                for topic in operation.topics:
+                    repository.add_topic(
+                        topic_id=topic.topic_id,
+                        series_id=operation.series_id,
+                        title=topic.title,
+                        brief=topic.brief,
+                        source=TopicSource(topic.source),
                     )
-            affected_series = dict.fromkeys(
-                operation.series_id for operation in plan.operations
-            )
-            return OperationReceipt(
-                applied_operations=len(plan.operations),
-                topic_orders={
-                    series_id: [topic.id for topic in transaction.list_topics(series_id)]
-                    for series_id in affected_series
-                },
-            )
+            else:
+                repository.reorder_topics(
+                    operation.series_id,
+                    operation.ordered_topic_ids,
+                )
+        affected_series = dict.fromkeys(
+            operation.series_id for operation in plan.operations
+        )
+        return OperationReceipt(
+            applied_operations=len(plan.operations),
+            topic_orders={
+                series_id: [topic.id for topic in repository.list_topics(series_id)]
+                for series_id in affected_series
+            },
+        )
 
     def _build_preview(
         self,

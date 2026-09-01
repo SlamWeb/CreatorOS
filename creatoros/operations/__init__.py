@@ -18,6 +18,7 @@ from .parser import (
     parse_operation_decision_response,
 )
 from .repository import PendingOperationRepository
+from .service import PendingOperationError, PendingOperationService
 
 __all__ = [
     "AddTopicsOperation",
@@ -34,6 +35,8 @@ __all__ = [
     "OperationReceipt",
     "ReorderTopicsOperation",
     "PendingOperationRepository",
+    "PendingOperationError",
+    "PendingOperationService",
     "TopicDraft",
     "build_operation_catalog",
     "parse_operation_plan_response",

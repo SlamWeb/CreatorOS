@@ -58,3 +58,10 @@
 - Alembic `20260902_0002` 新增 `pending_operations` 与 `operation_events`，没有修改 Creator/Series/Topic 语义。
 - 当前状态与 append-only 事件分开存储：前者服务快速恢复，后者服务审计、Trace 和后续 Eval。
 - `pending_operation_storage_smoke=passed restart=passed events=1`，并通过 Alembic metadata drift 检查。
+
+## PendingOperation 工作流验证（2026-09-02）
+
+- `PendingOperationService` 支持 propose、persist_edit、confirm、cancel 和重启后列出 actionable plans。
+- confirm 将业务写入、PendingOperation succeeded 和成功事件放在同一数据库事务；重复确认是幂等读取，不重复新增 Topic。
+- Preview 后外部状态变化会把请求标记为 stale；数据库执行错误会回滚业务写入，并单独保存 confirmed/failed 审计事件。
+- `pending_operation_service_smoke=passed restart=confirm edit=passed rollback=passed`。
