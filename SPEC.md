@@ -661,3 +661,17 @@ git diff --check
 - `content_storage_smoke=passed creators=1 series=2 topics=4 restart=passed`：空库升级、schema revision、默认策略、选题追加、事务调序和重启恢复通过。
 - 漏项、重复项和混入其他 Series 的 Topic 都被拒绝；调序失败时事务回滚，不留下部分顺序。
 - 当前仅真实验证本地 SQLite；PostgreSQL 驱动、迁移与并发语义需后续单独验证后才可声称支持。
+
+## 本轮目标（OperationPlan 预览与执行）
+
+- 用严格 Pydantic discriminated union 把批量加选题和整列调序收敛为同一种 `OperationPlan`。
+- 计划不携带执行授权；宿主先生成只读 Preview，用户确认后再提交 confirmation token。
+- 执行前在同一事务重新计算当前状态；过期确认直接拒绝，多步写入任一步失败则整体回滚。
+- 本轮不接 LLM、Agent Tool、CLI、创建栏目、删除、调度或发布。
+
+## 本轮验证（OperationPlan 预览与执行）
+
+- `operation_plan_smoke=passed preview=readonly stale=blocked rollback=passed`。
+- 校验覆盖空计划、未知 action、重复 Topic、额外字段、未知 Series 和不完整调序。
+- Preview 不写数据库；外部新增 Topic 后旧 token 失效；真实 SQLite trigger 使第二项失败时第一项也未落库。
+- 回归通过 storage、content planning、SelectionPlan、CodexProducer smoke 和全包 `compileall`。

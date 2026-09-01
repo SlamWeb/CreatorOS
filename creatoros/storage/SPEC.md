@@ -15,7 +15,8 @@
 
 ## 当前边界
 
-- 不实现自然语言 `OperationPlan`、定时调度、Codex 生产调用、ContentRun、Revision、审批或发布。
+- `OperationPlan` 已由独立 operations 模块消费 Repository；storage 不负责自然语言解析、用户确认或 Agent Tool。
+- 不实现定时调度、Codex 生产调用、ContentRun、Revision、审批或发布。
 - 不实现 UI 或 Tool；本轮先稳定可被这些上层复用的业务状态。
 - 不宣称 PostgreSQL 已支持；只有实际运行同一 migration 和 Repository 集成测试后才升级该结论。
 

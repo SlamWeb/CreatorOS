@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from .database import Database
 from .models import (
@@ -15,8 +19,24 @@ from .models import (
 
 
 class ContentRepository:
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, *, session: Session | None = None):
         self.database = database
+        self._bound_session = session
+
+    @contextmanager
+    def _session(self) -> Iterator[Session]:
+        if self._bound_session is not None:
+            yield self._bound_session
+            return
+        with self.database.session() as session:
+            yield session
+
+    @contextmanager
+    def transaction(self) -> Iterator["ContentRepository"]:
+        if self._bound_session is not None:
+            raise RuntimeError("不能在已绑定事务的 Repository 中再次开启事务。")
+        with self.database.session() as session:
+            yield ContentRepository(self.database, session=session)
 
     def create_creator(
         self,
@@ -28,7 +48,7 @@ class ContentRepository:
         timezone: str = "Asia/Shanghai",
         daily_content_limit: int | None = None,
     ) -> Creator:
-        with self.database.session() as session:
+        with self._session() as session:
             creator = Creator(
                 id=creator_id,
                 display_name=display_name,
@@ -42,7 +62,7 @@ class ContentRepository:
             return creator
 
     def get_creator(self, creator_id: str) -> Creator | None:
-        with self.database.session() as session:
+        with self._session() as session:
             return session.get(Creator, creator_id)
 
     def create_series(
@@ -58,7 +78,7 @@ class ContentRepository:
         publish_policy: OperationPolicy = OperationPolicy.APPROVAL,
         replenish_threshold: int = 5,
     ) -> Series:
-        with self.database.session() as session:
+        with self._session() as session:
             series = Series(
                 id=series_id,
                 creator_id=creator_id,
@@ -75,8 +95,12 @@ class ContentRepository:
             return series
 
     def get_series(self, series_id: str) -> Series | None:
-        with self.database.session() as session:
+        with self._session() as session:
             return session.get(Series, series_id)
+
+    def get_topic(self, topic_id: str) -> Topic | None:
+        with self._session() as session:
+            return session.get(Topic, topic_id)
 
     def add_topic(
         self,
@@ -87,7 +111,7 @@ class ContentRepository:
         source: TopicSource,
         brief: str | None = None,
     ) -> Topic:
-        with self.database.session() as session:
+        with self._session() as session:
             current_max = session.scalar(
                 select(func.max(Topic.position)).where(Topic.series_id == series_id)
             )
@@ -105,7 +129,7 @@ class ContentRepository:
             return topic
 
     def list_topics(self, series_id: str) -> tuple[Topic, ...]:
-        with self.database.session() as session:
+        with self._session() as session:
             return tuple(
                 session.scalars(
                     select(Topic)
@@ -117,7 +141,7 @@ class ContentRepository:
     def reorder_topics(self, series_id: str, ordered_topic_ids: list[str]) -> tuple[Topic, ...]:
         if not ordered_topic_ids or len(ordered_topic_ids) != len(set(ordered_topic_ids)):
             raise ValueError("ordered_topic_ids 必须是非空且不重复的完整列表。")
-        with self.database.session() as session:
+        with self._session() as session:
             topics = list(
                 session.scalars(select(Topic).where(Topic.series_id == series_id))
             )
