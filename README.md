@@ -2,7 +2,7 @@
 
 面向内容创作者矩阵的自治运营 Agent。CreatorOS 目前也是一个从零构建的 Python Agent Runtime 学习项目：先把模型调用、工具执行、上下文与会话等底层能力做小、做实，再逐步接通创作者运营业务。
 
-> 当前阶段：已打通 Agent Runtime、热点/作者路由，以及 `Skill → Codex 内容生产 → SocialContentPack 验收`；栏目状态、质量评审、发布与效果反馈仍在逐步接入。
+> 当前阶段：已打通 Agent Runtime、热点/作者路由、`Skill → Codex 内容生产 → SocialContentPack 验收`，并开始持久化 Creator、Series 与 Topic；质量评审、发布与效果反馈仍在逐步接入。
 
 [源码仓库](https://github.com/SlamWeb/CreatorOS) · [Pi Agent 参考实现](https://github.com/earendil-works/pi) · [Pi 文档](https://pi.dev/docs/latest)
 
@@ -31,6 +31,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程；普通 Agent 只看到 `read_file`、`route_hotspots`、`ask_author` 等原子工具，Python Runner 作为宿主侧自动化入口保留。
 - **图片轮播生产**：`knowledge-to-carousel` 把知识主题约束成原创、零基础友好的小红书图片轮播；`produce_content_pack` 调用已登录 Codex CLI，一篇内容创建一个可恢复 thread，并以 Structured Outputs 返回生产回执。
 - **产物契约**：CreatorOS 只接受当前 Codex thread 的真实生成图片，自行复制、写入 Manifest，并用严格 Pydantic `SocialContentPack` 验证卡片顺序、图片路径、发布文案和来源。
+- **栏目持久化**：用 SQLAlchemy 建模 `Creator → Series → Topic`，以 Alembic 管理 schema 版本；SQLite 默认本地可用，Repository 支持有序选题和事务化调序。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -45,6 +46,7 @@ creatoros/
 ├── integrations/  知乎 OpenAPI、PersonClone、CodexProducer
 ├── routing/       Profile 模型、投影、BGE-M3、domain 召回
 ├── planning/      ContentOpportunity、DailyPlan、作者侧队列
+├── storage/       SQLAlchemy 模型、Database、Repository、Alembic 入口
 ├── skills/        Skill Loader、SKILL.md、业务 Skill Runner
 ├── session/       Session snapshot、CompactionCheckpoint
 └── terminal.py    Console / RichConsole
@@ -87,6 +89,7 @@ ZHIHU_ACCESS_SECRET=你的知乎开放平台 Access Secret
 PERSONCLONE_BASE_URL=http://127.0.0.1:8000
 PERSONCLONE_SESSION_COOKIE=你的 PersonClone 登录 Cookie
 CODEX_PRODUCER_TIMEOUT_SECONDS=1800
+DATABASE_URL=sqlite:///data/creatoros.db
 ```
 
 不要把 Key、Token、Cookie 或密码提交到 Git。PersonClone 服务需要先独立启动；图片生产还需要本机完成 `codex login`，CreatorOS 复用该登录态，不读取或保存认证文件。
@@ -106,6 +109,7 @@ python .\main.py
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.smoke_content_planning
 conda run --no-capture-output -n deepcode python -m tests.smoke_codex_producer
+conda run --no-capture-output -n deepcode python -m tests.smoke_content_storage
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros tests
 ```
 
@@ -120,8 +124,8 @@ conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
 
 ## 路线图
 
-1. **栏目与选题状态**：建立 Creator、Series 和 Topic List，让栏目固定 Skill、默认按列表顺序生产，并记录已选/已发状态。
-2. **同篇返工**：读取内容包保存的 `thread_id`，通过 `codex exec resume` 修改指定卡片，再生成新 revision 并重新验收。
+1. **运营指令计划**：把用户自然语言解析成严格 `OperationPlan`，先预览、校验权限与目标，再确定性执行创建栏目、添加选题和整列调序。
+2. **生产运行记录**：用 `ContentRun` 把 Topic、Codex thread、SocialContentPack 与运行状态串起来，再接同篇返工 revision。
 3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
 4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
 5. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。

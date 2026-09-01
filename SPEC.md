@@ -648,3 +648,16 @@ git diff --check
 - `live_codex_producer=passed cards=6`：真实生成 HTTP 404 知识轮播，Manifest/Session/6 张 PNG 完整落盘；input 371,066、cached 287,232、output 7,608。
 - 真实 `codex exec resume` 使用保存的 thread ID 返回 `RESUME_OK`；WebSocket 重试后自动回退 HTTPS，usage 为 input 47,341、cached 46,720、output 7。
 - 逐张视觉闭环通过：3:4、中文清晰、风格一致，叙事覆盖直觉、机制、原因、404 与断网区别及处理方式；未发布到外部平台。
+
+## 本轮目标（Creator / Series / Topic 持久化）
+
+- 用 SQLAlchemy 2.x 建立 `Creator → Series → Topic` 最小业务模型，让账号、栏目固定 Skill、策略和有序选题不再只存在于内存。
+- 用 Alembic 保存第一份可审计 migration；默认 SQLite，连接地址统一由 `DATABASE_URL` 提供。
+- 用 Repository 隔离上层业务与 ORM Session，先支持创建、查询、追加选题和整列调序。
+- 本轮不实现 OperationPlan、调度、ContentRun、审批、发布或 UI。
+
+## 本轮验证（Creator / Series / Topic 持久化）
+
+- `content_storage_smoke=passed creators=1 series=2 topics=4 restart=passed`：空库升级、schema revision、默认策略、选题追加、事务调序和重启恢复通过。
+- 漏项、重复项和混入其他 Series 的 Topic 都被拒绝；调序失败时事务回滚，不留下部分顺序。
+- 当前仅真实验证本地 SQLite；PostgreSQL 驱动、迁移与并发语义需后续单独验证后才可声称支持。

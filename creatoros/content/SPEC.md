@@ -11,8 +11,8 @@
 
 ## 当前边界
 
-- 不实现 Creator、Series、Topic List、Codex SDK、调度、审批或小红书发布；当前只通过 Codex CLI 的非交互模式生产。
-- 不实现 staging、revision、哈希、数据库、对象存储或多平台适配。
+- `Creator`、`Series`、`Topic` 已由独立 storage 模块持久化；本模块尚未把 Pack 绑定到持久化的生产运行。
+- 不实现调度、审批、小红书发布、staging、revision、哈希、对象存储或多平台适配。
 - 示例目录只验证文件契约；示例 SVG 不代表最终视觉模板。
 
 ## 验收
