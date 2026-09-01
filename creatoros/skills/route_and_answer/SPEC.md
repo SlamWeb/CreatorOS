@@ -40,3 +40,13 @@
 - `batch_answers_smoke=passed`、`personclone_async_smoke=passed`，并回归通过同步 PersonClone、selection expansion、route-and-answer Skill 和全包 `compileall`。
 - 首次复验时 PersonClone 未监听，记录为 WinError 10061；服务部署交接分支 `5f8ac815f8b9278ef58ea515fe3876f6c5b75bb7` 后已完成真实复验。
 - `live_batch_answers=passed count=2 max_concurrency=2`：两个真实 PersonClone SSE 请求并发成功，分别返回 674、669 个字符和同秒生成的独立 trace_id；没有伪造成功结果。
+
+## 本轮目标（串行/并发基准）
+
+- 用同一批两个作者、同一批路由候选分别执行 `max_concurrency=1` 和 `max_concurrency=2`，记录总耗时、节省秒数和加速比例。
+- 基准脚本只输出字符数和 trace_id，不输出回答全文或任何凭证；不修改服务端容量配置。
+
+## 验收（串行/并发基准）
+
+- `tests/live_batch_benchmark.py` 已加入并通过本地编译检查。
+- 本次真实基准尝试时 PersonClone 再次停止监听 `127.0.0.1:8000`，在路由阶段收到 WinError 10061，未消耗生成 API；服务稳定运行后重试该脚本即可获得有效对比。
