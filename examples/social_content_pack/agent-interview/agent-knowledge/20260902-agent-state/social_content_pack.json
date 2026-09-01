@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "pack_id": "agent-state-001",
+  "creator_id": "agent-interview",
+  "series_id": "agent-knowledge",
+  "topic_id": "agent-state-vs-messages",
+  "topic_title": "AgentState 和 Messages 有什么区别",
+  "skill_name": "knowledge-to-carousel",
+  "generated_at": "2026-09-02T10:00:00+08:00",
+  "platform": "xiaohongshu",
+  "content_summary": "用三张示例卡片区分 AgentState、Messages 与 RuntimeContext。",
+  "cards": [
+    {
+      "order": 1,
+      "kind": "cover",
+      "section": "hook",
+      "headline": "有了 Messages，为什么还需要 AgentState？",
+      "body": null,
+      "highlights": ["三个对象，三种责任"],
+      "visual_brief": "三个不同容器并排，突出状态不等于消息。",
+      "image_path": "assets/card-01.svg"
+    },
+    {
+      "order": 2,
+      "kind": "content",
+      "section": "mental_model",
+      "headline": "Messages 保存模型看过的对话",
+      "body": "AgentState 保存 Runtime 当前正在做什么，以及任务、轮次等运行变量。",
+      "highlights": ["对话历史", "运行状态"],
+      "visual_brief": "左右两栏比较消息历史和运行变量。",
+      "image_path": "assets/card-02.svg"
+    },
+    {
+      "order": 3,
+      "kind": "summary",
+      "section": "interview_answer",
+      "headline": "一句话面试回答",
+      "body": "Messages 是模型输入的一部分；AgentState 是 Harness 管理运行过程的内部状态。",
+      "highlights": [],
+      "visual_brief": "简洁结论卡，保留大面积留白。",
+      "image_path": "assets/card-03.svg"
+    }
+  ],
+  "publish_copy": {
+    "title": "有了 Messages，为什么 Agent 还需要 State？",
+    "body": "很多人第一次写 Agent 时，会把所有信息都塞进 Messages。三张图讲清它和 AgentState 的责任边界。",
+    "hashtags": ["AI Agent", "Agent开发", "技术面试"]
+  },
+  "sources": [
+    {
+      "source_id": "openai-agents",
+      "title": "OpenAI Agents SDK - Agents",
+      "url": "https://openai.github.io/openai-agents-python/agents/",
+      "note": "示例资料来源"
+    }
+  ]
+}

@@ -610,3 +610,14 @@ git diff --check
 
 - `skill_loader_smoke=passed`：有效 Skill 发现、无效 frontmatter 诊断、重复名称诊断、完整正文按需读取、调用格式化和原消息不修改均通过。
 - `model_context_skill_metadata=passed`：`route-and-answer` 的 Skill 元数据已进入 `ModelContext` 的 system message；完整正文没有默认塞入上下文。
+
+## 本轮目标（SocialContentPack）
+
+- 建立 CreatorOS 与外部 Codex 内容生产任务之间的最小文件契约：一篇小红书图片轮播由严格 Manifest、1～N 张有序图片、结构化卡片脚本、发布文案和来源组成。
+- 提供约定目录 Loader，读取 `social_content_pack.json` 并确认引用图片存在；本轮不实现 Creator、Series、Topic List、Codex SDK、调度或发布。
+- 保持 Codex 为端到端内容生产黑盒；CreatorOS 只消费验证后的最终文件夹，不引入 staging、revision、哈希或数据库。
+
+## 本轮验证（SocialContentPack）
+
+- `social_content_pack_smoke=passed cards=3`：真实示例目录使用 3 张 SVG，证明卡片数量不固定为六张。
+- 严格 Pydantic 校验覆盖额外字段、卡片跳号/重复路径和目录逃逸；Loader 缺图时明确失败。
