@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum as SAEnum,
     ForeignKey,
     Integer,
+    JSON,
     MetaData,
     String,
     Text,
@@ -47,6 +48,26 @@ class TopicStatus(str, Enum):
     PUBLISHED = "published"
     FAILED = "failed"
     SKIPPED = "skipped"
+
+
+class PendingOperationStatus(str, Enum):
+    AWAITING_APPROVAL = "awaiting_approval"
+    NEEDS_CLARIFICATION = "needs_clarification"
+    UNSUPPORTED = "unsupported"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    STALE = "stale"
+
+
+class OperationEventType(str, Enum):
+    PROPOSED = "proposed"
+    EDITED = "edited"
+    CONFIRMED = "confirmed"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    STALE = "stale"
 
 
 NAMING_CONVENTION = {
@@ -197,3 +218,81 @@ class Topic(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
     series: Mapped[Series] = relationship(back_populates="topics")
+
+
+class PendingOperation(TimestampMixin, Base):
+    __tablename__ = "pending_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "decision_status IN ('ready', 'needs_clarification', 'unsupported')",
+            name="decision_status_values",
+        ),
+        CheckConstraint(
+            "status IN ('awaiting_approval', 'needs_clarification', 'unsupported', "
+            "'succeeded', 'failed', 'cancelled', 'stale')",
+            name="pending_operation_status_values",
+        ),
+        CheckConstraint("revision > 0", name="revision_positive"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_text: Mapped[str] = mapped_column(Text, nullable=False)
+    decision_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[PendingOperationStatus] = mapped_column(
+        SAEnum(
+            PendingOperationStatus,
+            name="pending_operation_status",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
+        nullable=False,
+    )
+    plan_json: Mapped[dict | None] = mapped_column(JSON)
+    preview_json: Mapped[dict | None] = mapped_column(JSON)
+    confirmation_token: Mapped[str | None] = mapped_column(String(64))
+    message: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    usage_json: Mapped[dict | None] = mapped_column(JSON)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    events: Mapped[list["OperationEvent"]] = relationship(
+        back_populates="pending_operation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="OperationEvent.id",
+    )
+
+
+class OperationEvent(Base):
+    __tablename__ = "operation_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_type IN ('proposed', 'edited', 'confirmed', 'succeeded', "
+            "'failed', 'cancelled', 'stale')",
+            name="event_type_values",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pending_operation_id: Mapped[str] = mapped_column(
+        ForeignKey("pending_operations.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    event_type: Mapped[OperationEventType] = mapped_column(
+        SAEnum(
+            OperationEventType,
+            name="operation_event_type",
+            native_enum=False,
+            values_callable=enum_values,
+        ),
+        nullable=False,
+    )
+    payload_json: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    pending_operation: Mapped[PendingOperation] = relationship(back_populates="events")

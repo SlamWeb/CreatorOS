@@ -40,3 +40,21 @@
 - `operation_parser_smoke=passed catalog=passed validation=passed`。
 - 真实 DeepSeek 验证：新增两个选题并调序得到 2 个操作，Preview 与执行通过；删除栏目请求返回 `unsupported`，未产生计划。
 - 主成功请求 usage 为 input 1,040 / output 94 tokens；测试只使用临时 SQLite，未修改正式栏目。
+
+## 本轮目标（PendingOperation）
+
+- 把解析决策、OperationPlan、Preview、confirmation token 和当前审批状态保存到数据库，重启后可以继续确认。
+- 用 append-only `OperationEvent` 记录 proposed、edited、confirmed、succeeded、failed、stale 和 cancelled，不只保留最终状态。
+- 支持 `propose / edit / confirm / cancel`；确认时让业务写入和 succeeded 状态在同一数据库事务提交。
+- 将主菜单“今日运营”接到宿主控制的确认界面；普通 Agent 不能自行调用 confirm。
+
+## 本轮边界
+
+- PendingOperation 只承载短时运营指令审批，不提前塞入 ContentRun 的生产步骤、Codex thread 或产物字段。
+- 暂不新增创建栏目、归档或永久删除 Operation；现有 add/reorder 完成审批闭环后再扩展同一 union。
+
+## PendingOperation 存储验证（2026-09-02）
+
+- Alembic `20260902_0002` 新增 `pending_operations` 与 `operation_events`，没有修改 Creator/Series/Topic 语义。
+- 当前状态与 append-only 事件分开存储：前者服务快速恢复，后者服务审计、Trace 和后续 Eval。
+- `pending_operation_storage_smoke=passed restart=passed events=1`，并通过 Alembic metadata drift 检查。

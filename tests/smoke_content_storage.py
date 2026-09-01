@@ -26,12 +26,14 @@ with TemporaryDirectory() as temporary_directory:
     assert set(inspect(database.engine).get_table_names()) == {
         "alembic_version",
         "creators",
+        "operation_events",
+        "pending_operations",
         "series",
         "topics",
     }
     with database.engine.connect() as connection:
         migration_context = MigrationContext.configure(connection)
-        assert migration_context.get_current_revision() == "20260902_0001"
+        assert migration_context.get_current_revision() == "20260902_0002"
         assert compare_metadata(migration_context, Base.metadata) == []
 
     repository = ContentRepository(database)
