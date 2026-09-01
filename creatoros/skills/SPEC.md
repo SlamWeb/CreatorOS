@@ -15,3 +15,9 @@
 
 - 无效 frontmatter 和重复名称产生诊断，不阻塞其他 Skill 加载。
 - `route-and-answer` 被发现，元数据进入 `ModelContext`，完整正文可以按名称读取。
+
+## Knowledge to Carousel
+
+- `knowledge-to-carousel` 只负责把一个已选知识点生产为图片轮播，不参与栏目、选题、排期或发布决策。
+- 主 `SKILL.md` 保持短小，只固定零基础受众、视觉优先、少字、原创性和最终文件输出；详细 Manifest 契约按需读取。
+- 本轮不加入 Runner 或渲染脚本，先验证 Codex 能否依靠 Skill 与现有 `SocialContentPack` 完成端到端生产。

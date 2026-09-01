@@ -621,3 +621,13 @@ git diff --check
 
 - `social_content_pack_smoke=passed cards=3`：真实示例目录使用 3 张 SVG，证明卡片数量不固定为六张。
 - 严格 Pydantic 校验覆盖额外字段、卡片跳号/重复路径和目录逃逸；Loader 缺图时明确失败。
+
+## 本轮目标（knowledge-to-carousel Skill）
+
+- 用最小 Prompt Skill 把一个已选知识点转成面向零基础读者的小红书图片轮播。
+- 采用“大图、少字、视觉隐喻”的通用原则，同时明确原创边界，不复制特定创作者的构图、字形或标志性风格。
+- 外部 Codex 负责端到端生产，最终必须向指定目录写入图片和符合现有模型的 `social_content_pack.json`。
+
+## 本轮验证（knowledge-to-carousel Skill）
+
+- `knowledge_to_carousel_skill_smoke=passed`：默认 Loader 能发现并按需读取 Skill；正文包含图片产出、非 HTML 和 Manifest 约束，契约引用文件存在。
