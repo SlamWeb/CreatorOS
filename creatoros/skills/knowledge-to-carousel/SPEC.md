@@ -16,3 +16,5 @@
 
 - Skill Loader 可以发现 `knowledge-to-carousel`，完整正文仍按需加载。
 - Skill 明确要求输出真实图片和 `social_content_pack.json`，并引用可独立阅读的文件契约。
+- 首次真实运行以 Agent State、Runtime Context 和 Messages 为主题生成 5 张原创轮播图；Manifest 通过 `SocialContentPack.load()` 验证。
+- 真实运营产物保存到本地 `outputs/`，默认不进入 Git；确认满意的展示样例后再单独复制到公开文档资源目录。
