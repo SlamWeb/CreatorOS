@@ -4,11 +4,12 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from typing import Literal
+from tempfile import TemporaryDirectory, TemporaryFile
+from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -98,8 +99,8 @@ class CodexProducerError(RuntimeError):
         self.error_type = error_type
 
 
-def parse_codex_jsonl(stdout: str) -> CodexRun:
-    thread_id = ""
+def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "") -> CodexRun:
+    thread_id = fallback_thread_id
     final_text = ""
     usage = CodexUsage()
     failure = ""
@@ -181,15 +182,46 @@ class CodexProducer:
         now = datetime.now().astimezone()
         pack_id = f"{creator_id}-{series_id}-{topic_id}-{now:%Y%m%d-%H%M%S}"
         directory = self.project_root / "outputs" / creator_id / series_id / pack_id
+        return self.produce_to(
+            directory=directory,
+            pack_id=pack_id,
+            creator_id=creator_id,
+            series_id=series_id,
+            topic_id=topic_id,
+            topic_title=topic_title,
+        )
+
+    def produce_to(
+        self,
+        *,
+        directory: Path,
+        pack_id: str,
+        creator_id: str,
+        series_id: str,
+        topic_id: str,
+        topic_title: str,
+        thread_id: str | None = None,
+        revision_instruction: str | None = None,
+        on_thread_started: Callable[[str], None] | None = None,
+    ) -> ProducedPack:
+        now = datetime.now().astimezone()
+        directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=False)
-        prompt = self._build_prompt(creator_id, series_id, topic_id, topic_title)
+        prompt = self._build_prompt(
+            creator_id,
+            series_id,
+            topic_id,
+            topic_title,
+            revision_instruction=revision_instruction,
+        )
         try:
-            run = self._execute(prompt, directory)
+            run = self._execute(
+                prompt,
+                directory,
+                thread_id=thread_id,
+                on_thread_started=on_thread_started,
+            )
         except Exception:
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
             raise
         generated_at = now.isoformat()
         pack = self._materialize(
@@ -213,57 +245,106 @@ class CodexProducer:
         )
         return ProducedPack(directory, pack, session)
 
-    def _execute(self, prompt: str, working_directory: Path) -> CodexRun:
+    def _execute(
+        self,
+        prompt: str,
+        working_directory: Path,
+        *,
+        thread_id: str | None = None,
+        on_thread_started: Callable[[str], None] | None = None,
+    ) -> CodexRun:
         with TemporaryDirectory(prefix="creatoros-codex-schema-") as temporary:
             schema_path = Path(temporary) / "production-receipt.schema.json"
             schema_path.write_text(
                 json.dumps(ProductionReceipt.model_json_schema(), ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-            command = [
-                self.executable,
-                "-a",
-                "never",
-                "exec",
-                "--json",
-                "--sandbox",
-                "read-only",
-                "--skip-git-repo-check",
-                "-C",
-                str(working_directory),
-                "--output-schema",
-                str(schema_path),
-                "-",
-            ]
+            command = self._command(schema_path, working_directory, thread_id)
+            timed_out = threading.Event()
             try:
-                completed = subprocess.run(
-                    command,
-                    input=prompt,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    capture_output=True,
-                    timeout=self.timeout_seconds,
-                    check=False,
-                )
+                with TemporaryFile(mode="w+", encoding="utf-8") as stderr_file:
+                    process = subprocess.Popen(
+                        command,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=stderr_file,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        cwd=working_directory,
+                    )
+                    timer = threading.Timer(
+                        self.timeout_seconds,
+                        lambda: (timed_out.set(), process.kill()),
+                    )
+                    timer.start()
+                    lines: list[str] = []
+                    try:
+                        assert process.stdin is not None and process.stdout is not None
+                        process.stdin.write(prompt)
+                        process.stdin.close()
+                        for line in process.stdout:
+                            lines.append(line)
+                            self._notify_thread_started(line, on_thread_started)
+                        return_code = process.wait()
+                    except BaseException:
+                        process.kill()
+                        process.wait()
+                        raise
+                    finally:
+                        timer.cancel()
+                    stderr_file.seek(0)
+                    stderr = stderr_file.read()
+                    stdout = "".join(lines)
             except FileNotFoundError as error:
                 raise CodexProducerError("未找到 codex CLI。", error_type="codex_not_found") from error
-            except subprocess.TimeoutExpired as error:
-                raise CodexProducerError("Codex 内容生产超时。", error_type="codex_timeout") from error
-        if completed.returncode != 0:
+        if timed_out.is_set():
+            raise CodexProducerError("Codex 内容生产超时。", error_type="codex_timeout")
+        if return_code != 0:
             detail = "\n".join(
                 part
                 for part in (
-                    completed.stdout.strip()[-2_000:],
-                    completed.stderr.strip()[-2_000:],
+                    stdout.strip()[-2_000:],
+                    stderr.strip()[-2_000:],
                 )
                 if part
             )
             raise CodexProducerError(
-                f"codex exec 退出码 {completed.returncode}：{detail}",
+                f"codex exec 退出码 {return_code}：{detail}",
                 error_type="codex_exec_failed",
             )
-        return parse_codex_jsonl(completed.stdout)
+        return parse_codex_jsonl(stdout, fallback_thread_id=thread_id or "")
+
+    def _command(
+        self,
+        schema_path: Path,
+        working_directory: Path,
+        thread_id: str | None,
+    ) -> list[str]:
+        if thread_id:
+            return [
+                self.executable, "-a", "never", "exec", "resume", "--json",
+                "--skip-git-repo-check", "--output-schema", str(schema_path), thread_id, "-",
+            ]
+        return [
+            self.executable, "-a", "never", "exec", "--json", "--sandbox", "read-only",
+            "--skip-git-repo-check", "-C", str(working_directory),
+            "--output-schema", str(schema_path), "-",
+        ]
+
+    @staticmethod
+    def _notify_thread_started(
+        line: str,
+        callback: Callable[[str], None] | None,
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        if event.get("type") == "thread.started" and event.get("thread_id"):
+            callback(str(event["thread_id"]))
 
     def _build_prompt(
         self,
@@ -271,11 +352,18 @@ class CodexProducer:
         series_id: str,
         topic_id: str,
         topic_title: str,
+        *,
+        revision_instruction: str | None = None,
     ) -> str:
         skill_dir = self.project_root / "creatoros" / "skills" / "knowledge-to-carousel"
         skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
         contract = (skill_dir / "references" / "social-content-pack.md").read_text(
             encoding="utf-8"
+        )
+        revision = (
+            f"\n本次返工要求：{revision_instruction.strip()}\n"
+            if revision_instruction and revision_instruction.strip()
+            else ""
         )
         return (
             f"{skill}\n\n{contract}\n\n"
@@ -284,6 +372,7 @@ class CodexProducer:
             "每张卡片的 source_image_path 必须是图片工具返回的真实绝对路径。\n\n"
             f"creator_id: {creator_id}\nseries_id: {series_id}\n"
             f"topic_id: {topic_id}\ntopic_title: {topic_title}\n"
+            f"{revision}"
         )
 
     def _materialize(

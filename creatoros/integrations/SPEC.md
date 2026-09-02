@@ -9,7 +9,9 @@
 
 ## 当前边界
 
-- 前台同步等待一次生产完成，不实现后台队列、调度、取消、重试或发布。
+- `ContentRunService` 当前仍前台同步等待，但会在 JSONL 出现 `thread.started` 时立刻持久化句柄；中断与技术重试由 runs 模块管理。
+- Producer 支持向指定 Revision/Attempt 目录生产，并用 `codex exec resume` 续接同一篇内容的 thread。
+- 不实现后台队列、自动调度或发布。
 - 不实现长期栏目会话；每个新 topic 使用新 thread。
 - 不信任 Codex 返回的最终身份字段，也不允许它指定任意目标目录。
 - 本轮 smoke 隔离 JSONL 解析与落盘；低频真实 `codex exec` 另行验证。

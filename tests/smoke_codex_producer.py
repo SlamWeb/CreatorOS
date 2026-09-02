@@ -73,9 +73,18 @@ class FakeCodexProducer(CodexProducer):
         )
         self.run = run
 
-    def _execute(self, prompt: str, working_directory: Path) -> CodexRun:
+    def _execute(
+        self,
+        prompt: str,
+        working_directory: Path,
+        *,
+        thread_id: str | None = None,
+        on_thread_started=None,
+    ) -> CodexRun:
         assert "receipt mode" in prompt
         assert working_directory.is_dir()
+        if on_thread_started:
+            on_thread_started(self.run.thread_id)
         return self.run
 
 

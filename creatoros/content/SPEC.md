@@ -11,8 +11,8 @@
 
 ## 当前边界
 
-- `Creator`、`Series`、`Topic` 已由独立 storage 模块持久化；本模块尚未把 Pack 绑定到持久化的生产运行。
-- 不实现调度、审批、小红书发布、staging、revision、哈希、对象存储或多平台适配。
+- `ContentRun` 已通过 Revision 的目录与 digest 绑定 Pack；本模块仍只定义文件契约，不承担工作流状态。
+- 不实现调度、小红书发布、staging、对象存储或多平台适配。
 - 示例目录只验证文件契约；示例 SVG 不代表最终视觉模板。
 
 ## 验收

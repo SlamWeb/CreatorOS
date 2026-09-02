@@ -379,6 +379,8 @@ class ContentRun(TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    __mapper_args__ = {"version_id_col": version}
+
     topic: Mapped[Topic] = relationship(back_populates="content_runs")
     revisions: Mapped[list["ContentRevision"]] = relationship(
         back_populates="content_run",
