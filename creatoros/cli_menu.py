@@ -29,11 +29,13 @@ class CreatorOSMenu:
         authors_loader: Callable[[], Sequence[AuthorSummary]],
         agent_runner: Callable[[], None] | None = None,
         operations_runner: Callable[[], None] | None = None,
+        runs_runner: Callable[[], None] | None = None,
     ):
         self.console = console
         self.authors_loader = authors_loader
         self.agent_runner = agent_runner
         self.operations_runner = operations_runner
+        self.runs_runner = runs_runner
         self.selector = MenuSelect(console)
 
     def run(self) -> None:
@@ -58,6 +60,13 @@ class CreatorOSMenu:
                         self._notice("今日运营入口尚未配置。", warning=True)
                     else:
                         self.operations_runner()
+                        self._notice("已返回菜单。")
+                    continue
+                if action == "history":
+                    if self.runs_runner is None:
+                        self._notice("运行记录入口尚未配置。", warning=True)
+                    else:
+                        self.runs_runner()
                         self._notice("已返回菜单。")
                     continue
                 if action == "authors":

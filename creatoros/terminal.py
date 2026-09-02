@@ -1,5 +1,6 @@
 import os
 import sys
+from contextlib import contextmanager
 
 from rich.console import Console as RichTerminalConsole
 from rich.markdown import Markdown
@@ -93,6 +94,11 @@ class Console:
 
     def banner(self):
         print_banner(output=self.output)
+
+    @contextmanager
+    def activity(self, message: str):
+        self.write(f"◌ {message}")
+        yield
 
     def context_status(self, input_tokens: int, input_limit: int, measurement: str):
         self.write(
@@ -237,6 +243,20 @@ class RichConsole(Console):
         text.rstrip()
         self.rich.print(text, soft_wrap=False)
         self.rich.print()
+
+    @contextmanager
+    def activity(self, message: str):
+        self._stop_active()
+        status = self.rich.status(
+            message,
+            spinner="dots",
+            spinner_style="creatoros.thinking",
+        )
+        status.start()
+        try:
+            yield
+        finally:
+            status.stop()
 
     def context_status(self, input_tokens: int, input_limit: int, measurement: str):
         self._stop_active()

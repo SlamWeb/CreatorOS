@@ -702,3 +702,18 @@ git diff --check
 - `pending_operation_service_smoke=passed restart=confirm edit=passed rollback=passed`：覆盖重启、修改、取消、幂等、冲突和真实数据库失败回滚。
 - `pending_operation_cli_smoke=passed resume=confirm`：重启后会重新展示完整 Preview，再等待确认。
 - 真实 DeepSeek 完成 `propose → 零写入 → restart → edit → confirm`；最终选题顺序符合自然语言要求，未修改正式数据库。
+
+## 本轮目标（可恢复 ContentRun v1）
+
+- 用 `ContentRun / ContentRevision / ContentAttempt / ContentRunEvent` 分别保存业务生命周期、人工返工、技术重试和 append-only Trajectory。
+- 将数据库作为状态真相、SocialContentPack 目录作为产物真相；批准绑定 Revision ID 与 canonical Manifest + 有序图片字节 digest。
+- 前台调用 Codex 生产，在 `thread.started` 时立即持久化恢复句柄；重启或 Ctrl+C 后不自动继续消费额度，只等待用户显式恢复。
+- 终点停在 `approved`，不提前实现 Worker、Side Chat、MCP Server、质量 LLM Judge 或平台发布。
+
+## 本轮验证（可恢复 ContentRun v1）
+
+- Alembic `20260902_0003` 与 ORM metadata 无 drift；四类记录跨 SQLite 重启可恢复。
+- `content_run_service_smoke=passed interrupt=resume revision=2 digest_guard=passed`：同一 Revision 的技术恢复新增 Attempt，同一篇内容的人工返工新增不可变 Revision，并复用 Codex thread。
+- 对仓库中已有的 6 张真实 Codex 图片完成解码、尺寸和约 17.1 MB 字节摘要验证；故障注入使用本地 ControlledProducer，未重复消费真实生图额度。
+- 主菜单“运行记录”已接入创建、执行/恢复、返工、取消和批准入口；状态运行期间仅重绘底部单行。
+- 真实轻量 Codex 协议探针完成新 thread 与 `exec resume` 两次 Structured Output，逐行 callback 均观察到同一 thread ID；没有调用图片生成。

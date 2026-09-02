@@ -2,7 +2,7 @@
 
 面向内容创作者矩阵的自治运营 Agent。CreatorOS 目前也是一个从零构建的 Python Agent Runtime 学习项目：先把模型调用、工具执行、上下文与会话等底层能力做小、做实，再逐步接通创作者运营业务。
 
-> 当前阶段：已打通 Agent Runtime、热点/作者路由、`Skill → Codex 内容生产 → SocialContentPack 验收`，并开始持久化 Creator、Series 与 Topic；质量评审、发布与效果反馈仍在逐步接入。
+> 当前阶段：已打通 Agent Runtime、热点/作者路由与可恢复的 `Topic → Codex → SocialContentPack → 人工批准` 生产链路；质量评审、发布与效果反馈仍在逐步接入。
 
 [源码仓库](https://github.com/SlamWeb/CreatorOS) · [Pi Agent 参考实现](https://github.com/earendil-works/pi) · [Pi 文档](https://pi.dev/docs/latest)
 
@@ -33,6 +33,8 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **产物契约**：CreatorOS 只接受当前 Codex thread 的真实生成图片，自行复制、写入 Manifest，并用严格 Pydantic `SocialContentPack` 验证卡片顺序、图片路径、发布文案和来源。
 - **栏目持久化**：用 SQLAlchemy 建模 `Creator → Series → Topic`，以 Alembic 管理 schema 版本；SQLite 默认本地可用，Repository 支持有序选题和事务化调序。
 - **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
+- **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
+- **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -48,6 +50,7 @@ creatoros/
 ├── routing/       Profile 模型、投影、BGE-M3、domain 召回
 ├── planning/      ContentOpportunity、DailyPlan、作者侧队列
 ├── operations/    OperationPlan、Preview、确认与事务执行
+├── runs/          ContentRun 状态机、Revision/Attempt、验收与批准
 ├── storage/       SQLAlchemy 模型、Database、Repository、Alembic 入口
 ├── skills/        Skill Loader、SKILL.md、业务 Skill Runner
 ├── session/       Session snapshot、CompactionCheckpoint
@@ -102,7 +105,7 @@ DATABASE_URL=sqlite:///data/creatoros.db
 python .\main.py
 ```
 
-主菜单“今日运营”已经可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“Agent 对话”用于体验通用 Runtime，作者队列其余业务 UI 仍在建设中。
+主菜单“今日运营”可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“运行记录”可从选题队列发起 Codex 生产、恢复中断、提出返工并批准精确产物；“Agent 对话”用于体验通用 Runtime。
 
 ## 验证
 
@@ -115,6 +118,9 @@ conda run --no-capture-output -n deepcode python -m tests.smoke_content_storage
 conda run --no-capture-output -n deepcode python -m tests.smoke_operation_plan
 conda run --no-capture-output -n deepcode python -m tests.smoke_pending_operation_service
 conda run --no-capture-output -n deepcode python -m tests.smoke_pending_operation_cli
+conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_storage
+conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_service
+conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_cli
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros tests
 ```
 
@@ -123,6 +129,7 @@ conda run --no-capture-output -n deepcode python -m compileall -q main.py creato
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.live_content_planning
 conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
+conda run --no-capture-output -n deepcode python -m tests.live_codex_resume_protocol
 conda run --no-capture-output -n deepcode python -m tests.live_operation_parser
 conda run --no-capture-output -n deepcode python -m tests.live_pending_operation_workflow
 ```
@@ -131,7 +138,7 @@ conda run --no-capture-output -n deepcode python -m tests.live_pending_operation
 
 ## 路线图
 
-1. **生产运行记录**：用 `ContentRun` 把 Topic、Codex thread、SocialContentPack 与运行状态串起来，再接同篇返工 revision。
+1. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合完整 Trajectory 分析工具路径和成功任务 Token 开销。
 2. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
 3. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
 4. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。

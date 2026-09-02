@@ -8,6 +8,7 @@ from .cli_menu import AuthorSummary, CreatorOSMenu
 from .config import DATABASE_URL
 from .operations import OperationPlanParser, PendingOperationService
 from .operations.cli import PendingOperationCLI
+from .runs import ContentRunCLI, ContentRunService
 from .storage import ContentRepository, Database, upgrade_database
 from .terminal import RichConsole
 from .tools import list_authors
@@ -31,12 +32,19 @@ def main():
         service = PendingOperationService(database, parser)
         PendingOperationCLI(console, service).run()
 
+    content_repository = ContentRepository(database)
+    content_run_service = ContentRunService(database)
+
+    def run_content_runs_mode():
+        ContentRunCLI(console, content_run_service, content_repository).run()
+
     try:
         CreatorOSMenu(
             console,
             authors_loader=load_author_summaries,
             agent_runner=run_agent_mode,
             operations_runner=run_operations_mode,
+            runs_runner=run_content_runs_mode,
         ).run()
     finally:
         database.close()

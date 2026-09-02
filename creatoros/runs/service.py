@@ -258,6 +258,9 @@ class ContentRunService:
             previous = content_run.status
             content_run.status = ContentRunStatus.CANCELLED
             content_run.completed_at = datetime.now(timezone.utc)
+            topic = session.get(Topic, content_run.topic_id)
+            if topic is not None:
+                topic.status = TopicStatus.SKIPPED
             repository.add_event(
                 run_id,
                 ContentRunEventType.CANCELLED,
@@ -299,6 +302,16 @@ class ContentRunService:
         if content_run is None:
             raise ContentRunError(f"ContentRun 不存在：{run_id}")
         return content_run
+
+    def list_runs(self, *, limit: int = 50) -> tuple[ContentRun, ...]:
+        return self.repository.list_runs(limit=limit)
+
+    def get_active_revision(self, run_id: str) -> ContentRevision:
+        content_run = self.get(run_id)
+        revision = self.repository.get_revision_number(run_id, content_run.active_revision_number)
+        if revision is None:
+            raise ContentRunError("当前 Revision 不存在。")
+        return revision
 
     def _begin_attempt(self, run_id: str) -> dict:
         with self.database.session() as session:
