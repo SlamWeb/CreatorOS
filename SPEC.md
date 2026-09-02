@@ -689,3 +689,16 @@ git diff --check
 - 真实 DeepSeek：新增 MCP 与 Tool Calling 并把 MCP 调到第一条，解析为 2 个操作，随后通过 Preview 与临时数据库执行；input 1,040、output 94 tokens。
 - 第二次真实请求“删除整个栏目”返回 `unsupported` 且 `plan=null`，证明超范围意图不会被强行映射为写操作。
 - 回归通过 OperationPlan、ModelUsage、storage smoke 和全包 `compileall`；未修改正式数据库或调用发布能力。
+
+## 本轮目标（可恢复的运营确认入口）
+
+- 将自然语言解析结果保存为 `PendingOperation`，同时用 append-only `OperationEvent` 记录提议、修改、确认和最终结果。
+- 在 CLI“今日运营”中展示 Preview；用户可以自由补充修改，只有明确确认才执行数据库写入。
+- 确认时将业务变更、最终状态与审计事件放进同一事务；支持重启恢复、过期 Preview 拒绝和重复确认幂等。
+
+## 本轮验证（可恢复的运营确认入口）
+
+- Alembic `20260902_0002`、存储、Service、CLI、菜单与编译回归通过。
+- `pending_operation_service_smoke=passed restart=confirm edit=passed rollback=passed`：覆盖重启、修改、取消、幂等、冲突和真实数据库失败回滚。
+- `pending_operation_cli_smoke=passed resume=confirm`：重启后会重新展示完整 Preview，再等待确认。
+- 真实 DeepSeek 完成 `propose → 零写入 → restart → edit → confirm`；最终选题顺序符合自然语言要求，未修改正式数据库。

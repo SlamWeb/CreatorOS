@@ -6,15 +6,9 @@
 - 先生成只读 `OperationPreview`，再由宿主显式提交；LLM 生成计划不等于获得执行授权。
 - 执行前重新校验数据库状态，并在一个事务中应用整份计划，避免半成功。
 
-## 下一切片：自然语言解析
-
-- 用 Provider 的 Structured Output 把用户自然语言翻译为现有 `OperationPlan`，并注入当前 Series/Topic 目录帮助模型解析指代。
-- 解析结果仍必须经过 Pydantic 和现有 Preview；模型不直接执行写操作。
-- 使用 DeepSeek Responses API 的 `json_schema` 做一次真实低成本验证。
-
 ## 当前边界
 
-- 本轮接入独立自然语言解析器，但不注册 Agent Tool、不修改 CLI，也不让模型获得执行权限。
+- “今日运营”是宿主控制的审批入口，不注册为普通 Agent Tool，也不让模型获得确认权限。
 - 不实现创建账号/栏目、删除、调度、生产、审批或发布。
 - 当前针对本地单写者 SQLite；多进程并发控制留到 PostgreSQL 集成验证。
 
@@ -65,3 +59,10 @@
 - confirm 将业务写入、PendingOperation succeeded 和成功事件放在同一数据库事务；重复确认是幂等读取，不重复新增 Topic。
 - Preview 后外部状态变化会把请求标记为 stale；数据库执行错误会回滚业务写入，并单独保存 confirmed/failed 审计事件。
 - `pending_operation_service_smoke=passed restart=confirm edit=passed rollback=passed`。
+
+## PendingOperation CLI 验证（2026-09-02）
+
+- 主菜单“今日运营”已接入 `PendingOperationCLI`：没有活动计划时接受自然语言；存在计划时只接受确认、取消、返回或自由形式修改要求。
+- 重启进入后自动恢复并重新展示最新待处理 Preview；确认后才执行，普通 Agent 对话仍不能越过宿主审批。
+- `pending_operation_cli_smoke=passed resume=confirm`，菜单入口与全包编译回归通过。
+- 真实 DeepSeek 端到端验证通过：提议新增两个选题时数据库保持只读，关闭并重开数据库后继续修改为指定顺序，确认后一次性落库；`revision=2`。

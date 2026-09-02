@@ -6,8 +6,9 @@ from creatoros.terminal import RichConsole
 
 def main():
     output = StringIO()
-    inputs = iter(("2", "1", "1", "b", "b", "5", "/exit", "q"))
+    inputs = iter(("1", "2", "1", "1", "b", "b", "5", "/exit", "q"))
     agent_calls = []
+    operation_calls = []
 
     def fake_input(prompt):
         return next(inputs)
@@ -20,11 +21,13 @@ def main():
         RichConsole(input_fn=fake_input, output=output),
         authors_loader=lambda: authors,
         agent_runner=lambda: agent_calls.append("called"),
+        operations_runner=lambda: operation_calls.append("called"),
     )
     menu.run()
 
     rendered = output.getvalue()
     assert agent_calls == ["called"]
+    assert operation_calls == ["called"]
     assert "CreatorOS" in rendered
     assert "运营工作台" not in rendered
     assert "工作区" not in rendered

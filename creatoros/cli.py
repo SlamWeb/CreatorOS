@@ -5,6 +5,10 @@ from .agent.loop import run_agent
 from .ai.deepseek import DeepSeekProvider
 from .ai.provider import ModelProvider
 from .cli_menu import AuthorSummary, CreatorOSMenu
+from .config import DATABASE_URL
+from .operations import OperationPlanParser, PendingOperationService
+from .operations.cli import PendingOperationCLI
+from .storage import ContentRepository, Database, upgrade_database
 from .terminal import RichConsole
 from .tools import list_authors
 
@@ -12,6 +16,8 @@ from .tools import list_authors
 def main():
     console = RichConsole()
     console.banner()
+    upgrade_database(DATABASE_URL)
+    database = Database(DATABASE_URL)
 
     def run_agent_mode():
         provider: ModelProvider = DeepSeekProvider(
@@ -19,11 +25,21 @@ def main():
         )
         run_agent(provider, console=console)
 
-    CreatorOSMenu(
-        console,
-        authors_loader=load_author_summaries,
-        agent_runner=run_agent_mode,
-    ).run()
+    def run_operations_mode():
+        provider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"])
+        parser = OperationPlanParser(provider, ContentRepository(database))
+        service = PendingOperationService(database, parser)
+        PendingOperationCLI(console, service).run()
+
+    try:
+        CreatorOSMenu(
+            console,
+            authors_loader=load_author_summaries,
+            agent_runner=run_agent_mode,
+            operations_runner=run_operations_mode,
+        ).run()
+    finally:
+        database.close()
 
 
 def load_author_summaries() -> tuple[AuthorSummary, ...]:
