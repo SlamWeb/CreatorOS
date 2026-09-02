@@ -717,3 +717,10 @@ git diff --check
 - 对仓库中已有的 6 张真实 Codex 图片完成解码、尺寸和约 17.1 MB 字节摘要验证；故障注入使用本地 ControlledProducer，未重复消费真实生图额度。
 - 主菜单“运行记录”已接入创建、执行/恢复、返工、取消和批准入口；状态运行期间仅重绘底部单行。
 - 真实轻量 Codex 协议探针完成新 thread 与 `exec resume` 两次 Structured Output，逐行 callback 均观察到同一 thread ID；没有调用图片生成。
+
+## 产品交互重构结论（2026-09-02）
+
+- 当前“空白 Prompt → 用户自行猜操作”的 CLI 只适合作为开发/运维入口，不适合作为创作者矩阵的最终运营界面。
+- 最终主入口采用 Web Command Center：启动即展示 Creator/Series、今日目标、待决策、生产中与待批准内容；Agent 输入框降级为全局命令入口，而不是独立页面。
+- ContentRun Inspector 以图片预览为中心，同时展示确定性验收、Revision timeline、批准/返工和只读 Run 问答；后台执行与浏览解耦，同一 Run 只允许一个写执行者。
+- 已生成可编辑 XML 内嵌的 `docs/creatoros-studio-wireframe.drawio.png`，展示 Command Center 与 Run Inspector 两个核心页面；本轮只做产品方案，不实现 Web 代码。
