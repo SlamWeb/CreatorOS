@@ -16,7 +16,7 @@
 ## 当前边界
 
 - `OperationPlan` 已由独立 operations 模块消费 Repository；storage 保存 PendingOperation 当前状态和 append-only OperationEvent，但不负责自然语言解析或 UI。
-- 不实现定时调度、Codex 生产调用、ContentRun、Revision、审批或发布。
+- ContentRun 已由独立 `runs` 模块消费本模块的数据库边界；storage 不负责生产状态机或审批规则。
 - 不实现 UI 或 Tool；本轮先稳定可被这些上层复用的业务状态。
 - 不宣称 PostgreSQL 已支持；只有实际运行同一 migration 和 Repository 集成测试后才升级该结论。
 
@@ -33,3 +33,4 @@
 - 调序使用同一事务内的两阶段正整数位置更新，既满足 `position > 0`，也避免 `(series_id, position)` 唯一键碰撞。
 - 本轮只验证 SQLite；`DATABASE_URL` 是未来 PostgreSQL 接线边界，不代表已经完成跨数据库集成验证。
 - `pending_operation_storage_smoke=passed restart=passed events=1`：计划 JSON、Preview、token、usage 和审计事件均可跨重启读取。
+- 第三版 Alembic revision `20260902_0003` 增加 ContentRun、Revision、Attempt 与 append-only Event；`content_run_storage_smoke=passed revision=20260902_0003 restart=passed`。

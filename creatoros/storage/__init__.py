@@ -2,6 +2,13 @@ from .database import Database
 from .migration import upgrade_database
 from .models import (
     Base,
+    ContentAttempt,
+    ContentAttemptStatus,
+    ContentRevision,
+    ContentRun,
+    ContentRunEvent,
+    ContentRunEventType,
+    ContentRunStatus,
     Creator,
     CreatorPlatform,
     OperationPolicy,
@@ -18,6 +25,13 @@ from .repository import ContentRepository
 
 __all__ = [
     "Base",
+    "ContentAttempt",
+    "ContentAttemptStatus",
+    "ContentRevision",
+    "ContentRun",
+    "ContentRunEvent",
+    "ContentRunEventType",
+    "ContentRunStatus",
     "ContentRepository",
     "Creator",
     "CreatorPlatform",
