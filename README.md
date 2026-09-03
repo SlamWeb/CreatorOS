@@ -138,11 +138,11 @@ conda run --no-capture-output -n deepcode python -m tests.live_pending_operation
 
 ## 路线图
 
-1. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合完整 Trajectory 分析工具路径和成功任务 Token 开销。
-2. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
-3. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
-4. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。
-5. **Web 控制台**：CLI 保留为调试入口，网页负责栏目、选题、内容包、审批和运行观测。
+1. **本地 Web Studio**：优先解决账号/栏目不可见与首次使用迷茫；复用现有服务接通选题、生产观测和图片验收。当前仅完成设计，分步接口、边界与验收见 [Studio 实施规划](docs/studio/SPEC.md)，CLI 仍是现有可用入口。
+2. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合执行轨迹分析工具路径和成功任务 Token 开销。
+3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
+4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
+5. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。
 
 每个阶段都以一个可运行、可验证、可回退的 Git commit 完成；详细假设、边界和验证记录见根目录 [`SPEC.md`](./SPEC.md) 及各模块 SPEC。
 

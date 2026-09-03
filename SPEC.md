@@ -724,3 +724,12 @@ git diff --check
 - 最终主入口采用 Web Command Center：启动即展示 Creator/Series、今日目标、待决策、生产中与待批准内容；Agent 输入框降级为全局命令入口，而不是独立页面。
 - ContentRun Inspector 以图片预览为中心，同时展示确定性验收、Revision timeline、批准/返工和只读 Run 问答；后台执行与浏览解耦，同一 Run 只允许一个写执行者。
 - 已生成可编辑 XML 内嵌的 `docs/creatoros-studio-wireframe.drawio.png`，展示 Command Center 与 Run Inspector 两个核心页面；本轮只做产品方案，不实现 Web 代码。
+
+## Studio 实施交接（2026-09-03）
+
+- 用户要求在切换模型前确定详细规划；已写入 [`docs/studio/SPEC.md`](docs/studio/SPEC.md)，本轮仅改文档，不实现 Web。
+- 只读查询默认 `data/creatoros.db`：Creator、Series、Topic、ContentRun、PendingOperation 均为 0。首次使用必须提供创建账号/栏目/选题的入口；PersonClone 作者不是本库运营账号。
+- 下一步按 S1–S7 推进：只读 API → 首页与目录 → 首次使用/选题确认 → 本地后台生产 → 图片验收 → 自然语言命令 → 真实联调交付。完成可用 Studio 后回到 Agent Eval。
+- 原型图是愿景，首版取消每日目标进度、逐张生成进度、空 Eval 导航和 Run Side Chat；终点仍为批准产物，不发布。
+- Web 接线前必须修正 CLI 无条件 recover_inflight、旧页面计划确认和纯状态取消三个边界；本地默认单生产执行者，浏览器关闭不终止任务，服务中断后显式恢复，不实现分布式队列或自动重试。
+- 根级 AGENTS 保留长期规则，阶段优先级以本条及 Studio SPEC 为准，避免旧的 Benchmark 优先顺序与用户最新要求冲突。
