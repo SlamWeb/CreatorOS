@@ -1,7 +1,8 @@
+import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from fastapi.testclient import TestClient
+import httpx
 
 from creatoros.storage import (
     ContentRepository,
@@ -14,6 +15,27 @@ from creatoros.runs import ContentRunService
 from creatoros.web import create_app
 
 
+class SyncASGIClient:
+    """Small synchronous facade for httpx's current ASGI transport."""
+
+    def __init__(self, app):
+        self.app = app
+
+    def get(self, path: str) -> httpx.Response:
+        return asyncio.run(self._get(path))
+
+    async def _get(self, path: str) -> httpx.Response:
+        transport = httpx.ASGITransport(app=self.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get(path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
 with TemporaryDirectory() as temporary_directory:
     database_path = Path(temporary_directory) / "creatoros.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
@@ -21,7 +43,7 @@ with TemporaryDirectory() as temporary_directory:
     database = Database(database_url)
     app = create_app(database=database)
 
-    with TestClient(app) as client:
+    with SyncASGIClient(app) as client:
         health = client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["writable_routes_enabled"] is False
