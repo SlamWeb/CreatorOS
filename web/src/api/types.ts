@@ -133,6 +133,38 @@ export interface OverviewView {
   pending_operations: PendingOperationView[];
 }
 
+export interface OperationPlanInput {
+  schema_version: 1;
+  operations: Array<{
+    action: "add_topics";
+    series_id: string;
+    topics: Array<{ topic_id: string; title: string; brief?: string; source: "manual" | "research" }>;
+  }>;
+}
+
+export interface OperationPreviewInput {
+  request_text: string;
+  plan: OperationPlanInput;
+}
+
+export interface OperationConfirmInput {
+  expected_version: number;
+  expected_revision: number;
+  confirmation_token: string;
+}
+
+export interface CreatorCreateInput {
+  display_name: string;
+  account_handle?: string;
+  daily_content_limit?: number;
+}
+
+export interface SeriesCreateInput {
+  name: string;
+  description: string;
+  audience: string;
+}
+
 export interface HealthView {
   status: string;
   database: string;

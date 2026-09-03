@@ -35,7 +35,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
 - **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
 - **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
-- **Studio S1/S2**：本地 FastAPI 提供真实账号、栏目、选题、ContentRun、待确认计划与概览投影；React + TypeScript Web Studio 以只读方式展示今日、账号、栏目和运行详情。查询不初始化模型、不触发恢复、不返回密钥或绝对产物路径；创建与生产写入按 Studio SPEC 分阶段接入。
+- **Studio S1–S3**：本地 FastAPI 提供真实账号、栏目、选题、ContentRun、待确认计划与概览投影；React + TypeScript Web Studio 展示今日、账号、栏目和运行详情，并通过 `Preview → 确认` 接入账号/栏目/选题写入。查询与写入都不初始化模型、不触发恢复、不返回密钥或绝对产物路径；生产写入按 Studio SPEC 分阶段接入。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -123,7 +123,7 @@ npm --prefix web ci
 npm --prefix web run dev
 ```
 
-然后打开 `http://127.0.0.1:5173/`。S2 仍是只读页面：正式业务库为空时会显示首次使用引导，不会自动写入演示账号；创建、生产和批准会在后续阶段接入。
+然后打开 `http://127.0.0.1:5173/`。S3 已支持在本地真实创建账号和栏目，并在栏目页逐行添加选题；选题必须经过 Preview 和明确确认才写入。生产、图片验收和批准会在后续阶段接入。
 
 ## 验证
 

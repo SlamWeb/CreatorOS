@@ -5,6 +5,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from creatoros.operations.models import OperationPlan
+
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -162,3 +164,37 @@ class ErrorView(ApiModel):
 
 class ErrorResponse(ApiModel):
     error: ErrorView
+
+
+class WriteRequest(ApiModel):
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+
+
+class CreatorCreateRequest(WriteRequest):
+    display_name: str = Field(min_length=1, max_length=120)
+    account_handle: str | None = Field(default=None, max_length=160)
+    daily_content_limit: int | None = Field(default=None, gt=0)
+
+
+class SeriesCreateRequest(WriteRequest):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=10_000)
+    audience: str = Field(default="", max_length=4_000)
+
+
+class OperationPreviewRequest(WriteRequest):
+    request_text: str = Field(min_length=1, max_length=5_000)
+    plan: OperationPlan
+
+
+class OperationVersionRequest(WriteRequest):
+    expected_version: int = Field(ge=1)
+    expected_revision: int = Field(ge=1)
+
+
+class OperationConfirmRequest(OperationVersionRequest):
+    confirmation_token: str = Field(min_length=32, max_length=128)
+
+
+class OperationEditRequest(OperationVersionRequest):
+    instruction: str = Field(min_length=1, max_length=5_000)

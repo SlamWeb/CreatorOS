@@ -12,17 +12,24 @@ from creatoros.storage import ContentRunStatus, Database
 
 from .queries import StudioQueryService
 from .schemas import (
+    CreatorCreateRequest,
     CreatorView,
     ErrorResponse,
     HealthView,
+    OperationConfirmRequest,
+    OperationEditRequest,
+    OperationPreviewRequest,
+    OperationVersionRequest,
     OverviewView,
     PageResponse,
     PendingOperationView,
     RunDetail,
     RunSummary,
     SeriesView,
+    SeriesCreateRequest,
     TopicView,
 )
+from .writes import StudioWriteError, StudioWriteService
 
 
 def create_app(
@@ -30,10 +37,11 @@ def create_app(
     *,
     database: Database | None = None,
 ) -> FastAPI:
-    """Create the read-only Studio API without running migrations or workers."""
+    """Create the local Studio API without starting models or production workers."""
     owns_database = database is None
     db = database or Database(database_url or DATABASE_URL)
     queries = StudioQueryService(db)
+    writes = StudioWriteService(db)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -44,12 +52,13 @@ def create_app(
     app = FastAPI(
         title="CreatorOS Studio API",
         version="0.1.0",
-        description="本地 CreatorOS 运营工作台的只读业务投影。",
+        description="本地 CreatorOS 运营工作台的业务投影与确认入口。",
         lifespan=lifespan,
         responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
     app.state.database = db
     app.state.queries = queries
+    app.state.writes = writes
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, error: ValueError):
@@ -80,7 +89,7 @@ def create_app(
             status="ok",
             database="ok",
             codex_available=shutil.which("codex") is not None,
-            writable_routes_enabled=False,
+            writable_routes_enabled=True,
         )
 
     @app.get("/api/overview", response_model=OverviewView)
@@ -94,6 +103,17 @@ def create_app(
     ) -> PageResponse[CreatorView]:
         return queries.list_creators(offset=offset, limit=limit)
 
+    @app.post("/api/creators", response_model=CreatorView, status_code=201)
+    def create_creator(payload: CreatorCreateRequest) -> CreatorView:
+        try:
+            creator = writes.create_creator(payload)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        result = queries.get_creator(creator.id)
+        if result is None:
+            raise HTTPException(status_code=503, detail="账号已保存，但读取新账号失败。")
+        return result
+
     @app.get("/api/creators/{creator_id}", response_model=CreatorView)
     def get_creator(creator_id: str) -> CreatorView:
         result = queries.get_creator(creator_id)
@@ -106,6 +126,17 @@ def create_app(
         result = queries.get_series(series_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Series 不存在。")
+        return result
+
+    @app.post("/api/creators/{creator_id}/series", response_model=SeriesView, status_code=201)
+    def create_series(creator_id: str, payload: SeriesCreateRequest) -> SeriesView:
+        try:
+            series = writes.create_series(creator_id, payload)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        result = queries.get_series(series.id)
+        if result is None:
+            raise HTTPException(status_code=503, detail="栏目已保存，但读取新栏目失败。")
         return result
 
     @app.get("/api/series/{series_id}/topics", response_model=PageResponse[TopicView])
@@ -146,6 +177,59 @@ def create_app(
 
     @app.get("/api/operations/{operation_id}", response_model=PendingOperationView)
     def get_operation(operation_id: str) -> PendingOperationView:
+        result = queries.get_operation(operation_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="运营计划不存在。")
+        return result
+
+    @app.post("/api/operations/preview", response_model=PendingOperationView, status_code=201)
+    def preview_operation(payload: OperationPreviewRequest) -> PendingOperationView:
+        try:
+            pending = writes.preview_topics(payload)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        result = queries.get_operation(pending.id)
+        if result is None:
+            raise HTTPException(status_code=503, detail="Preview 已保存，但读取失败。")
+        return result
+
+    @app.post("/api/operations/{operation_id}/confirm", response_model=PendingOperationView)
+    def confirm_operation(operation_id: str, payload: OperationConfirmRequest) -> PendingOperationView:
+        try:
+            writes.confirm(
+                operation_id,
+                expected_version=payload.expected_version,
+                expected_revision=payload.expected_revision,
+                confirmation_token=payload.confirmation_token,
+            )
+        except StudioWriteError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        result = queries.get_operation(operation_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="运营计划不存在。")
+        return result
+
+    @app.post("/api/operations/{operation_id}/edit", response_model=PendingOperationView)
+    def edit_operation(operation_id: str, payload: OperationEditRequest) -> PendingOperationView:
+        try:
+            writes.edit(operation_id, payload)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        result = queries.get_operation(operation_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="运营计划不存在。")
+        return result
+
+    @app.post("/api/operations/{operation_id}/cancel", response_model=PendingOperationView)
+    def cancel_operation(operation_id: str, payload: OperationVersionRequest) -> PendingOperationView:
+        try:
+            writes.cancel(
+                operation_id,
+                expected_version=payload.expected_version,
+                expected_revision=payload.expected_revision,
+            )
+        except StudioWriteError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         result = queries.get_operation(operation_id)
         if result is None:
             raise HTTPException(status_code=404, detail="运营计划不存在。")

@@ -86,10 +86,18 @@ class PendingOperationService:
             )
         return pending
 
-    def edit(self, operation_id: str, edit_instruction: str) -> PendingOperation:
+    def edit(
+        self,
+        operation_id: str,
+        edit_instruction: str,
+        *,
+        expected_version: int | None = None,
+        expected_revision: int | None = None,
+    ) -> PendingOperation:
         if self.parser is None:
             raise PendingOperationError("当前未配置 OperationPlanParser。")
         current = self._require(operation_id)
+        self._check_expected_version(current, expected_version, expected_revision)
         instruction = edit_instruction.strip()
         if not instruction:
             raise ValueError("edit_instruction 不能为空。")
@@ -104,6 +112,7 @@ class PendingOperationService:
             instruction,
             result,
             expected_revision=current.revision,
+            expected_version=current.revision,
         )
 
     def persist_edit(
@@ -113,6 +122,7 @@ class PendingOperationService:
         parse_result: OperationParseResult,
         *,
         expected_revision: int,
+        expected_version: int | None = None,
     ) -> PendingOperation:
         prepared = self._prepare(parse_result)
         with self.pending_repository.transaction() as repository:
@@ -123,6 +133,7 @@ class PendingOperationService:
                 raise PendingOperationError(f"当前状态不能修改：{pending.status.value}")
             if pending.revision != expected_revision:
                 raise PendingOperationError("计划已被其他修改更新，请重新查看。")
+            self._check_expected_version(pending, expected_version, expected_revision)
             previous_request = pending.request_text
             pending.request_text = (
                 f"{previous_request}\n修改要求（revision {pending.revision + 1}）："
@@ -150,9 +161,19 @@ class PendingOperationService:
             )
             return pending
 
-    def confirm(self, operation_id: str) -> PendingOperation:
+    def confirm(
+        self,
+        operation_id: str,
+        *,
+        expected_version: int | None = None,
+        expected_revision: int | None = None,
+        confirmation_token: str | None = None,
+    ) -> PendingOperation:
         current = self._require(operation_id)
+        self._check_expected_version(current, expected_version, expected_revision)
         if current.status is PendingOperationStatus.SUCCEEDED:
+            if confirmation_token is not None and confirmation_token != current.confirmation_token:
+                raise PendingOperationError("确认凭证已过期，请重新查看计划。")
             return current
         if current.status is not PendingOperationStatus.AWAITING_APPROVAL:
             raise PendingOperationError(f"当前状态不能确认：{current.status.value}")
@@ -171,7 +192,11 @@ class PendingOperationService:
                     raise PendingOperationError(f"待确认计划不存在：{operation_id}")
                 if pending.status is not PendingOperationStatus.AWAITING_APPROVAL:
                     raise PendingOperationError(f"当前状态不能确认：{pending.status.value}")
+                self._check_expected_version(pending, expected_version, expected_revision)
                 plan = OperationPlan.model_validate(pending.plan_json)
+                token = confirmation_token or pending.confirmation_token
+                if token != pending.confirmation_token:
+                    raise PendingOperationError("确认凭证已过期，请重新查看计划。")
                 pending_repository.add_event(
                     operation_id,
                     OperationEventType.CONFIRMED,
@@ -180,7 +205,7 @@ class PendingOperationService:
                 receipt = self.executor.execute_in_transaction(
                     content_repository,
                     plan,
-                    pending.confirmation_token,
+                    token,
                 )
                 now = datetime.now(timezone.utc)
                 pending.status = PendingOperationStatus.SUCCEEDED
@@ -210,11 +235,18 @@ class PendingOperationService:
                 str(error),
             )
 
-    def cancel(self, operation_id: str) -> PendingOperation:
+    def cancel(
+        self,
+        operation_id: str,
+        *,
+        expected_version: int | None = None,
+        expected_revision: int | None = None,
+    ) -> PendingOperation:
         with self.pending_repository.transaction() as repository:
             pending = repository.get(operation_id)
             if pending is None:
                 raise PendingOperationError(f"待确认计划不存在：{operation_id}")
+            self._check_expected_version(pending, expected_version, expected_revision)
             if pending.status is PendingOperationStatus.CANCELLED:
                 return pending
             if pending.status not in CANCELLABLE_STATUSES:
@@ -239,6 +271,19 @@ class PendingOperationService:
         if pending is None:
             raise PendingOperationError(f"待确认计划不存在：{operation_id}")
         return pending
+
+    @staticmethod
+    def _check_expected_version(
+        pending: PendingOperation,
+        expected_version: int | None,
+        expected_revision: int | None,
+    ) -> None:
+        if expected_revision is not None and pending.revision != expected_revision:
+            raise PendingOperationError("计划版本已变化，请刷新后重新确认。")
+        # Until PendingOperation receives its own storage version, revision is the
+        # user-visible compare-and-swap token for S3. It still prevents stale tabs.
+        if expected_version is not None and pending.revision != expected_version:
+            raise PendingOperationError("计划版本已变化，请刷新后重新确认。")
 
     def _prepare(self, parse_result: OperationParseResult) -> PreparedProposal:
         decision = parse_result.decision

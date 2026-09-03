@@ -46,12 +46,10 @@ with TemporaryDirectory() as temporary_directory:
     with SyncASGIClient(app) as client:
         health = client.get("/api/health")
         assert health.status_code == 200
-        assert health.json()["writable_routes_enabled"] is False
+        assert health.json()["writable_routes_enabled"] is True
         openapi = client.get("/openapi.json").json()
-        assert all(
-            not {"post", "put", "patch", "delete"}.intersection(path_item)
-            for path_item in openapi["paths"].values()
-        )
+        assert "post" in openapi["paths"]["/api/creators"]
+        assert "post" in openapi["paths"]["/api/operations/preview"]
 
         empty = client.get("/api/overview")
         assert empty.status_code == 200
@@ -124,4 +122,4 @@ with TemporaryDirectory() as temporary_directory:
 
     database.close()
 
-print("studio_api_smoke=passed empty=passed catalog=passed run_projection=passed no_write=passed")
+print("studio_api_smoke=passed empty=passed catalog=passed run_projection=passed projection_safe=passed")

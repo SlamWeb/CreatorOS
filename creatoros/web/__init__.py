@@ -1,4 +1,4 @@
-"""Local, read-only HTTP surface for the CreatorOS Studio."""
+"""Local HTTP surface for the CreatorOS Studio."""
 
 
 def create_app(*args, **kwargs):
