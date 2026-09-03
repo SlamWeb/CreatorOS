@@ -34,7 +34,8 @@
 
 - 2026-09-03：只读核对仓库、服务边界、数据模型和已有 smoke；本轮不调用生图或发布 API。
 - 文档链接目标存在、`git diff --check` 通过；现有 `smoke_content_storage`、`smoke_pending_operation_service`、`smoke_content_run_service` 三项回归通过。后两者的回滚/中断用既有本地故障注入，不能作为新 Web/真实生图已通过的证据。
-- 实施进度：S1 已完成，S2–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 实施进度：S1、S2 已完成，S3–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 2026-09-03 S2：`web/` React + TypeScript + Vite 只读 Studio 已实现；`npm run typecheck`、`npm run build` 通过。真实 FastAPI 空库与隔离临时 SQLite 均完成浏览器检查，账号/栏目/选题详情可回退，移动视口无横向溢出，未调用模型或生产能力。
 
 ## 1. 给接手模型的阅读顺序
 
@@ -148,7 +149,7 @@
 - `creatoros/web/app.py`：FastAPI app factory/lifespan/静态资源；`__main__.py`：本地启动入口。
 - `creatoros/web/schemas.py`：显式 HTTP DTO；`queries.py`：面向页面的只读投影；`routes/`：catalog、operations、runs。
 - `creatoros/runs/executor.py`：受管理的单任务本地执行器；所有生产状态仍由 ContentRunService 维护。
-- `web/`：React + TypeScript + Vite；React Router 路由，TanStack Query 管服务器状态，Tailwind + 少量 shadcn/ui 基础组件。
+- `web/`：React + TypeScript + Vite；React Router 路由，TanStack Query 管服务器状态；S2 先用一份轻量 CSS 控制视觉，Tailwind/shadcn 仅在后续出现重复设计系统需求时再引入。
 - `web/src/features/{overview,creators,runs,operations}/` 按业务组织；小组件就近放，不提前搭完整设计系统或全局状态框架。
 - 后端计划地址 `127.0.0.1:8765`；开发 Vite `127.0.0.1:5173`，代理 `/api` 到后端且端口冲突报错。PersonClone 的 8000 不动。
 - 演示时前端 build 由同一个 FastAPI 服务托管，根路由 fallback 不能吞掉 `/api` 的 404；刷新详情 URL 能回到页面。
@@ -389,7 +390,7 @@ npm --prefix web run test:e2e
 | --- | --- | --- |
 | 规划 | 完成，未实现功能 | 见最近验证；基线 e7581b6 |
 | S1 查询 API | 已完成 | 本轮提交；`studio_api_smoke` + live API 通过 |
-| S2 可读首页 | 未开始 | — |
+| S2 可读首页 | 已完成 | `web/SPEC.md`；npm typecheck/build、空库/隔离数据浏览器检查通过 |
 | S3 首次使用/选题 | 未开始 | — |
 | S4 后台生产 | 未开始 | — |
 | S5 图片验收 | 未开始 | — |

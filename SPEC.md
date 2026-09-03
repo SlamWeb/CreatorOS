@@ -733,4 +733,5 @@ git diff --check
 - 原型图是愿景，首版取消每日目标进度、逐张生成进度、空 Eval 导航和 Run Side Chat；终点仍为批准产物，不发布。
 - Web 接线前必须修正 CLI 无条件 recover_inflight、旧页面计划确认和纯状态取消三个边界；本地默认单生产执行者，浏览器关闭不终止任务，服务中断后显式恢复，不实现分布式队列或自动重试。
 - 根级 AGENTS 保留长期规则，阶段优先级以本条及 Studio SPEC 为准，避免旧的 Benchmark 优先顺序与用户最新要求冲突。
-- S1 已完成：新增只读 FastAPI Studio API、显式 Pydantic 查询 DTO 和空库/目录/Run/运营计划投影；`studio_api_smoke` 与本地 8765 启动请求通过。未实现前端、写接口、SSE 或生产 Worker。
+- S1 已完成：新增只读 FastAPI Studio API、显式 Pydantic 查询 DTO 和空库/目录/Run/运营计划投影；`studio_api_smoke` 与本地 8765 启动请求通过。
+- S2 已完成：新增 `web/` React + TypeScript + Vite 只读 Studio，接入首页、账号/栏目目录、选题队列和运行摘要；空库、错误、加载和响应式布局已用真实/隔离 API 数据检查。未实现前端写接口、图片 Inspector、SSE 或生产 Worker。
