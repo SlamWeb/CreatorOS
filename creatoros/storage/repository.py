@@ -65,6 +65,26 @@ class ContentRepository:
         with self._session() as session:
             return session.get(Creator, creator_id)
 
+    def list_creators(self, *, limit: int = 100, offset: int = 0) -> tuple[Creator, ...]:
+        """Return the small, directory-safe Creator catalog in stable order."""
+        if limit < 1 or limit > 100:
+            raise ValueError("limit 必须在 1 到 100 之间。")
+        if offset < 0:
+            raise ValueError("offset 不能为负数。")
+        with self._session() as session:
+            return tuple(
+                session.scalars(
+                    select(Creator)
+                    .order_by(Creator.created_at, Creator.id)
+                    .offset(offset)
+                    .limit(limit)
+                )
+            )
+
+    def count_creators(self) -> int:
+        with self._session() as session:
+            return int(session.scalar(select(func.count()).select_from(Creator)) or 0)
+
     def create_series(
         self,
         *,

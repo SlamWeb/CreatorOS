@@ -35,6 +35,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
 - **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
 - **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
+- **Studio S1 只读 API**：本地 FastAPI 提供真实账号、栏目、选题、ContentRun、待确认计划与概览投影；查询不初始化模型、不触发恢复、不返回密钥或绝对产物路径。前端和写入流程按 Studio SPEC 分阶段接入。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -106,6 +107,16 @@ python .\main.py
 ```
 
 主菜单“今日运营”可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“运行记录”可从选题队列发起 Codex 生产、恢复中断、提出返工并批准精确产物；“Agent 对话”用于体验通用 Runtime。
+
+### 4. 启动只读 Studio API（S1）
+
+```powershell
+conda activate deepcode
+pip install -r requirements-web.txt
+python -m creatoros.web
+```
+
+浏览器打开 `http://127.0.0.1:8765/docs` 可查看 OpenAPI；当前 S1 只有查询接口，正式业务库为空时会返回真实的空状态。前端工作台从 S2 开始接入。
 
 ## 验证
 

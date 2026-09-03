@@ -34,7 +34,7 @@
 
 - 2026-09-03：只读核对仓库、服务边界、数据模型和已有 smoke；本轮不调用生图或发布 API。
 - 文档链接目标存在、`git diff --check` 通过；现有 `smoke_content_storage`、`smoke_pending_operation_service`、`smoke_content_run_service` 三项回归通过。后两者的回滚/中断用既有本地故障注入，不能作为新 Web/真实生图已通过的证据。
-- 实施进度：S1–S7 均未开始。下文是实施契约，不是完成清单。
+- 实施进度：S1 已完成，S2–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
 
 ## 1. 给接手模型的阅读顺序
 
@@ -259,7 +259,7 @@ S4 必须覆盖认领成功但调度失败、Producer 初始化失败、旧 work
 
 以下步骤按依赖顺序执行。每个阶段可独立提交；阶段内可以一次做完完整纵向切片，不必拆成每轮只改几行。
 
-### S1 — 只读业务 API（下一步就做这个）
+### S1 — 只读业务 API（已完成）
 
 - 阅读：storage 的 models/repository/database，runs 的 service/repository，operations 的 service/repository。
 - 新建 `creatoros/web/SPEC.md` 记录本模块边界，再加 app factory、DTO、只读 queries 与 5.3 查询接口（图片/SSE 暂不做）。补 list_creators、必要的聚合/过滤查询。
@@ -268,6 +268,8 @@ S4 必须覆盖认领成功但调度失败、Producer 初始化失败、旧 work
 - 新测 `tests.smoke_studio_queries`、`tests.smoke_studio_api`：真实临时 SQLite + HTTP TestClient，验证空库、关联投影、计数、分页、404、非法查询、无秘密/路径泄漏。
 - 验收：真实启动服务后 GET /api/overview 对空正式库返回合法空结构；查询前后行数不变；此时没有写/生产端点。
 - 提交建议：`feat: expose read-only studio catalog api`。
+
+验证：`creatoros/web/SPEC.md`、`tests/smoke_studio_api.py`；已通过临时 SQLite HTTP smoke 与本地 8765 端口真实启动检查。实现只读路由，没有写入正式业务库。
 
 ### S2 — 能看懂的首页和账号目录
 
@@ -386,7 +388,7 @@ npm --prefix web run test:e2e
 | 阶段 | 状态 | 实际提交/验证 |
 | --- | --- | --- |
 | 规划 | 完成，未实现功能 | 见最近验证；基线 e7581b6 |
-| S1 查询 API | 未开始 | — |
+| S1 查询 API | 已完成 | 本轮提交；`studio_api_smoke` + live API 通过 |
 | S2 可读首页 | 未开始 | — |
 | S3 首次使用/选题 | 未开始 | — |
 | S4 后台生产 | 未开始 | — |
