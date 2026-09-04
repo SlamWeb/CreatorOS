@@ -34,7 +34,8 @@
 
 - 2026-09-03：只读核对仓库、服务边界、数据模型和已有 smoke；本轮不调用生图或发布 API。
 - 文档链接目标存在、`git diff --check` 通过；现有 `smoke_content_storage`、`smoke_pending_operation_service`、`smoke_content_run_service` 三项回归通过。后两者的回滚/中断用既有本地故障注入，不能作为新 Web/真实生图已通过的证据。
-- 实施进度：S1–S5 已完成，S6–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 实施进度：S1–S5 已完成，S6 已细化计划但未实施，S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 2026-09-04 S6 交接：详见 [S6 实施契约](s6/SPEC.md)。只读核对发现 Web parser 未启用、PendingOperation 尚无真实 version、旧 Preview 只有 ID 等缺口；计划把必要修复纳入 S6。仅文档交接，不声称功能或新增测试已通过。
 - 2026-09-03 S2：`web/` React + TypeScript + Vite 只读 Studio 已实现；`npm run typecheck`、`npm run build` 通过。真实 FastAPI 空库与隔离临时 SQLite 均完成浏览器检查，账号/栏目/选题详情可回退，移动视口无横向溢出，未调用模型或生产能力。
 - 2026-09-03 S3：新增账号/栏目创建和选题 `Preview → 确认` 写路由，复用 `PendingOperationService`；版本/确认凭证冲突返回 409，重复确认幂等。`smoke_studio_operations` 通过，隔离 SQLite 浏览器完整走通账号 → 栏目 → 两选题 → Preview → 确认；正式库未写入演示数据。
 
@@ -329,6 +330,7 @@ S5 验证记录（2026-09-04）：图片/批准故障 smoke 与真实 localhost 
 
 ### S6 — 自然语言命令入口
 
+- 详细文件清单、交互/接口、版本与范围、验证矩阵、Luna 启动指令见 [S6 实施契约](s6/SPEC.md)。本阶段先补确认基础，再接模型与共用抽屉；不要仅按历史 S3 完成标签跳过真实版本核对。
 - 接全局命令抽屉：用户说“给这个栏目加 MCP 和 Tool Calling，把 MCP 放第一条”→ Parser → 持久化 Preview → 用户确认。
 - 扩展 parse 输入支持可选 series_id 范围，服务端校验范围；用户话里另指栏目且含糊时询问，不能静默执行到错误栏目。
 - UI 展示 ready/needs_clarification/unsupported；自由修改沿用同一 operation_id，版本由服务端递增。
@@ -410,7 +412,7 @@ npm --prefix web run build
 | S3 首次使用/选题 | 已完成 | `smoke_studio_operations`；隔离 SQLite 浏览器完整创建与确认通过 |
 | S4 后台生产 | 已完成 | executor/run_api/process smoke；busy、OS 单实例、lease、子进程回收、恢复和晚到回写保护；真实 Codex resume 与浏览器 QA 通过 |
 | S5 图片验收 | 已完成 | artifacts/events smoke、真实 HTTP/SSE、真实已有图片浏览器 QA；历史只读/返工/批准与关闭观察者通过 |
-| S6 自然语言入口 | 未开始 | — |
+| S6 自然语言入口 | 计划细化完成，未实施 | [详细实施与验收计划](s6/SPEC.md)；只读核对，无 API/生产调用 |
 | S7 联调与交付 | 未开始 | — |
 
 换模型后可以直接发送：
