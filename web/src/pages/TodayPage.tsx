@@ -20,7 +20,7 @@ export function TodayPage() {
     </div>
     {!hasData ? <div className="first-use-grid"><EmptyState title="还没有运营账号"><span>先创建一个账号和栏目，再把选题送进生产。</span><br /><Link className="text-link" to="/creators">创建第一个账号 →</Link></EmptyState><div className="next-card"><span className="card-label">NEXT</span><h3>准备好你的第一个栏目</h3><p>确定定位与受众，加入想做的选题。生产完成后，在这里检查图片并决定是否批准。</p><Link className="text-link" to="/creators">查看账号目录 →</Link></div></div> : <>
       <section className="content-section"><SectionTitle title="正在运营的账号" count={creators.length} link="/creators" /><div className="creator-grid">{creators.slice(0, 6).map((creator) => <CreatorCard key={creator.id} creator={creator} />)}</div></section>
-      <section className="content-section"><SectionTitle title="运营队列" /><div className="queue-grid"><Queue title="待处理" hint="需要你下一步决定" runs={pending_operations.length ? pending_operations.map((operation) => ({ id: operation.id, topic_title: operation.request_text, creator_name: "运营计划", series_name: operation.status, status: "queued", updated_at: operation.updated_at, href: null })) : needs_attention} empty="暂无需要处理的任务" /><Queue title="生产中" hint="离开页面也会保留状态" runs={producing} empty="没有正在生产的内容" /><Queue title="待批准" hint="检查后再进入下一步" runs={awaiting_approval} empty="暂无待批准内容" /></div></section>
+      <section className="content-section"><SectionTitle title="运营队列" /><Link className="text-link" to="/?command=list">查看全部运营计划 →</Link><div className="queue-grid"><Queue title="待处理" hint="需要你下一步决定" runs={[...pending_operations.map((operation) => ({ id: operation.id, topic_title: operation.request_text, creator_name: "运营计划", series_name: operation.status, status: "queued", updated_at: operation.updated_at, href: `/?operation=${encodeURIComponent(operation.id)}` })), ...needs_attention]} empty="暂无需要处理的任务" /><Queue title="生产中" hint="离开页面也会保留状态" runs={producing} empty="没有正在生产的内容" /><Queue title="待批准" hint="检查后再进入下一步" runs={awaiting_approval} empty="暂无待批准内容" /></div></section>
     </>}
   </>;
 }
@@ -30,5 +30,5 @@ function Metric({ label, value, suffix, tone }: { label: string; value: number; 
 }
 
 function Queue({ title, hint, runs, empty }: { title: string; hint: string; runs: RunRowData[]; empty: string }) {
-  return <div className="queue-card"><div className="queue-head"><div><h3>{title}</h3><p>{hint}</p></div><span className="queue-count">{runs.length}</span></div>{runs.length ? runs.slice(0, 3).map((run) => <RunRow key={run.id} run={run} />) : <p className="queue-empty">{empty}</p>}</div>;
+  return <div className="queue-card"><div className="queue-head"><div><h3>{title}</h3><p>{hint}</p></div><span className="queue-count">{runs.length}</span></div>{runs.length ? runs.map((run) => <RunRow key={run.id} run={run} />) : <p className="queue-empty">{empty}</p>}</div>;
 }

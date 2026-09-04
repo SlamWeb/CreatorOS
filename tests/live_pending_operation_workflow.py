@@ -56,13 +56,15 @@ with TemporaryDirectory() as temporary_directory:
         edited = restarted_service.edit(
             operation_id,
             "把 Tool Calling 放第一条、MCP 放第二条，原有选题保持相对顺序。",
+            expected_version=restarted_service.get(operation_id).version,
+            expected_revision=restarted_service.get(operation_id).revision,
         )
         assert edited.revision == 2
         assert [topic.id for topic in restarted_content.list_topics("agent-series")] == [
             "state",
             "context",
         ]
-        completed = restarted_service.confirm(operation_id)
+        completed = restarted_service.confirm(operation_id, expected_version=edited.version, expected_revision=edited.revision, confirmation_token=edited.confirmation_token)
         titles = [topic.title for topic in restarted_content.list_topics("agent-series")]
         assert completed.status.value == "succeeded"
         assert titles[:2] == ["Tool Calling", "MCP"]

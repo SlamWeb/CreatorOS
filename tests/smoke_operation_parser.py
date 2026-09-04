@@ -41,7 +41,10 @@ with TemporaryDirectory() as temporary_directory:
             {
                 "series_id": "agent-series",
                 "creator_id": "creator-1",
+                "creator_name": "Creator One",
                 "name": "Agent 每日一题",
+                "is_active": True,
+                "creator_active": True,
                 "skill_name": "knowledge-to-carousel",
                 "topics": [
                     {"topic_id": "state", "position": 1, "title": "AgentState"}

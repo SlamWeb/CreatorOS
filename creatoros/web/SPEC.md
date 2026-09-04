@@ -76,3 +76,9 @@
 ## 下一步
 
 - S6：自然语言运营命令的 Web Preview/确认入口；S7 再完成正式演示与完整真实生图联调。本阶段不新增发布、记忆或 Agent Benchmark。
+## S6 完成（2026-09-04）
+
+- POST /api/operations/propose 接真实 DeepSeek，支持可选 series_id；仅 propose/edit 按需构造 Parser，60 秒超时、零隐式重试，不改变 Agent Chat 默认参数。
+- create_app 支持 parser/factory 注入。模型未配置/不可用 503，坏输出 502，非法 scope 404/409，版本竞争 409；未配置模型时表单 Preview/确认仍可用。
+- DTO 输出真实 version、scope、白名单 Preview/usage；列表无嵌套 token。旧 Preview 只读补齐名称，不重签 token；非 succeeded 确认不返回成功。
+- 15 项关联 smoke 通过；真实 4 次 HTTP 模型验收 + 浏览器 3 次真实模型请求，无生图、发布或正式数据修改。

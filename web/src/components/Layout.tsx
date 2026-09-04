@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { OperationDrawer } from "../features/operations/OperationDrawer";
 
 const navItems = [
   { to: "/", label: "今日", icon: "◒" },
@@ -8,6 +9,7 @@ const navItems = [
 
 export function Layout() {
   const location = useLocation();
+  const [, setParams] = useSearchParams();
   const isDetail = location.pathname !== "/" && !navItems.some((item) => item.to !== "/" && location.pathname === item.to);
   return (
     <div className="studio-shell">
@@ -32,9 +34,10 @@ export function Layout() {
             <p className="eyebrow">{isDetail ? "STUDIO / DETAIL" : "STUDIO / WORKSPACE"}</p>
             <p className="topbar-caption">把栏目选题变成可检查的内容生产</p>
           </div>
-          <div className="topbar-status"><span className="status-dot" /> 本地数据</div>
+          <div className="topbar-actions"><button className="command-trigger" type="button" onClick={() => setParams(p => { p.delete("operation"); p.set("command", "new"); return p; })}>运营指令 <kbd>Ctrl K</kbd></button><div className="topbar-status"><span className="status-dot" /> 本地数据</div></div>
         </header>
         <div className="page-container"><Outlet /></div>
+        <OperationDrawer />
       </main>
     </div>
   );

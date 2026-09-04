@@ -66,3 +66,9 @@
 - 重启进入后自动恢复并重新展示最新待处理 Preview；确认后才执行，普通 Agent 对话仍不能越过宿主审批。
 - `pending_operation_cli_smoke=passed resume=confirm`，菜单入口与全包编译回归通过。
 - 真实 DeepSeek 端到端验证通过：提议新增两个选题时数据库保持只读，关闭并重开数据库后继续修改为指定顺序，确认后一次性落库；`revision=2`。
+## S6 完成（2026-09-04）
+
+- 复用 Parser/Service/Executor；持久化 scope，解析前检查栏目/父账号 active，模型越界降为澄清，非法目标或漏项调序拒绝。edit 读取当前完整 plan，修改同一 ID。
+- 独立 ORM version 与草稿 revision；CLI/Web 的 edit/confirm/cancel 均提交所见版本。CONFIRMED 记录原确认请求凭证，只允许同一成功请求重放；并发冲突不能覆盖新状态。
+- Preview 保存名称和 Topic 标题/brief；proposed/edited 逐次保存 usage。它不是完整 Agent Trajectory。
+- 原关联 smoke 与新 HTTP 故障/竞争测试通过；真实 4 次 DeepSeek 的新增调序、同计划编辑、歧义及越界请求通过。详细矩阵见 docs/studio/s6/SPEC.md。

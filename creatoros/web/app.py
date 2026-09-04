@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import os
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -8,6 +9,10 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from creatoros.config import DATABASE_URL
+from creatoros.ai import DeepSeekProvider
+from creatoros.operations import OperationPlanParser
+from creatoros.operations.parser import LazyOperationParser, OperationParserUnavailable, OperationParseError, OperationScopeError
+from creatoros.storage import ContentRepository
 from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
 from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
@@ -21,6 +26,7 @@ from .schemas import (
     OperationConfirmRequest,
     OperationEditRequest,
     OperationPreviewRequest,
+    OperationProposeRequest,
     OperationVersionRequest,
     OverviewView,
     PageResponse,
@@ -45,11 +51,20 @@ def create_app(
     database: Database | None = None,
     run_service: ContentRunService | None = None,
     run_executor: ManagedRunExecutor | None = None,
+    operation_parser: OperationPlanParser | None = None,
+    operation_parser_factory=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
     db = database or Database(database_url or DATABASE_URL)
-    writes = StudioWriteService(db)
+    def default_parser():
+        key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        if not key:
+            raise OperationParserUnavailable("未配置 DeepSeek；表单添加选题仍可使用。")
+        return OperationPlanParser(DeepSeekProvider(api_key=key, timeout_seconds=60, max_retries=0), ContentRepository(db))
+
+    parser = operation_parser or LazyOperationParser(operation_parser_factory or default_parser)
+    writes = StudioWriteService(db, parser=parser)
     runs = run_service or ContentRunService(db)
     artifacts = StudioArtifacts(db, runs.output_root)
     queries = StudioQueryService(db, artifacts=artifacts)
@@ -104,6 +119,18 @@ def create_app(
     async def value_error_handler(_request: Request, error: ValueError):
         return _error_response(422, "invalid_request", str(error))
 
+    @app.exception_handler(OperationParserUnavailable)
+    async def parser_unavailable(_request, error):
+        return _error_response(503, "parser_unavailable", str(error))
+
+    @app.exception_handler(OperationParseError)
+    async def parser_invalid(_request, error):
+        return _error_response(502, "parser_invalid_output", str(error))
+
+    @app.exception_handler(OperationScopeError)
+    async def invalid_scope(_request, error):
+        return _error_response(error.status_code, "invalid_scope", str(error))
+
     @app.exception_handler(HTTPException)
     async def http_error_handler(_request: Request, error: HTTPException):
         code = {
@@ -130,6 +157,7 @@ def create_app(
             database="ok",
             codex_available=shutil.which("codex") is not None,
             writable_routes_enabled=True,
+            operation_parser_configured=bool(operation_parser or operation_parser_factory or os.environ.get("DEEPSEEK_API_KEY", "").strip()),
         )
 
     @app.get("/api/overview", response_model=OverviewView)
@@ -265,6 +293,17 @@ def create_app(
             raise HTTPException(status_code=503, detail="Preview 已保存，但读取失败。")
         return result
 
+    @app.post("/api/operations/propose", response_model=PendingOperationView, status_code=201)
+    def propose_operation(payload: OperationProposeRequest) -> PendingOperationView:
+        try:
+            pending = writes.propose(payload)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        result = queries.get_operation(pending.id)
+        if result is None:
+            raise HTTPException(status_code=503, detail="运营计划已保存，但读取失败。")
+        return result
+
     @app.post("/api/operations/{operation_id}/confirm", response_model=PendingOperationView)
     def confirm_operation(operation_id: str, payload: OperationConfirmRequest) -> PendingOperationView:
         try:
@@ -279,6 +318,8 @@ def create_app(
         result = queries.get_operation(operation_id)
         if result is None:
             raise HTTPException(status_code=404, detail="运营计划不存在。")
+        if result.status != "succeeded":
+            raise HTTPException(status_code=409, detail="计划未执行成功，请重新查看状态和预览。")
         return result
 
     @app.post("/api/operations/{operation_id}/edit", response_model=PendingOperationView)

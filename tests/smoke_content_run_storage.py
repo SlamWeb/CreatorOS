@@ -33,7 +33,7 @@ with TemporaryDirectory() as temporary:
     )
     with database.engine.connect() as connection:
         context = MigrationContext.configure(connection)
-        assert context.get_current_revision() == "20260902_0003"
+        assert context.get_current_revision() == "20260904_0004"
         drift = compare_metadata(context, Base.metadata)
         assert drift == [], drift
 
@@ -106,4 +106,4 @@ with TemporaryDirectory() as temporary:
     assert len(restored.list_events(run_id)) == 1
     restarted.close()
 
-print("content_run_storage_smoke=passed revision=20260902_0003 restart=passed")
+print("content_run_storage_smoke=passed revision=20260904_0004 restart=passed")

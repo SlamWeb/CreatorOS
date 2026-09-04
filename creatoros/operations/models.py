@@ -82,11 +82,21 @@ class OperationParseDecision(OperationModel):
         return self
 
 
+class TopicSnapshot(OperationModel):
+    topic_id: str
+    title: str
+    brief: str | None = None
+
+
 class OperationChange(OperationModel):
     action: Literal["add_topics", "reorder_topics"]
     series_id: str
     before_order: list[str]
     after_order: list[str]
+    creator_name: str | None = None
+    series_name: str | None = None
+    before_topics: list[TopicSnapshot] = Field(default_factory=list)
+    after_topics: list[TopicSnapshot] = Field(default_factory=list)
 
 
 class OperationPreview(OperationModel):

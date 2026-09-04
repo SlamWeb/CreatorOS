@@ -77,14 +77,14 @@ with TemporaryDirectory() as temporary_directory:
     restarted_database = Database(database_url)
     restarted_service = PendingOperationService(restarted_database, parser=None)
     assert [item.id for item in restarted_service.list_actionable()] == [pending.id]
-    succeeded = restarted_service.confirm(pending.id)
+    succeeded = restarted_service.confirm(pending.id, expected_version=pending.version, expected_revision=pending.revision, confirmation_token=pending.confirmation_token)
     assert succeeded.status is PendingOperationStatus.SUCCEEDED
     restarted_content = ContentRepository(restarted_database)
     assert [topic.id for topic in restarted_content.list_topics("agent-series")] == [
         "state",
         "mcp",
     ]
-    restarted_service.confirm(pending.id)
+    restarted_service.confirm(pending.id, expected_version=pending.version, expected_revision=pending.revision, confirmation_token=pending.confirmation_token)
     assert [topic.id for topic in restarted_content.list_topics("agent-series")].count("mcp") == 1
     events = PendingOperationRepository(restarted_database).list_events(pending.id)
     assert [event.event_type for event in events] == [
@@ -97,7 +97,7 @@ with TemporaryDirectory() as temporary_directory:
         "增加 Memory",
         parse_result(add_plan("memory", "Agent Memory")),
     )
-    cancelled = restarted_service.cancel(cancellable.id)
+    cancelled = restarted_service.cancel(cancellable.id, expected_version=cancellable.version, expected_revision=cancellable.revision)
     assert cancelled.status is PendingOperationStatus.CANCELLED
     assert restarted_content.get_topic("memory") is None
 
@@ -110,6 +110,7 @@ with TemporaryDirectory() as temporary_directory:
         "给 Agent 栏目增加 Context Engineering",
         parse_result(add_plan("context-engineering", "Context Engineering")),
         expected_revision=1,
+        expected_version=clarification.version,
     )
     assert edited.revision == 2
     assert edited.status is PendingOperationStatus.AWAITING_APPROVAL
@@ -125,7 +126,7 @@ with TemporaryDirectory() as temporary_directory:
         title="External Change",
         source=TopicSource.MANUAL,
     )
-    stale_result = restarted_service.confirm(stale.id)
+    stale_result = restarted_service.confirm(stale.id, expected_version=stale.version, expected_revision=stale.revision, confirmation_token=stale.confirmation_token)
     assert stale_result.status is PendingOperationStatus.STALE
     assert restarted_content.get_topic("guard") is None
 
@@ -161,7 +162,7 @@ with TemporaryDirectory() as temporary_directory:
                 """
             )
         )
-    failed_result = restarted_service.confirm(failed.id)
+    failed_result = restarted_service.confirm(failed.id, expected_version=failed.version, expected_revision=failed.revision, confirmation_token=failed.confirmation_token)
     assert failed_result.status is PendingOperationStatus.FAILED
     assert restarted_content.get_topic("rollback-good") is None
     assert restarted_content.get_topic("rollback-blocked") is None

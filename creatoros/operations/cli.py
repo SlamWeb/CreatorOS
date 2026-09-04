@@ -41,8 +41,6 @@ class PendingOperationCLI:
                     self.console.write(f"⚠ 无法生成运营计划：{error}")
                     continue
                 self._render(active)
-                if active.status is PendingOperationStatus.UNSUPPORTED:
-                    active = None
                 continue
 
             response = self.console.prompt().strip()
@@ -51,7 +49,7 @@ class PendingOperationCLI:
                 return
             if normalized in CANCEL_WORDS:
                 try:
-                    active = self.service.cancel(active.id)
+                    active = self.service.cancel(active.id, expected_version=active.version, expected_revision=active.revision)
                     self.console.write("◇ 已取消，不会修改栏目。")
                 except PendingOperationError as error:
                     self.console.write(f"⚠ {error}")
@@ -61,7 +59,14 @@ class PendingOperationCLI:
                 if active.status is not PendingOperationStatus.AWAITING_APPROVAL:
                     self.console.write("⚠ 当前计划还不能确认，请先补充或修改要求。")
                     continue
-                active = self.service.confirm(active.id)
+                try:
+                    active = self.service.confirm(active.id, expected_version=active.version,
+                                                  expected_revision=active.revision, confirmation_token=active.confirmation_token)
+                except PendingOperationError as error:
+                    self.console.write(f"⚠ {error}")
+                    active = self.service.get(active.id)
+                    self._render(active)
+                    continue
                 if active.status is PendingOperationStatus.SUCCEEDED:
                     self.console.write("✓ 计划已执行。")
                     active = None
@@ -73,10 +78,8 @@ class PendingOperationCLI:
             if not response:
                 continue
             try:
-                active = self.service.edit(active.id, response)
+                active = self.service.edit(active.id, response, expected_version=active.version, expected_revision=active.revision)
                 self._render(active)
-                if active.status is PendingOperationStatus.UNSUPPORTED:
-                    active = None
             except Exception as error:
                 self.console.write(f"⚠ 无法修改计划：{error}")
 

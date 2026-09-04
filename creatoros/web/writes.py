@@ -10,6 +10,7 @@ from creatoros.operations import (
     OperationParseResult,
     PendingOperationError,
     PendingOperationService,
+    OperationPlanParser,
 )
 from creatoros.storage import (
     Creator,
@@ -19,7 +20,14 @@ from creatoros.storage import (
     Series,
 )
 
-from .schemas import CreatorCreateRequest, OperationEditRequest, OperationPreviewRequest, SeriesCreateRequest
+from .schemas import (
+    CreatorCreateRequest,
+    OperationEditRequest,
+    OperationPreviewRequest,
+    OperationProposeRequest,
+    SeriesCreateRequest,
+)
+from creatoros.operations.parser import OperationParseError, OperationScopeError
 
 
 class StudioWriteError(ValueError):
@@ -27,11 +35,11 @@ class StudioWriteError(ValueError):
 
 
 class StudioWriteService:
-    """Owns the small S3 write surface; no LLM or production calls happen here."""
+    """Catalog writes and host approval; only explicit propose/edit invoke the parser."""
 
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, *, parser: OperationPlanParser | None = None):
         self.database = database
-        self.pending_operations = PendingOperationService(database, parser=None)
+        self.pending_operations = PendingOperationService(database, parser=parser)
 
     def create_creator(self, request: CreatorCreateRequest) -> Creator:
         creator = Creator(
@@ -77,7 +85,20 @@ class StudioWriteService:
             usage=ModelUsage(0, 0, 0),
         )
         try:
-            return self.pending_operations.persist_proposal(request.request_text, parse_result)
+            return self.pending_operations.persist_proposal(request.request_text, parse_result, scope_series_id=request.series_id)
+        except (OperationParseError, OperationScopeError):
+            raise
+        except (PendingOperationError, ValueError) as error:
+            raise StudioWriteError(str(error)) from error
+
+    def propose(self, request: OperationProposeRequest):
+        try:
+            return self.pending_operations.propose(
+                request.request_text,
+                scope_series_id=request.series_id,
+            )
+        except (OperationParseError, OperationScopeError):
+            raise
         except (PendingOperationError, ValueError) as error:
             raise StudioWriteError(str(error)) from error
 
@@ -100,6 +121,8 @@ class StudioWriteService:
                 expected_version=request.expected_version,
                 expected_revision=request.expected_revision,
             )
+        except (OperationParseError, OperationScopeError):
+            raise
         except (PendingOperationError, ValueError) as error:
             raise StudioWriteError(str(error)) from error
 

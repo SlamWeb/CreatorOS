@@ -270,10 +270,12 @@ class PendingOperation(TimestampMixin, Base):
             name="pending_operation_status_values",
         ),
         CheckConstraint("revision > 0", name="revision_positive"),
+        CheckConstraint("version > 0", name="version_positive"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     request_text: Mapped[str] = mapped_column(Text, nullable=False)
+    scope_series_id: Mapped[str | None] = mapped_column(String(80), index=True)
     decision_status: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[PendingOperationStatus] = mapped_column(
         SAEnum(
@@ -291,8 +293,11 @@ class PendingOperation(TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
     usage_json: Mapped[dict | None] = mapped_column(JSON)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __mapper_args__ = {"version_id_col": version}
 
     events: Mapped[list["OperationEvent"]] = relationship(
         back_populates="pending_operation",

@@ -34,7 +34,7 @@
 
 - 2026-09-03：只读核对仓库、服务边界、数据模型和已有 smoke；本轮不调用生图或发布 API。
 - 文档链接目标存在、`git diff --check` 通过；现有 `smoke_content_storage`、`smoke_pending_operation_service`、`smoke_content_run_service` 三项回归通过。后两者的回滚/中断用既有本地故障注入，不能作为新 Web/真实生图已通过的证据。
-- 实施进度：S1–S5 已完成，S6 已细化计划但未实施，S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 实施进度：S1–S6 已完成，S7 未开始。S6 验证细节见 [实施与验收记录](s6/SPEC.md)。
 - 2026-09-04 S6 交接：详见 [S6 实施契约](s6/SPEC.md)。只读核对发现 Web parser 未启用、PendingOperation 尚无真实 version、旧 Preview 只有 ID 等缺口；计划把必要修复纳入 S6。仅文档交接，不声称功能或新增测试已通过。
 - 2026-09-03 S2：`web/` React + TypeScript + Vite 只读 Studio 已实现；`npm run typecheck`、`npm run build` 通过。真实 FastAPI 空库与隔离临时 SQLite 均完成浏览器检查，账号/栏目/选题详情可回退，移动视口无横向溢出，未调用模型或生产能力。
 - 2026-09-03 S3：新增账号/栏目创建和选题 `Preview → 确认` 写路由，复用 `PendingOperationService`；版本/确认凭证冲突返回 409，重复确认幂等。`smoke_studio_operations` 通过，隔离 SQLite 浏览器完整走通账号 → 栏目 → 两选题 → Preview → 确认；正式库未写入演示数据。
@@ -44,7 +44,7 @@
 1. 根级 `AGENTS.md` → 本文件 → 当前步骤涉及模块的 `SPEC.md`。
 2. 只读当前步骤列出的实现文件及测试；根级 SPEC 有很长的学习历史，不必每步重新加载全部历史。
 3. 一次完成一个可以验收的阶段，更新本文件进度与模块 SPEC，测试后 commit/push。用户明确要求继续多个阶段时才连续推进。
-4. 规划阶段已结束；S1–S5 已按本文件的实施契约落地。下文每个未完成阶段仍是实施契约，不能提前声称完成。
+4. 规划阶段已结束；S1–S6 已按本文件的实施契约落地。下文每个未完成阶段仍是实施契约，不能提前声称完成。
 
 ## 2. 已核实事实与必须处理的接线缺口
 
@@ -330,7 +330,7 @@ S5 收尾复核（2026-09-04，用户要求“继续，完成 S5”）：确认�
 
 与简历的关系：S4/S5 为可恢复 Workflow、人工确认和可检查轨迹提供可演示证据；它们不是 Agent Benchmark。长期运营记忆、自动失败重规划、MCP 服务和 Benchmark 仍待独立实现，按原计划收尾 Studio 后回到真实运营任务评估。
 
-### S6 — 自然语言命令入口
+### S6 — 自然语言命令入口（已完成）
 
 - 详细文件清单、交互/接口、版本与范围、验证矩阵、Luna 启动指令见 [S6 实施契约](s6/SPEC.md)。本阶段先补确认基础，再接模型与共用抽屉；不要仅按历史 S3 完成标签跳过真实版本核对。
 - 接全局命令抽屉：用户说“给这个栏目加 MCP 和 Tool Calling，把 MCP 放第一条”→ Parser → 持久化 Preview → 用户确认。
@@ -414,7 +414,7 @@ npm --prefix web run build
 | S3 首次使用/选题 | 已完成 | `smoke_studio_operations`；隔离 SQLite 浏览器完整创建与确认通过 |
 | S4 后台生产 | 已完成 | executor/run_api/process smoke；busy、OS 单实例、lease、子进程回收、恢复和晚到回写保护；真实 Codex resume 与浏览器 QA 通过 |
 | S5 图片验收 | 已完成 | artifacts/events smoke、真实 HTTP/SSE、真实已有图片浏览器 QA；历史只读/返工/批准与关闭观察者通过 |
-| S6 自然语言入口 | 计划细化完成，未实施 | [详细实施与验收计划](s6/SPEC.md)；只读核对，无 API/生产调用 |
+| S6 自然语言入口 | 已完成 | 共用抽屉、scope/version、同计划编辑及重放保护；15 smoke、4 次真实 HTTP 模型验收、3 次浏览器模型请求与桌面/手机看图通过；不生图/发布 |
 | S7 联调与交付 | 未开始 | — |
 
 换模型后可以直接发送：

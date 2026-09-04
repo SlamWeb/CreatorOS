@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -164,6 +164,27 @@ class RunDetail(RunSummary):
     events_url: str
 
 
+class PreviewTopicView(ApiModel):
+    topic_id: str
+    title: str
+    brief: str | None = None
+
+
+class PreviewChangeView(ApiModel):
+    action: Literal["add_topics", "reorder_topics"]
+    series_id: str
+    creator_name: str | None = None
+    series_name: str | None = None
+    before_order: list[str]
+    after_order: list[str]
+    before_topics: list[PreviewTopicView] = Field(default_factory=list)
+    after_topics: list[PreviewTopicView] = Field(default_factory=list)
+
+
+class OperationPreviewView(ApiModel):
+    changes: list[PreviewChangeView]
+
+
 class PendingOperationView(ApiModel):
     id: str
     status: str
@@ -171,7 +192,8 @@ class PendingOperationView(ApiModel):
     revision: int = Field(gt=0)
     version: int = Field(gt=0)
     request_text: str
-    preview: dict[str, Any] | None = None
+    scope_series_id: str | None = None
+    preview: OperationPreviewView | None = None
     message: str | None = None
     confirmation_token: str | None = None
     usage: dict[str, Any] | None = None
@@ -201,6 +223,7 @@ class HealthView(ApiModel):
     database: str
     codex_available: bool
     writable_routes_enabled: bool
+    operation_parser_configured: bool = False
 
 
 class ErrorView(ApiModel):
@@ -253,6 +276,12 @@ class SeriesCreateRequest(WriteRequest):
 class OperationPreviewRequest(WriteRequest):
     request_text: str = Field(min_length=1, max_length=5_000)
     plan: OperationPlan
+    series_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class OperationProposeRequest(WriteRequest):
+    request_text: str = Field(min_length=1, max_length=5_000)
+    series_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class OperationVersionRequest(WriteRequest):

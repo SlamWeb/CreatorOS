@@ -2,7 +2,7 @@
 
 ## 当前理解
 
-- 编写日期：2026-09-04；核对基线：`e17a68b`。本文件是计划，**S6 功能尚未实现**。
+- 编写日期：2026-09-04；核对基线：`e17a68b`。**S6 已实现并完成本轮验收**；下文保留原实施契约，最新记录见末尾。
 - 用户已授权下一模型代写本阶段，不需要重新采访、不要求用户手敲代码。只完成 S6，不顺带实施 S7。
 - 总产品契约见 [Studio SPEC](../SPEC.md)。本文件细化 S6，并纠正只读核对发现的实现缺口；历史“阶段已完成”不代表以下缺口已修复。
 - Python 继续承载解析、校验、事务和状态；React/TypeScript 只负责展示与用户输入。不是重写 Agent，也不是新增第二套 Workflow。
@@ -215,11 +215,11 @@ git diff --check
 
 ## 完成门槛与下一步
 
-- [ ] 真实范围校验、Parser 接线、三态持久化与同计划修改。
-- [ ] 真正 version、并发保护、重复确认、失败回滚、旧数据兼容。
-- [ ] 一个可恢复的共用抽屉，表单/自然语言入口共存，Preview 可读。
-- [ ] 自动测试 + 4 次真实模型验证 + 桌面/移动浏览器检查，费用与异常如实记录。
-- [ ] SPEC 更新，检查 staged/unstaged diff，仅提交本阶段文件，commit/push 成功。
+- [x] 真实范围校验、Parser 接线、三态持久化与同计划修改。
+- [x] 真正 version、并发保护、重复确认、失败回滚、旧数据兼容。
+- [x] 一个可恢复的共用抽屉，表单/自然语言入口共存，Preview 可读。
+- [x] 自动测试 + 4 次真实模型验证 + 桌面/移动浏览器检查，费用与异常如实记录。
+- [x] SPEC 更新、scoped diff 检查与 S6 提交；推送结果由最终 Git 回执核对。
 
 S6 支撑简历里的“开放指令 → 结构化计划 → Preview/人工确认”，并提供状态和用量作为后续评估素材。它不是完整 Agent Eval、长期记忆或自主运营已完成的证据。完成后停下，下一步为 S7 联调交付，再回到 Agent 任务 Benchmark。
 
@@ -231,3 +231,32 @@ S6 支撑简历里的“开放指令 → 结构化计划 → Preview/人工确�
 ## 给 Luna 的启动指令
 
 > 阅读 AGENTS.md、docs/studio/SPEC.md 和 docs/studio/s6/SPEC.md，按 S6 契约实施，本轮只完成 S6。先核对 Git 和相关模块 SPEC，优先修正文档标出的解析接线及确认版本缺口；复用现有 Parser、PendingOperationService 和前端，不重写 Runtime。按计划完成真实 DeepSeek + 隔离数据库 + 浏览器验收，更新 SPEC，commit 并 push。不要实施 S7，不启动生图或发布，不写演示数据进正式库；遇到确实阻塞报告具体证据，不重新询问已确定的方向。
+## S6 实施验收记录（2026-09-04）
+
+- 从上一轮未提交实现继续，先修真实 version/CAS、范围检查、惰性解析，再完成共用抽屉。未实施 S7、长期记忆或 Agent Benchmark。
+- 迁移新增 20260904_0004，不改旧 migration；旧库含计划/事件升级、metadata drift 与外键检查通过。正式库未迁移或 seed。
+- 自动验证共 15 项 smoke：operation_plan、operation_parser、pending_operation_storage/service/cli、content_storage、content_run_storage/service、studio_api/operations/operation_workflow、operation_migration、studio_run_api/artifacts/events；Python compileall、前端 typecheck/build 通过。
+- 故障测试使用确定性模型响应、Event/Barrier：缺 Key 表单仍可确认；坏 JSON/漏项调序 502、超时 503；scope 越界拒绝；两 edit、edit/cancel、confirm/cancel 均只能一个有效写入；迟到失败不覆盖成功。既有 SQLite trigger 验证部分写入整体回滚。
+- 新增 live_studio_operation_workflow 使用真实默认 DeepSeek + 临时库，4 请求均首次通过；确认前原两 Topic 不变，修改后同一 ID/revision=2，关闭数据库实例再恢复确认，最终 MCP、Tool Calling、AgentState、AgentContext，无 Run。
+- 本轮真实模型请求合计 7 次：自动验收 4 次 + 浏览器 3 次，合计 9,218 tokens（input 8,492 / output 726）。未运行旧 live_pending_operation_workflow，避免重复费用。
+
+| 请求 | 结果 | input | output | total |
+| --- | --- | ---: | ---: | ---: |
+| HTTP 新增+调序 | ready | 1162 | 96 | 1258 |
+| HTTP 修改 | ready | 1340 | 112 | 1452 |
+| HTTP 同名栏目歧义 | needs_clarification | 1197 | 55 | 1252 |
+| HTTP 混合生产/发布 | unsupported | 1183 | 27 | 1210 |
+| 浏览器新增+调序 | ready | 1139 | 164 | 1303 |
+| 浏览器修改 | ready | 1317 | 169 | 1486 |
+| 浏览器延迟完成 | ready | 1154 | 103 | 1257 |
+
+### 浏览器验收与边界
+
+- 使用 tests.manual_studio_operations 的 tmp/s6_final_qa 隔离库，生产 factory 明确禁用。真实 API/Vite，未改正式账号、图片或选题。
+- 已走通：栏目范围入口 → 真实预览 → 修改 → 确认；另一个标签保留旧 Preview 并禁用确认；刷新恢复同一计划、服务重启后恢复；Enter 提交、Esc/焦点返回。
+- 额外注入 10 秒解析等待以确定性测试关闭抽屉：真实模型完成后只出现“计划已就绪/查看”，无重开、无队列写入；普通查询不再调用模型。
+- 1440×900、390×844 已实际截图检查；修复滚动条占位引起的手机左边缘裁切、重复滚动条，手机保留调序前/后标签。截图：tmp/s6_final_qa/desktop-preview.png、mobile-conflict.png。
+- IME composition 分支已防止 Enter 误提交，但没有模拟真实中文输入法候选选中；未把这项当作实机自动化通过。
+- 当前页面仅提供待处理计划分页（复用既有 actionable 查询），成功/终态仍可由已保存 operation URL 查阅。不是全历史审计页。
+- 上一轮弱测试的通过记录不能证明本轮完成；本轮新增回归与真实结果如上。先前遇到旧测试写死 0003、迁移测试 SQL 参数转义问题，均修正后重新通过；没有削弱业务断言或自动循环 API 重试。
+- 下一步仅为 S7 联调交付，必须由用户另行开始；本轮结束不自动生图或发布。

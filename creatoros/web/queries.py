@@ -459,18 +459,44 @@ class StudioQueryService:
             duration_ms=attempt.duration_ms,
         )
 
-    @staticmethod
-    def _operation_view(operation: PendingOperation, *, include_token: bool) -> PendingOperationView:
+    def _operation_view(self, operation: PendingOperation, *, include_token: bool) -> PendingOperationView:
+        preview = None
+        if operation.preview_json:
+            # Historical previews have only IDs. Enrich display without renewing approval.
+            draft_topics = {topic["topic_id"]: topic for op in (operation.plan_json or {}).get("operations", [])
+                            for topic in op.get("topics", [])}
+            changes = []
+            with self.database.session() as session:
+                for raw in operation.preview_json.get("changes", []):
+                    change = {key: raw.get(key) for key in ("action", "series_id", "before_order", "after_order")}
+                    series = session.get(Series, raw["series_id"])
+                    creator = session.get(Creator, series.creator_id) if series else None
+                    change["series_name"] = raw.get("series_name") or (series.name if series else "历史栏目")
+                    change["creator_name"] = raw.get("creator_name") or (creator.display_name if creator else None)
+                    for side in ("before", "after"):
+                        snapshots = {item["topic_id"]: item for item in raw.get(f"{side}_topics", [])}
+                        result = []
+                        for topic_id in raw[f"{side}_order"]:
+                            topic = session.get(Topic, topic_id)
+                            data = snapshots.get(topic_id) or draft_topics.get(topic_id) or {}
+                            result.append({"topic_id": topic_id, "title": data.get("title") or (topic.title if topic else f"历史选题 {topic_id}"),
+                                           "brief": data.get("brief", topic.brief if topic else None)})
+                        change[f"{side}_topics"] = result
+                    changes.append(change)
+            preview = {"changes": changes}
         return PendingOperationView(
             id=operation.id,
             status=operation.status.value,
             decision_status=operation.decision_status,
             revision=operation.revision,
-            version=getattr(operation, "version", 1),
+            version=operation.version,
             request_text=operation.request_text,
-            preview=operation.preview_json,
-            message=operation.message,
+            scope_series_id=operation.scope_series_id,
+            preview=preview,
+            message=_error_message(operation.error or operation.message),
             confirmation_token=operation.confirmation_token if include_token else None,
-            usage=operation.usage_json,
+            usage={key: operation.usage_json[key] for key in (
+                "input_tokens", "output_tokens", "total_tokens", "cache_hit_tokens"
+            ) if key in operation.usage_json} if operation.usage_json else None,
             updated_at=operation.updated_at,
         )

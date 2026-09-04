@@ -19,6 +19,7 @@ ACTIONABLE_STATUSES = (
     PendingOperationStatus.AWAITING_APPROVAL,
     PendingOperationStatus.NEEDS_CLARIFICATION,
     PendingOperationStatus.STALE,
+    PendingOperationStatus.UNSUPPORTED,
 )
 
 

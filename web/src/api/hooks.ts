@@ -32,3 +32,7 @@ export const useRun = (id: string | undefined) => useQuery({
   refetchInterval: (query) => ["queued", "producing", "validating"].includes(query.state.data?.status ?? "") ? 2_000 : 10_000,
   ...queryOptions,
 });
+export const useOperation = (id: string | null) => useQuery({
+  queryKey: ["operation", id], queryFn: () => studioApi.operation(id ?? ""),
+  enabled: Boolean(id), ...queryOptions,
+});

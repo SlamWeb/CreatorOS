@@ -141,14 +141,22 @@ export interface RunDetail extends RunSummary {
   events_url: string;
 }
 
+export interface PreviewTopic { topic_id: string; title: string; brief: string | null }
+export interface PreviewChange {
+  action: "add_topics" | "reorder_topics"; series_id: string;
+  creator_name: string | null; series_name: string | null;
+  before_order: string[]; after_order: string[];
+  before_topics: PreviewTopic[]; after_topics: PreviewTopic[];
+}
 export interface PendingOperationView {
   id: string;
-  status: string;
-  decision_status: string;
+  status: "awaiting_approval" | "needs_clarification" | "unsupported" | "stale" | "succeeded" | "cancelled" | "failed";
+  decision_status: "ready" | "needs_clarification" | "unsupported";
   revision: number;
   version: number;
   request_text: string;
-  preview: Record<string, unknown> | null;
+  scope_series_id: string | null;
+  preview: { changes: PreviewChange[] } | null;
   message: string | null;
   confirmation_token: string | null;
   usage: Record<string, unknown> | null;
@@ -173,16 +181,27 @@ export interface OverviewView {
 
 export interface OperationPlanInput {
   schema_version: 1;
-  operations: Array<{
-    action: "add_topics";
-    series_id: string;
-    topics: Array<{ topic_id: string; title: string; brief?: string; source: "manual" | "research" }>;
-  }>;
+  operations: Array<
+    | { action: "add_topics"; series_id: string; topics: Array<{ topic_id: string; title: string; brief?: string; source: "manual" | "research" }> }
+    | { action: "reorder_topics"; series_id: string; ordered_topic_ids: string[] }
+  >;
 }
 
 export interface OperationPreviewInput {
   request_text: string;
   plan: OperationPlanInput;
+  series_id?: string | null;
+}
+
+export interface OperationProposeInput {
+  request_text: string;
+  series_id?: string | null;
+}
+
+export interface OperationEditInput {
+  instruction: string;
+  expected_version: number;
+  expected_revision: number;
 }
 
 export interface OperationConfirmInput {
@@ -204,6 +223,7 @@ export interface SeriesCreateInput {
 }
 
 export interface HealthView {
+  operation_parser_configured: boolean;
   status: string;
   database: string;
   codex_available: boolean;
