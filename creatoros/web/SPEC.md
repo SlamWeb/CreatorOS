@@ -5,12 +5,13 @@
 - 这是 Studio 的本地 HTTP 接线层，不是新的 Agent Runtime，也不是 PersonClone API。
 - 业务真相仍在 storage、operations、runs；浏览器只消费显式 Pydantic DTO，不能接触 ORM Session、密钥、原始异常栈或绝对文件路径。S3 写入仍由本模块调用既有 Repository/Service。
 
-## 已完成阶段（S1–S4）
+## 已完成阶段（S1–S5）
 
 - 用 FastAPI 暴露健康检查、概览、Creator/Series/Topic 目录、ContentRun 摘要/详情和待确认计划的只读查询。
 - 空库返回合法的空结构；有数据时提供真实关联、计数、状态和允许动作，让页面不再猜业务状态。
 - S3 新增账号/栏目创建和选题 Preview/confirm/cancel/edit 路由；不调用 LLM 或 PersonClone。
 - S4 新增 Run 创建、后台提交、恢复和取消路由；请求不等待 Codex，状态由 `ContentRunService` 和 `ManagedRunExecutor` 负责。
+- S5 增加受控图片、历史版本详情、批准/返工与可重连事件流。Web 批准仍是验收，不是发布。
 
 ## 当前假设
 
@@ -31,7 +32,7 @@
 - `OverviewView` 的 counts 使用数据库全量查询；不能用首页截断后的数组长度冒充总数。
 - `TopicView.available_actions` 和 `RunSummary.allowed_actions` 是后端策略提示，前端隐藏按钮不构成授权；真正写操作仍由后续 Service 校验。
 - queued 且无关联 Run 或关联 Run 仍为 queued 时显示 start；interrupted 或可重试 failed 显示 resume。后端提供所见 Run version，开始前不偷偷刷新版本重发。
-- 运行详情只显示 `has_output`、digest、validation、usage 和 trace 是否存在，不返回 `artifact_directory` 或任意路径。
+- 运行详情展示安全的 Manifest 投影、图片 URL、digest、文件检查、usage 和 trace 是否存在；不返回 `artifact_directory` 或任意文件路径。
 - `/api/health` 只报告数据库是否能执行 `SELECT 1` 和 Codex 可执行文件是否存在，不发起付费探针、不返回 Key。
 - S3 写入只允许最小账号/栏目创建及 Operation Preview/confirm/cancel/edit；S4 的 Run 路由只能通过 ContentRunService 提交，浏览器不直接连接数据库。
 
@@ -59,6 +60,19 @@
 - 隔离浏览器验证：开始→producing；第二任务 busy 链接当前运行；切换栏目并 Preview/确认新选题；服务有序退出→重启→interrupted；显式恢复同一 Run 的 Attempt 2。强制终止也验证了未确认记录阻止恢复。
 - 真实 Codex 协议探针通过；浏览器长耗时测试为受控故障注入，未写正式数据库。
 
+## S5 实现与验证（2026-09-04）
+
+- 复用 ContentRunService 的批准/返工协议，不增加第二套状态机；批准绑定所见 Run version、Revision ID 与产物 digest，409 后重新检查，不自动确认。
+- 从 Run/Revision/Attempt 解引用约定产物目录；图片只允许 Manifest 中的有序 raster 文件，拒绝跨 Run、路径逃逸、符号链接逃逸和坏图。图片 URL 带版本 digest 与图片校验和，响应不缓存；不暴露文件系统路径。
+- RunDetail 增加发布文案、来源、图片与文件检查信息；旧版可读但不可批准，返工只创建 Revision，显式开始才调用 Codex。
+- SSE 读取持久化业务事件，snapshot 不跳过待补事件；after_id/Last-Event-ID 恢复，连接/断开无生产副作用；前端按 ID 去重并保留轮询兜底。
+- 验证：临时数据库+本地产物测试 1/5/6 张、缺图/坏图/逃逸、旧版本批准冲突；真实本地 HTTP/SSE 验证订阅与断线；已有真实图片用于浏览器只读 QA，不重复调用生图。
+- `smoke_studio_artifacts` 通过：图像校验和绑定已保存版本，调用者换 checksum 不能绕过；图片和 Manifest 符号链接逃逸、跨 Run/Revision 引用被拒绝；旧 validation 无 per-image hash 时重算总摘要，兼容旧记录但不写回。
+- `smoke_studio_events` 通过真实 localhost TCP + HTTP/SSE：snapshot、分页游标、Last-Event-ID 优先、顺序重放、断观察不中断生产、重新订阅不增加 Attempt。事件只暴露允许字段，不透传包含路径的原始 payload。
+- 本地 `StudioServer` 关闭时先通知 SSE 观察者结束，再让 lifespan 收尾生产执行器，避免长连接卡住关闭；普通 ASGI 部署需自行设置有界 graceful timeout。
+- 浏览器用隔离 SQLite 和复制的已有真实 5/6 张图片走通切换、放大、历史只读、返工不生产、复制文案、批准及刷新持久化；正式库和原图未更改。
+- 最终关联回归 12 项 smoke 通过：content_storage、content_run_storage/service/cli、codex_producer、studio_api/operations/run_api/executor/process/artifacts/events；Python compileall、前端 typecheck/build 通过。
+
 ## 下一步
 
-- S5：接图片 Manifest 投影、Revision/Attempt Inspector、返工/批准和事件 SSE；不在 S4 提前提供任意文件读取或平台发布。
+- S6：自然语言运营命令的 Web Preview/确认入口；S7 再完成正式演示与完整真实生图联调。本阶段不新增发布、记忆或 Agent Benchmark。

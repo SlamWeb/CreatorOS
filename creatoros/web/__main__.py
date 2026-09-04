@@ -10,5 +10,7 @@ app = create_app(DATABASE_URL)
 
 if __name__ == "__main__":
     import uvicorn
+    from .server import StudioServer
 
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    # Long-lived observers must not indefinitely delay the executor's shutdown.
+    StudioServer(uvicorn.Config(app, host="127.0.0.1", port=8765, timeout_graceful_shutdown=3)).run()

@@ -80,6 +80,41 @@ class AttemptView(ApiModel):
     duration_ms: int | None = Field(default=None, ge=0)
 
 
+class CardView(ApiModel):
+    order: int
+    headline: str
+    url: str
+    width: int
+    height: int
+
+
+class PublishCopyView(ApiModel):
+    title: str
+    body: str
+    hashtags: list[str]
+
+
+class SourceView(ApiModel):
+    title: str
+    url: str | None = None
+
+
+class RunEventView(ApiModel):
+    id: int
+    run_id: str
+    revision_id: str | None
+    attempt_id: str | None
+    event_type: str
+    from_status: str | None
+    to_status: str | None
+    created_at: datetime
+
+
+class EventBatch(ApiModel):
+    items: list[RunEventView]
+    next_after_id: int
+
+
 class RevisionView(ApiModel):
     id: str
     revision_number: int = Field(gt=0)
@@ -90,6 +125,12 @@ class RevisionView(ApiModel):
     validated_at: datetime | None = None
     approved_at: datetime | None = None
     attempts: list[AttemptView]
+    artifact_error: str | None = None
+    content_summary: str | None = None
+    cards: list[CardView] = Field(default_factory=list)
+    publish_copy: PublishCopyView | None = None
+    sources: list[SourceView] = Field(default_factory=list)
+    review_digest: str | None = None
 
 
 class RunSummary(ApiModel):
@@ -112,6 +153,8 @@ class RunSummary(ApiModel):
     error_type: str | None = None
     error_message: str | None = None
     allowed_actions: list[str]
+    cover_url: str | None = None
+    card_count: int | None = None
 
 
 class RunDetail(RunSummary):
@@ -184,6 +227,15 @@ class RunExecuteRequest(WriteRequest):
 
 class RunCancelRequest(WriteRequest):
     expected_version: int = Field(gt=0)
+
+
+class RunApproveRequest(RunCancelRequest):
+    revision_id: str = Field(min_length=1, max_length=80)
+    artifact_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class RunRevisionRequest(RunCancelRequest):
+    instruction: str = Field(min_length=1, max_length=10_000)
 
 
 class CreatorCreateRequest(WriteRequest):

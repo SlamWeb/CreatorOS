@@ -35,6 +35,8 @@ from .schemas import (
     RunExecuteRequest,
 )
 from .writes import StudioWriteError, StudioWriteService
+from .artifacts import StudioArtifacts
+from .run_routes import review_routes
 
 
 def create_app(
@@ -47,14 +49,16 @@ def create_app(
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
     db = database or Database(database_url or DATABASE_URL)
-    queries = StudioQueryService(db)
     writes = StudioWriteService(db)
     runs = run_service or ContentRunService(db)
+    artifacts = StudioArtifacts(db, runs.output_root)
+    queries = StudioQueryService(db, artifacts=artifacts)
     executor = run_executor or ManagedRunExecutor(runs)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
+            _app.state.stop_observers = False
             executor.start()
             try:
                 yield
@@ -75,6 +79,7 @@ def create_app(
     app.state.queries = queries
     app.state.writes = writes
     app.state.executor = executor
+    app.include_router(review_routes(runs, queries, artifacts))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):

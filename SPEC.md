@@ -736,4 +736,5 @@ git diff --check
 - S1 已完成：新增只读 FastAPI Studio API、显式 Pydantic 查询 DTO 和空库/目录/Run/运营计划投影；`studio_api_smoke` 与本地 8765 启动请求通过。
 - S2 已完成：新增 `web/` React + TypeScript + Vite 只读 Studio，接入首页、账号/栏目目录、选题队列和运行摘要；空库、错误、加载和响应式布局已用真实/隔离 API 数据检查。未实现前端写接口、图片 Inspector、SSE 或生产 Worker。
 - S3 已完成：Studio 支持创建账号/栏目，以及逐行选题的 `Preview → confirm` 写入；版本/确认凭证冲突和重复确认幂等已通过隔离 SQLite 与浏览器验收。
-- S4 已完成：新增 `ManagedRunExecutor`，先幂等创建 Run，再带所见版本显式执行；HTTP 立即返回，第二任务提示 busy。OS 单实例锁、lease/heartbeat、子进程树回收、调度/初始化失败、关闭/重启恢复与晚到结果拒绝通过 executor/run_api/process smoke；真实 Codex resume 与隔离浏览器验收通过。栏目描述、受众和 topic brief 已传入 Codex；S5 图片验收尚未开始。
+- S4 已完成：新增 `ManagedRunExecutor`，先幂等创建 Run，再带所见版本显式执行；HTTP 立即返回，第二任务提示 busy。OS 单实例锁、lease/heartbeat、子进程树回收、调度/初始化失败、关闭/重启恢复与晚到结果拒绝通过 executor/run_api/process smoke；真实 Codex resume 与隔离浏览器验收通过。栏目描述、受众和 topic brief 已传入 Codex。
+- S5 已完成：图片主视图、历史版本、文案复制、返工/批准与 SSE 进度接通；批准绑定所见 Revision/digest/version，返工只建版本不自动生产。1/5/6 张、坏图/缺图、路径逃逸、旧批准与断线重放均通过 smoke；隔离浏览器使用已有真实图片验收，未重复生图。下一步 S6，不把产品 smoke 当作 Agent Benchmark。

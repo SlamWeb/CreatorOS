@@ -65,8 +65,9 @@ def _timestamp(value):
 class StudioQueryService:
     """Builds explicit read models; no query can start or recover a run."""
 
-    def __init__(self, database: Database):
+    def __init__(self, database: Database, *, artifacts=None):
         self.database = database
+        self.artifacts = artifacts
 
     def health_database(self) -> None:
         with self.database.session() as session:
@@ -224,7 +225,7 @@ class StudioQueryService:
             attempts_by_revision: dict[str, list[ContentAttempt]] = {}
             for attempt in attempts:
                 attempts_by_revision.setdefault(attempt.revision_id, []).append(attempt)
-            return RunDetail(
+            detail = RunDetail(
                 **summary.model_dump(),
                 input_snapshot=dict(run.input_snapshot_json),
                 producer_thread_id=run.producer_thread_id,
@@ -234,6 +235,12 @@ class StudioQueryService:
                 ],
                 events_url=f"/api/runs/{run_id}/events",
             )
+        if self.artifacts is not None:
+            for revision in detail.revisions:
+                if revision.artifact_available or revision.artifact_digest:
+                    for key, value in self.artifacts.projection(run_id, revision.id).items():
+                        setattr(revision, key, value)
+        return detail
 
     def list_operations(self, *, offset: int, limit: int) -> PageResponse[PendingOperationView]:
         with self.database.session() as session:
@@ -368,12 +375,20 @@ class StudioQueryService:
             available_actions=actions,
         )
 
-    @staticmethod
-    def _run_summary(run, creators, series_by_id, topics_by_id) -> RunSummary:
+    def _run_summary(self, run, creators, series_by_id, topics_by_id) -> RunSummary:
         snapshot = run.input_snapshot_json or {}
         creator = creators.get(snapshot.get("creator_id"))
         series = series_by_id.get(snapshot.get("series_id"))
         topic = topics_by_id.get(run.topic_id)
+        cover_url, card_count = None, None
+        if self.artifacts is not None:
+            revision = next((item for item in run.revisions if item.revision_number == run.active_revision_number), None)
+            validation = revision.validation_json if revision else None
+            if validation and validation.get("images"):
+                info = validation["images"][0]
+                card_count = validation.get("card_count")
+                if info.get("sha256") and revision.artifact_digest:
+                    cover_url = f"/api/runs/{run.id}/revisions/{revision.id}/cards/{info['order']}?digest={revision.artifact_digest}&checksum={info['sha256']}"
         return RunSummary(
             id=run.id,
             creator_id=snapshot.get("creator_id", series.creator_id if series else ""),
@@ -394,6 +409,8 @@ class StudioQueryService:
             error_type=run.error_type,
             error_message=_error_message(run.error_message),
             allowed_actions=StudioQueryService._run_actions(run),
+            cover_url=cover_url,
+            card_count=card_count,
         )
 
     @staticmethod

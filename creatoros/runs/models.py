@@ -25,6 +25,7 @@ class ValidatedImage(RunModel):
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     byte_size: int = Field(gt=0)
+    sha256: str | None = None
 
 
 class ArtifactValidation(RunModel):

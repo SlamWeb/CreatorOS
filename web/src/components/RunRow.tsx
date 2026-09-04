@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { formatDate, StatusPill } from "./StatusPill";
+import { apiUrl } from "../api/client";
 
 export interface RunRowData {
   id: string;
@@ -9,10 +10,12 @@ export interface RunRowData {
   status: string;
   updated_at: string;
   href?: string | null;
+  cover_url?: string | null;
 }
 
 export function RunRow({ run }: { run: RunRowData }) {
   const content = <>
+    {run.cover_url ? <img className="run-cover" src={apiUrl(run.cover_url)} alt="内容封面" loading="lazy" /> : null}
     <div className="run-row-main"><span className="run-topic">{run.topic_title}</span><span className="run-context">{run.creator_name} <i>·</i> {run.series_name}</span></div>
     <StatusPill status={run.status} /><span className="run-updated">{formatDate(run.updated_at)}</span><span className="row-arrow">→</span>
   </>;

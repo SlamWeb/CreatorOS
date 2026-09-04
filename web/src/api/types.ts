@@ -69,6 +69,8 @@ export interface RunSummary {
   error_type: string | null;
   error_message: string | null;
   allowed_actions: string[];
+  cover_url: string | null;
+  card_count: number | null;
 }
 
 export interface RunStartInput {
@@ -105,6 +107,31 @@ export interface RevisionView {
   validated_at: string | null;
   approved_at: string | null;
   attempts: AttemptView[];
+  artifact_error: string | null;
+  content_summary: string | null;
+  review_digest: string | null;
+  cards: CardView[];
+  publish_copy: { title: string; body: string; hashtags: string[] } | null;
+  sources: { title: string; url: string | null }[];
+}
+
+export interface CardView {
+  order: number;
+  headline: string;
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface RunEventView {
+  id: number;
+  run_id: string;
+  revision_id: string | null;
+  attempt_id: string | null;
+  event_type: string;
+  from_status: string | null;
+  to_status: string | null;
+  created_at: string;
 }
 
 export interface RunDetail extends RunSummary {
