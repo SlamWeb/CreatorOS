@@ -17,10 +17,10 @@
 
 ## v1 边界
 
-- 前台同步执行；暂不实现后台 Worker、自动调度、Side Chat、MCP Server 或平台发布。
+- CLI 仍可前台执行；Studio 使用一个受管理的本地单写执行器，把长生产移出 HTTP 请求。暂不实现多 Worker、自动调度、Side Chat、MCP Server 或平台发布。
 - 只做确定性验收：Manifest/Pydantic、图片存在性、安全路径、顺序、可读尺寸和基础字段。
 - 不使用 LLM-as-Judge；内容质量评审与发布策略留到真实产物稳定后。
-- 预留 `origin_session_id`、`context_snapshot_ref`、`producer_thread_id` 与 lease 字段，但 v1 不建立 ObserverSession。
+- `origin_session_id`、`context_snapshot_ref`、`producer_thread_id` 与 lease 字段都保留；lease 只表达执行所有权和新鲜度，不伪造图片进度。
 
 ## 验收
 
@@ -39,3 +39,19 @@
 - 主菜单“运行记录”已接入前台 ContentRun 控制台：可从 Topic 队列创建、执行/恢复、返工、查看目录与 digest，并显式批准；生产时只在终端底部重绘单行状态。
 - `content_run_cli_smoke=passed approval=versioned`：CLI 使用调用者所见 version 与 Revision digest 批准，完成后可返回主菜单。
 - `live_codex_resume_protocol=passed`：真实 Codex CLI 逐行触发 `thread.started` callback，并用同一 thread ID 完成一次结构化 `exec resume`；探针未调用生图工具。
+
+## S4 托管执行（2026-09-04）
+
+- `ManagedRunExecutor` 容量为 1，第二任务返回 `producer_busy` 和当前 run_id，不自动排队。同步认领并新建 Attempt 后才提交线程；调度失败落为 interrupted。
+- Web lifespan 和 CLI 共用按数据库路径绑定的 OS 文件锁。`recover_inflight` 只有在持有锁且执行记录清洁时才进行，不会把另一进程正在生产的任务恢复掉。
+- 认领保存 owner、Revision/Attempt、30 秒 lease；约 5 秒续租。heartbeat 用条件 UPDATE，不递增审批 version，也不生成进度事件。
+- 数据库旁的 `*.execution.json` 在启动子进程前原子落盘，记录 owner、Run/Attempt、宿主 PID、生产进程 PID/创建时间与阶段；未确认停止的记录阻止恢复。系统锁不靠“文件是否存在”判定。
+- 关闭时先使 owner 失效，再通知 Producer 停止，等待线程退出后释放锁；晚到结果不能改变中断状态。超时则保留锁/记录，明确报告待核实。Windows 子进程树通过 Job Object 回收。
+- 新输入快照含 topic brief、栏目描述和受众；旧快照有默认值。复用 v3 的 lease 字段，没有新增 migration。
+- `smoke_studio_executor` 通过：并发幂等创建、双击、第二任务 busy、旧版本/owner 拒绝、heartbeat 版本不变、初始化/调度失败、有序停止、显式同 thread 新 Attempt 恢复、validating 重启只验收。
+- `smoke_studio_process` 通过：真实本地子/孙进程终止、超时、取消信号、非零退出、Windows 宿主硬退出与未确认记录阻止恢复。故障注入使用无费用本地进程。
+- `smoke_studio_run_api` 通过：创建 201/幂等 200、显式 execute 202、忙碌 409、版本校验、运行期间读取和新增栏目、轮询到 awaiting_approval。
+
+### 非正常退出后的人工核实
+
+若启动提示恢复受阻，先检查对应数据库旁的 execution.json 中宿主与子进程身份。确认该次进程树都已退出后，人工归档这份执行记录再重启；不要删除 lock 文件冒充取得锁，也不要按 codex/python 进程名称批量结束进程。只有用户显式开始/恢复才再次调用模型。

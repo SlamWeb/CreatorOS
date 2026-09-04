@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,7 @@ def _error_message(value: str | None) -> str | None:
 
 
 def _timestamp(value):
-    return value
+    return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
 
 
 class StudioQueryService:
@@ -326,9 +327,8 @@ class StudioQueryService:
 
     @staticmethod
     def _series_view(series: Series, topics: list[Topic], runs: list[ContentRun]) -> SeriesView:
-        latest_status = runs[0].status.value if runs else None
-        existing_topic_ids = {run.topic_id for run in runs}
-        available = sum(topic.status.value == "queued" and topic.id not in existing_topic_ids for topic in topics)
+        latest_status = max(runs, key=lambda run: run.updated_at).status.value if runs else None
+        available = sum("start" in StudioQueryService._topic_view(topic, runs).available_actions for topic in topics)
         return SeriesView(
             id=series.id,
             creator_id=series.creator_id,
@@ -348,6 +348,8 @@ class StudioQueryService:
         run = related[0] if related else None
         if run is None:
             actions = ["start"] if topic.status.value == "queued" else ["view"]
+        elif run.status is ContentRunStatus.QUEUED:
+            actions = ["start", "view"]
         elif run.status in {ContentRunStatus.INTERRUPTED, ContentRunStatus.FAILED} and (run.status is ContentRunStatus.INTERRUPTED or run.retryable):
             actions = ["resume", "view"]
         else:
@@ -362,6 +364,7 @@ class StudioQueryService:
             position=topic.position,
             existing_run_id=run.id if run else None,
             existing_run_status=run.status.value if run else None,
+            existing_run_version=run.version if run else None,
             available_actions=actions,
         )
 
@@ -384,6 +387,8 @@ class StudioQueryService:
             active_revision_number=run.active_revision_number,
             updated_at=_timestamp(run.updated_at),
             completed_at=_timestamp(run.completed_at),
+            heartbeat_at=_timestamp(run.heartbeat_at),
+            lease_expires_at=_timestamp(run.lease_expires_at),
             retryable=run.retryable,
             error_stage=run.failure_stage,
             error_type=run.error_type,
@@ -414,8 +419,8 @@ class StudioQueryService:
             artifact_available=bool(manifest and manifest.is_file()),
             artifact_digest=revision.artifact_digest,
             validation=revision.validation_json,
-            validated_at=revision.validated_at,
-            approved_at=revision.approved_at,
+            validated_at=_timestamp(revision.validated_at),
+            approved_at=_timestamp(revision.approved_at),
             attempts=[StudioQueryService._attempt_view(item) for item in sorted(attempts, key=lambda item: item.attempt_number)],
         )
 
@@ -431,9 +436,9 @@ class StudioQueryService:
             trace_available=bool(attempt.trace_ref),
             error_type=attempt.error_type,
             error_message=_error_message(attempt.error_message),
-            started_at=attempt.started_at,
-            heartbeat_at=attempt.heartbeat_at,
-            completed_at=attempt.completed_at,
+            started_at=_timestamp(attempt.started_at),
+            heartbeat_at=_timestamp(attempt.heartbeat_at),
+            completed_at=_timestamp(attempt.completed_at),
             duration_ms=attempt.duration_ms,
         )
 

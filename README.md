@@ -35,7 +35,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
 - **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
 - **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
-- **Studio S1–S3**：本地 FastAPI 提供真实账号、栏目、选题、ContentRun、待确认计划与概览投影；React + TypeScript Web Studio 展示今日、账号、栏目和运行详情，并通过 `Preview → 确认` 接入账号/栏目/选题写入。查询与写入都不初始化模型、不触发恢复、不返回密钥或绝对产物路径；生产写入按 Studio SPEC 分阶段接入。
+- **Studio S1–S4**：本地 FastAPI + React/TypeScript Web Studio 提供真实账号、栏目、选题、ContentRun、待确认计划与概览投影；选题通过 `Preview → 确认` 写入，生产通过单实例 `ManagedRunExecutor` 在后台调用 Codex，浏览器关闭不取消任务，轮询可看到状态并可显式恢复。查询与写入不返回密钥或绝对产物路径。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -123,7 +123,9 @@ npm --prefix web ci
 npm --prefix web run dev
 ```
 
-然后打开 `http://127.0.0.1:5173/`。S3 已支持在本地真实创建账号和栏目，并在栏目页逐行添加选题；选题必须经过 Preview 和明确确认才写入。生产、图片验收和批准会在后续阶段接入。
+然后打开 `http://127.0.0.1:5173/`。S4 已支持在本地真实创建账号和栏目、逐行添加选题，并在栏目页点击“开始生产”提交后台 Codex Run；选题必须经过 Preview 和明确确认才写入。图片验收和批准会在后续阶段接入。
+
+生产使用本机 Codex 登录态并消耗用量；一次生产一篇，忙时可查看当前运行，仍可切换栏目管理选题。离开网页不停止生产；有序关闭后重启显示“已中断”，需显式恢复。Web 和 CLI 不能同时作为同一数据库的写实例运行。异常退出若留下未确认的执行记录，请按 [恢复说明](creatoros/runs/SPEC.md) 核实旧进程后再恢复。
 
 ## 验证
 
@@ -156,7 +158,7 @@ conda run --no-capture-output -n deepcode python -m tests.live_pending_operation
 
 ## 路线图
 
-1. **本地 Web Studio**：优先解决账号/栏目不可见与首次使用迷茫；复用现有服务接通选题、生产观测和图片验收。当前仅完成设计，分步接口、边界与验收见 [Studio 实施规划](docs/studio/SPEC.md)，CLI 仍是现有可用入口。
+1. **本地 Web Studio**：S1–S4 已支持账号/栏目、选题确认与后台生产；下一阶段接图片验收、批准/返工与事件进度，详见 [Studio 实施规划](docs/studio/SPEC.md)。
 2. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合执行轨迹分析工具路径和成功任务 Token 开销。
 3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
 4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。

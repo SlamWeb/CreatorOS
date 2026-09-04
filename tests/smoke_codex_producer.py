@@ -80,6 +80,7 @@ class FakeCodexProducer(CodexProducer):
         *,
         thread_id: str | None = None,
         on_thread_started=None,
+        **_execution_control,
     ) -> CodexRun:
         assert "receipt mode" in prompt
         assert working_directory.is_dir()

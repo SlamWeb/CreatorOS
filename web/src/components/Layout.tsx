@@ -23,7 +23,7 @@ export function Layout() {
         </nav>
         <div className="sidebar-footer">
           <div className="connection-dot"><span /> 本地 Studio</div>
-          <p>只读预览 · S2</p>
+          <p>本地执行器 · S4</p>
         </div>
       </aside>
       <main className="main-content">

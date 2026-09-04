@@ -8,6 +8,8 @@ import type {
   PageResponse,
   PendingOperationView,
   RunDetail,
+  RunCancelInput,
+  RunStartInput,
   RunSummary,
   SeriesCreateInput,
   SeriesView,
@@ -21,6 +23,7 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code = "request_failed",
+    readonly runId?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -38,8 +41,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError("无法连接本地 Studio API，请确认后端已启动。", 0, "network_error");
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
-    throw new ApiError(body?.error?.message ?? `请求失败（${response.status}）。`, response.status, body?.error?.code);
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string; run_id?: string } } | null;
+    throw new ApiError(body?.error?.message ?? `请求失败（${response.status}）。`, response.status, body?.error?.code, body?.error?.run_id);
   }
   return (await response.json()) as T;
 }
@@ -57,4 +60,7 @@ export const studioApi = {
   confirmOperation: (id: string, input: OperationConfirmInput) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/confirm`, { method: "POST", body: JSON.stringify(input) }),
   runs: () => request<PageResponse<RunSummary>>("/api/runs?limit=100"),
   run: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
+  startRun: (input: RunStartInput) => request<RunDetail>("/api/runs", { method: "POST", body: JSON.stringify(input) }),
+  executeRun: (id: string, version: number) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/execute`, { method: "POST", body: JSON.stringify({ expected_version: version }) }),
+  cancelRun: (id: string, input: RunCancelInput) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),
 };

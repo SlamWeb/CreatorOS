@@ -46,6 +46,7 @@ class TopicView(ApiModel):
     position: int = Field(gt=0)
     existing_run_id: str | None = None
     existing_run_status: str | None = None
+    existing_run_version: int | None = None
     available_actions: list[str]
 
 
@@ -104,6 +105,8 @@ class RunSummary(ApiModel):
     active_revision_number: int = Field(gt=0)
     updated_at: datetime
     completed_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    lease_expires_at: datetime | None = None
     retryable: bool
     error_stage: str | None = None
     error_type: str | None = None
@@ -160,6 +163,7 @@ class HealthView(ApiModel):
 class ErrorView(ApiModel):
     code: str
     message: str
+    run_id: str | None = None
 
 
 class ErrorResponse(ApiModel):
@@ -168,6 +172,18 @@ class ErrorResponse(ApiModel):
 
 class WriteRequest(ApiModel):
     model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+
+
+class RunStartRequest(WriteRequest):
+    topic_id: str = Field(min_length=1, max_length=80)
+
+
+class RunExecuteRequest(WriteRequest):
+    expected_version: int = Field(gt=0)
+
+
+class RunCancelRequest(WriteRequest):
+    expected_version: int = Field(gt=0)
 
 
 class CreatorCreateRequest(WriteRequest):

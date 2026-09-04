@@ -34,6 +34,7 @@ export interface TopicView {
   position: number;
   existing_run_id: string | null;
   existing_run_status: string | null;
+  existing_run_version: number | null;
   available_actions: string[];
 }
 
@@ -61,11 +62,21 @@ export interface RunSummary {
   active_revision_number: number;
   updated_at: string;
   completed_at: string | null;
+  heartbeat_at: string | null;
+  lease_expires_at: string | null;
   retryable: boolean;
   error_stage: string | null;
   error_type: string | null;
   error_message: string | null;
   allowed_actions: string[];
+}
+
+export interface RunStartInput {
+  topic_id: string;
+}
+
+export interface RunCancelInput {
+  expected_version: number;
 }
 
 export interface AttemptView {

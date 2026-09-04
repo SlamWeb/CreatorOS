@@ -11,6 +11,8 @@ class ContentRunInput(RunModel):
     creator_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_name: str = Field(min_length=1)
+    series_description: str = ""
+    audience: str = ""
     skill_name: str = Field(min_length=1)
     topic_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     topic_title: str = Field(min_length=1)

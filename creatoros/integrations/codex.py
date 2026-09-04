@@ -9,12 +9,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory, TemporaryFile
+from time import monotonic
 from typing import Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..content import CarouselCard, PublicationCopy, SocialContentPack, SourceRef
 from ..content.models import MANIFEST_FILENAME
+from .process_tree import ProcessTree
 
 SESSION_FILENAME = "production_session.json"
 CardKind = Literal["cover", "content", "summary", "sources", "cta"]
@@ -200,9 +202,15 @@ class CodexProducer:
         series_id: str,
         topic_id: str,
         topic_title: str,
+        topic_brief: str | None = None,
+        series_description: str = "",
+        audience: str = "",
         thread_id: str | None = None,
         revision_instruction: str | None = None,
         on_thread_started: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        on_process_started: Callable[[dict], None] | None = None,
+        on_process_stopped: Callable[[], None] | None = None,
     ) -> ProducedPack:
         now = datetime.now().astimezone()
         directory = Path(directory).resolve()
@@ -212,6 +220,9 @@ class CodexProducer:
             series_id,
             topic_id,
             topic_title,
+            topic_brief=topic_brief,
+            series_description=series_description,
+            audience=audience,
             revision_instruction=revision_instruction,
         )
         try:
@@ -220,10 +231,15 @@ class CodexProducer:
                 directory,
                 thread_id=thread_id,
                 on_thread_started=on_thread_started,
+                cancel_event=cancel_event,
+                on_process_started=on_process_started,
+                on_process_stopped=on_process_stopped,
             )
         except Exception:
             raise
         generated_at = now.isoformat()
+        if cancel_event is not None and cancel_event.is_set():
+            raise CodexProducerError("本地执行器已停止生产。", error_type="codex_interrupted")
         pack = self._materialize(
             run,
             directory=directory,
@@ -252,6 +268,9 @@ class CodexProducer:
         *,
         thread_id: str | None = None,
         on_thread_started: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        on_process_started: Callable[[dict], None] | None = None,
+        on_process_stopped: Callable[[], None] | None = None,
     ) -> CodexRun:
         with TemporaryDirectory(prefix="creatoros-codex-schema-") as temporary:
             schema_path = Path(temporary) / "production-receipt.schema.json"
@@ -261,10 +280,28 @@ class CodexProducer:
             )
             command = self._command(schema_path, working_directory, thread_id)
             timed_out = threading.Event()
+            finished = threading.Event()
+            tree = ProcessTree()
+            started = monotonic()
+            cleanup_errors: list[Exception] = []
+
+            def watch():
+                while not finished.wait(0.1):
+                    if monotonic() - started >= self.timeout_seconds:
+                        timed_out.set()
+                    if timed_out.is_set() or (cancel_event is not None and cancel_event.is_set()):
+                        try:
+                            tree.close()
+                        except Exception as error:
+                            cleanup_errors.append(error)
+                        return
+
+            watcher = threading.Thread(target=watch, daemon=True, name="codex-process-watch")
             try:
                 with TemporaryFile(mode="w+", encoding="utf-8") as stderr_file:
-                    process = subprocess.Popen(
+                    process = tree.start(
                         command,
+                        on_started=on_process_started,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         stderr=stderr_file,
@@ -273,31 +310,37 @@ class CodexProducer:
                         errors="replace",
                         cwd=working_directory,
                     )
-                    timer = threading.Timer(
-                        self.timeout_seconds,
-                        lambda: (timed_out.set(), process.kill()),
-                    )
-                    timer.start()
+                    watcher.start()
                     lines: list[str] = []
                     try:
                         assert process.stdin is not None and process.stdout is not None
                         process.stdin.write(prompt)
                         process.stdin.close()
-                        for line in process.stdout:
-                            lines.append(line)
-                            self._notify_thread_started(line, on_thread_started)
+                        with (working_directory / "codex_trace.jsonl").open("w", encoding="utf-8") as trace:
+                            for line in process.stdout:
+                                trace.write(line)
+                                trace.flush()
+                                lines.append(line)
+                                self._notify_thread_started(line, on_thread_started)
                         return_code = process.wait()
-                    except BaseException:
-                        process.kill()
-                        process.wait()
-                        raise
                     finally:
-                        timer.cancel()
+                        finished.set()
                     stderr_file.seek(0)
                     stderr = stderr_file.read()
                     stdout = "".join(lines)
             except FileNotFoundError as error:
                 raise CodexProducerError("未找到 codex CLI。", error_type="codex_not_found") from error
+            finally:
+                finished.set()
+                if watcher.ident is not None:
+                    watcher.join(timeout=6)
+                tree.close()
+                if cleanup_errors:
+                    raise CodexProducerError("子进程回收失败，恢复前需要核实旧执行者。", error_type="process_cleanup_failed") from cleanup_errors[0]
+                if on_process_stopped is not None:
+                    on_process_stopped()
+        if cancel_event is not None and cancel_event.is_set():
+            raise CodexProducerError("本地执行器已停止生产。", error_type="codex_interrupted")
         if timed_out.is_set():
             raise CodexProducerError("Codex 内容生产超时。", error_type="codex_timeout")
         if return_code != 0:
@@ -353,6 +396,9 @@ class CodexProducer:
         topic_id: str,
         topic_title: str,
         *,
+        topic_brief: str | None = None,
+        series_description: str = "",
+        audience: str = "",
         revision_instruction: str | None = None,
     ) -> str:
         skill_dir = self.project_root / "creatoros" / "skills" / "knowledge-to-carousel"
@@ -371,7 +417,9 @@ class CodexProducer:
             "不要写最终 Manifest，也不要复制图片；最终只返回 output schema 要求的 JSON。"
             "每张卡片的 source_image_path 必须是图片工具返回的真实绝对路径。\n\n"
             f"creator_id: {creator_id}\nseries_id: {series_id}\n"
+            f"series_description: {series_description}\naudience: {audience}\n"
             f"topic_id: {topic_id}\ntopic_title: {topic_title}\n"
+            f"topic_brief: {topic_brief or ''}\n"
             f"{revision}"
         )
 

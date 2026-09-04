@@ -34,3 +34,4 @@
 - 本轮只验证 SQLite；`DATABASE_URL` 是未来 PostgreSQL 接线边界，不代表已经完成跨数据库集成验证。
 - `pending_operation_storage_smoke=passed restart=passed events=1`：计划 JSON、Preview、token、usage 和审计事件均可跨重启读取。
 - 第三版 Alembic revision `20260902_0003` 增加 ContentRun、Revision、Attempt 与 append-only Event；`content_run_storage_smoke=passed revision=20260902_0003 restart=passed`。
+- 2026-09-04 S4 复用既有 lease/heartbeat/trace 字段，输入 JSON 新增可缺省的栏目描述与受众；没有更改 schema。执行锁和未确认子进程记录由 runs 管理，数据库 Session 仍按请求/线程独立创建。

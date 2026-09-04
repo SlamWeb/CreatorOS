@@ -6,11 +6,12 @@
 - S2 只读消费 `/api/overview`、`/api/creators`、`/api/series/*`、`/api/runs`，不直接连接 SQLite，也不调用 LLM、PersonClone 或 Codex。
 - 产品主入口是“今天 / 账号 / 运行”。栏目和选题在账号详情、栏目详情中展开，避免首页铺满历史队列。
 
-## 本轮目标（S2–S3）
+## 本轮目标（S2–S4）
 
 - 建立可运行的 Web Studio 外壳：响应式侧栏、真实 API client、React Router 页面和 TanStack Query 服务器状态。
 - 首页、账号目录、账号详情、栏目选题、运行列表/只读详情都能用真实 DTO 渲染；空库、加载和 API 错误都有清晰下一步。
 - S2 先把“看见现在有什么、下一步能做什么”做对；S3 再接通账号、栏目和选题的真实写入，但仍不接生产、图片验收或批准。
+- S4 从栏目选题和 Run 详情显式开始/恢复生产，显示真实状态与运行时长；可离开页面继续管理选题。
 
 ## 设计决策
 
@@ -39,7 +40,10 @@
 - 2026-09-03：以 `tmp/studio-demo.db` 隔离 SQLite 启动同一 API，浏览器检查首页、账号目录、账号详情、栏目选题详情；真实 Creator/Series/Topic 投影可见，页面 DOM `scrollWidth === innerWidth`（415px 移动视口），无控制台 warning/error。
 - 2026-09-03：S2 未调用 LLM、PersonClone、Codex、生图或发布 API；临时演示数据未进入 `data/creatoros.db`。
 - 2026-09-03：S3 接口 smoke 覆盖创建账号/栏目、Preview 零写入、确认写入、版本冲突和重复确认幂等；浏览器在隔离 SQLite 中完整走通账号 → 栏目 → 两个选题 → Preview → 确认。
+- 2026-09-04：S4 以服务端固定幂等键创建 Run，再带所见版本执行；busy/网络异常后查询现有状态，不自动重发生产。详情显示生产时长、heartbeat 超期提示和返回栏目入口。
+- 2026-09-04：隔离浏览器走通生产期间跨栏目新增/确认选题、busy 链接、有序重启与显式恢复。检查 1440×900 和 390px 截图，修复详情卡片的横向溢出；未把测试账号写入正式库。
+- 2026-09-04：npm typecheck/build 通过，新增 RunControls；活跃任务约 2 秒、闲置约 10 秒轮询。图片预览/批准/返工尚未开放。
 
 ## 下一步
 
-- S4：把 ContentRun 执行放入受管理的本地执行器，让网页请求返回后仍可浏览并可恢复；不提前接图片 Inspector。
+- S5：图片 Inspector、历史 Revision、批准/返工与可重连事件 SSE。

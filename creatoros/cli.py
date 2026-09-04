@@ -9,6 +9,7 @@ from .config import DATABASE_URL
 from .operations import OperationPlanParser, PendingOperationService
 from .operations.cli import PendingOperationCLI
 from .runs import ContentRunCLI, ContentRunService
+from .runs.ownership import ExecutionOwnershipError
 from .storage import ContentRepository, Database, upgrade_database
 from .terminal import RichConsole
 from .tools import list_authors
@@ -17,8 +18,20 @@ from .tools import list_authors
 def main():
     console = RichConsole()
     console.banner()
-    upgrade_database(DATABASE_URL)
     database = Database(DATABASE_URL)
+    content_run_service = ContentRunService(database)
+    try:
+        with content_run_service.guard:
+            content_run_service.guard.assert_clean()
+            upgrade_database(DATABASE_URL)
+            _run_menu(console, database, content_run_service)
+    except ExecutionOwnershipError as error:
+        console.write(f"⚠ {error}")
+    finally:
+        database.close()
+
+
+def _run_menu(console, database, content_run_service):
 
     def run_agent_mode():
         provider: ModelProvider = DeepSeekProvider(
@@ -33,21 +46,17 @@ def main():
         PendingOperationCLI(console, service).run()
 
     content_repository = ContentRepository(database)
-    content_run_service = ContentRunService(database)
 
     def run_content_runs_mode():
         ContentRunCLI(console, content_run_service, content_repository).run()
 
-    try:
-        CreatorOSMenu(
-            console,
-            authors_loader=load_author_summaries,
-            agent_runner=run_agent_mode,
-            operations_runner=run_operations_mode,
-            runs_runner=run_content_runs_mode,
-        ).run()
-    finally:
-        database.close()
+    CreatorOSMenu(
+        console,
+        authors_loader=load_author_summaries,
+        agent_runner=run_agent_mode,
+        operations_runner=run_operations_mode,
+        runs_runner=run_content_runs_mode,
+    ).run()
 
 
 def load_author_summaries() -> tuple[AuthorSummary, ...]:

@@ -4,10 +4,12 @@ import shutil
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 from creatoros.config import DATABASE_URL
+from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
+from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
 
 from .queries import StudioQueryService
@@ -28,6 +30,9 @@ from .schemas import (
     SeriesView,
     SeriesCreateRequest,
     TopicView,
+    RunCancelRequest,
+    RunStartRequest,
+    RunExecuteRequest,
 )
 from .writes import StudioWriteError, StudioWriteService
 
@@ -36,18 +41,28 @@ def create_app(
     database_url: str | None = None,
     *,
     database: Database | None = None,
+    run_service: ContentRunService | None = None,
+    run_executor: ManagedRunExecutor | None = None,
 ) -> FastAPI:
-    """Create the local Studio API without starting models or production workers."""
+    """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
     db = database or Database(database_url or DATABASE_URL)
     queries = StudioQueryService(db)
     writes = StudioWriteService(db)
+    runs = run_service or ContentRunService(db)
+    executor = run_executor or ManagedRunExecutor(runs)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        yield
-        if owns_database:
-            db.close()
+        try:
+            executor.start()
+            try:
+                yield
+            finally:
+                executor.shutdown()
+        finally:
+            if owns_database:
+                db.close()
 
     app = FastAPI(
         title="CreatorOS Studio API",
@@ -59,6 +74,26 @@ def create_app(
     app.state.database = db
     app.state.queries = queries
     app.state.writes = writes
+    app.state.executor = executor
+
+    @app.middleware("http")
+    async def local_writes(request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            origin = request.headers.get("origin")
+            allowed = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8765", "http://localhost:8765"}
+            if origin is not None and origin not in allowed:
+                return _error_response(403, "origin_rejected", "写入只允许本机 Studio 页面。")
+            if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
+                return _error_response(415, "json_required", "写请求需要 application/json。")
+        return await call_next(request)
+
+    @app.exception_handler(ContentRunError)
+    async def run_error_handler(_request: Request, error: ContentRunError):
+        return _error_response(error.status_code, error.code, str(error), run_id=error.run_id)
+
+    @app.exception_handler(ExecutionOwnershipError)
+    async def ownership_error_handler(_request: Request, error: ExecutionOwnershipError):
+        return _error_response(503, "recovery_blocked", str(error))
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, error: ValueError):
@@ -168,6 +203,38 @@ def create_app(
             raise HTTPException(status_code=404, detail="ContentRun 不存在。")
         return result
 
+    @app.post("/api/runs", response_model=RunDetail, status_code=201)
+    def start_run(payload: RunStartRequest, response: Response) -> RunDetail:
+        existing = runs.repository.get_by_idempotency_key(f"content:{payload.topic_id}")
+        content_run = runs.create(payload.topic_id)
+        response.status_code = 200 if existing is not None else 201
+        result = queries.get_run(content_run.id)
+        if result is None:
+            raise HTTPException(status_code=503, detail="Run 已创建，但读取状态失败。")
+        return result
+
+    @app.post("/api/runs/{run_id}/resume", response_model=RunDetail, status_code=202)
+    @app.post("/api/runs/{run_id}/execute", response_model=RunDetail, status_code=202)
+    def resume_run(run_id: str, payload: RunExecuteRequest) -> RunDetail:
+        try:
+            executor.submit(run_id, expected_version=payload.expected_version)
+        except ExecutionOwnershipError:
+            raise
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+        result = queries.get_run(run_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="ContentRun 不存在。")
+        return result
+
+    @app.post("/api/runs/{run_id}/cancel", response_model=RunDetail)
+    def cancel_run(run_id: str, payload: RunCancelRequest) -> RunDetail:
+        executor.cancel(run_id, expected_version=payload.expected_version)
+        result = queries.get_run(run_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="ContentRun 不存在。")
+        return result
+
     @app.get("/api/operations", response_model=PageResponse[PendingOperationView])
     def list_operations(
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -238,12 +305,16 @@ def create_app(
     return app
 
 
-def _error_response(status_code: int, code: str, message: str):
+def _error_response(status_code: int, code: str, message: str, *, run_id: str | None = None):
     from fastapi.responses import JSONResponse
+    from .queries import _error_message
 
+    detail = {"code": code, "message": _error_message(message) or "请求失败。"}
+    if run_id is not None:
+        detail["run_id"] = run_id
     return JSONResponse(
         status_code=status_code,
-        content={"error": {"code": code, "message": message[:500]}},
+        content={"error": detail},
     )
 
 

@@ -11,7 +11,7 @@ export function TodayPage() {
   const { counts, creators, needs_attention, producing, awaiting_approval, pending_operations } = query.data;
   const hasData = creators.length > 0;
   return <>
-    <div className="page-heading"><div><p className="section-kicker">TODAY</p><h1>今天要做什么</h1><p className="page-subtitle">从账号和栏目出发，查看真实的选题与内容运行。</p></div><div className="heading-actions"><Link className="button button-primary" to="/creators">查看账号目录 <span>→</span></Link><button className="button button-quiet" disabled title="创建功能将在 S3 接入">创建将在下一阶段</button></div></div>
+    <div className="page-heading"><div><p className="section-kicker">TODAY</p><h1>今天要做什么</h1><p className="page-subtitle">从账号和栏目出发，查看真实的选题与内容运行。</p></div><div className="heading-actions"><Link className="button button-primary" to="/creators">查看账号目录 <span>→</span></Link></div></div>
     <div className="metric-grid">
       <Metric label="运营账号" value={counts.active_creator_count} suffix={`/ ${counts.creator_count}`} />
       <Metric label="可运营栏目" value={counts.active_series_count} suffix={`/ ${counts.series_count}`} />

@@ -34,7 +34,7 @@
 
 - 2026-09-03：只读核对仓库、服务边界、数据模型和已有 smoke；本轮不调用生图或发布 API。
 - 文档链接目标存在、`git diff --check` 通过；现有 `smoke_content_storage`、`smoke_pending_operation_service`、`smoke_content_run_service` 三项回归通过。后两者的回滚/中断用既有本地故障注入，不能作为新 Web/真实生图已通过的证据。
-- 实施进度：S1、S2、S3 已完成，S4–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
+- 实施进度：S1、S2、S3、S4 已完成，S5–S7 未开始。下文未完成阶段仍是实施契约，不得提前声称完成。
 - 2026-09-03 S2：`web/` React + TypeScript + Vite 只读 Studio 已实现；`npm run typecheck`、`npm run build` 通过。真实 FastAPI 空库与隔离临时 SQLite 均完成浏览器检查，账号/栏目/选题详情可回退，移动视口无横向溢出，未调用模型或生产能力。
 - 2026-09-03 S3：新增账号/栏目创建和选题 `Preview → 确认` 写路由，复用 `PendingOperationService`；版本/确认凭证冲突返回 409，重复确认幂等。`smoke_studio_operations` 通过，隔离 SQLite 浏览器完整走通账号 → 栏目 → 两选题 → Preview → 确认；正式库未写入演示数据。
 
@@ -43,7 +43,7 @@
 1. 根级 `AGENTS.md` → 本文件 → 当前步骤涉及模块的 `SPEC.md`。
 2. 只读当前步骤列出的实现文件及测试；根级 SPEC 有很长的学习历史，不必每步重新加载全部历史。
 3. 一次完成一个可以验收的阶段，更新本文件进度与模块 SPEC，测试后 commit/push。用户明确要求继续多个阶段时才连续推进。
-4. 规划阶段已结束；S1–S3 已按本文件的实施契约落地。下文每个未完成阶段仍是实施契约，不能提前声称完成。
+4. 规划阶段已结束；S1–S4 已按本文件的实施契约落地。下文每个未完成阶段仍是实施契约，不能提前声称完成。
 
 ## 2. 已核实事实与必须处理的接线缺口
 
@@ -83,7 +83,7 @@
   - 生产中：producing/validating，显示阶段、已运行时间、最近状态更新时间；点击进详情。
   - 待批准：真实封面缩略图、题目、账号/栏目、卡片数量和当前版本；点击验收。
 - 账号可运营 = Creator.is_active；栏目可运营还要求父账号和 Series 均 active。历史停用对象仍能在账号页查看，不能开始新生产。
-- “可开始选题” = queued 且没有关联 ContentRun。中断会把 Topic 回设 queued，但应显示“恢复原任务”，不能再次创建。
+- “可开始选题” = queued 且没有关联 ContentRun，或关联 Run 仍为 queued（例如创建后执行器忙碌）。后者开始原 Run，不重复创建；中断任务显示“恢复原任务”。
 - `daily_content_limit` 是上限，不是每日目标。首版不显示“今日 2/3 完成”或日更达成率，不新增虚假统计口径。
 
 ### 3.3 首次使用与空状态
@@ -304,6 +304,15 @@ S4 必须覆盖认领成功但调度失败、Producer 初始化失败、旧 work
 - 硬崩溃后的孤儿识别/未知所有权必须给出安全失败路径。只测试正常结束、不测恢复，不能标本阶段完成。
 - 提交建议：`feat: host recoverable production outside web requests`。
 
+2026-09-04 验收记录：
+
+- 执行接口为“创建 201 / 幂等取回 200 → 带所见 version 显式执行 202”；第二任务 busy 409，返回当前 Run 链接，不隐式排队。
+- `smoke_studio_executor`、`smoke_studio_run_api`、`smoke_studio_process` 通过；覆盖认领/调度失败、初始化失败、旧 owner、稳定 heartbeat version、validating 恢复、子进程异常/超时/有序停止及 Windows 硬崩溃阻止恢复。
+- 隔离浏览器验证生产时跨栏目添加并确认选题、有序关闭后 interrupted、显式恢复为同 Run 的 Attempt 2；1440×900 与 390px 已看图并修复移动端详情溢出。正式库未放测试数据。
+- 真实 `live_codex_resume_protocol` 新建/续接共 2 次请求通过；故障与慢任务用受控 Producer/本地子进程，不重复完整图片生产。更早隔离生图提交已停止，未作为完整图片验收。
+- 子进程管理已在 Windows 验证；POSIX 分支尚未集成验收。未确认执行记录保留并阻止恢复，不宣称 exactly-once。
+- 最终回归：10 项 smoke（content_storage、content_run_storage/service/cli、codex_producer、studio_api/operations/executor/run_api/process）、Python compileall、前端 typecheck/build 全部通过。
+
 ### S5 — 图片验收、返工和可追踪进度
 
 - 接受控图片路由、RunDetail 的 Manifest 投影、历史 Revision/Attempt、SSE 事件；实现 3.5 的 Inspector。
@@ -352,7 +361,7 @@ conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_cli
 conda run --no-capture-output -n deepcode python -m tests.smoke_codex_producer
 ```
 
-后续目标命令（文件/脚本尚未实现，不是现在可用的启动说明）：
+当前 S1–S4 可用的启动/构建命令（E2E 脚本留到 S7）：
 
 ```powershell
 conda activate deepcode
@@ -362,7 +371,6 @@ npm --prefix web ci
 npm --prefix web run dev
 npm --prefix web run typecheck
 npm --prefix web run build
-npm --prefix web run test:e2e
 ```
 
 - 测试用临时 SQLite、独立输出目录、独立锁路径；不 reset/seed/删除正式数据库。
@@ -384,6 +392,7 @@ npm --prefix web run test:e2e
 - [FastAPI Background Tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/) 说明可在响应后执行工作；“HTTP 已返回”本身不提供本项目所需的持久化恢复。专用执行器与 DB 所有权是本项目的设计选择。
 - [FastAPI Lifespan](https://fastapi.tiangolo.com/advanced/events/) 用于管理启动/关闭资源；[SQLAlchemy Session 并发说明](https://docs.sqlalchemy.org/en/20/orm/session_basics.html#is-the-session-thread-safe-is-asyncsession-safe-to-share-in-concurrent-tasks) 要求并发线程/任务分别使用 Session。
 - 原型中的每日目标、逐张生成进度、Run 只读问答属于愿景；本契约已明确缩小范围，接手者不得按原型图全部补功能。
+- [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)：用于 S4 约束本次 Codex 子进程树的生命周期；进程创建时先挂起，加入 Job 后再恢复。
 
 ## 10. 交接与执行记录
 
@@ -393,7 +402,7 @@ npm --prefix web run test:e2e
 | S1 查询 API | 已完成 | 本轮提交；`studio_api_smoke` + live API 通过 |
 | S2 可读首页 | 已完成 | `web/SPEC.md`；npm typecheck/build、空库/隔离数据浏览器检查通过 |
 | S3 首次使用/选题 | 已完成 | `smoke_studio_operations`；隔离 SQLite 浏览器完整创建与确认通过 |
-| S4 后台生产 | 未开始 | — |
+| S4 后台生产 | 已完成 | executor/run_api/process smoke；busy、OS 单实例、lease、子进程回收、恢复和晚到回写保护；真实 Codex resume 与浏览器 QA 通过 |
 | S5 图片验收 | 未开始 | — |
 | S6 自然语言入口 | 未开始 | — |
 | S7 联调与交付 | 未开始 | — |
