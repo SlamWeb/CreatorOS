@@ -3,12 +3,14 @@ from __future__ import annotations
 import shutil
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 
-from creatoros.config import DATABASE_URL
+from creatoros.config import DATABASE_URL, PROJECT_ROOT
 from creatoros.ai import DeepSeekProvider
 from creatoros.operations import OperationPlanParser
 from creatoros.operations.parser import LazyOperationParser, OperationParserUnavailable, OperationParseError, OperationScopeError
@@ -43,6 +45,7 @@ from .schemas import (
 from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
 from .run_routes import review_routes
+from .static import mount_studio
 
 
 def create_app(
@@ -53,6 +56,7 @@ def create_app(
     run_executor: ManagedRunExecutor | None = None,
     operation_parser: OperationPlanParser | None = None,
     operation_parser_factory=None,
+    studio_dist: str | os.PathLike[str] | None = None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -100,8 +104,9 @@ def create_app(
     async def local_writes(request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             origin = request.headers.get("origin")
-            allowed = {"http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:8765", "http://localhost:8765"}
-            if origin is not None and origin not in allowed:
+            parsed = urlsplit(origin) if origin is not None else None
+            local_origin = parsed is not None and parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+            if origin is not None and not local_origin:
                 return _error_response(403, "origin_rejected", "写入只允许本机 Studio 页面。")
             if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
                 return _error_response(415, "json_required", "写请求需要 application/json。")
@@ -348,6 +353,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="运营计划不存在。")
         return result
 
+    mount_studio(app, Path(studio_dist) if studio_dist is not None else PROJECT_ROOT / "web" / "dist")
     return app
 
 

@@ -369,7 +369,7 @@ conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_cli
 conda run --no-capture-output -n deepcode python -m tests.smoke_codex_producer
 ```
 
-当前 S1–S5 可用的启动/构建命令（E2E 脚本留到 S7）：
+当前 S1–S7 可用的启动/构建命令：
 
 ```powershell
 conda activate deepcode
@@ -379,6 +379,7 @@ npm --prefix web ci
 npm --prefix web run dev
 npm --prefix web run typecheck
 npm --prefix web run build
+npm --prefix web run e2e
 ```
 
 - 测试用临时 SQLite、独立输出目录、独立锁路径；不 reset/seed/删除正式数据库。
@@ -415,7 +416,7 @@ npm --prefix web run build
 | S4 后台生产 | 已完成 | executor/run_api/process smoke；busy、OS 单实例、lease、子进程回收、恢复和晚到回写保护；真实 Codex resume 与浏览器 QA 通过 |
 | S5 图片验收 | 已完成 | artifacts/events smoke、真实 HTTP/SSE、真实已有图片浏览器 QA；历史只读/返工/批准与关闭观察者通过 |
 | S6 自然语言入口 | 已完成 | 共用抽屉、scope/version、同计划编辑及重放保护；15 smoke、4 次真实 HTTP 模型验收、3 次浏览器模型请求与桌面/手机看图通过；不生图/发布 |
-| S7 联调与交付 | 未开始 | — |
+| S7 联调与交付 | 已完成 | 单命令同源 Studio、Chrome E2E、17 smoke、真实 Codex 中断恢复并生成 7 张图片；详见 `docs/studio/s7/SPEC.md` |
 
 换模型后可以直接发送：
 

@@ -83,6 +83,7 @@ class FakeCodexProducer(CodexProducer):
         **_execution_control,
     ) -> CodexRun:
         assert "receipt mode" in prompt
+        assert "不要返回制作中" in prompt
         assert working_directory.is_dir()
         if on_thread_started:
             on_thread_started(self.run.thread_id)

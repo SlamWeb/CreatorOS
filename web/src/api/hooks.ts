@@ -3,6 +3,9 @@ import { studioApi } from "./client";
 
 const queryOptions = { staleTime: 5_000, retry: 1 };
 
+export const useHealth = () => useQuery({
+  queryKey: ["health"], queryFn: studioApi.health, staleTime: 30_000, retry: false,
+});
 export const useOverview = () => useQuery({
   queryKey: ["overview"], queryFn: studioApi.overview,
   refetchInterval: (query) => query.state.data?.counts.producing_count ? 2_000 : 10_000,

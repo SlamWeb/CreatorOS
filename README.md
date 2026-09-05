@@ -2,7 +2,7 @@
 
 面向内容创作者矩阵的自治运营 Agent。CreatorOS 目前也是一个从零构建的 Python Agent Runtime 学习项目：先把模型调用、工具执行、上下文与会话等底层能力做小、做实，再逐步接通创作者运营业务。
 
-> 当前阶段：已打通 Agent Runtime、热点/作者路由与可恢复的 `Topic → Codex → SocialContentPack → 人工批准` 生产链路；质量评审、发布与效果反馈仍在逐步接入。
+> 当前阶段：已打通 Agent Runtime、热点/作者路由与可恢复的 `Topic → Codex → SocialContentPack → 人工批准` 生产链路，并提供可单命令启动的本地 Web Studio；质量评审、发布与效果反馈仍在逐步接入。
 
 [源码仓库](https://github.com/SlamWeb/CreatorOS) · [Pi Agent 参考实现](https://github.com/earendil-works/pi) · [Pi 文档](https://pi.dev/docs/latest)
 
@@ -35,7 +35,7 @@ CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 
 - **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
 - **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
 - **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
-- **Studio S1–S5**：本地 FastAPI + React/TypeScript Web Studio 提供账号、栏目、选题与后台生产；选题经 `Preview → 确认` 写入，生产不阻塞页面。图片验收页支持可变张数、历史版本、返工与批准，SSE 观察进度并保留轮询兜底。批准绑定所见版本和产物摘要，不代表已发布。
+- **本地 Web Studio**：FastAPI 同源托管 React/TypeScript Studio，提供账号、栏目、选题、自然语言计划与后台生产；选题经 `Preview → 确认` 写入，生产不阻塞页面。图片验收页支持可变张数、历史版本、返工与批准，SSE 观察进度并保留轮询兜底。批准绑定所见版本和产物摘要，不代表已发布。
 
 当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
 
@@ -81,6 +81,8 @@ Agent 也可以直接调用 `route_hotspots` 获取上述作者侧候选队列�
 ```powershell
 conda activate deepcode
 pip install -r requirements.txt
+pip install -r requirements-web.txt
+npm --prefix web ci
 ```
 
 BGE-M3 Provider 使用本地 Hugging Face 缓存并以离线模式加载，不会在运行时重复下载已存在的模型。
@@ -100,32 +102,43 @@ DATABASE_URL=sqlite:///data/creatoros.db
 
 不要把 Key、Token、Cookie 或密码提交到 Git。PersonClone 服务需要先独立启动；图片生产还需要本机完成 `codex login`，CreatorOS 复用该登录态，不读取或保存认证文件。
 
-### 3. 启动当前 CLI
+### 3. 启动 Web Studio
+
+```powershell
+python -m creatoros.web
+```
+
+浏览器打开 `http://127.0.0.1:8765/`。这是日常唯一启动命令：前端源码有变化时会自动 build，随后由 FastAPI 同源提供页面和 API；账号、栏目与 Run 详情地址可直接刷新。
+
+首次使用按“账号 → 创建账号 → 创建栏目 → 添加选题 → Preview → 确认”操作。开始生产会调用本机已登录的 Codex 并消耗用量；生产在后台继续，完成后从“运行”检查图片、提出返工或批准。批准仅记录验收，**不会发布到平台**。
+
+如果顶部显示“Codex 未就绪”，先确认 `codex --version` 和本机登录态；显示“表单模式”时仍可逐行添加选题，自然语言运营指令需配置 `DEEPSEEK_API_KEY`。若首次启动提示缺少前端依赖，执行一次 `npm --prefix web ci`。
+
+### 4. 可选：启动 CLI
 
 ```powershell
 python .\main.py
 ```
 
-主菜单“今日运营”可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“运行记录”可从选题队列发起 Codex 生产、恢复中断、提出返工并批准精确产物；“Agent 对话”用于体验通用 Runtime。
+主菜单“今日运营”可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“运行记录”可发起或恢复生产、提出返工并批准产物；“Agent 对话”用于体验通用 Runtime。Web 和 CLI 不要同时作为同一数据库的写实例运行。
 
-### 4. 启动 Studio API + Web（S1/S2）
+## 2–3 分钟演示路径
+
+1. 在“今日”展示真实账号、栏目和待处理队列，进入栏目查看有序选题。
+2. 按 `Ctrl+K` 用自然语言提出批量调整，展示只读 Preview 与确认后写入。
+3. 从一个选题开始生产，立即返回“今日”或其他栏目，说明浏览器不被 Codex 阻塞。
+4. 打开“运行”检查真实图片、发布文案和历史版本，提出一次返工，再批准精确版本。
+5. 关闭并重新执行 `python -m creatoros.web`，刷新相同 Run URL，展示数据库状态、产物和 Trace 仍可恢复。
+
+OpenAPI 位于 `http://127.0.0.1:8765/docs`。需要前端热更新时才使用双终端开发模式：
 
 ```powershell
-conda activate deepcode
-pip install -r requirements-web.txt
-python -m creatoros.web
-```
-
-浏览器打开 `http://127.0.0.1:8765/docs` 可查看 OpenAPI。另开一个终端启动 Web：
-
-```powershell
-npm --prefix web ci
 npm --prefix web run dev
 ```
 
-然后打开 `http://127.0.0.1:5173/`。创建账号和栏目、逐行添加选题，经 Preview 确认后点击“开始生产”。S5 已支持打开运行详情查看真实图片、历史版本与文案，提出返工或批准。返工只保存新版本，需再次显式开始生产；批准后仍未发布。
+Vite 开发服务器地址为 `http://127.0.0.1:5173/`，它会把 `/api` 代理到已启动的 8765 端口。
 
-生产使用本机 Codex 登录态并消耗用量；一次生产一篇，忙时可查看当前运行，仍可切换栏目管理选题。离开网页不停止生产；有序关闭后重启显示“已中断”，需显式恢复。Web 和 CLI 不能同时作为同一数据库的写实例运行。异常退出若留下未确认的执行记录，请按 [恢复说明](creatoros/runs/SPEC.md) 核实旧进程后再恢复。
+生产使用本机 Codex 登录态并消耗用量；一次生产一篇，忙时可查看当前运行，仍可切换栏目管理选题。离开网页不停止生产；有序关闭后重启显示“已中断”，需显式恢复。异常退出若留下未确认的执行记录，请按 [恢复说明](creatoros/runs/SPEC.md) 核实旧进程后再恢复。
 
 ## 验证
 
@@ -141,10 +154,12 @@ conda run --no-capture-output -n deepcode python -m tests.smoke_pending_operatio
 conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_storage
 conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_service
 conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_cli
+conda run --no-capture-output -n deepcode python -m tests.smoke_studio_delivery
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros tests
+npm --prefix web run e2e
 ```
 
-真实低成本联调（需要知乎密钥、PersonClone 登录态和本地 BGE-M3）：
+真实联调（按脚本需要准备知乎密钥、PersonClone 登录态、本地 BGE-M3 或 Codex 登录态）：
 
 ```powershell
 conda run --no-capture-output -n deepcode python -m tests.live_content_planning
@@ -152,13 +167,16 @@ conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
 conda run --no-capture-output -n deepcode python -m tests.live_codex_resume_protocol
 conda run --no-capture-output -n deepcode python -m tests.live_operation_parser
 conda run --no-capture-output -n deepcode python -m tests.live_pending_operation_workflow
+conda run --no-capture-output -n deepcode python -m tests.live_studio_content_run
 ```
+
+`live_studio_content_run` 会真实调用 Codex 生图并消耗较多用量，只在完整交付验收时运行；它使用 `tmp/` 下的独立数据库和输出目录，不写正式运营数据，也不会发布内容。
 
 `live_content_planning` 只读热点与画像；`live_codex_producer` 会真实消费 Codex 用量并生成本地图片，但不会发布到平台。
 
 ## 路线图
 
-1. **本地 Web Studio**：S1–S5 已支持账号/栏目、选题确认、后台生产与图片验收；下一阶段接自然语言运营入口，随后完成真实联调交付，详见 [Studio 实施规划](docs/studio/SPEC.md)。
+1. **本地 Web Studio**：S1–S7 已支持账号/栏目、自然语言选题确认、后台生产、图片验收、单命令启动与浏览器 E2E；详见 [Studio 实施规划](docs/studio/SPEC.md)。
 2. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合执行轨迹分析工具路径和成功任务 Token 开销。
 3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
 4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。

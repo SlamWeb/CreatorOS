@@ -415,6 +415,7 @@ class CodexProducer:
             f"{skill}\n\n{contract}\n\n"
             "你处于 CreatorOS receipt mode。请完成整篇图片轮播并真实调用图片生成能力。"
             "不要写最终 Manifest，也不要复制图片；最终只返回 output schema 要求的 JSON。"
+            "不要返回制作中、待补充或任何中间回执；只有整套叙事、全部图片和最终发布文案都完成后才能返回。"
             "每张卡片的 source_image_path 必须是图片工具返回的真实绝对路径。\n\n"
             f"creator_id: {creator_id}\nseries_id: {series_id}\n"
             f"series_description: {series_description}\naudience: {audience}\n"

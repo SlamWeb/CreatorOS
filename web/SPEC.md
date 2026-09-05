@@ -6,7 +6,7 @@
 - S2 只读消费 `/api/overview`、`/api/creators`、`/api/series/*`、`/api/runs`，不直接连接 SQLite，也不调用 LLM、PersonClone 或 Codex。
 - 产品主入口是“今天 / 账号 / 运行”。栏目和选题在账号详情、栏目详情中展开，避免首页铺满历史队列。
 
-## 当前实现（S2–S5）
+## 当前实现（S2–S7）
 
 - 建立可运行的 Web Studio 外壳：响应式侧栏、真实 API client、React Router 页面和 TanStack Query 服务器状态。
 - 首页、账号目录、账号详情、栏目选题、运行列表/只读详情都能用真实 DTO 渲染；空库、加载和 API 错误都有清晰下一步。
@@ -65,3 +65,10 @@
 - 用户所见快照不随 refetch 静默替换，版本变化禁用确认；晚到结果只显示就绪通知，不重开/覆盖其他页面。首页同时显示失败 Run 与计划。
 - 浏览器验证真实新增、编辑、确认、刷新、双标签冲突、Enter、Esc/焦点返回及延迟完成通知；1440×900 与 390×844 已看图，修复边缘裁切/双滚动条。
 - typecheck/build 通过，浏览器 error 日志为空；截图位于忽略的 tmp/s6_final_qa。IME 有 composition 保护，但未自动模拟真实输入法候选提交。
+
+## S7 完成（2026-09-05）
+
+- `python -m creatoros.web` 自动检查 Vite build，同源托管 Studio/API；React 详情 URL 直接刷新、Windows JS MIME、本机自定义端口和有序关闭均已验证。
+- 健康状态会区分本地就绪、表单模式、Codex 未就绪与 API 失联；README 提供一个日常启动命令及 2–3 分钟演示路径。
+- Playwright/Chrome E2E 在全新隔离库覆盖创建、Preview、过期确认、生产、返工、批准、刷新和 390px 布局；受控生产器只作产品测试。
+- 独立真实 Codex Run 暴露部分回执挂起后，完成 `interrupted → resume → awaiting_approval` 恢复；最终 7 张真实图片经 API 与浏览器 Inspector 逐张验证，未发布。详细记录见 `docs/studio/s7/SPEC.md`。
