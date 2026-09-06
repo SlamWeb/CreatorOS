@@ -1,193 +1,282 @@
-# CreatorOS
+<p align="center">
+  <img src="docs/assets/creatoros-icon.png" alt="CreatorOS icon" width="112">
+</p>
 
-面向内容创作者矩阵的自治运营 Agent。CreatorOS 目前也是一个从零构建的 Python Agent Runtime 学习项目：先把模型调用、工具执行、上下文与会话等底层能力做小、做实，再逐步接通创作者运营业务。
+<h1 align="center">CreatorOS</h1>
 
-> 当前阶段：已打通 Agent Runtime、热点/作者路由与可恢复的 `Topic → Codex → SocialContentPack → 人工批准` 生产链路，并提供可单命令启动的本地 Web Studio；质量评审、发布与效果反馈仍在逐步接入。
+<h3 align="center">From the first Agent Loop to recoverable creator operations.</h3>
 
-[源码仓库](https://github.com/SlamWeb/CreatorOS) · [Pi Agent 参考实现](https://github.com/earendil-works/pi) · [Pi 文档](https://pi.dev/docs/latest)
+<p align="center">从零理解 Agent，直到真正运行一套可恢复、可验收、讲得清楚的内容生产系统。</p>
 
-## 产品目标
+<p align="center">
+  <img alt="Python" src="https://img.shields.io/badge/runtime-Python-8f84d8?style=flat-square">
+  <img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-78c6a3?style=flat-square">
+  <img alt="React" src="https://img.shields.io/badge/studio-React%20%2B%20TypeScript-8f84d8?style=flat-square">
+  <img alt="DeepSeek" src="https://img.shields.io/badge/model-DeepSeek-efc75e?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/status-active-78c6a3?style=flat-square">
+</p>
 
-CreatorOS 的长期目标是把创作者矩阵运营编排成一个可恢复的 Agent：
+![CreatorOS — From Zero to Agent Systems](docs/assets/creatoros-cover.png)
+
+<p align="center">
+  <a href="#-what-it-does">What it does</a> ·
+  <a href="#-how-it-works">Architecture</a> ·
+  <a href="#-from-zero-to-interview-ready">Learning path</a> ·
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="docs/architecture-guide/index.html">Architecture handbook</a>
+</p>
+
+---
+
+## ✦ What it does
+
+Give CreatorOS an account, a content series and an ordered topic list. It turns one selected topic into a traceable production run:
+
+<p align="center"><strong>Creator / Series</strong> → <strong>Topic</strong> → <strong>Codex + Skill</strong> → <strong>SocialContentPack</strong> → <strong>Review / Revise / Approve</strong></p>
+
+The operator keeps the final say. The system remembers the plan, runs content production outside the browser request, validates the artifact, and can resume an interrupted run instead of silently starting over.
+
+| 🧭 Command Center | ♻️ Recoverable production | 🧠 Agent foundations |
+| --- | --- | --- |
+| Manage creators, series and ordered topics | Persist Run / Revision / Attempt / Event | Provider, Agent Loop, Tool Registry and Skills |
+| Parse natural-language operations into a Preview | Resume the same Codex thread after interruption | Token budget, Tool Result projection and Compaction |
+| Inspect image cards and approve the exact revision | Bind approval to the manifest and image digest | Session snapshot, Runtime Context and trace events |
+
+> **The current finish line is an approved content package.** CreatorOS does not yet auto-publish to a platform or claim a closed-loop growth system.
+
+---
+
+## 🧭 Why CreatorOS?
+
+Many Agent demos stop when the model returns something plausible. CreatorOS starts from the engineering problems that appear immediately after that demo.
+
+| One-shot Agent demo | CreatorOS |
+| --- | --- |
+| A prompt directly mutates state | Structured plan → read-only Preview → explicit confirmation |
+| One long request owns the whole task | Background execution with persisted ownership and heartbeat |
+| “The model said it finished” | Pydantic contract + real file validation + artifact digest |
+| Retry means start again | Technical retry resumes an Attempt; human revision creates a new Revision |
+| Logs explain what happened | Final environment state decides success; trajectory explains why |
+
+This is a **Workflow + Agent** design: deterministic workflow owns irreversible state transitions; the model handles language, ambiguity and dynamic decisions where intelligence is useful.
+
+---
+
+## ⚙️ How it works
+
+### The product path
 
 ```text
-栏目/热点选题 → Creator/Series Routing → Skill + Content Producer
-           → SocialContentPack → 质量评审 → 发布 → 效果反馈
+Operator command
+      │
+      ▼
+DeepSeek OperationPlanParser ── needs clarification / unsupported
+      │ ready
+      ▼
+Read-only Preview ── explicit confirmation ── atomic database change
+      │
+      ▼
+Creator → Series → ordered Topic
+      │
+      ▼
+ContentRun → ManagedRunExecutor → CodexProducer + fixed Skill
+      │                              │
+      │                         persistent thread
+      ▼                              ▼
+Run / Revision / Attempt / Event → SocialContentPack
+                                      │
+                                      ▼
+                              Inspect → Revise / Approve
 ```
 
-运营者最终只需要配置创作者、栏目、日更目标和发布策略；系统负责维护选题列表、内容包与运行状态。PersonClone 实验线继续为数字分身作者维护热点、常青和实验三个候选队列。
-
-## 当前已实现
-
-- **Python Agent Runtime**：Provider 抽象、Agent Loop、Tool Calling、Pydantic 参数校验、结构化 `ToolResult`、MaxTurnGuard。
-- **流式终端体验**：DeepSeek SSE 流式响应、Rich Markdown 输出、底部单行工具状态栏、Windows 终端稳定的单向追加渲染。
-- **上下文与会话**：`AgentState`、`RuntimeContext`、`ModelContext`、token 预算、自动/手动压缩、`CompactionCheckpoint`、大型 ToolResult 投影和按 `result_ref` 分页读取。
-- **知乎数据接入**：官方热榜 API 和站内搜索 API，映射为内部不可变数据模型；只从环境变量读取 Access Secret。
-- **PersonClone 接入**：通过独立 FastAPI 服务读取作者列表和 `AuthorRoutingProfile`，复用登录 Cookie；CreatorOS 不读取 PersonClone 本地文件、Qdrant 或原始语料。
-- **Skill Loader**：递归发现 `creatoros/skills/**/SKILL.md`，解析名称和描述并注入模型上下文；完整 Skill 正文按需读取，暂不自动执行脚本或持久化激活状态。
-- **Creator Routing**：对作者 domain prototypes 与热点标题/介绍使用本地缓存的 BGE-M3 生成向量，并按 `corpus_version` 与文本指纹复用作者原型向量，以作者内部 Max Similarity 完成第一阶段候选召回。
-- **作者侧内容队列**：把热点→作者的匹配矩阵反转为每位作者的 Top-N `hot` 队列，并提供作者内 `position` 供交互选择；`evergreen`、`experiment` 队列的数据结构已预留。
-- **Agent 可调用路由**：`route_hotspots(limit, top_k)` 将实时热榜、PersonClone 画像、离线 BGE-M3 和作者侧队列编排为一个 Tool；失败或不可用画像会被结构化报告，不读取 PersonClone 本地文件或 Qdrant。
-- **route-and-answer Skill**：用 `SKILL.md` 描述“热点匹配→选择作者→生成回答”的流程；普通 Agent 只看到 `read_file`、`route_hotspots`、`ask_author` 等原子工具，Python Runner 作为宿主侧自动化入口保留。
-- **图片轮播生产**：`knowledge-to-carousel` 把知识主题约束成原创、零基础友好的小红书图片轮播；`produce_content_pack` 调用已登录 Codex CLI，一篇内容创建一个可恢复 thread，并以 Structured Outputs 返回生产回执。
-- **产物契约**：CreatorOS 只接受当前 Codex thread 的真实生成图片，自行复制、写入 Manifest，并用严格 Pydantic `SocialContentPack` 验证卡片顺序、图片路径、发布文案和来源。
-- **栏目持久化**：用 SQLAlchemy 建模 `Creator → Series → Topic`，以 Alembic 管理 schema 版本；SQLite 默认本地可用，Repository 支持有序选题和事务化调序。
-- **可恢复运营计划**：DeepSeek Responses Structured Output 把自然语言翻译成严格 `OperationPlan`；CLI 展示只读 Preview，支持自由修改、确认和取消，重启后继续处理。业务写入、成功状态与审计事件原子提交，并用状态指纹拒绝过期确认。
-- **可恢复内容生产**：`ContentRun → Revision → Attempt` 分离业务生命周期、人工返工与技术重试；Codex thread 在事件流出现时立即持久化，中断后由用户显式恢复，同篇返工复用上下文。
-- **产物批准与 Trace**：确定性校验 Manifest、图片路径/顺序/尺寸，并对 canonical Manifest 与有序图片字节计算 digest；批准绑定 Revision 与 digest，append-only Event 保存完整生产 Trajectory。
-- **本地 Web Studio**：FastAPI 同源托管 React/TypeScript Studio，提供账号、栏目、选题、自然语言计划与后台生产；选题经 `Preview → 确认` 写入，生产不阻塞页面。图片验收页支持可变张数、历史版本、返工与批准，SSE 观察进度并保留轮询兜底。批准绑定所见版本和产物摘要，不代表已发布。
-
-当前路由结果是候选召回，不是最终发布决策；宽泛领域原型、跨域视角和最终 LLM 重排会在后续切片中单独验证。
-
-## 架构概览
+### The learning Runtime underneath
 
 ```text
-creatoros/
-├── ai/            Provider、DeepSeek、ModelContext、流式类型
-├── agent/         Agent Loop、State、Guard、Compaction
-├── tools/         Tool、Registry、Pydantic Args、ToolResult
-├── discovery/     HotTopic、知乎搜索/热榜领域模型
-├── integrations/  知乎 OpenAPI、PersonClone、CodexProducer
-├── routing/       Profile 模型、投影、BGE-M3、domain 召回
-├── planning/      ContentOpportunity、DailyPlan、作者侧队列
-├── operations/    OperationPlan、Preview、确认与事务执行
-├── runs/          ContentRun 状态机、Revision/Attempt、验收与批准
-├── storage/       SQLAlchemy 模型、Database、Repository、Alembic 入口
-├── skills/        Skill Loader、SKILL.md、业务 Skill Runner
-├── session/       Session snapshot、CompactionCheckpoint
-└── terminal.py    Console / RichConsole
+messages + RuntimeContext + Skill metadata
+                    │
+                    ▼
+              ModelContext
+                    │
+                    ▼
+DeepSeekProvider ↔ Agent Loop ↔ Tool Registry ↔ Pydantic ToolResult
+                    │
+                    ├── Session snapshot
+                    ├── Token budget + CompactionCheckpoint
+                    └── Streaming Agent events
 ```
 
-核心数据流：
+The Web Studio does **not** pretend every database operation is a free-running Agent loop. It reuses the same engineering ideas but follows a safer hybrid path: LLM parsing at the boundary, then deterministic preview, confirmation and transaction execution.
 
-```text
-ZhihuOpenAPIClient.get_hot_list()
-        ↓ HotTopic(title, summary, url)
-build_domain_query() → BGEEmbeddingProvider.embed_texts()
-        ↓
-rank_domain_matches() → build_daily_plans()
-        ↓
-每位作者的 DailyPlan.hot
-```
+[Open the full interactive architecture handbook →](docs/architecture-guide/index.html)
 
-Agent 也可以直接调用 `route_hotspots` 获取上述作者侧候选队列；当前仍是 domain-only 召回，不负责生成、评审或发布。
+---
 
-## 快速开始
+## 🪜 From zero to interview-ready
 
-### 1. 安装依赖
+CreatorOS was built in small slices so every abstraction has a reason to exist—not because a framework happened to expose a class with that name.
 
-项目使用已有的 Conda 环境 `deepcode` 示例：
+| Stage | What was built | What you should be able to explain |
+| --- | --- | --- |
+| 01 · Call | One real model request, then explicit message history | What an API call does—and what it does **not** do |
+| 02 · Act | Agent Loop, tool calls, Pydantic schemas and Tool Registry | Where model intelligence ends and the harness begins |
+| 03 · Remember | State, Runtime Context, sessions, token budget and compaction | Why `messages`, runtime state and durable memory are different |
+| 04 · Operate | Creator/Series/Topic, structured plans and confirmation | Why Agents and deterministic workflows belong together |
+| 05 · Recover | Run, Revision, Attempt, checkpoint, lease and trace | How to resume safely without duplicate work or stale approval |
+| 06 · Evaluate | Real end-to-end state is already testable; Agent Benchmark is next | Why final-state success and trajectory analysis answer different questions |
+
+The repository keeps the learning trail in nearby `SPEC.md` files. For a guided explanation of the decisions, trade-offs and likely interview follow-ups, read the [CreatorOS architecture handbook](docs/architecture-guide/index.html).
+
+---
+
+## 🌱 Two business lines, one Runtime
+
+### Main line · Original knowledge creators
+
+CreatorOS manages an owned content series, selects a topic, and uses Codex as an end-to-end production tool. The fixed `knowledge-to-carousel` Skill produces a variable-length image carousel plus a strict `social_content_pack.json`; CreatorOS owns orchestration, storage, validation and approval.
+
+### Experiment line · Hotspot-to-author routing
+
+The retained PersonClone integration reads formal author routing profiles through FastAPI, embeds stable domain prototypes with locally cached BGE-M3, and uses per-author Max Similarity to build hotspot candidate queues. It does not read PersonClone files or Qdrant internals, and it is not the current publishing path.
+
+These lines deliberately share infrastructure without being forced into one giant workflow.
+
+---
+
+## 🚀 Quick start
+
+### 1. Install
 
 ```powershell
+git clone https://github.com/SlamWeb/CreatorOS.git
+cd CreatorOS
 conda activate deepcode
 pip install -r requirements.txt
 pip install -r requirements-web.txt
 npm --prefix web ci
 ```
 
-BGE-M3 Provider 使用本地 Hugging Face 缓存并以离线模式加载，不会在运行时重复下载已存在的模型。
+### 2. Configure
 
-### 2. 配置本地环境变量
-
-在根目录创建 `.env`（该文件已被 Git 忽略）：
+Create a local `.env` file. It is ignored by Git.
 
 ```dotenv
-DEEPSEEK_API_KEY=你的 DeepSeek API Key
-ZHIHU_ACCESS_SECRET=你的知乎开放平台 Access Secret
-PERSONCLONE_BASE_URL=http://127.0.0.1:8000
-PERSONCLONE_SESSION_COOKIE=你的 PersonClone 登录 Cookie
-CODEX_PRODUCER_TIMEOUT_SECONDS=1800
+DEEPSEEK_API_KEY=your_deepseek_key
 DATABASE_URL=sqlite:///data/creatoros.db
+CODEX_PRODUCER_TIMEOUT_SECONDS=1800
 ```
 
-不要把 Key、Token、Cookie 或密码提交到 Git。PersonClone 服务需要先独立启动；图片生产还需要本机完成 `codex login`，CreatorOS 复用该登录态，不读取或保存认证文件。
+Natural-language planning requires `DEEPSEEK_API_KEY`. Real image production also requires a working local `codex login`. The optional PersonClone experiment has its own base URL and session cookie; never commit either credential.
 
-### 3. 启动 Web Studio
+### 3. Run
 
 ```powershell
 python -m creatoros.web
 ```
 
-浏览器打开 `http://127.0.0.1:8765/`。这是日常唯一启动命令：前端源码有变化时会自动 build，随后由 FastAPI 同源提供页面和 API；账号、栏目与 Run 详情地址可直接刷新。
+Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). The same command builds the frontend when needed and serves the React/TypeScript Studio from FastAPI.
 
-首次使用按“账号 → 创建账号 → 创建栏目 → 添加选题 → Preview → 确认”操作。开始生产会调用本机已登录的 Codex 并消耗用量；生产在后台继续，完成后从“运行”检查图片、提出返工或批准。批准仅记录验收，**不会发布到平台**。
-
-如果顶部显示“Codex 未就绪”，先确认 `codex --version` 和本机登录态；显示“表单模式”时仍可逐行添加选题，自然语言运营指令需配置 `DEEPSEEK_API_KEY`。若首次启动提示缺少前端依赖，执行一次 `npm --prefix web ci`。
-
-### 4. 可选：启动 CLI
+Optional CLI entry:
 
 ```powershell
 python .\main.py
 ```
 
-主菜单“今日运营”可以用自然语言新增或调整栏目选题，并在 Preview 后确认；“运行记录”可发起或恢复生产、提出返工并批准产物；“Agent 对话”用于体验通用 Runtime。Web 和 CLI 不要同时作为同一数据库的写实例运行。
+---
 
-## 2–3 分钟演示路径
+## 🎬 Three-minute demo
 
-1. 在“今日”展示真实账号、栏目和待处理队列，进入栏目查看有序选题。
-2. 按 `Ctrl+K` 用自然语言提出批量调整，展示只读 Preview 与确认后写入。
-3. 从一个选题开始生产，立即返回“今日”或其他栏目，说明浏览器不被 Codex 阻塞。
-4. 打开“运行”检查真实图片、发布文案和历史版本，提出一次返工，再批准精确版本。
-5. 关闭并重新执行 `python -m creatoros.web`，刷新相同 Run URL，展示数据库状态、产物和 Trace 仍可恢复。
+1. Create a Creator and a Series, then add an ordered topic list.
+2. Press `Ctrl+K` and describe a batch change in natural language.
+3. Inspect the generated Preview and confirm it; no business state changes before confirmation.
+4. Start one topic. Continue browsing while Codex produces the carousel in the background.
+5. Open the Run Inspector, compare revisions, request one revision, then approve the exact artifact shown.
+6. Restart CreatorOS and reopen the same Run to show persisted state, artifacts and trajectory.
 
-OpenAPI 位于 `http://127.0.0.1:8765/docs`。需要前端热更新时才使用双终端开发模式：
+The real S7 delivery test recovered an interrupted Codex thread and produced a seven-card package in an isolated database/output directory. Nothing was published externally.
+
+---
+
+## ✅ Current boundary
+
+| Capability | Status |
+| --- | --- |
+| Python Agent Runtime + real DeepSeek streaming/tool loop | ✅ Working |
+| React/TypeScript Studio, natural-language Preview and confirmation | ✅ Working |
+| Recoverable Codex content production and artifact approval | ✅ Working |
+| PersonClone hotspot/domain routing experiment | ✅ Working |
+| Perspective reranking and production quality judge | ◐ Planned experiment |
+| Agent task Benchmark based on final state + trajectory | ◐ Next engineering milestone |
+| Automatic platform publishing and performance feedback | ○ Not implemented |
+| Public MCP Server and automatic long-term memory retrieval | ○ Not implemented |
+
+<details>
+<summary><strong>Verification commands</strong></summary>
 
 ```powershell
-npm --prefix web run dev
-```
-
-Vite 开发服务器地址为 `http://127.0.0.1:5173/`，它会把 `/api` 代理到已启动的 8765 端口。
-
-生产使用本机 Codex 登录态并消耗用量；一次生产一篇，忙时可查看当前运行，仍可切换栏目管理选题。离开网页不停止生产；有序关闭后重启显示“已中断”，需显式恢复。异常退出若留下未确认的执行记录，请按 [恢复说明](creatoros/runs/SPEC.md) 核实旧进程后再恢复。
-
-## 验证
-
-本地纯数据 smoke：
-
-```powershell
-conda run --no-capture-output -n deepcode python -m tests.smoke_content_planning
-conda run --no-capture-output -n deepcode python -m tests.smoke_codex_producer
-conda run --no-capture-output -n deepcode python -m tests.smoke_content_storage
-conda run --no-capture-output -n deepcode python -m tests.smoke_operation_plan
-conda run --no-capture-output -n deepcode python -m tests.smoke_pending_operation_service
-conda run --no-capture-output -n deepcode python -m tests.smoke_pending_operation_cli
-conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_storage
-conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_service
-conda run --no-capture-output -n deepcode python -m tests.smoke_content_run_cli
 conda run --no-capture-output -n deepcode python -m tests.smoke_studio_delivery
 conda run --no-capture-output -n deepcode python -m compileall -q main.py creatoros tests
+npm --prefix web run typecheck
+npm --prefix web run build
 npm --prefix web run e2e
 ```
 
-真实联调（按脚本需要准备知乎密钥、PersonClone 登录态、本地 BGE-M3 或 Codex 登录态）：
+Live tests are kept separate because they may consume DeepSeek/Codex usage. They use isolated databases and output directories and never publish content.
 
-```powershell
-conda run --no-capture-output -n deepcode python -m tests.live_content_planning
-conda run --no-capture-output -n deepcode python -m tests.live_codex_producer
-conda run --no-capture-output -n deepcode python -m tests.live_codex_resume_protocol
-conda run --no-capture-output -n deepcode python -m tests.live_operation_parser
-conda run --no-capture-output -n deepcode python -m tests.live_pending_operation_workflow
-conda run --no-capture-output -n deepcode python -m tests.live_studio_content_run
+</details>
+
+---
+
+## 🗂️ Repository map
+
+```text
+creatoros/
+├── ai/             providers, streaming and model context
+├── agent/          loop, state, guard and compaction
+├── tools/          registry, Pydantic arguments and ToolResult
+├── operations/     structured plans, preview and confirmation
+├── runs/           recoverable content-run state machine
+├── storage/        SQLAlchemy repositories and Alembic entry
+├── integrations/   DeepSeek, Codex, Zhihu and PersonClone boundaries
+├── routing/        author-profile projection and domain retrieval
+├── skills/         discoverable Prompt Skills and fixed production skill
+└── web/             FastAPI Studio API
+
+web/                 React + TypeScript operator Studio
+docs/                architecture handbook and staged engineering specs
+tests/               smoke, browser E2E and opt-in live verification
 ```
 
-`live_studio_content_run` 会真实调用 Codex 生图并消耗较多用量，只在完整交付验收时运行；它使用 `tmp/` 下的独立数据库和输出目录，不写正式运营数据，也不会发布内容。
+---
 
-`live_content_planning` 只读热点与画像；`live_codex_producer` 会真实消费 Codex 用量并生成本地图片，但不会发布到平台。
+## 🧪 What comes next
 
-## 路线图
+The next milestone is not another UI page. It is a small, real **Agent Eval** suite:
 
-1. **本地 Web Studio**：S1–S7 已支持账号/栏目、自然语言选题确认、后台生产、图片验收、单命令启动与浏览器 E2E；详见 [Studio 实施规划](docs/studio/SPEC.md)。
-2. **Agent Eval**：建立小型真实运营任务 Benchmark，以最终数据库/文件状态判定 Task Success，并结合执行轨迹分析工具路径和成功任务 Token 开销。
-3. **质量评审**：对知识正确性、图片文字、卡片连贯性和平台文案建立可观测评审结果与 badcase 集。
-4. **发布与反馈**：接入小红书审批、幂等发布、效果指标与选题反馈；真实平台能力不可用时先稳定发布接口边界。
-5. **热点矩阵增强**：保留 PersonClone 路线，继续验证 perspective 路由和 Agent 工作流 eval，不与自有栏目强耦合。
+```text
+initial database state + operator request
+                    ↓
+             Agent / Workflow run
+                    ↓
+expected final state + forbidden side effects + trajectory + token cost
+```
 
-每个阶段都以一个可运行、可验证、可回退的 Git commit 完成；详细假设、边界和验证记录见根目录 [`SPEC.md`](./SPEC.md) 及各模块 SPEC。
+It will compare free-form execution with Workflow/Skill-assisted execution on ambiguous edits, stale confirmation, interruption recovery and tool-selection bad cases. Product smoke tests answer “does the feature work?”; the benchmark will answer “does the Agent reliably finish the task, by a defensible path, at a reasonable cost?”
 
-## 项目原则
+---
 
-- **Simple first, abstraction later**：先观察真实痛点，再引入抽象。
-- **业务边界优先**：PersonClone 是独立服务，CreatorOS 只消费正式 API。
-- **结果可追溯**：完整 Session 与 ToolResult 保留在本地，模型上下文使用受控投影。
-- **真实验证**：低频、低成本、无破坏性的接口优先使用真实服务验证；密钥只来自本地环境变量。
-- **学习与产品并行**：Runtime 是学习主线，Creator Routing 和内容队列是第一条业务主线。
+## ✦ Philosophy
+
+### Build the abstraction only after meeting the problem.
+
+No framework-shaped architecture for its own sake.<br>
+No model output accepted as proof of completion.<br>
+No irreversible action hidden behind a friendly prompt.<br>
+No “memory” claim without retrieval changing a later decision.
+
+**Start with one loop. End with a system you can operate—and explain.**
+
+<p align="center">
+  <a href="docs/architecture-guide/index.html">Read the architecture handbook</a> ·
+  <a href="docs/studio/SPEC.md">Read the Studio SPEC</a> ·
+  <a href="https://github.com/earendil-works/pi">Pi reference</a>
+</p>
