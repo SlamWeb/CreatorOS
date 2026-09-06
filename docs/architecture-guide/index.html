@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="从源码理解 CreatorOS：产品演进、双业务线、Agent Runtime、上下文、记忆、可恢复执行与面试表达。">
+<title>CreatorOS · 来时路与架构地图</title>
+<style>
+:root{--paper:#f5f3ed;--ink:#25332f;--muted:#64716a;--line:#d9ded5;--accent:#315d4e;--soft:#e5ebe1;--violet:#716481;--warm:#916c3c;--white:#fffefa;--dark:#233730}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.9 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}a{color:var(--accent);text-underline-offset:4px}button{font:inherit;cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #aa894b;outline-offset:4px}code{font-family:Consolas,monospace;font-size:.87em;overflow-wrap:anywhere}pre{padding:22px;background:var(--dark);color:#e7eee6;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;font-size:14px}h1,h2,h3,h4{line-height:1.35;font-weight:650;letter-spacing:-.025em}h1{font-size:clamp(36px,4.6vw,62px);margin:22px 0}h2{font-size:clamp(27px,3vw,36px);margin:12px 0 24px}h3{font-size:21px;margin:28px 0 12px}h4{font-size:17px;margin:0 0 8px}p{margin:12px 0}strong{font-weight:650}ul,ol{padding-left:24px}li{margin:7px 0}.shell{max-width:1470px;margin:auto;display:grid;grid-template-columns:235px minmax(0,1fr)}aside{position:sticky;top:0;height:100vh;overflow:auto;border-right:1px solid var(--line);padding:40px 24px}.brand{font-size:21px;font-weight:750;letter-spacing:-1px}.edition{font:11px/1.7 Consolas,monospace;letter-spacing:.1em;color:var(--muted);margin:8px 0 28px}.nav a{display:block;text-decoration:none;padding:8px 10px;margin:3px 0;color:var(--muted);font-size:13px;border-radius:5px}.nav a.active,.nav a:hover{background:var(--soft);color:var(--accent)}.nav b{font-family:Consolas,monospace;font-size:11px;color:#8a9288;padding-right:10px}.aside-note{font-size:12px;color:var(--muted);margin-top:26px;border-top:1px solid var(--line);padding-top:18px}main{min-width:0;padding:50px clamp(24px,5vw,76px) 90px}.hero{padding:8px 0 40px;border-bottom:1px solid var(--line)}.eyebrow{font:12px/1.6 Consolas,monospace;color:var(--accent);letter-spacing:.12em;text-transform:uppercase}.lead{font-size:20px;line-height:1.8;max-width:770px}.meta{display:flex;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:25px}.intro{border-left:3px solid var(--accent);padding-left:22px;margin:30px 0}.section{padding:54px 0 14px;border-bottom:1px solid var(--line);scroll-margin-top:20px}.number{font:12px Consolas,monospace;color:var(--violet);letter-spacing:.15em}.caption,.source{font-size:12px;color:var(--muted);line-height:1.8}.source{margin:18px 0}.source a{margin-right:12px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.card{border:1px solid var(--line);border-radius:9px;background:var(--white);padding:22px;min-width:0}.card p:last-child{margin-bottom:0}.tag{display:inline-block;font:12px/1.6 system-ui,sans-serif;padding:3px 8px;border-radius:4px;background:var(--soft);color:var(--accent);vertical-align:middle}.tag.future{color:var(--warm);background:#f0e7d7}.tag.partial{color:var(--violet);background:#ece8f1}.callout{background:var(--soft);padding:22px 25px;border-radius:8px;margin:24px 0}.callout.warm{background:#f0e9dc}.callout p:first-child{margin-top:0}.callout p:last-child{margin-bottom:0}.timeline{border-left:1px solid #a7b5a7;margin-left:9px;padding-left:28px}.milestone{position:relative;margin:30px 0}.milestone:before{content:"";position:absolute;width:9px;height:9px;border-radius:50%;background:var(--accent);left:-33px;top:8px}.milestone h3{margin-bottom:8px}.milestone .source{margin-top:6px}.quote{font-size:19px;line-height:1.85;padding:24px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:26px 0}.table-wrap{overflow:auto;margin:24px 0}table{width:100%;border-collapse:collapse;font-size:14px;text-align:left}th{font-size:12px;color:var(--muted);font-weight:600;padding:12px 14px;background:#eeeee6}td{padding:14px;vertical-align:top;border-bottom:1px solid var(--line)}.matrix td,.matrix th{text-align:center}.matrix td:first-child,.matrix th:first-child{text-align:left}.matrix .best{background:#e2ebdf;color:#204e38;font-weight:700}.lane{display:grid;grid-template-columns:125px minmax(0,1fr);gap:15px;border-bottom:1px solid var(--line);padding:19px 0}.lane-label{font-size:13px;color:var(--muted);padding-top:10px}.flow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}.node{border:1px solid #c7d0c3;background:var(--white);padding:12px 14px;border-radius:7px;text-align:left;flex:1 1 145px;min-width:0;color:var(--ink);line-height:1.6;font-size:14px}.node:hover,.node[aria-pressed=true]{border-color:var(--accent);background:var(--soft)}.node small{display:block;font-size:11px;color:var(--muted);margin-top:5px}.arrow{align-self:center;color:#9aab9e;font-family:monospace}.map-detail{padding:22px;background:var(--dark);color:#e4eee5;border-radius:9px;margin:20px 0;min-height:155px}.map-detail h3{margin:0 0 9px;color:white}.map-detail p{margin:8px 0}.map-detail a{color:#c2d7b8}.walk{counter-reset:step;padding:0;list-style:none}.walk>li{position:relative;padding:0 0 24px 45px;margin:0;border-left:1px solid var(--line);margin-left:13px}.walk>li:before{counter-increment:step;content:counter(step);position:absolute;left:-14px;top:0;background:var(--paper);color:var(--accent);width:27px;height:27px;line-height:27px;text-align:center;font:14px/27px Consolas,monospace;border:1px solid var(--line);border-radius:50%}.walk>li h4{margin-top:0}.walk>li:last-child{border-left:0}.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 12px}.tabs button,.action{background:transparent;border:1px solid #bfc9bb;border-radius:6px;padding:9px 14px;color:var(--ink);font-size:13px}.tabs button[aria-pressed=true]{background:var(--accent);color:#fff}.demo{margin:20px 0}.demo-output{background:var(--white);border:1px solid var(--line);padding:20px;border-radius:7px;min-height:100px}.demo-output p{margin:8px 0}details{border-bottom:1px solid var(--line);padding:17px 0}summary{cursor:pointer;font-weight:600;line-height:1.6;padding:6px 26px 6px 0;list-style-position:inside}details p,details ul{color:#47564e}details[open]{padding-bottom:22px}.priority{display:grid;grid-template-columns:55px minmax(0,1fr);gap:15px;padding:22px 0;border-bottom:1px solid var(--line)}.priority>span{font-size:23px;color:var(--accent);font-family:Consolas,monospace}.priority h3{margin:0 0 10px}.small{font-size:14px}.checklist{list-style:none;padding-left:0}.checklist li{padding:10px 0;border-bottom:1px solid var(--line)}.checklist li:before{content:"□";padding-right:12px;color:var(--accent)}footer{font-size:13px;color:var(--muted);padding:35px 0}.print-button{display:block;margin-top:18px}.mono{font-family:Consolas,monospace}.statusline{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}.source-index li{font-size:14px}.no-print{display:initial}@media(max-width:1000px){.shell{grid-template-columns:190px minmax(0,1fr)}aside{padding:30px 15px}.grid3{grid-template-columns:1fr}.lane{grid-template-columns:1fr;gap:4px}.lane-label{padding-top:0}.lead{font-size:18px}}@media(max-width:700px){.shell{display:block}aside{position:relative;height:auto;padding:22px;border-right:0;border-bottom:1px solid var(--line)}.edition{margin:4px 0 15px}.nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px}.nav a{padding:7px;font-size:12px}.aside-note,.print-button{display:none}main{padding:30px 22px 50px}.hero{padding-bottom:25px}.grid2{grid-template-columns:1fr}.section{padding-top:40px}.card{padding:19px}.lead{font-size:18px}.flow{gap:8px}.node{flex-basis:120px}.arrow{display:none}th,td{padding:10px 8px;font-size:12px}.walk>li{padding-left:30px}.quote{font-size:17px}h1{font-size:38px}.source a{display:inline-block}pre{padding:17px;font-size:12px}body{font-size:15px}.matrix{min-width:430px}}@media print{body{background:white;font-size:11pt}.shell{display:block}aside,.tabs,.no-print{display:none!important}main{padding:0}.section{break-before:auto;padding-top:24px}.card,.callout,.walk>li,details{break-inside:avoid}h2,h3{break-after:avoid}a{color:inherit;text-decoration:none}pre{color:#24332f;background:#eee}.map-detail{background:#eee;color:#24332f}.map-detail h3,.map-detail a{color:#24332f}.source{font-size:9pt}.grid2{grid-template-columns:1fr 1fr}footer{font-size:9pt}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+.node,td,th{overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<div class="shell">
+<aside>
+<div class="brand">CreatorOS<span style="color:var(--violet)">.</span></div>
+<div class="edition">FIELD GUIDE / 2026.09<br>SOURCE SNAPSHOT · bb219dd</div>
+<nav class="nav" aria-label="阅读目录">
+<a href="#orientation"><b>01</b>先认清我们在做什么</a>
+<a href="#journey"><b>02</b>来时路与转向理由</a>
+<a href="#architecture"><b>03</b>整个系统的架构地图</a>
+<a href="#routing"><b>04</b>知乎作者怎么安排内容</a>
+<a href="#production"><b>05</b>自有栏目怎么生产</a>
+<a href="#runtime"><b>06</b>Agent Runtime 怎么跑</a>
+<a href="#context"><b>07</b>上下文怎样被组装</a>
+<a href="#memory"><b>08</b>记忆到底做到了哪</a>
+<a href="#recovery"><b>09</b>中断、返工与恢复</a>
+<a href="#direction"><b>10</b>下一步什么最值得做</a>
+<a href="#interview"><b>11</b>把设计讲成面试答案</a>
+<a href="#evidence"><b>12</b>源码与学习路线</a>
+</nav>
+<p class="aside-note">沿着一个具体任务理解系统，再回头理解类名。你要掌握的是每个边界为什么存在。</p>
+<button class="action print-button" type="button" id="print">打印 / 保存 PDF</button>
+</aside>
+<main>
+<header class="hero">
+<div class="eyebrow">A project you can explain</div>
+<h1>把 CreatorOS<br>重新装进你的脑子里。</h1>
+<p class="lead">从“让知乎博主分身追热点”，到“运营自己的知识栏目”：这是一次从模型能力走向产品责任的演进。我们把来时路、代码里的实际连接，以及下一步值得下注的问题，放在同一张地图上。</p>
+<div class="meta"><span>源码核对：2026-09-06</span><span>基线：S7 完成版本 bb219dd</span><span>单文件 · 离线可读 · 手机适配</span></div>
+<div class="intro"><p>你现在的迷茫有原因：早期我们沿着 Agent Loop 学概念，后来沿着业务交付补服务和状态机。代码变多后，“所有东西属于同一条 Agent 链路”的直觉就不再准确。</p><p>这份文档帮你建立更可靠的理解：<strong>谁决定做什么，谁保证做对，谁记住发生过什么，失败以后谁负责继续。</strong></p></div>
+</header>
+
+<section class="section" id="orientation">
+<span class="number">01 / THE PRODUCT</span><h2>先用一句话认领你的项目。</h2>
+<p class="quote">CreatorOS 把账号、栏目、选题和内容生产组织成可检查、可恢复的运营过程：模型理解用户要求，服务落实业务规则，Codex 根据 Skill 生产内容，用户在 Studio 验收具体版本。</p>
+<p>今天最完整的演示终点是<strong>产物生成 → 检查 → 返工 → 人工批准</strong>。实际平台发布、效果反馈驱动选题与完整自治调度仍是后续目标。这并不妨碍项目有工程价值：一篇内容要能关联到正确账号、保留失败尝试、恢复上下文，并且批准的确实是用户看过的那一版。</p>
+<div class="grid2">
+<div class="card"><span class="tag">当前产品主线</span><h3>自有账号 → 栏目 → Topic → 图片包</h3><p>例如一个“AI 工程知识”账号，下设“每日一个 Agent 概念”栏目。用户决定选题顺序，栏目关联生产 Skill，Codex 生成图片与文案，CreatorOS 管理产物生命周期。</p></div>
+<div class="card"><span class="tag partial">保留的业务实验线</span><h3>知乎热点 → 作者匹配 → 分身回答</h3><p>PersonClone 提供已有博主的画像与生成能力；CreatorOS 获取热点、计算作者候选、解释用户选择，再向指定分身提问。原来的 RAG 与生成系统继续独立存在。</p></div>
+</div>
+<h3>项目价值，落在“模型调用之间”。</h3>
+<p>通用 Agent 已经能读资料、调用工具和产出图片。CreatorOS 值得继续做的地方，是<strong>把一次次调用变成有业务身份、有验收标准、有历史、有反馈的运营任务</strong>。例如：“第二个账号的 Redis 栏目，把幂等放到明天；刚才那篇只改封面”——模型需要理解这句话，但 Topic 顺序、版本归属和旧产物保护，应当由代码给出稳定结果。</p>
+<div class="callout"><strong>读法建议：</strong>第一次读 01–05，建立产品与业务全貌；第二次读 06–09，理解底层工程；第三次读 10–12，练习面试表达。不要试图一次记住所有类名。</div>
+</section>
+
+<section class="section" id="journey">
+<span class="number">02 / WHY WE GOT HERE</span><h2>每次转向，都对应一个真实问题。</h2>
+<div class="timeline">
+<article class="milestone"><h3>① 从最小 Loop 开始：学习模型如何真的“行动”</h3><p><strong>最初问题：</strong>会调用聊天 API，不代表理解 Agent。于是从 messages、while 循环、时间工具开始，让模型提出工具调用，Python 执行，再把结果交还模型。</p><p><strong>为什么逐步拆类：</strong>第二个工具暴露 if/else；带参数工具暴露 Schema 重复；更换 API 暴露 SDK 依赖。Tool、Pydantic、Provider 和 Runtime 的边界，是沿这些问题拆出来的。Pi 是设计参考，CreatorOS 没有 fork Pi。</p><p class="source">依据：<a data-code="SPEC.md">根 SPEC 的学习切片记录</a><a data-code="creatoros/agent/loop.py">今天的 Agent Loop</a></p></article>
+<article class="milestone"><h3>② 接 PersonClone：把“能回答的分身”变成可调度的产能</h3><p><strong>原始想法：</strong>发现知乎热点，为合适博主分身分配题目，再生成内容，形成多作者矩阵。已有 PersonClone 擅长作者语料、RAG 和风格生成；CreatorOS 应该处理“今天让谁回答什么”。</p><p><strong>选择 HTTP 服务：</strong>PersonClone 独立运行。CreatorOS 复用 Cookie 调正式 API，避免复制整个项目、模型和索引环境。作者入库的抓取、索引、聚类属于 PersonClone 的内部流程。</p><p class="source"><a data-code="creatoros/integrations/personclone.py">HTTP / SSE 接入</a><a data-code="creatoros/routing/models.py">画像契约</a></p></article>
+<article class="milestone"><h3>③ 多领域原型：一个作者不该被压成“平均兴趣”</h3><p><strong>真实问题：</strong>一个作者既写投资，也写婚恋。把所有历史平均成一个向量，可能让两个擅长领域都不突出。PersonClone 聚类历史标题生成多个领域原型，CreatorOS 用热点对这些原型求相似度，再在每位作者内部取最大值。</p><p><strong>主动收敛：</strong>我们讨论过人格视角双通道与 LLM 重排；后来担心模型凭空编造热点视角、增加抓取和分析时延，所以先落地 domain-only。现在保留接口，不把愿景写成当前算法。</p><p class="source"><a data-commit="83bc2c3">domain-only 路由提交</a><a data-commit="6ae16d3">画像向量缓存提交</a></p></article>
+<article class="milestone"><h3>④ 自有栏目 + Skill：让作品可以走向真实运营</h3><p><strong>触发转向：</strong>你意识到，要把大量真人分身持续公开发布，账号资源、身份表达、授权与真实反馈都难处理。与此同时，“每天一个知识点”“图文解释一个概念”的生产方法可以复用，并不依赖模拟某位真实作者。</p><p><strong>因此：</strong>Creator 从“一个知乎作者分身”扩展为“一个由用户运营的账号”；Series 表达账号下的栏目；Skill 表达栏目采用的生产方法。<strong>Skill 本身不是账号，而是账号的生产配方。</strong>原创栏目让选题、生产、验收和未来反馈更容易形成可观察的闭环。</p><p class="source"><a data-commit="bf9ee75">SocialContentPack</a><a data-commit="3150fa8">知识轮播 Skill</a><a data-commit="9bb16c7">账号 / 栏目 / 选题存储</a></p></article>
+<article class="milestone"><h3>⑤ Codex-as-Tool：把内容生产交给已有的强能力</h3><p><strong>问题：</strong>要自己重复搭调研、生图、工具执行环境，成本很大；你已经在使用 Codex。于是用“Topic + 栏目约束 + Skill 输入，图片与文案输出”的边界，把 Codex 作为端到端生产者。</p><p><strong>代价与收益：</strong>省去重复实现生产 Agent，获得现成能力；同时要处理长耗时、结构化回执、文件归属、取消和 thread 恢复。CreatorOS 的责任越来越明确：运营管理与可靠交付。</p><p class="source"><a data-commit="99b5952">Codex Producer</a><a data-commit="b112ff3">可恢复生产服务</a></p></article>
+<article class="milestone"><h3>⑥ Studio：从“会话里藏着结果”到“用户能管理工作”</h3><p><strong>问题：</strong>CLI 菜单很难同时展示账号、栏目、队列和图片。长任务占着输入，也让你不知道当前进展。</p><p><strong>选择：</strong>React 展示业务状态，FastAPI 复用服务；HTTP 提交后立即返回，后台继续生产，SSE/轮询让页面观察状态。你可以继续浏览其他栏目，生产结果留在具体 Run 上。S1–S7 逐步打通这些路径。</p><p class="source"><a data-code="docs/studio/SPEC.md">Studio 总规划</a><a data-code="docs/studio/s7/SPEC.md">S7 交付记录</a></p></article>
+</div>
+<p class="small">这里的产品动机来自我们已确认的对话；实现顺序来自 Git 与 SPEC。保留旧业务能力是为了复用既有成果，不代表现在要同时推进两套产品闭环。</p>
+</section>
+
+<section class="section" id="architecture">
+<span class="number">03 / SYSTEM MAP</span><h2>三个执行入口，共享部分能力。</h2>
+<p>下面每行按从左到右阅读。点击一个模块，查看它负责的决定和源码位置。箭头表示调用关系；<strong>并不存在一个统管所有入口的“大 Agent Loop”。</strong></p>
+<div class="lane"><div class="lane-label">A · 通用 Agent 对话</div><div class="flow"><button class="node" data-module="loop" aria-pressed="true">CLI → Agent Loop<small>模型选择下一次工具调用</small></button><span class="arrow">→</span><button class="node" data-module="provider" aria-pressed="false">ModelContext + Provider<small>构造请求、接收流式响应</small></button><span class="arrow">→</span><button class="node" data-module="tools" aria-pressed="false">Tool Registry<small>校验参数、执行、返回结果</small></button></div></div>
+<div class="lane"><div class="lane-label">B · Studio 运营指令</div><div class="flow"><button class="node" data-module="parse" aria-pressed="false">命令抽屉 → Parser<small>自然语言 → 结构化计划</small></button><span class="arrow">→</span><button class="node" data-module="operation" aria-pressed="false">PendingOperation<small>Preview / 编辑 / 确认</small></button><span class="arrow">→</span><button class="node" data-module="database" aria-pressed="false">Repository → SQLite<small>确定性更新账号栏目选题</small></button></div></div>
+<div class="lane"><div class="lane-label">C · Studio 内容生产</div><div class="flow"><button class="node" data-module="run" aria-pressed="false">ContentRun Service<small>输入快照、版本、尝试</small></button><span class="arrow">→</span><button class="node" data-module="worker" aria-pressed="false">ManagedRunExecutor<small>后台线程、单任务容量</small></button><span class="arrow">→</span><button class="node" data-module="codex" aria-pressed="false">CodexProducer<small>Skill → 图片与结构化回执</small></button><span class="arrow">→</span><button class="node" data-module="artifact" aria-pressed="false">产物验收 → Inspector<small>版本与 digest 绑定批准</small></button></div></div>
+<div class="lane"><div class="lane-label">按路径使用的支撑能力</div><div class="flow"><button class="node" data-module="session" aria-pressed="false">Session / Compaction<small>当前主要服务 CLI 对话</small></button><button class="node" data-module="skill" aria-pressed="false">SkillLoader / SKILL.md<small>通用发现与专用生产提示</small></button><button class="node" data-module="routing" aria-pressed="false">知乎 / PersonClone / BGE<small>实验线的领域路由与回答</small></button></div></div>
+<div class="map-detail" id="module-detail" aria-live="polite"><h3>CLI → Agent Loop</h3><p>用户输入进入 messages；模型决定是否调用工具；Python 执行工具并把结果追加回历史，再让模型继续。当前一轮响应中的工具按顺序执行，单个用户任务最多 30 次模型调用。</p><a data-code="creatoros/agent/loop.py">打开 Agent Loop 源码 ↗</a></div>
+<div class="grid2"><div><h3>共享的是什么？</h3><p>Web 和业务 CLI 可以复用 Operation、ContentRun 与 Repository。CLI 通用 Loop 和运营 Parser 复用模型适配器。Producer 既能被早期 Tool 调用，也能被 ContentRun 服务调用。</p></div><div><h3>没有自动共享什么？</h3><p>Web Parser 不加载 CLI 的 <code>sessions/latest.json</code>。Codex 有自己的 thread 上下文。Studio 生产服务不经过通用 Tool Registry。早期 <code>produce_content_pack</code> Tool 也没有自动包上完整的 ContentRun 审批生命周期。</p></div></div>
+<div class="callout warm"><strong>面试中的精确表达：</strong>“我们采用混合架构：CLI 保留工具调用型 Agent；Studio 将自然语言解析放在受限决策边界，将业务写入与生产恢复放在确定性服务中；内容创作内部交给 Codex Agent。”当前还不能说所有业务都由一个统一的自治规划器调度。</div>
+</section>
+
+<section class="section" id="routing">
+<span class="number">04 / PERSONCLONE ROUTE</span><h2>知乎作者线：谁适合回答哪一道题？</h2>
+<ol class="walk">
+<li><h4>先获取候选，而不是让模型凭空找热点</h4><p>知乎官方热榜 API → <code>HotTopic(rank, title, url, summary, thumbnail_url)</code>。<code>summary</code> 可以为空，不能承诺每条都有完整问题介绍。站内搜索是独立工具，能拿问题、回答、文章的文本与来源；当前 <code>route_hotspots</code> 不自动为每个热点再搜索回答。</p></li>
+<li><h4>PersonClone 负责作者资料，CreatorOS 只消费正式画像</h4><p>通过作者列表与 <code>GET /api/personas/{author}/routing-profile</code> 读取画像。按两项目约定，PersonClone 对历史回答/文章标题做 BGE-M3 向量化与余弦层次聚类，提供领域原型及代表证据；CreatorOS 不读取它的本地语料和 Qdrant。画像缺失或状态不允许领域匹配时，跳过并记录原因。</p></li>
+<li><h4>把文本编码成向量，避免逐对调用 LLM</h4><p>热点侧使用“标题 + 最多 4,000 字符的问题介绍”；作者侧使用“领域标签 + 描述 + retrieval_text + 代表标题”。本地 BGE-M3 编码为 1,024 维向量。我们用自己的文本投影生成本地路由向量，不通过 <code>vector_ref</code> 直连 PersonClone 的内部存储。</p></li>
+<li><h4>对每个热点，先算原型相似度，再汇总到作者</h4><p><code>score(作者 a, 热点 h) = max(cosine(h, p))，p 属于作者 a 的领域原型</code>。命中的具体原型一起返回，能解释“为什么推荐给这个作者”。当前 confidence 随结果携带，但没有被乘进 domain 分数；没有加权平均，也没有最终 LLM 重排。</p></li>
+<li><h4>把同一套分数转成“每位作者的候选队列”</h4><p><code>build_daily_plans</code> 对每位作者按热点分数降序保留 Top-K。热点 → 作者和作者 → 热点，是同一套分数按不同方向查看。允许多个作者命中同一热点，不强制独占，也不保证低相关作者每天都必须生成。</p></li>
+<li><h4>用户选择后，才调用分身生成</h4><p>简单对话由 <code>route-and-answer</code> Skill 指导模型：路由 → 展示候选 → 等待选择 → <code>ask_author</code>。批量的宿主侧流程用 <code>SelectionPlan</code> 展开为多个“作者 + 热点”任务，支持位置、热榜名次、Top-N、全部与排除作者。去重后可以通过原生 AsyncClient + Semaphore 并发请求 PersonClone，各请求独立消费 SSE。</p></li>
+</ol>
+<div class="grid2"><div class="card"><h4>真实送去 embedding 的文本形状</h4><pre>热点标题：年轻人为什么开始买高股息股票？
+问题介绍：围绕稳定现金流和风险展开讨论……</pre><pre>领域标签: 投资策略与股息率
+领域描述: 讨论股息、估值与风险
+检索文本: ……
+代表标题: 高股息是否等于低风险, ……</pre><p class="caption">这是说明格式的虚构例子，不是本轮实时热榜数据。</p></div><div class="card"><h4>M × N 到底算了几次？</h4><p>假设 50 个热点、7 位作者合计 100 个原型：</p><ul><li>热点编码：50 段文本。</li><li>首次原型编码：100 段；缓存命中后可为 0。</li><li>相似度：50 × 100 = 5,000 次 1,024 维向量比较。</li><li>结果汇总：50 × 7 个作者—热点分数，再取每位作者的 Top-K。</li></ul><p>向量比较不等于模型推理。当前代码使用本地循环计算 cosine，并非发出 5,000 次 embedding 或 LLM 请求。</p></div></div>
+<h3>手算一个例子，你就能讲清 Max Similarity。</h3>
+<div class="table-wrap"><table class="matrix"><thead><tr><th>虚构热点</th><th>作者甲·投资</th><th>作者甲·婚恋</th><th>甲的最终分</th><th>作者乙·科技</th></tr></thead><tbody><tr><td>高股息股票</td><td>.86</td><td>.19</td><td class="best">.86</td><td>.28</td></tr><tr><td>亲密关系边界</td><td>.12</td><td>.81</td><td class="best">.81</td><td>.15</td></tr><tr><td>Agent 工具协议</td><td>.31</td><td>.17</td><td class="best">.31</td><td>.89</td></tr></tbody></table></div>
+<p>作者甲取 Top-2：高股息、亲密关系；作者乙取 Top-1：Agent。甲的“投资”原型不会被“婚恋”原型平均稀释。不过 Max 也有偏差：原型更多、标签过宽的作者更容易偶然命中，未来需要通过人工样本判断是否加入阈值或分数校准。</p>
+<div class="callout"><strong>缓存为什么不会永远旧下去？</strong>缓存按原型身份保存，并检查 <code>corpus_version + embedding_model + dimension + embedding_text 的 SHA-256</code>。任意一项变了就重算、覆盖该项。当前每次路由仍会获取画像以核对版本；热点文本每次重新编码。缓存的是原型向量，不是“永远不更新的作者”。</div>
+<p><span class="tag partial">保留结构</span> <code>perspective_prototypes</code> 已有数据模型和文本投影，但当前主路由过滤为 domain；<code>evergreen</code> 与 <code>experiment</code> 队列当前为空。<code>SelectionPlan</code> 的批量表达能力也不等于所有自然语言说法已经被统一解析和充分评测。</p>
+<p class="source">源码：<a data-code="creatoros/tools/creator_routing.py">route_hotspots</a><a data-code="creatoros/routing/domain.py">cosine / Max</a><a data-code="creatoros/routing/cache.py">缓存</a><a data-code="creatoros/planning/selection.py">选择展开</a><a data-code="creatoros/skills/route_and_answer/batch.py">批量回答</a></p>
+</section>
+
+<section class="section" id="production">
+<span class="number">05 / SKILL-BASED PRODUCTION</span><h2>自有栏目线：把一篇作品当成一个业务任务。</h2>
+<div class="grid3"><div class="card"><h4>Creator · 账号</h4><p>例：“AI 工程知识站”。拥有平台身份、展示名和栏目。</p></div><div class="card"><h4>Series · 栏目</h4><p>例：“每日一个 Agent 概念”。保存受众、定位、Skill 与策略字段。</p></div><div class="card"><h4>Topic · 选题</h4><p>例：“为什么 Tool Calling 需要 Schema？”保存标题、brief、顺序与状态。</p></div></div>
+<h3>从用户一句话到可见作品，实际发生了什么？</h3>
+<ol class="walk">
+<li><h4>“给每日 Agent 栏目加‘工具协议’和‘上下文压缩’，把工具协议排第一。”</h4><p>Studio 把用户要求、当前栏目 scope 和数据库目录交给 <code>OperationPlanParser</code>。DeepSeek 通过结构化输出生成 <code>OperationParseDecision</code>：明确可做就给 plan；缺信息就 clarification；超出能力就 unsupported。当前只支持 <code>add_topics</code> 和 <code>reorder_topics</code>。</p></li>
+<li><h4>先看 Preview，再确认写入</h4><p>Pydantic 检查结构，Executor 检查栏目、Topic ID 与完整顺序。用户看到前后变化，确认时再核对计划版本和队列指纹。确认成功后，在同一数据库事务内写入队列、操作状态与事件。用户的“确认”来自真实按钮/请求，不由模型自己在 JSON 里声称。</p></li>
+<li><h4>从某个 Topic 显式开始生产</h4><p>创建 <code>ContentRun</code> 时冻结账号、栏目受众与描述、题目和 brief 等输入。HTTP 提交后返回已接受的状态，后台执行器负责工作。栏目里的选题顺序是内容队列，但当前没有每天自动取下一条生产的调度器。</p></li>
+<li><h4>CreatorOS 调用 Codex，Codex 内部完成创作</h4><p><code>CodexProducer</code> 读入 <code>knowledge-to-carousel/SKILL.md</code> 和产物契约，加上选题、受众和返工要求，运行本地已登录的 <code>codex exec</code>。新篇用新 thread，同篇技术恢复或返工复用 thread；工作目录对应本次产物 Attempt。</p></li>
+<li><h4>先拿结构化回执，再形成最终作品目录</h4><p>Codex 返回真实生成图片的源路径、卡片顺序、内容摘要、发布文案与来源。CreatorOS 解析 <code>ProductionReceipt</code>，核对图片来源，复制到自己的输出目录，填入可信业务身份，生成 <code>SocialContentPack</code>。图片张数由内容需要决定，契约允许 1 张及以上。</p></li>
+<li><h4>验收与批准一个明确版本</h4><p>服务校验 Manifest、图片可读性、顺序、尺寸与路径，计算 digest。Studio 展示真实图片和文案。用户可以提出返工形成下一版，也可以批准当前版；批准状态表示验收通过，尚不意味着已发布。</p></li>
+</ol>
+<pre>outputs/{creator_id}/{series_id}/{run_id}/
+  revision-001/
+    attempt-001/    ← 失败尝试也保留
+    attempt-002/
+      social_content_pack.json
+      production_session.json
+      codex_trace.jsonl
+      images/…
+  revision-002/     ← 用户要求改稿，新版本</pre>
+<h3>Skill 到底负责什么？</h3>
+<p><code>knowledge-to-carousel</code> 固定“用一个保真类比解释零基础知识”“大图少字”“整套视觉一致”“按内容需要选择卡片数量”“输出图片与结构化交接信息”。它降低临时编排的不确定性，但不会决定该给哪个账号发、何时发，也不替代最终质量检查。</p>
+<div class="table-wrap"><table><thead><tr><th>对象</th><th>责任</th><th>为什么分开</th></tr></thead><tbody><tr><td>Skill</td><td>告诉生产 Agent 如何完成这一类内容</td><td>可更换内容方法，不让数据库规则混入写作提示</td></tr><tr><td>Producer Tool / Adapter</td><td>启动 Codex，解析回执，收集产物</td><td>屏蔽进程、JSONL、文件交接细节</td></tr><tr><td>ContentRun 服务</td><td>身份、尝试、版本、恢复和批准</td><td>业务事实不能靠一段生成文字维护</td></tr><tr><td>MCP（后续）</td><td>让外部宿主以标准协议调用能力</td><td>真正出现第二个宿主时，减少重复适配</td></tr></tbody></table></div>
+<div class="callout warm"><p><strong>当前两个“看起来已经有、其实还没接完”的点：</strong></p><p>① <code>Series.skill_name</code> 已存储，但 Producer 的提示词读取与产物字段仍固定为 <code>knowledge-to-carousel</code>，还不是任意 Skill 的动态分发器。</p><p>② “Codex 为栏目 deep research → 生成 Topic 列表 → 反馈后调整顺序”是我们确认的产品方向，目前还没有独立、打通的选题研究生产工具。策略字段存在，也不代表自动补货、自动发布和定时调度已运行。</p></div>
+<p class="source">源码：<a data-code="creatoros/operations/parser.py">意图解析</a><a data-code="creatoros/runs/service.py">Run 服务</a><a data-code="creatoros/integrations/codex.py">Codex Producer</a><a data-code="creatoros/content/models.py">内容包契约</a><a data-code="creatoros/skills/knowledge-to-carousel/SKILL.md">实际 Skill</a></p>
+</section>
+
+<section class="section" id="runtime">
+<span class="number">06 / THE AGENT LOOP</span><h2>Runtime 是把模型的决定落到现实中的那层代码。</h2>
+<p>先从例子理解：用户在 CLI 说“看看今天的热点，给我推荐作者”。模型本身不会访问知乎；它输出一个工具名字和 JSON 参数，Runtime 校验并执行，再把结果放回对话，让模型知道刚刚发生了什么。</p>
+<pre>用户输入 → 追加 user message → 保存 Session
+    ↓
+构建 ModelContext → 检查预算 / 必要时压缩
+    ↓
+Provider 消费流式响应 → 汇总成 ModelResponse
+    ↓
+没有 tool_calls → 本次任务结束，等待用户
+有 tool_calls   → 校验参数 → 执行工具 → 保存 tool message
+    └────────────────────────────→ 再请求模型</pre>
+<div class="table-wrap"><table><thead><tr><th>模块 / 类型</th><th>它是什么</th><th>它解决的具体问题</th></tr></thead><tbody>
+<tr><td><code>AgentState</code></td><td>messages、status、turn、tasks</td><td>把一次运行用到的状态放在一个对象里；turn 是模型调用计数，不是图片版本</td></tr>
+<tr><td><code>RuntimeContext</code></td><td>项目根路径、操作系统、Shell</td><td>工具知道去哪读文件、在哪运行；不是另一份聊天摘要，也不会自动全发给模型</td></tr>
+<tr><td><code>ModelContext</code></td><td>一次请求的消息与工具快照</td><td>完整档案与模型实际看到的内容可以不同，便于投影和压缩</td></tr>
+<tr><td><code>ModelProvider</code></td><td>complete / stream 的协议</td><td>Loop 不绑定 SDK 返回对象；当前实际适配器主要是 DeepSeek</td></tr>
+<tr><td><code>Tool + ArgsModel</code></td><td>描述、Pydantic 参数模型、执行函数</td><td>同一参数定义生成 JSON Schema，又做执行前校验，减少两份 description 漂移</td></tr>
+<tr><td><code>ToolResult</code></td><td>content、is_error、error_type、retryable、details</td><td>不同工具以统一形式报告成功或失败；模型填写工具参数，结果由代码产生</td></tr>
+<tr><td><code>AgentEvent</code></td><td>回合、工具、usage、状态等通知</td><td>终端显示与执行逻辑分离，避免 UI 控制业务</td></tr>
+</tbody></table></div>
+<h3>为什么把 chunk.delta 转成自己的 TextDelta？</h3>
+<p>SDK 的 chunk 是“厂商怎么传数据”，<code>TextDelta</code> 是“我们收到了一小段文本”。工具参数也可能被拆成很多段；Provider 转成 <code>ToolCallDelta</code>，Runtime 按调用标识累积，完整后形成 <code>ToolCall</code>。<code>on_event</code> 是上层传进来的回调函数：每收到事件，通知 UI 或观察者。</p>
+<p>当前 Loop 等模型本轮工具调用收集结束后，再按 <code>for tool_call in response.tool_calls</code> 顺序执行。<strong>工具增量可见，不等于已经提前启动工具；PersonClone 的批量异步能力，也不等于整个通用 Loop 都已并行。</strong></p>
+<h3>SkillLoader 不是第二套执行器。</h3>
+<p>默认扫描 <code>creatoros/skills/**/SKILL.md</code>，读取 name、description 和 location，把短清单注入 system。模型匹配到任务后，用 <code>read_file</code> 读完整 Skill；正文引用的契约等资源再按需要读。<code>&lt;available_skills&gt;</code> 是帮助模型识别边界的文本标记，不是 API 新角色或权限机制。</p>
+<p>Loader 保留内部 <code>load()</code> 方法用于程序读取，但没有必须暴露一个 <code>load_skill</code> Tool。生产用 Codex 时则是另一条路径：Producer 已经知道使用哪个 Skill，因此直接把正文与契约放入生产请求。</p>
+<details><summary>当前有哪些模型可调用工具？</summary><p>共 14 个默认暴露的工具；<code>route_and_answer</code> 另作为内部 Runner 保留。</p><ul><li>基础：get_current_time、get_current_date、read_file、read_tool_result、write_file。</li><li>PersonClone：list_authors、add_author、get_author_job、wait_author_job、ask_author。</li><li>发现与路由：get_zhihu_hot_list、search_zhihu、route_hotspots。</li><li>内容生产：produce_content_pack。</li></ul><p>Registry 是本地 Python 目录；当前没有 MCP Server，也没有默认通用 bash Tool。自然语言栏目操作走独立 OperationPlan 服务，不在这份列表里。</p></details>
+<details><summary>Runtime 的边界在哪里，还不够成熟的是什么？</summary><p>默认 MaxTurnGuard 为每个用户任务 30 次模型调用；没有 repetition guard、通用自动重规划或所有工具自动重试。read_file 拒绝敏感路径并限制文件大小，write_file 默认拒绝覆盖。强模型可以处理很多错误，但程序仍需保障参数有效、状态不被误写和执行可停止。</p><p>当前会话只使用 latest.json；AgentState 的计数和 tasks 不是完整持久化工作流。中途打断工具可能留下未完成的调用链，还需要专门的恢复测试。自定义 Provider 协议也不等于已经验证所有厂商兼容。</p></details>
+<p class="source"><a data-code="creatoros/agent/loop.py">Loop</a><a data-code="creatoros/agent/streaming.py">Streaming</a><a data-code="creatoros/tools/definitions.py">工具目录</a><a data-code="creatoros/skills/loader.py">SkillLoader</a><a data-code="creatoros/tools/results.py">ToolResult</a></p>
+</section>
+
+<section class="section" id="context">
+<span class="number">07 / CONTEXT ENGINEERING</span><h2>模型每次看到的是工作副本，完整历史留在档案里。</h2>
+<p>上下文管理的目的，是让模型在有限输入预算内保留“完成下一步必须知道的东西”。并非所有日志、图片和工具结果都值得每次原样发送。</p>
+<div class="demo"><div class="tabs" aria-label="上下文示例阶段"><button type="button" data-context="raw" aria-pressed="true">① 原始 Session</button><button type="button" data-context="projection" aria-pressed="false">② 单次模型请求</button><button type="button" data-context="compact" aria-pressed="false">③ 触发压缩以后</button><button type="button" data-context="again" aria-pressed="false">④ 再压缩一次</button></div><div class="demo-output" id="context-example" aria-live="polite"><strong>磁盘上的完整记录</strong><pre>System
+用户 turn 1 → 模型工具调用 → 完整工具结果 → 回答
+用户 turn 2 → ……
+用户 turn 3 → ……
+新用户请求</pre><p>例子中的 turn 指从一条用户输入开始的整组对话；可能包含多次模型调用。</p></div></div>
+<h3>一次请求的真实组成</h3>
+<pre>messages 字段：
+  稳定 system / developer 前缀（含 Skill 元数据清单）
+  + 累计摘要（有 checkpoint 时，以 user 角色注入）
+  + 保留的完整近期回合
+  + 新增消息
+
+tools 字段：独立的工具 JSON Schema 列表
+
+Provider 还设置模型、stream、输出相关选项等。</pre>
+<p>这里“system 和 tools 靠前、保持稳定”有利于复用相同请求前缀，但缓存是否命中、如何计费由模型服务决定。CreatorOS 不实现服务端 KV cache。SDK 的 tools 是独立字段，不能把图里的上下排列误解成真的把所有工具文本拼进第一条 message。</p>
+<h3>预算如何触发压缩？</h3>
+<ol><li>根据 Provider 配置的窗口与预留输出，得到 <code>input_limit = context_window − reserve_output_tokens</code>。</li><li>调用前用本地估算器估计当前输入；达到可用输入窗口约 90% 时 <code>needs_attention</code> 为真，Loop 尝试压缩。</li><li>从末尾向前按完整 user turn 保留，尾部目标约为输入预算的 1/8，并限制在 8k–128k；至少保留最新 user turn，单轮太大时可能超出目标。</li><li>把旧回合交给摘要模型，输出含 Goal、Progress、Decisions、Facts、Next Steps 等标题的 Markdown。</li><li>新 checkpoint 原子写入成功后，重建请求；原始 Session 不删改。没有可摘要旧回合就不调用摘要模型；仍超预算时当前主要发出警告。</li></ol>
+<div class="callout"><strong>代码中的配置例子，不是厂商最新规格声明：</strong>当前 DeepSeekProvider 配置窗口 1,000,000、输出预留 32,768，因此可用输入 967,232，近期尾部目标 120,904 tokens。换模型时应核对并配置窗口。API 返回的 usage 是刚完成请求的真实值，不能提前告诉我们新增消息后的 token 数；当前下一次预检仍重新估算，尚无基于历史 usage 的校准器。</div>
+<h3>Tool Result 的两次截断，目的不同。</h3>
+<div class="grid2"><div class="card"><h4>主任务请求：保留首尾共 16,000 字符</h4><p>大结果中间用 marker 替代，标明 <code>result_ref</code>；用于避免主模型重复读大量文本。完整工具 <code>content</code> 仍保留在 Session，可用 <code>read_tool_result</code> 分页找回。</p></div><div class="card"><h4>摘要请求：保留首尾共 4,000 字符</h4><p>摘要任务只需要提取目标、决策和关键事实，使用更紧的旧工具结果投影。这个步骤不会先在磁盘上把完整结果截断。</p></div></div>
+<p><strong>这两个数字是字符数，既不是 token 数，也不是 KB。</strong>省下的是请求体，不是抹掉档案。仅取旧历史的一部分，通常本来就比完整上下文小；截断还有控制摘要成本与抑制冗余的理由，不能一概说“旧历史子集一定会撑爆”。摘要提示、已有摘要与未来超大工具结果仍需预算管理。</p>
+<p>第二次压缩会将“上一次累计摘要 + 新被淘汰的回合”重新生成<strong>一份累计摘要</strong>，不是一直追加多个摘要。当前没有严格的摘要 token 上限、事实保真评测或 split-turn 策略；“保留关键信息”的 Prompt 也不能保证模型绝不遗漏。</p>
+<p class="source"><a data-code="creatoros/ai/context.py">预算与投影</a><a data-code="creatoros/agent/compaction.py">回合切分</a><a data-code="creatoros/agent/compactor.py">压缩组合</a><a data-code="creatoros/session/checkpoint.py">Checkpoint</a><a data-code="creatoros/ai/deepseek.py">Provider 请求方式</a></p>
+</section>
+
+<section class="section" id="memory">
+<span class="number">08 / MEMORY, WITHOUT THE MYSTERY</span><h2>已经能记住记录，尚未完整学会“该想起什么”。</h2>
+<p>记忆至少涉及三件事：写下什么、多久有效、什么时候取回来影响决策。今天 CreatorOS 的持久化做得比自动召回更完整。把 SQLite 或摘要文件叫作长期记忆系统，会跳过最关键的后半段。</p>
+<div class="table-wrap"><table><thead><tr><th>保存层</th><th>今天保存了什么</th><th>谁读取</th><th>不能据此宣称</th></tr></thead><tbody>
+<tr><td>CLI Session</td><td><code>sessions/latest.json</code> 中的 user / assistant / tool 消息</td><td>CLI Agent Loop 重启恢复</td><td>多用户、多会话选择或全量事件都已保存</td></tr>
+<tr><td>CompactionCheckpoint</td><td>累计摘要、切分索引、尾部、源历史哈希、usage</td><td>build_model_context</td><td>所有业务都由同一个 checkpoint 恢复</td></tr>
+<tr><td>业务 SQLite</td><td>Creator、Series、Topic、PendingOperation、Run/Revision/Attempt/Event</td><td>Web / CLI 的服务与 Repository</td><td>已经主动理解内容反馈、自动学习运营偏好</td></tr>
+<tr><td>内容文件目录</td><td>图片、Manifest、production_session、Codex JSONL</td><td>验收服务、Inspector、调试</td><td>所有图像字节与 trace 都应注入模型</td></tr>
+<tr><td>Codex thread</td><td>内容生产对话，由 Codex 管理；CreatorOS 保存引用</td><td>同篇恢复和返工</td><td>各账号共用一段无限增长的聊天历史</td></tr>
+</tbody></table></div>
+<p>一个细节：Session 保存的是工具 <code>content</code> 的模型可见表达（成功时为完整文本，失败时加错误前缀），不是整个 <code>ToolResult.details</code> 对象。业务 trace、来源等若只放在 details，并不会自动完整进入该 JSON。Run 事件和 Codex JSONL 则走另一套持久化路径。</p>
+<h3>未来的运营记忆，用一个例子就能设计。</h3>
+<p>你连续三次把“术语太多”的图片退回。这应该变成“这个栏目优先生活类比，首屏最多引入一个新术语”，并在下次选题与生产 brief 中被取回。<strong>只是保存三条返工记录，还没完成这个过程。</strong></p>
+<div class="grid3"><div class="card"><span class="tag future">建议 · 事实层</span><h4>可追溯原始记录</h4><p>栏目定位、已做 Topic、批准版本、用户反馈、未来平台指标。业务数据仍是事实源。</p></div><div class="card"><span class="tag future">建议 · 经验层</span><h4>带作用域的偏好</h4><p>归属 Creator/Series，附来源 Run、用户确认或置信信息、有效期，防止一次低赞被总结成永久规律。</p></div><div class="card"><span class="tag future">建议 · 召回层</span><h4>决策前取回少量信息</h4><p>按栏目精确查询定位与近期作品，取相关反馈和偏好，拼成有预算的 brief。规模需要时再做向量检索。</p></div></div>
+<p>最小版本不需要先选 Mem0 或另一个记忆框架。先验证“加入哪些历史事实能减少重复选题或减少返工”，然后才有依据选择检索方式。账号和栏目是隔离边界：一个娱乐栏目的幽默风格不能自动污染严肃技术栏目。</p>
+<div class="callout"><strong>目前三条路径的上下文并不统一：</strong>CLI 用 messages/Compaction；运营 Parser 每次读取当前业务目录；Codex Producer 使用输入快照和自己的 thread。可共享的是一套未来的“栏目简报构建器”，而不是把三个聊天历史硬拼起来。</div>
+<p class="source"><a data-code="creatoros/session/snapshot.py">会话快照</a><a data-code="creatoros/storage/models.py">真实表结构</a><a data-code="creatoros/operations/parser.py">业务目录注入</a><a data-code="creatoros/runs/models.py">生产输入快照</a></p>
+</section>
+
+<section class="section" id="recovery">
+<span class="number">09 / DURABLE WORK</span><h2>“重启后继续”，需要恢复的是业务事实。</h2>
+<p>想象一篇内容生成到一半网络断了。用户的愿望仍是完成同一篇；如果他改口说“封面重画”，则是改变作品要求。这两件事不能都叫“再跑一次”。</p>
+<div class="grid3"><div class="card"><h4>Run · 同一篇业务任务</h4><p>“给这个 Topic 生产一篇轮播”。稳定身份、幂等键、当前状态和批准结果。</p></div><div class="card"><h4>Revision · 一次内容版本</h4><p>用户改变要求时产生下一版。上一版仍可检查，旧批准不能沿用到新图。</p></div><div class="card"><h4>Attempt · 一次执行尝试</h4><p>网络失败或中断后重试，仍服务同一 Revision；尝试编号增加，保留错误、耗时与 usage。</p></div></div>
+<pre>queued → producing → validating → awaiting_approval → approved
+             ↓              ↓              ↓
+       interrupted / failed          用户要求返工
+             ↓                         ↓
+    同 Revision 新 Attempt        新 Revision 新 Attempt
+             └──────────────→ 显式执行 / 恢复</pre>
+<div class="table-wrap"><table><thead><tr><th>真实故障</th><th>当前机制</th><th>保证的边界</th></tr></thead><tbody>
+<tr><td>双击“开始生产”</td><td>业务幂等键 + 状态检查</td><td>同一 Topic 不重复创建同一任务；不承诺外部副作用 exactly-once</td></tr>
+<tr><td>旧页面批准新状态</td><td>expected_version + Revision ID + digest</td><td>批准绑定用户所见版本与图片字节</td></tr>
+<tr><td>编辑期间别处改了队列</td><td>计划 revision/version + 确认指纹</td><td>陈旧确认被拒绝，需要重看 Preview</td></tr>
+<tr><td>旧 worker 晚到返回</td><td>owner / lease 条件校验</td><td>失去所有权的执行者不能覆盖当前业务状态</td></tr>
+<tr><td>Windows 进程残留</td><td>OS 锁、执行日志、Job Object 回收</td><td>未确认停止时阻止恢复；心跳只表示执行器存活，不代表图片正在变好</td></tr>
+<tr><td>执行多个数据库动作中途失败</td><td>同一数据库事务</td><td>相关业务写入回滚；已经花掉的模型费用和生成文件不能靠 SQL 回滚</td></tr>
+</tbody></table></div>
+<p><strong>revision、version、hash 是三个不同问题：</strong>revision 表示用户改了第几稿；version 表示记录是否被别人更新；hash 表示内容或队列快照是否变化。它们服务不同的一致性检查，不能互相替代。</p>
+<h3>已经发生过的真实 bad case</h3>
+<p>S7 的一次真实生产里，Codex 已经生成部分图片，但返回“制作中”的部分回执后没有正常完成。我们显式中断，Run 记录为 <code>interrupted</code>；收紧最终回执要求后，复用同一 thread 恢复，最终得到 7 张图片，重开数据库仍是 <code>awaiting_approval</code>。</p>
+<p class="small">验收记录中的恢复尝试 usage：input 404,789，cached input 378,752，output 5,037。这是该次尝试所记录的消耗，不是模型窗口大小，也不是普遍性能结论。一次成功案例只能证明这条恢复路径可行，不能据此声称 Recovery Rate 100%。</p>
+<h3>Web 为什么不会一直卡住？</h3>
+<p>生产请求先认领任务并持久化，然后交给容量为 1 的后台线程，HTTP 返回 202。页面通过 SSE 观察业务事件，断线时可以重新获取状态并用轮询兜底。换页面不会停止生产；关闭服务则中断本次工作，重启后需要显式恢复。当前忙时返回现有 Run，没有完整的自动任务队列或分布式 worker。</p>
+<p>要恢复业务不一定需要重新加载全部对话：任务状态在 SQLite，作品在目录，生产会话以 thread ID 关联。<code>origin_session_id</code> / <code>context_snapshot_ref</code> 为未来 Side Chat 关联留了字段，但当前没有 Side Chat 产品能力。</p>
+<p class="source"><a data-code="creatoros/runs/service.py">状态迁移</a><a data-code="creatoros/runs/executor.py">后台执行</a><a data-code="creatoros/runs/ownership.py">所有权</a><a data-code="creatoros/runs/artifacts.py">产物摘要</a><a data-code="docs/studio/s7/SPEC.md">真实验证证据</a></p>
+</section>
+
+<section class="section" id="direction">
+<span class="number">10 / WHAT MATTERS NEXT</span><h2>下一步，让 Agent 对真实任务的完成负责。</h2>
+<p>我的判断：主线继续放在<strong>自有知识栏目运营</strong>。你不缺“还能接什么”的想法，最需要的是一组可以反复执行、能明确判定成功的任务，来决定该优化哪个模块。S7 验证产品流程能通，下一步应把“用户说得不标准、历史很多、执行失败”变成可重复的问题集。</p>
+<div class="priority"><span>01</span><div><h3>先建立小型 Agent Eval，定义“做成了”</h3><p>从当前支持的运营动作出发，收集 15–20 条真实表达：同义改写、跨栏目歧义、先添加再调序、用户中途改要求、越界请求、旧 Preview 确认。固定初始 SQLite 与用户输入，用真实 DeepSeek 解析；执行后比较最终数据库与期望约束，允许合法但不同的计划路径。</p><p><strong>衡量：</strong>主要报 Task Success，以及成功任务的 token/时延；失败按“理解错、引用错、执行错、恢复错”归因。当前 Parser 是受限的一次结构化决策，应称为受限运营任务评测；不能因为有一个 LLM 调用就包装成完整通用 Agent Benchmark。</p></div></div>
+<div class="priority"><span>02</span><div><h3>把真正有价值的自由度交给 Agent</h3><p>先打通“为指定栏目调研一组选题 → 返回列表 → 用户选择/授权 → 进入现有生产”。把 Codex Research 放在单独输入输出契约内；CreatorOS 根据账号定位、已做内容与用户要求选择。保持现有操作确认和 ContentRun 作为可靠执行边界。</p><p><strong>优化理由：</strong>现在自然语言只支持新增/调序，缺少连接研究、选择与生产的运营决策层。这个缺口比先接大量外部工具更影响产品闭环。通用多 Skill 分发也应由第二个真实栏目生产需求推动。</p></div></div>
+<div class="priority"><span>03</span><div><h3>用反馈做最小记忆，证明它改善下一次决定</h3><p>先把人工返工和验收理由做成结构化反馈，再构造少量栏目经验，按需注入下一次 brief。做成对任务：有历史时能否避免重复选题、遵循已经确认的风格要求；无关栏目的偏好是否被隔离。</p><p><strong>衡量：</strong>与不提供历史的基线相比，任务成功、重复选题和返工原因如何变化。先有证据，再决定需不需要语义向量库或外部记忆框架。</p></div></div>
+<div class="priority"><span>04</span><div><h3>把恢复和成本变成可回归的工程指标</h3><p>使用故障注入覆盖网络中断、旧 worker 回写、文件被替换、用户返工与重启。便宜的隔离生产器用于反复验证状态；少量真实 Codex 运行用于验证外部协议和产物。两类结果分开报告。</p><p><strong>优化理由：</strong>“能生成一次”容易展示，“失败后不重复开工、不批准错图、记录花了多少钱”更能证明你的系统设计能力。</p></div></div>
+<h3>每个模块都应有一个可以回答的优化问题。</h3>
+<div class="table-wrap"><table><thead><tr><th>模块</th><th>值得测的问题</th><th>由证据决定的改动</th></tr></thead><tbody><tr><td>意图与计划</td><td>用户说“第二个”“刚才那个”，能否准确消歧？</td><td>显示快照、引用机制、澄清策略</td></tr><tr><td>Context</td><td>压缩后是否仍记得作者 ID、约束、待办？</td><td>摘要评测、预算校准、必要字段保护</td></tr><tr><td>Memory</td><td>反馈被保存后是否影响下一次正确决策？</td><td>作用域、召回时机、经验有效期</td></tr><tr><td>Producer</td><td>长任务是否返回完整契约，何种失败能续接？</td><td>回执校验、超时分类、thread 生命周期</td></tr><tr><td>Routing</td><td>最大相似度是否被宽泛或过多原型误导？</td><td>阈值、校准、必要时重排</td></tr><tr><td>运行服务</td><td>恢复后会不会重复执行或污染已批准内容？</td><td>幂等、owner、版本与文件一致性</td></tr></tbody></table></div>
+<div class="callout"><strong>你的主张可以是：</strong>“模型负责有歧义、需要判断的部分；业务服务负责身份、状态和副作用。通过任务评测决定哪些判断值得自动化，再用可追溯反馈改善下一次决定。”这比“我用了很多 Agent 技术”更能被面试官追问，也更能被你验证。</div>
+<p class="small">当前暂缓：大而全的记忆平台、分布式多 Agent、强行补回人格向量双通道、仅为简历而建 MCP、公网自动发布。MCP 在需要第二个宿主复用研究/生产服务时有明确价值，届时再实现标准协议边界。</p>
+</section>
+
+<section class="section" id="interview">
+<span class="number">11 / SAY IT WITH REASONS</span><h2>面试时，先讲一个任务，再讲一个取舍。</h2>
+<h3>90 秒项目介绍</h3>
+<div class="quote">“CreatorOS 是面向自有内容账号的运营 Agent 项目。我最早从 Python Agent Loop 学起，接过知乎热点和 PersonClone 作者路由；后来把主线调整为知识栏目的图片生产，让选题、验收与反馈更容易在真实运营中验证。<br><br>现在用模型把自然语言要求转成结构化运营计划，用户看过 Preview 后由服务执行；内容生产通过 Codex-as-Tool，输入选题、栏目约束和 Skill，输出图片包。长任务用 Run、Revision、Attempt 区分业务任务、改稿和技术重试，持久化 thread 与事件，支持中断恢复和精确版本批准。<br><br>底层保留 Provider、Tool Registry、流式事件、Session 和上下文压缩。接下来重点用真实运营任务评测意图和执行，并把用户反馈做成能影响后续选题的运营记忆。”</div>
+<p class="caption">按当前源码表述；Agent Eval 和反馈记忆这里用“接下来”，获得实际结果后再改成完成式。不要背完一串类名，挑自己最熟的恢复案例展开。</p>
+<details><summary>1. 为什么不直接把任务交给 Codex？你多做了什么？</summary><p>一次性内容生产确实可以直接交给 Codex。CreatorOS 管理的是跨次调用的运营事实：作品属于哪个账号/栏目、选题顺序、用户批准哪一版、失败尝试和恢复入口。Codex 擅长创作，CreatorOS 把生产变成可查询、可验收的业务任务。未来如果调研、反馈和管理没有带来收益，就应收缩业务层，而不是为了 Agent 的名义继续加模块。</p><p><strong>追问证据：</strong>展示一篇 ContentRun 的输入快照、两次 Attempt 和批准 digest。</p></details>
+<details><summary>2. 为什么从知乎分身转成 Skill 栏目？原项目是不是白做了？</summary><p>原路线验证了“作者与热点匹配”和远程生成服务的组合，但真人分身矩阵的公开运营需要解决身份、账号和授权等现实约束。自有知识栏目可以复用生产方法，并让后续效果反馈有真实实验环境。画像路由、异步客户端、SelectionPlan 仍保留为实验能力；共同学习到的结构化契约、服务边界与执行记录继续被主线复用。</p></details>
+<details><summary>3. 这到底是 Workflow 还是 Agent？</summary><p>两者都有。CLI 通用 Loop 由模型根据工具结果决定下一步；Studio 目前由受限模型解析用户意图，计划执行和生产恢复由确定性服务负责；Codex 内部自主完成生产。当前动态运营规划还有限，所以最准确是“Workflow + Agent 混合架构”，而不是全自治运营已经完成。</p><p><strong>理由：</strong>选哪个题、如何解释反馈有不确定性；“批准的是哪张图”和“是否重复创建任务”需要稳定规则。</p></details>
+<details><summary>4. 为什么自己写 Runtime，没直接用框架？</summary><p>早期目标包括学习：通过实际痛点理解模型适配、工具校验、流式事件、上下文与持久化的边界。业务服务没有绑定某个框架的内部状态对象，后续可以替换外层编排。代价是需要自己补测试和恢复能力，因此我们没有追求复刻完整 Coding Agent。Pi 用作架构参照，不是复制实现。</p><p><strong>别过度承诺：</strong>有 Provider Protocol 只说明设计上可替换，不表示所有模型已适配。</p></details>
+<details><summary>5. 多原型路由为什么用 Max，不用平均？</summary><p>作者可能具有多个相距很远的领域。平均向量会把细分专长稀释；取热点与作者各原型的最大相似度，可以由最相关领域代表这次匹配，同时返回命中原型解释原因。Max 对多原型数量和宽泛标签可能有偏好，因此需要样本检验。当前只启用 domain，不声称人格双通道已经带来提升。</p></details>
+<details><summary>6. Skill、Tool、MCP 有什么区别？</summary><p>Tool 是可执行能力与输入输出契约；Skill 是如何组织能力完成一类任务的指导；MCP 是把能力提供给不同宿主的协议。当前 SkillLoader 负责发现与按需读取，本地 Tool Registry 负责执行，Codex 通过 CLI 适配器接入，尚没有 MCP Server。要标准化时优先暴露边界清晰的研究/生产服务，而不是把所有内部类直接变成工具。</p></details>
+<details><summary>7. 长期记忆是怎么做的？</summary><p>现阶段有 CLI 消息快照、累计压缩摘要、运营数据库与 Codex thread。它们保存事实，但尚未构成完整的反馈提取与自动召回系统。最小后续方案是按账号/栏目保存人工反馈与可追溯偏好，生产前组装简报，再通过有无记忆的成对任务验证效果。存储是记忆系统的基础，不等于全部。</p></details>
+<details><summary>8. 既然 API 返回 usage，为什么还估算 token？</summary><p>usage 是请求结束后已处理输入的真实消耗；发出下一次请求前，工具结果和新消息可能已经变化，所以仍需预检。当前本地估算用于触发预算警告与压缩，usage 用于事后观察。模型窗口是配置能力，usage 是本次成本，它们是不同量。下一步可做估算误差校准和超大单轮处理。</p></details>
+<details><summary>9. Context Compaction 会不会丢信息？原始结果还能找吗？</summary><p>摘要必然有信息损失风险，所以完整 Session 保留，模型请求只使用摘要与近期完整回合。大型工具结果投影包含 result_ref，可分页读原文。第二次压缩更新一份累计摘要。现在检查的是 Markdown 标题等结构，还没有语义保真评测；可以用“压缩前后是否仍遵守关键约束”做任务测试。</p></details>
+<details><summary>10. 你如何确保用户批准的是他看到的版本？</summary><p>批准请求带所见 version、Revision ID 和 artifact digest，服务重新验算产物摘要后再迁移状态。旧页面、返工后旧版本或图片被替换都会导致冲突。version 防并发状态变化，Revision 区分内容版本，digest 绑定具体内容，三个检查解决不同问题。</p></details>
+<details><summary>11. 事务回滚能撤回图片生成吗？如何理解 exactly-once？</summary><p>不能。数据库事务可以保证队列更新、执行状态和相关事件的原子写入；无法撤回已经完成的外部模型调用和费用。系统使用幂等业务键、尝试记录、owner 检查和可恢复 thread 降低重复执行风险，不承诺跨数据库和外部 Agent 的严格 exactly-once。恢复时应区分重新调用与复用已有产物。</p></details>
+<details><summary>12. SSE、后台线程和模型流式输出是一回事吗？</summary><p>不是。后台线程使 HTTP 不必等待整篇生产；Studio SSE 是把状态事件送给浏览器；模型 SSE 是模型把文本/工具参数分段送给 Provider；Codex CLI 则向 CreatorOS 输出 JSONL。它们分别解决执行占用、页面观察与增量传输问题。当前状态心跳也不是精确的图片完成百分比。</p></details>
+<details><summary>13. SQLite 会不会很 toy？为什么有 SQLAlchemy 和 Alembic？</summary><p>当前是本地单写运营工具，SQLite 部署简单，足以验证事务、状态恢复与版本冲突。SQLAlchemy 管数据访问，Alembic 管 schema 演进。业务对 Repository 编程方便未来迁移；但 PostgreSQL 是否兼容需要实际跑迁移和集成测试，不能因为用了 ORM 就说迁移已经完成。</p></details>
+<details><summary>14. Agent Eval 怎样避免“模型说完成了就算成功”？</summary><p>固定初始环境与任务目标，结束后直接检验数据库和文件约束。例如用户只要求调整某一栏目，正确结果是目标顺序正确且其他栏目未变；遇到歧义应澄清并不写数据。轨迹用于解释失败和成本，不要求所有成功路径完全相同。恢复任务单独注入故障，并区分低成本受控验证与真实外部模型验收。</p></details>
+<details><summary>15. 你现在最有把握的亮点是什么？</summary><p>是把概率性的模型调用接入可检查的业务生命周期。用户表达经过受限结构化解析和 Preview；生产使用独立 thread、Run/Revision/Attempt 和不可混淆的批准对象；上下文对工作副本做压缩，完整记录仍可查。下一步最该拿出的结果是任务成功与失败归因，而不是更多框架名称。</p></details>
+<h3>五句话，检查自己是否真的理解。</h3>
+<ul class="checklist"><li>我能不看代码，画出 Studio 指令、内容生产、CLI Loop 三条路径。</li><li>我能用两位作者和三个热点，手算一次 Max Similarity 与 Top-K。</li><li>我能解释 Session、摘要、数据库和 Codex thread 各保存什么。</li><li>我能用一次断线和一次改封面，区分 Attempt 与 Revision。</li><li>我能给一个用户任务写出可机器验证的成功条件，而不是只读最终回复。</li></ul>
+</section>
+
+<section class="section" id="evidence">
+<span class="number">12 / SOURCE & NEXT CONVERSATIONS</span><h2>以后优化模块，就从这几条代码路径走。</h2>
+<p>以下链接固定到本次核对版本 <code>bb219dd</code>，避免以后代码更新导致解释对不上。手册描述的是该版本事实；示例作者、热点、相似度与建议的评测规模均是教学示例或未来方案。</p>
+<div class="table-wrap"><table><thead><tr><th>下一次学习</th><th>入口顺序</th><th>应能亲口回答</th></tr></thead><tbody>
+<tr><td>第 1 次 · 一个自然语言要求</td><td><a data-code="creatoros/operations/parser.py">parser.py</a> → <a data-code="creatoros/operations/executor.py">executor.py</a> → <a data-code="creatoros/operations/service.py">service.py</a></td><td>哪一步调用模型？哪一步写数据库？用户没确认时保存了什么？</td></tr>
+<tr><td>第 2 次 · 一篇内容</td><td><a data-code="creatoros/runs/service.py">Run service</a> → <a data-code="creatoros/runs/executor.py">后台 executor</a> → <a data-code="creatoros/integrations/codex.py">Codex adapter</a></td><td>HTTP 返回之后谁还在运行？断线后从哪继续？</td></tr>
+<tr><td>第 3 次 · 一轮工具调用</td><td><a data-code="creatoros/agent/loop.py">loop.py</a> → <a data-code="creatoros/tools/execution.py">execution.py</a> → <a data-code="creatoros/tools/results.py">results.py</a></td><td>模型生成的参数何时变成真正的 Python 调用？</td></tr>
+<tr><td>第 4 次 · 一次压缩</td><td><a data-code="creatoros/ai/context.py">context.py</a> → <a data-code="creatoros/agent/compactor.py">compactor.py</a> → <a data-code="creatoros/session/checkpoint.py">checkpoint.py</a></td><td>何时触发、切哪里、何时替换、原文在哪里？</td></tr>
+<tr><td>第 5 次 · 一条失败任务</td><td><a data-code="tests/smoke_operation_plan.py">计划失败测试</a> / <a data-code="tests/smoke_content_run_service.py">恢复测试</a> → <a data-code="docs/studio/s7/SPEC.md">真实案例</a></td><td>怎么定义成功，哪些假设只通过了受控测试？</td></tr>
+</tbody></table></div>
+<h3>未来建议，不应和当前能力混写。</h3>
+<div class="statusline"><span class="tag">已实现并有验证记录</span><span class="tag partial">结构或部分链路已实现</span><span class="tag future">建议 / 尚未打通</span></div>
+<ul class="source-index"><li>已实现：domain-only 路由与原型缓存、PersonClone 接入、SkillLoader、Codex 生产、结构化计划、可恢复 ContentRun、Studio、会话压缩。</li><li>部分实现：多 Skill（栏目存字段但 Producer 固定）、三队列（只填 hot）、人格视角（有模型/投影未参与主路由）、运营记忆（有事实存储未有完整召回）。</li><li>后续：栏目选题 Research 工具、反馈驱动决策、统一运营 Agent 编排、完整任务 Benchmark、MCP Server、定时调度与平台发布。</li></ul>
+<div class="callout"><p><strong>给你的方向判断：</strong>保留从零理解 Runtime 的成果，把主要精力投入“可验证的运营决策”。用 Studio 让工作可见，用状态机让执行可靠，用少量真实任务评测决定智能该加在哪。你不需要把每行代码背下来，但要知道每个模块为什么存在、谁调用它、删掉它会失去什么保证。</p></div>
+<p class="source">总证据：<a data-code="AGENTS.md">项目目标</a><a data-code="SPEC.md">完整学习历史</a><a data-code="docs/studio/SPEC.md">Studio 分阶段规划</a><a data-code="creatoros/runs/SPEC.md">恢复边界</a><a data-code="creatoros/planning/SPEC.md">候选与 SelectionPlan</a><a data-code="creatoros/integrations/SPEC.md">外部生产协议与验收记录</a></p>
+</section>
+<footer>CreatorOS · 架构学习手册 / 完成于 2026-09-07<br>依据本地代码、Git 历史、阶段 SPEC 和已确认产品讨论编写。没有读取正式运营数据库、调用生成服务或修改业务实现。公开源码链接需要联网，正文与交互可离线使用。</footer>
+</main></div>
+<script>
+const revision='bb219ddbd2160741bf04be3f3c8be55da92c89e8';
+const base='https://github.com/SlamWeb/CreatorOS/blob/'+revision+'/';
+document.querySelectorAll('[data-code]').forEach(a=>{a.href=base+a.dataset.code;a.target='_blank';a.rel='noopener noreferrer'});
+document.querySelectorAll('[data-commit]').forEach(a=>{a.href='https://github.com/SlamWeb/CreatorOS/commit/'+a.dataset.commit;a.target='_blank';a.rel='noopener noreferrer'});
+const modules={
+loop:['CLI → Agent Loop','用户输入进入 messages；模型决定是否调用工具；Python 执行工具并把结果追加回历史，再让模型继续。当前一轮响应中的工具按顺序执行，单个用户任务最多 30 次模型调用。','creatoros/agent/loop.py'],
+provider:['ModelContext + Provider','ModelContext 保存本次请求快照；Provider 把内部对象转成厂商协议。当前普通 complete / stream 走 Chat Completions，运营结构化解析走 Responses。这个事实来自当前 DeepSeekProvider 源码，并非所有厂商的通用要求。','creatoros/ai/deepseek.py'],
+tools:['Tool Registry','用模型给出的工具名查表，Pydantic 校验 JSON 参数，再执行 Python 函数。ToolResult 把成功与错误统一返回。Registry 是本地调用目录，不是 MCP 服务器。','creatoros/tools/definitions.py'],
+parse:['OperationPlanParser','接收用户原话、当前栏目 scope 和数据库目录，调用 DeepSeek 生成 ready / needs_clarification / unsupported。当前可执行动作仅为新增选题和完整队列调序；Parser 自己不执行业务写入。','creatoros/operations/parser.py'],
+operation:['PendingOperationService','保存请求、计划、Preview、revision、version、确认指纹与事件。用户编辑会重新生成完整计划；确认前复核所见版本和当前队列，再原子提交业务变化。','creatoros/operations/service.py'],
+database:['Repository → SQLite','Creator、Series、Topic 构成业务目录；另有运营计划和生产生命周期表。SQLAlchemy 管会话和事务，Alembic 管数据库结构演进。跨重启能读取事实，但尚未有自动反馈记忆召回。','creatoros/storage/models.py'],
+run:['ContentRunService','从 Topic 冻结生产输入；维护 Run、Revision、Attempt、Event；校验状态迁移和批准对象。它直接调用 Producer，不需要先通过 CLI Agent Loop。','creatoros/runs/service.py'],
+worker:['ManagedRunExecutor','把长生产放到一个受管理的后台线程，HTTP 先返回。容量目前为 1，忙时返回当前 Run，不自动排队。所有权、租约和 OS 锁防止多个执行者互相覆盖。','creatoros/runs/executor.py'],
+codex:['CodexProducer','固定读取 knowledge-to-carousel Skill 与契约，调用本机 codex exec。新篇新 thread；同篇恢复/返工可 resume。逐行保存 JSONL，收到 thread.started 就持久化关联，通过结构化回执收集真实图片。','creatoros/integrations/codex.py'],
+artifact:['验收 → Inspector → 批准','校验 Manifest、图片存在与可读性、路径和顺序，计算产物 digest。批准绑定当前 Run version、Revision 和内容摘要。图片好不好仍由用户检查，当前不是完整 LLM 质量评审。','creatoros/runs/artifacts.py'],
+session:['Session / Compaction','完整文本历史存 latest.json；摘要与切分边界存 latest.compaction.json。模型请求使用投影，必要时读取原工具结果。这套机制目前用于通用 CLI Agent，不会自动接管 Studio 的上下文。','creatoros/session/checkpoint.py'],
+skill:['SkillLoader / SKILL.md','通用 Loop 只注入 Skill 的短目录，让模型通过 read_file 按需读正文。Producer 已知道生产 Skill，直接把正文与契约加入提示词；两条加载路径用途不同。','creatoros/skills/loader.py'],
+routing:['知乎 / PersonClone / BGE','知乎提供热点，PersonClone 提供画像与分身回答，CreatorOS 用本地 BGE 对 domain 原型求 Max Similarity，再转成每位作者的候选队列。人格视角尚未参与主路由。','creatoros/tools/creator_routing.py']};
+document.querySelectorAll('[data-module]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-module]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));const [title,body,file]=modules[button.dataset.module];const panel=document.getElementById('module-detail');panel.replaceChildren();const h=document.createElement('h3');h.textContent=title;const p=document.createElement('p');p.textContent=body;const a=document.createElement('a');a.href=base+file;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开源码 ↗';panel.append(h,p,a)}));
+const contextExamples={raw:['磁盘上的完整记录','System\n用户 turn 1 → 模型工具调用 → 完整工具结果 → 回答\n用户 turn 2 → ……\n用户 turn 3 → ……\n新用户请求','例子中的 turn 指从一条用户输入开始的整组对话；可能包含多次模型调用。'],projection:['发给主模型的工作副本','System + Skill 短目录\n历史对话\n大型 Tool Result：前 8,000 字符 + result_ref + 后 8,000 字符\n新用户请求\n\n独立 tools 字段：工具 Schema','原始 Session 完全保留。模型看到 result_ref 时，可用 read_tool_result 读被省略的部分。'],compact:['第一次压缩后','System + Skill 短目录\n累计摘要 A：旧 turn 1–2 的目标、决策、标识与待办\n完整近期 turn 3\n压缩后新追加的对话\n\n原始 turn 1–2 依然在磁盘 Session','这里只用 3 个 turn 演示切分，不表示 3 轮就触发压缩；真实触发依据输入预算。Checkpoint 记录绝对切分位置和源历史哈希。'],again:['第二次压缩后','摘要模型输入：累计摘要 A + 本次新淘汰的旧回合\n                     ↓\n                 累计摘要 B\n\n主模型输入：System + 摘要 B + 新的近期尾部 + 新消息','使用 B 替代 A，不把 A、B、C 一直叠加。但摘要仍可能丢信息或变长，需要后续保真与预算评测。']};
+document.querySelectorAll('[data-context]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-context]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));const [title,body,note]=contextExamples[button.dataset.context];const panel=document.getElementById('context-example');panel.replaceChildren();const h=document.createElement('strong');h.textContent=title;const pre=document.createElement('pre');pre.textContent=body;const p=document.createElement('p');p.textContent=note;panel.append(h,pre,p)}));
+document.getElementById('print').addEventListener('click',()=>{document.querySelectorAll('details').forEach(d=>d.open=true);window.print()});
+const navLinks=[...document.querySelectorAll('.nav a')];
+if('IntersectionObserver' in window){const observer=new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){navLinks.forEach(a=>a.classList.toggle('active',a.hash==='#'+entry.target.id))}}},{rootMargin:'-8% 0px -70% 0px'});document.querySelectorAll('.section').forEach(s=>observer.observe(s))}
+</script>
+</body></html>
