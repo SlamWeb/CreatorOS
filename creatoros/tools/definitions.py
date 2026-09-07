@@ -25,6 +25,10 @@ from .content import produce_content_pack
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .zhihu import get_zhihu_hot_list, search_zhihu
+from .studio import (
+    PageArgs, CreatorArgs, TopicsArgs, StartRunArgs, GetRunArgs,
+    list_creators, list_creator_series, list_series_topics, start_content_run, get_content_run,
+)
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -138,7 +142,18 @@ tool_registry = {
             description="把已选知识主题交给 Codex，生成并验收一篇小红书图片轮播；一次调用对应一个可恢复的内容会话。",
             execute=produce_content_pack,
             args_model=ProduceContentPackArgs,
+            expose_to_model=False,
         ),
+        Tool(name="list_creators", description="分页查询 Studio 运营账号（不是 PersonClone 作者）。先查真实目录，不编造 ID。",
+             execute=list_creators, args_model=PageArgs),
+        Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
+             execute=list_creator_series, args_model=CreatorArgs),
+        Tool(name="list_series_topics", description="分页查询栏目的选题、真实 ID、顺序和已有 Run；按 page.total 判断是否需要翻页。",
+             execute=list_series_topics, args_model=TopicsArgs),
+        Tool(name="start_content_run", description="用户明确要求生产时，把真实选题提交 Studio 后台，返回 Run 链接与当前状态；提交不等于完成。不会自动恢复旧任务。busy 或网络结果未知时不要自动重试，也不要轮询等待整篇完成。",
+             execute=start_content_run, args_model=StartRunArgs),
+        Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
+             execute=get_content_run, args_model=GetRunArgs),
         Tool(
             name="route_hotspots",
             description="获取知乎热榜并按作者 domain prototype 生成每位作者的 Top-N 热点候选队列。",

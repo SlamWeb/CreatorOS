@@ -40,7 +40,8 @@ def main():
     original_execute = agent_loop.execute_tool_call
     calls = []
 
-    def fake_execute(tool_call, context=None):
+    def fake_execute(tool_call, context=None, *, model_requested=False):
+        assert model_requested
         calls.append(tool_call.name)
         if tool_call.name == "read_file":
             return ToolResult(content="---\nname: route-and-answer\n---\n# Route and Answer")

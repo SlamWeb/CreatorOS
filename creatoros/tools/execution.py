@@ -9,6 +9,8 @@ from .results import ToolResult
 def execute_tool_call(
     tool_call: ToolCall,
     context: RuntimeContext | None = None,
+    *,
+    model_requested: bool = False,
 ) -> ToolResult:
     tool_name = tool_call.name
     tool = tool_registry.get(tool_name)
@@ -18,6 +20,13 @@ def execute_tool_call(
             content=f"未知工具：{tool_name}",
             is_error=True,
             error_type="unknown_tool",
+        )
+
+    if model_requested and not tool.expose_to_model:
+        return ToolResult(
+            content=f"工具 {tool_name} 不对模型开放。运营生产请使用 start_content_run。",
+            is_error=True,
+            error_type="tool_not_exposed",
         )
 
     try:

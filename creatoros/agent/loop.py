@@ -206,7 +206,7 @@ def run_agent(
 
                 for tool_call in response.tool_calls:
                     emit(AgentEvent("tool_call", {"name": tool_call.name}))
-                    tool_result = execute_tool_call(tool_call, context=runtime_context)
+                    tool_result = execute_tool_call(tool_call, context=runtime_context, model_requested=True)
                     emit(
                         AgentEvent(
                             "tool_result",

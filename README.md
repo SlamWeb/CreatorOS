@@ -175,7 +175,16 @@ python -m creatoros.web
 
 Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). The same command builds the frontend when needed and serves the React/TypeScript Studio from FastAPI.
 
-Optional CLI entry:
+To chat with the Agent while Studio is running, open another terminal:
+
+```powershell
+conda activate deepcode
+python .\main.py --agent
+```
+
+Ask it to find a topic in your account/series and produce it. It submits to the same Studio backend and returns a Run link; leaving the CLI does not stop the backend production. Use `--studio-url http://127.0.0.1:8765` (or `CREATOROS_STUDIO_URL`) for a custom local address. Existing interrupted runs require explicit recovery in Studio.
+
+The original standalone CLI menu remains available when Studio is stopped:
 
 ```powershell
 python .\main.py

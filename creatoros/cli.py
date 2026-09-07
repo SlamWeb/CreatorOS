@@ -1,5 +1,6 @@
 import json
 import os
+import argparse
 
 from .agent.loop import run_agent
 from .ai.deepseek import DeepSeekProvider
@@ -15,9 +16,21 @@ from .terminal import RichConsole
 from .tools import list_authors
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="CreatorOS CLI")
+    parser.add_argument("--agent", action="store_true", help="连接 Studio 的 Agent 对话；不获取生产锁")
+    parser.add_argument("--studio-url", help="本机 Studio 地址，默认 http://127.0.0.1:8765")
+    args = parser.parse_args(argv)
+    if args.studio_url:
+        from .integrations.studio import StudioClient
+        client = StudioClient(args.studio_url)
+        client.close()
+        os.environ["CREATOROS_STUDIO_URL"] = args.studio_url
     console = RichConsole()
     console.banner()
+    if args.agent:
+        run_agent(DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"]), console=console)
+        return
     database = Database(DATABASE_URL)
     content_run_service = ContentRunService(database)
     try:
@@ -27,6 +40,7 @@ def main():
             _run_menu(console, database, content_run_service)
     except ExecutionOwnershipError as error:
         console.write(f"⚠ {error}")
+        console.write("Studio 已运行时，请用 python main.py --agent 连接；旧菜单是独立运行模式。")
     finally:
         database.close()
 

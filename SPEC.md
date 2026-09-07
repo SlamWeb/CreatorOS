@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## 当前接线切片：Agent 与 Studio 共用生产（2026-09-07）
+
+- 用户确认 Web 主运营、CLI 调试/Agent 入口的方向；本轮仅统一生产能力，不扩展 Web Copilot。
+- Agent 通过 StudioClient 目录查询和提交 ContentRun；新增 --agent 模式绕开旧菜单持锁，Studio 统一拥有后台执行器。
+- 模型侧禁止调用隐藏的旧直接生产工具；完整契约、边界和验证记录见 docs/agent-studio/SPEC.md。
+
 Progressive SPEC, not a form.
 
 ## 当前理解

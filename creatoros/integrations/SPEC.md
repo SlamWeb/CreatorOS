@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 本机 Studio 客户端（2026-09-07）
+
+- 新增 StudioClient，目录查询及生产委托已有 FastAPI API；默认 http://127.0.0.1:8765，可由 CREATOROS_STUDIO_URL 覆盖。
+- 本机 HTTP、30 秒超时、不跟随重定向、不读取代理环境、不自动重试写入。连接失败提示启动服务；提交响应未知保留已知 Run ID，先查询再由用户决定。
+- start 创建/取回幂等 Run 后，仅执行首版、无 Attempt 的 queued 任务。不回退直接 Codex，不隐式恢复或执行返工。
+- 实施与真实验证见 docs/agent-studio/SPEC.md。
+
 ## 本轮目标：Codex Content Producer
 
 - 把已登录的 Codex CLI 作为端到端图片轮播生产工具，通过 `codex exec --json --output-schema` 获取结构化生产回执。
