@@ -46,6 +46,8 @@ from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
 from .run_routes import review_routes
 from .static import mount_studio
+from .chat import AgentChatService
+from .chat_routes import chat_routes
 
 
 def create_app(
@@ -57,6 +59,8 @@ def create_app(
     operation_parser: OperationPlanParser | None = None,
     operation_parser_factory=None,
     studio_dist: str | os.PathLike[str] | None = None,
+    chat_root: Path | None = None,
+    chat_provider_factory=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -73,6 +77,10 @@ def create_app(
     artifacts = StudioArtifacts(db, runs.output_root)
     queries = StudioQueryService(db, artifacts=artifacts)
     executor = run_executor or ManagedRunExecutor(runs)
+    db_file = db.engine.url.database
+    session_root = (Path(db_file).resolve().parent / (Path(db_file).stem + "-agent-sessions")
+                    if db_file and db_file != ":memory:" else runs.output_root / ".agent-sessions")
+    chat = AgentChatService(chat_root or session_root, chat_provider_factory)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -80,8 +88,10 @@ def create_app(
             _app.state.stop_observers = False
             executor.start()
             try:
+                chat.start()
                 yield
             finally:
+                chat.shutdown()
                 executor.shutdown()
         finally:
             if owns_database:
@@ -98,6 +108,8 @@ def create_app(
     app.state.queries = queries
     app.state.writes = writes
     app.state.executor = executor
+    app.state.chat = chat
+    app.include_router(chat_routes(chat))
     app.include_router(review_routes(runs, queries, artifacts))
 
     @app.middleware("http")

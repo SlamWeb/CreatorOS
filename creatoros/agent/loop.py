@@ -1,4 +1,5 @@
 from typing import Callable
+from pathlib import Path
 
 from ..ai.context import (
     DEFAULT_CONTEXT_WINDOW,
@@ -76,6 +77,9 @@ def run_agent(
     max_turns: int = DEFAULT_MAX_TURNS,
     console: Console | None = None,
     on_agent_event: Callable[[AgentEvent], None] | None = None,
+    *,
+    session_file: Path | None = None,
+    runtime_context: RuntimeContext | None = None,
 ):
     console = console or Console()
 
@@ -85,11 +89,16 @@ def run_agent(
             on_agent_event(event)
 
     guard = MaxTurnGuard(max_turns)
-    runtime_context = RuntimeContext.from_defaults()
-    skill_loader = SkillLoader.from_defaults()
-    state = AgentState(messages=load_messages())
-    checkpoint = load_compaction_checkpoint(state.messages)
-    save_messages(state.messages)
+    runtime_context = runtime_context or RuntimeContext.from_defaults()
+    allowed = runtime_context.allowed_tools
+    model_tools = tools if allowed is None else [t for t in tools if t["function"]["name"] in allowed]
+    skill_loader = SkillLoader.from_defaults() if allowed is None or "read_file" in allowed else SkillLoader([])
+    # Default call shapes remain compatible with CLI hosts and existing tests.
+    persist = save_messages if session_file is None else lambda messages: save_messages(messages, session_file)
+    state = AgentState(messages=load_messages() if session_file is None else load_messages(session_file))
+    checkpoint = (load_compaction_checkpoint(state.messages) if session_file is None
+                  else load_compaction_checkpoint(state.messages, session_file))
+    persist(state.messages)
 
     try:
         while True:
@@ -105,7 +114,7 @@ def run_agent(
             if user_input == "/context":
                 current_context = build_model_context(
                     state.messages,
-                    tools,
+                    model_tools,
                     checkpoint,
                     skill_loader,
                 )
@@ -121,13 +130,16 @@ def run_agent(
             if user_input == "/reset":
                 state = AgentState(messages=new_messages())
                 checkpoint = None
-                clear_compaction_checkpoint()
-                save_messages(state.messages)
+                if session_file is None:
+                    clear_compaction_checkpoint()
+                else:
+                    clear_compaction_checkpoint(session_file)
+                persist(state.messages)
                 emit(AgentEvent("session_reset", {}))
                 continue
 
             state.messages.append({"role": "user", "content": user_input})
-            save_messages(state.messages)
+            persist(state.messages)
             state.status = "running"
             task_start_turn = state.turn
 
@@ -142,7 +154,7 @@ def run_agent(
                 emit(AgentEvent("turn_start", {"turn": state.turn}))
                 model_context = build_model_context(
                     state.messages,
-                    tools,
+                    model_tools,
                     checkpoint,
                     skill_loader,
                 )
@@ -151,15 +163,16 @@ def run_agent(
                     compacted = compact_session(
                         provider,
                         state.messages,
-                        tools,
+                        model_tools,
                         checkpoint=checkpoint,
+                        **({"session_file": session_file} if session_file is not None else {}),
                     )
                     if compacted is not None:
                         tokens_before = context_budget.input_tokens
                         checkpoint = compacted
                         model_context = build_model_context(
                             state.messages,
-                            tools,
+                            model_tools,
                             checkpoint,
                             skill_loader,
                         )
@@ -198,7 +211,7 @@ def run_agent(
                         )
 
                 state.messages.append(response.to_message())
-                save_messages(state.messages)
+                persist(state.messages)
 
                 if not response.tool_calls:
                     state.status = "idle"
@@ -254,8 +267,8 @@ def run_agent(
                             "content": tool_result.to_model_content(),
                         }
                     )
-                    save_messages(state.messages)
+                    persist(state.messages)
     except KeyboardInterrupt:
         emit(AgentEvent("session_saved", {}))
     finally:
-        save_messages(state.messages)
+        persist(state.messages)

@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## Web 宿主范围（2026-09-08）
+
+- RuntimeContext.allowed_tools 为可选宿主范围；Loop 过滤模型 schema，执行器再次拒绝范围外请求。默认 CLI 保留既有完整工具集合。
+- Web 只使用五个 Studio 工具。RuntimeContext.studio_url 显式传到同一 HTTP Client，测试库/自定义端口不通过改全局环境变量实现，避免宿主串线。
+- 验证见 `docs/agent-studio/web-chat/SPEC.md`，本轮没有新增另一套业务工具或自动批准能力。
+
 ## 本轮目标
 
 - 保留完整 `tool_registry` 供执行器、Skill Runner 和后台编排使用。

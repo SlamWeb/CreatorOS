@@ -32,8 +32,9 @@ class GetRunArgs(BaseModel):
     run_id: str = Field(min_length=1, description="生产工具或目录返回的 Run ID。")
 
 
-def _call(action):
-    client = StudioClient.from_defaults()
+def _call(action, context=None):
+    url = getattr(context, "studio_url", None)
+    client = StudioClient(url) if url else StudioClient.from_defaults()
     try:
         data = action(client)
         return ToolResult(content=json.dumps(data, ensure_ascii=False))
@@ -54,20 +55,20 @@ def list_creators(offset=0, limit=20, context=None):
         # Column details are fetched on demand, not repeated for every creator.
         page["items"] = [{k: v for k, v in item.items() if k != "series"} for item in page["items"]]
         return page
-    return _call(query)
+    return _call(query, context)
 
 
 def list_creator_series(creator_id, context=None):
-    return _call(lambda client: client.creator_series(creator_id))
+    return _call(lambda client: client.creator_series(creator_id), context)
 
 
 def list_series_topics(series_id, offset=0, limit=20, context=None):
-    return _call(lambda client: client.topics(series_id, offset, limit))
+    return _call(lambda client: client.topics(series_id, offset, limit), context)
 
 
 def start_content_run(topic_id, context=None):
-    return _call(lambda client: client.start(topic_id))
+    return _call(lambda client: client.start(topic_id), context)
 
 
 def get_content_run(run_id, context=None):
-    return _call(lambda client: client.run_summary(client.get_run(run_id)))
+    return _call(lambda client: client.run_summary(client.get_run(run_id)), context)

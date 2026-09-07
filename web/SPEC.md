@@ -1,5 +1,12 @@
 # CreatorOS Studio Web SPEC
 
+## Web Agent 页面（2026-09-08）
+
+- 新增 /agent 页面与导航；最近对话选择、连续追问、文字/工具状态、Run 链接、用量折叠。原 Ctrl+K Preview 抽屉保留；不把自然语言生产伪装成选题 Parser。
+- POST 不重试；SSE 快照替换而不拼接、断线轮询兜底；刷新/路由切换不触发模型。服务端拒绝过期或并发指令；未知结果提示先查询。
+- react-markdown 渲染正文，不开启原始 HTML，不自动加载模型输出的图片；Run 链接转同源页面，其余链接保留默认 URL 安全转换。
+- 验证与后续边界见 `docs/agent-studio/web-chat/SPEC.md`。
+
 ## 当前理解
 
 - React + TypeScript + Vite 是本地 Studio 的展示层；Python/FastAPI 仍是业务查询与状态真相。

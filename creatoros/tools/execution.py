@@ -22,7 +22,10 @@ def execute_tool_call(
             error_type="unknown_tool",
         )
 
-    if model_requested and not tool.expose_to_model:
+    if model_requested and (not tool.expose_to_model or (
+        context is not None and context.allowed_tools is not None
+        and tool_name not in context.allowed_tools
+    )):
         return ToolResult(
             content=f"工具 {tool_name} 不对模型开放。运营生产请使用 start_content_run。",
             is_error=True,

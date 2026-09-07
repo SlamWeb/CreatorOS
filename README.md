@@ -175,6 +175,12 @@ python -m creatoros.web
 
 Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). The same command builds the frontend when needed and serves the React/TypeScript Studio from FastAPI.
 
+Choose **Agent** in the sidebar to chat in the browser. It uses the same Python Agent Loop and Studio tools as the CLI: inspect accounts/series/topics, submit an existing topic, and ask about its Run. Text streams into the conversation; tool activity and Run links stay visible. Refreshing or leaving the page does not resubmit the instruction.
+
+Web conversations have separate local sessions (for the default database: `data/creatoros-agent-sessions/<id>/`). `messages.json` keeps full model/tool history, `messages.compaction.json` stores a valid compaction checkpoint when needed, and `view.json` stores the display record and request IDs. The conversation selector shows the 30 most recently updated sessions; CLI `sessions/latest.json` remains separate. One Web Agent instruction runs at a time, while submitted content production continues independently.
+
+The Web Agent currently exposes only the five Studio tools. Use **运营指令** for topic Preview/confirmation and the Run page for review. It cannot write arbitrary files, approve/publish content, or resume cancelled runs. Interrupted chat instructions are recorded but never automatically replayed after a service restart.
+
 To chat with the Agent while Studio is running, open another terminal:
 
 ```powershell

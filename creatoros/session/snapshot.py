@@ -7,12 +7,13 @@ def new_messages():
     return [{"role": "system", "content": SYSTEM_PROMPT}]
 
 
-def load_messages():
-    if not SESSION_FILE.exists():
+def load_messages(session_file=None):
+    path = session_file or SESSION_FILE
+    if not path.exists():
         return new_messages()
 
     try:
-        messages = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        messages = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(messages, list) or not all(
             isinstance(message, dict) for message in messages
         ):
@@ -25,14 +26,15 @@ def load_messages():
         return new_messages()
 
 
-def save_messages(messages):
-    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary_file = SESSION_FILE.with_suffix(".tmp")
+def save_messages(messages, session_file=None):
+    path = session_file or SESSION_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_file = path.with_suffix(".tmp")
     temporary_file.write_text(
         json.dumps(messages, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    temporary_file.replace(SESSION_FILE)
+    temporary_file.replace(path)
 
 
 def find_tool_result(messages, result_ref: str) -> dict | None:

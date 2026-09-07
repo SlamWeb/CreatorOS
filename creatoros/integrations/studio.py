@@ -88,7 +88,8 @@ class StudioClient:
         result["url"] = f"{self.base_url}/runs/{quote(run['id'], safe='')}"
         result["message"] = (
             "已提交后台执行；以 status 为准，accepted 不表示内容已完成。" if accepted
-            else "返回已有任务状态；本次没有重新执行。恢复或返工请在 Studio 显式操作。"
+            else "返回已有任务状态；本次没有重新执行。仅可使用 allowed_actions 列出的动作；"
+                 "cancelled/approved 为只读终态，不可恢复或返工，approved 也不代表已发布。"
         )
         return result
 

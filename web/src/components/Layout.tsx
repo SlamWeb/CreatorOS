@@ -6,6 +6,7 @@ const navItems = [
   { to: "/", label: "今日", icon: "◒" },
   { to: "/creators", label: "账号", icon: "◌" },
   { to: "/runs", label: "运行", icon: "↗" },
+  { to: "/agent", label: "Agent", icon: "✦" },
 ];
 
 export function Layout() {

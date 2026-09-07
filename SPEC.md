@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## Web 对话接入同一 Runtime（2026-09-08）
+
+- CLI/Web 共用原 Agent Loop 和 Studio 生产工具；Loop 仅增加宿主提供的 session_file、RuntimeContext。默认 CLI 行为不变，宿主可限定模型工具集合，执行时再次验证。
+- Web 单指令后台执行、可重连观察、独立对话文件与 checkpoint；ContentRun 仍独立生产。当前不合并两端聊天、不扩张 Skill/MCP/记忆或发布。
+- 完整决策、真实 badcase 与验收记录见 `docs/agent-studio/web-chat/SPEC.md`。
+
 ## 当前接线切片：Agent 与 Studio 共用生产（2026-09-07）
 
 - 用户确认 Web 主运营、CLI 调试/Agent 入口的方向；本轮仅统一生产能力，不扩展 Web Copilot。

@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## Web Agent 宿主（2026-09-08）
+
+- 新增 chat/chat_routes：后台单指令宿主调用既有 run_agent；HTTP 提交 + SSE 快照观察，断订阅不取消执行。目录/生产复用五个 Studio Tool，自调用地址来自真实本机监听地址，不读取 Host 或修改全局环境变量。
+- 会话 JSON 与数据库相邻，Web/CLI 分开；显式 session_file 贯穿原始消息/压缩检查点。request_id 去重、expected_version 校验；重启标 interrupted、未知 tool result 修复但不重放。
+- 宿主说明在每次指令前同步为当前配置，历史用户/模型/tool 消息保留；旧 checkpoint 若摘要校验不匹配则回退原始历史。
+- 验证与边界见 `docs/agent-studio/web-chat/SPEC.md`；不是共享 CLI/Web Session、自动恢复推理或发布系统。
+
 ## 当前理解
 
 - 这是 Studio 的本地 HTTP 接线层，不是新的 Agent Runtime，也不是 PersonClone API。

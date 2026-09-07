@@ -17,6 +17,8 @@ class RuntimeContext:
     project_root: Path
     operating_system: str = field(default_factory=platform.system)
     shell: str = field(default_factory=detect_shell)
+    studio_url: str | None = None
+    allowed_tools: frozenset[str] | None = None
 
     @classmethod
     def from_defaults(cls):
