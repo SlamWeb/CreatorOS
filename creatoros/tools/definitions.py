@@ -28,6 +28,7 @@ from .zhihu import get_zhihu_hot_list, search_zhihu
 from .studio import (
     PageArgs, CreatorArgs, TopicsArgs, StartRunArgs, GetRunArgs,
     list_creators, list_creator_series, list_series_topics, start_content_run, get_content_run,
+    InstallSkillArgs, SkillJobArgs, NoArgs, install_producer_skill, get_skill_install, list_producer_skills,
 )
 
 
@@ -146,6 +147,12 @@ tool_registry = {
         ),
         Tool(name="list_creators", description="分页查询 Studio 运营账号（不是 PersonClone 作者）。先查真实目录，不编造 ID。",
              execute=list_creators, args_model=PageArgs),
+        Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，委托 Codex 后台下载检查。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
+             execute=install_producer_skill, args_model=InstallSkillArgs),
+        Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记。绑定需要用户在栏目页面确认，非图片轮播技能不可绑定。",
+             execute=get_skill_install, args_model=SkillJobArgs),
+        Tool(name="list_producer_skills", description="列出已登记生产 Skill 版本及兼容性；不执行安装或生产。",
+             execute=list_producer_skills, args_model=NoArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="分页查询栏目的选题、真实 ID、顺序和已有 Run；按 page.total 判断是否需要翻页。",

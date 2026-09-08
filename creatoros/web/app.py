@@ -48,6 +48,8 @@ from .run_routes import review_routes
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_routes import chat_routes
+from .skill_routes import skill_routes
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
 
 def create_app(
@@ -61,6 +63,7 @@ def create_app(
     studio_dist: str | os.PathLike[str] | None = None,
     chat_root: Path | None = None,
     chat_provider_factory=None,
+    skill_install_service=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -81,6 +84,7 @@ def create_app(
     session_root = (Path(db_file).resolve().parent / (Path(db_file).stem + "-agent-sessions")
                     if db_file and db_file != ":memory:" else runs.output_root / ".agent-sessions")
     chat = AgentChatService(chat_root or session_root, chat_provider_factory)
+    skill_installs = skill_install_service or SkillInstallService(ProducerSkillCatalog(skills_root_for(db)))
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -89,9 +93,11 @@ def create_app(
             executor.start()
             try:
                 chat.start()
+                skill_installs.start()
                 yield
             finally:
                 chat.shutdown()
+                skill_installs.shutdown()
                 executor.shutdown()
         finally:
             if owns_database:
@@ -109,6 +115,8 @@ def create_app(
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
+    app.state.skill_installs = skill_installs
+    app.include_router(skill_routes(db, skill_installs))
     app.include_router(chat_routes(chat))
     app.include_router(review_routes(runs, queries, artifacts))
 

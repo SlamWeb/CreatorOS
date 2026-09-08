@@ -1,0 +1,13 @@
+.producer-skill-panel { margin-block: 20px; overflow-wrap: anywhere; }
+.producer-skill-panel summary { cursor: pointer; color: #d8d4e0; }
+.producer-skill-panel label { display: grid; gap: 10px; color: #a8a3b3; font-size: 13px; }
+.producer-skill-panel select {
+  width: 100%; min-width: 0; max-width: 100%; padding: 12px;
+  border: 1px solid #35313f; border-radius: 8px;
+  background: #17171e; color: #ddd9e6; font: inherit;
+  text-overflow: ellipsis;
+}
+.producer-skill-panel select:focus-visible { outline: 2px solid #aaa0c5; outline-offset: 2px; }
+.producer-skill-panel .notice-strip { display: block; }
+.producer-skill-panel .notice-strip p { margin-block: 10px; }
+.producer-skill-panel [role="status"] { color: #b5c8bc; font-size: 13px; }

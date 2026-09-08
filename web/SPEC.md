@@ -79,3 +79,6 @@
 - 健康状态会区分本地就绪、表单模式、Codex 未就绪与 API 失联；README 提供一个日常启动命令及 2–3 分钟演示路径。
 - Playwright/Chrome E2E 在全新隔离库覆盖创建、Preview、过期确认、生产、返工、批准、刷新和 390px 布局；受控生产器只作产品测试。
 - 独立真实 Codex Run 暴露部分回执挂起后，完成 `interrupted → resume → awaiting_approval` 恢复；最终 7 张真实图片经 API 与浏览器 Inspector 逐张验证，未发布。详细记录见 `docs/studio/s7/SPEC.md`。
+## 栏目生产 Skill 面板（2026-09-08）
+
+- 栏目页增加折叠式安装/绑定入口；任务 ID 在 URL 保留，读状态不触发模型。选择版本后显示旧/新绑定，用户显式确认，提交携带选择时所见值，拒绝自动重试冲突。390px 与刷新持久化已验收，见 docs/agent-studio/producer-skills/SPEC.md。

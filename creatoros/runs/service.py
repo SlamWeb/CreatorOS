@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import update
 
 from creatoros.integrations.codex import CodexProducer, ProducedPack
+from creatoros.integrations.producer_skills import skills_root_for
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -208,6 +209,8 @@ class ContentRunService:
                 topic_brief=prepared["input"].topic_brief,
                 series_description=prepared["input"].series_description,
                 audience=prepared["input"].audience,
+                skill_name=prepared["input"].skill_name,
+                skills_root=skills_root_for(self.database),
                 thread_id=prepared["thread_id"],
                 revision_instruction=prepared["instruction"],
                 on_thread_started=lambda thread_id: self._attach_thread(

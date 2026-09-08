@@ -750,3 +750,7 @@ git diff --check
 - S3 已完成：Studio 支持创建账号/栏目，以及逐行选题的 `Preview → confirm` 写入；版本/确认凭证冲突和重复确认幂等已通过隔离 SQLite 与浏览器验收。
 - S4 已完成：新增 `ManagedRunExecutor`，先幂等创建 Run，再带所见版本显式执行；HTTP 立即返回，第二任务提示 busy。OS 单实例锁、lease/heartbeat、子进程树回收、调度/初始化失败、关闭/重启恢复与晚到结果拒绝通过 executor/run_api/process smoke；真实 Codex resume 与隔离浏览器验收通过。栏目描述、受众和 topic brief 已传入 Codex。
 - S5 已完成：图片主视图、历史版本、文案复制、返工/批准与 SSE 进度接通；批准绑定所见 Revision/digest/version，返工只建版本不自动生产。1/5/6 张、坏图/缺图、路径逃逸、旧批准与断线重放均通过 smoke；隔离浏览器使用已有真实图片验收，未重复生图。下一步 S6，不把产品 smoke 当作 Agent Benchmark。
+## 当前接线切片：生产 Skill 安装与栏目绑定（2026-09-08）
+
+- Codex 在独立目录下载检查 GitHub Skill；CreatorOS 核验并登记不可变版本，Web 显式确认栏目绑定。Web/CLI Agent 共用安装/查询接口；新 Run 使用绑定 Skill，旧 Run 保留输入快照。
+- 详细边界、真实调用 badcase 和验证见 docs/agent-studio/producer-skills/SPEC.md；本轮无生图/发布或正式数据修改。下一步优先栏目选题调研与确认入队，再补任务级 Eval。

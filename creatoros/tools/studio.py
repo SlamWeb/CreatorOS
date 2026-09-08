@@ -32,6 +32,33 @@ class GetRunArgs(BaseModel):
     run_id: str = Field(min_length=1, description="生产工具或目录返回的 Run ID。")
 
 
+class InstallSkillArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    github_url: str = Field(description="用户明确要求安装的 GitHub 仓库或 tree/ref/skill-path 链接。")
+    retry: bool = Field(default=False, description="仅用户明确要求重试失败/中断的安装时为 true；可能再次消耗额度。")
+
+
+class SkillJobArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    job_id: str = Field(pattern=r"^[a-f0-9]{64}$", description="安装工具返回的真实任务 ID。")
+
+
+class NoArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+def install_producer_skill(github_url, retry=False, context=None):
+    return _call(lambda c: c.request("POST", "/api/producer-skills/install", payload={"github_url": github_url, "retry": retry}), context)
+
+
+def get_skill_install(job_id, context=None):
+    return _call(lambda c: c.request("GET", f"/api/producer-skills/jobs/{job_id}"), context)
+
+
+def list_producer_skills(context=None):
+    return _call(lambda c: c.request("GET", "/api/producer-skills"), context)
+
+
 def _call(action, context=None):
     url = getattr(context, "studio_url", None)
     client = StudioClient(url) if url else StudioClient.from_defaults()

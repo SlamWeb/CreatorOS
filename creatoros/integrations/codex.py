@@ -84,7 +84,7 @@ class ProductionSession(ProductionModel):
 @dataclass(frozen=True)
 class CodexRun:
     thread_id: str
-    receipt: ProductionReceipt
+    receipt: ProductionModel
     usage: CodexUsage
 
 
@@ -101,7 +101,7 @@ class CodexProducerError(RuntimeError):
         self.error_type = error_type
 
 
-def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "") -> CodexRun:
+def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "", receipt_model=ProductionReceipt) -> CodexRun:
     thread_id = fallback_thread_id
     final_text = ""
     usage = CodexUsage()
@@ -137,10 +137,10 @@ def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "") -> CodexRun:
         raise CodexProducerError(
             f"Codex 生产失败：{recoverable_errors[-1]}", error_type="codex_turn_failed"
         )
-    if not thread_id or not final_text:
+    if not thread_id or not final_text or (receipt_model is not ProductionReceipt and not turn_completed):
         raise CodexProducerError("Codex 未返回 thread_id 或最终生产回执。", error_type="codex_protocol_error")
     try:
-        receipt = ProductionReceipt.model_validate_json(final_text)
+        receipt = receipt_model.model_validate_json(final_text)
     except Exception as error:
         raise CodexProducerError(
             f"Codex 生产回执不符合约定：{error}", error_type="invalid_production_receipt"
@@ -149,6 +149,8 @@ def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "") -> CodexRun:
 
 
 class CodexProducer:
+    receipt_model = ProductionReceipt
+
     def __init__(
         self,
         *,
@@ -205,6 +207,8 @@ class CodexProducer:
         topic_brief: str | None = None,
         series_description: str = "",
         audience: str = "",
+        skill_name: str = "knowledge-to-carousel",
+        skills_root: Path | None = None,
         thread_id: str | None = None,
         revision_instruction: str | None = None,
         on_thread_started: Callable[[str], None] | None = None,
@@ -223,6 +227,8 @@ class CodexProducer:
             topic_brief=topic_brief,
             series_description=series_description,
             audience=audience,
+            skill_name=skill_name,
+            skills_root=skills_root,
             revision_instruction=revision_instruction,
         )
         try:
@@ -249,6 +255,7 @@ class CodexProducer:
             topic_id=topic_id,
             topic_title=topic_title,
             generated_at=generated_at,
+            skill_name=skill_name,
         )
         session = ProductionSession(
             thread_id=run.thread_id,
@@ -275,7 +282,7 @@ class CodexProducer:
         with TemporaryDirectory(prefix="creatoros-codex-schema-") as temporary:
             schema_path = Path(temporary) / "production-receipt.schema.json"
             schema_path.write_text(
-                json.dumps(ProductionReceipt.model_json_schema(), ensure_ascii=False, indent=2),
+                json.dumps(self.receipt_model.model_json_schema(), ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
             command = self._command(schema_path, working_directory, thread_id)
@@ -356,7 +363,7 @@ class CodexProducer:
                 f"codex exec 退出码 {return_code}：{detail}",
                 error_type="codex_exec_failed",
             )
-        return parse_codex_jsonl(stdout, fallback_thread_id=thread_id or "")
+        return parse_codex_jsonl(stdout, fallback_thread_id=thread_id or "", receipt_model=self.receipt_model)
 
     def _command(
         self,
@@ -399,11 +406,15 @@ class CodexProducer:
         topic_brief: str | None = None,
         series_description: str = "",
         audience: str = "",
+        skill_name: str = "knowledge-to-carousel",
+        skills_root: Path | None = None,
         revision_instruction: str | None = None,
     ) -> str:
-        skill_dir = self.project_root / "creatoros" / "skills" / "knowledge-to-carousel"
+        from .producer_skills import ProducerSkillCatalog
+        catalog = ProducerSkillCatalog(skills_root or self.project_root / "data" / "producer-skills", self.project_root)
+        skill_dir = catalog.resolve(skill_name)
         skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
-        contract = (skill_dir / "references" / "social-content-pack.md").read_text(
+        contract = (self.project_root / "creatoros" / "skills" / "knowledge-to-carousel" / "references" / "social-content-pack.md").read_text(
             encoding="utf-8"
         )
         revision = (
@@ -413,6 +424,7 @@ class CodexProducer:
         )
         return (
             f"{skill}\n\n{contract}\n\n"
+            f"本次 Skill 文件：{skill_dir / 'SKILL.md'}；附属 references/assets/scripts 相对此目录解析。\n"
             "你处于 CreatorOS receipt mode。请完成整篇图片轮播并真实调用图片生成能力。"
             "不要写最终 Manifest，也不要复制图片；最终只返回 output schema 要求的 JSON。"
             "不要返回制作中、待补充或任何中间回执；只有整套叙事、全部图片和最终发布文案都完成后才能返回。"
@@ -435,6 +447,7 @@ class CodexProducer:
         topic_id: str,
         topic_title: str,
         generated_at: str,
+        skill_name: str = "knowledge-to-carousel",
     ) -> SocialContentPack:
         allowed_root = (self.generated_images_root / run.thread_id).resolve()
         images_dir = directory / "images"
@@ -475,7 +488,7 @@ class CodexProducer:
             series_id=series_id,
             topic_id=topic_id,
             topic_title=topic_title,
-            skill_name="knowledge-to-carousel",
+            skill_name=skill_name,
             generated_at=generated_at,
             content_summary=run.receipt.content_summary,
             cards=cards,

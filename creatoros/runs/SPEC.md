@@ -62,3 +62,6 @@
 - ValidatedImage 增加可选 sha256（兼容旧 JSON），供受控图片 URL 验证用户看到的图片字节；总 artifact_digest 算法不变。
 - 文件不可读或产物变化时批准失败且保留状态，不冒充内容质量评审；所有新增读取/订阅不调用 Producer。
 - `smoke_studio_artifacts` 与 `smoke_content_run_service` 通过；旧 digest 算法不变，旧 JSON 兼容。图片经受控读取校验后才能用于批准，Web 不另建状态机。
+## 按快照使用生产 Skill（2026-09-08）
+
+- _produce_claimed 将既有 input.skill_name 传给 Producer，并使用数据库相邻的 Skill 注册目录。外部 Skill ID 指向不可变版本，改绑不重写已有 Run/Revision；内置默认兼容。验证见 docs/agent-studio/producer-skills/SPEC.md。

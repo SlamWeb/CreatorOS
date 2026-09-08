@@ -47,3 +47,6 @@
 - `smoke_studio_process` 在本机 Windows 通过真实无费用子进程故障注入；`smoke_codex_producer` 的纯解析/落盘回归通过。
 - 收尾运行 `live_codex_resume_protocol`：真实新建与 resume 共 2 次请求，同一 thread `01a06b41-bb2d-7332-958c-4a064019eee0` 通过，不调用生图。该旧探针未打印 usage，不能据此报告 token 数为 0。
 - 本阶段早期还曾从隔离页面提交真实生产并停止；没有把它算作完整生图验收。最终页面耗时/故障 QA 使用隔离受控 Producer，完整真实图片生产留到 S7。
+## 生产 Skill 安装与动态接线（2026-09-08）
+
+- producer_skills 复用 Codex JSONL/output-schema/进程回收，安装用独立 workspace-write；真实 Git 文件核验后登记版本。生产 Prompt 和 Manifest 改为实际 skill_name，保留内置默认兼容。验证见 docs/agent-studio/producer-skills/SPEC.md。

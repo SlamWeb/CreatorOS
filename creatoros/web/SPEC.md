@@ -89,3 +89,6 @@
 - create_app 支持 parser/factory 注入。模型未配置/不可用 503，坏输出 502，非法 scope 404/409，版本竞争 409；未配置模型时表单 Preview/确认仍可用。
 - DTO 输出真实 version、scope、白名单 Preview/usage；列表无嵌套 token。旧 Preview 只读补齐名称，不重签 token；非 succeeded 确认不返回成功。
 - 15 项关联 smoke 通过；真实 4 次 HTTP 模型验收 + 浏览器 3 次真实模型请求，无生图、发布或正式数据修改。
+## 生产 Skill 入口（2026-09-08）
+
+- 增加技能目录、安装提交/查询、栏目显式条件绑定 API，宿主生命周期回收安装进程；新旧生产复用 ContentRun。Web Agent 新增三个安装/查询工具，不开放模型直接绑定。验收见 docs/agent-studio/producer-skills/SPEC.md。
