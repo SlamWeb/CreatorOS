@@ -5,6 +5,42 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
+from ..integrations.topic_research import CandidateSelection
+
+
+class ResearchTopicsArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    series_id: str = Field(min_length=1, description="真实栏目 ID。使用当前栏目定位、受众和绑定 Skill。")
+    count: int = Field(default=10, ge=1, le=30, description="最多候选数；允许调研不足，不凑数。")
+    instructions: str = Field(default="", max_length=3000, description="本次选题偏好、排除方向等用户要求。")
+
+
+class ResearchBatchArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    batch_id: str = Field(pattern=r"^[a-f0-9]{32}$", description="调研返回的真实批次 ID。")
+
+
+class SelectResearchArgs(ResearchBatchArgs):
+    selections: list[CandidateSelection] = Field(min_length=1, max_length=30,
+        description="按用户要求的入队顺序列出候选 ID；可改 title/angle，省略则保留原文。只生成 Preview，不确认。")
+
+
+def research_series_topics(series_id, count=10, instructions="", context=None):
+    return _call(lambda c: c.request("POST", f"/api/series/{series_id}/topic-research", payload={"count": count, "instructions": instructions}), context)
+
+
+def get_topic_research(batch_id, context=None):
+    return _call(lambda c: c.request("GET", f"/api/topic-research/{batch_id}"), context)
+
+
+def prepare_topic_selection(batch_id, selections, context=None):
+    items = [s.model_dump() if isinstance(s, CandidateSelection) else s for s in selections]
+    def preview(client):
+        data = client.request("POST", f"/api/topic-research/{batch_id}/preview", payload={"selections": items})
+        return {"operation_id": data["id"], "status": data["status"], "preview": data["preview"],
+                "url": f"/series/{data['scope_series_id']}?research={batch_id}&operation={data['id']}",
+                "message": "仅生成待确认计划，尚未入队；请用户打开链接验收并确认。"}
+    return _call(preview, context)
 
 
 class PageArgs(BaseModel):

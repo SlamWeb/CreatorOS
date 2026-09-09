@@ -371,13 +371,14 @@ class CodexProducer:
         working_directory: Path,
         thread_id: str | None,
     ) -> list[str]:
+        settings = ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="xhigh"']
         if thread_id:
             return [
-                self.executable, "-a", "never", "exec", "resume", "--json",
+                self.executable, *settings, "-a", "never", "exec", "resume", "--json",
                 "--skip-git-repo-check", "--output-schema", str(schema_path), thread_id, "-",
             ]
         return [
-            self.executable, "-a", "never", "exec", "--json", "--sandbox", "read-only",
+            self.executable, *settings, "-a", "never", "exec", "--json", "--sandbox", "read-only",
             "--skip-git-repo-check", "-C", str(working_directory),
             "--output-schema", str(schema_path), "-",
         ]

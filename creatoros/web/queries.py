@@ -492,6 +492,7 @@ class StudioQueryService:
             version=operation.version,
             request_text=operation.request_text,
             scope_series_id=operation.scope_series_id,
+            research_selection=any(op.get("expected_series") for op in (operation.plan_json or {}).get("operations", [])),
             preview=preview,
             message=_error_message(operation.error or operation.message),
             confirmation_token=operation.confirmation_token if include_token else None,

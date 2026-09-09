@@ -1,5 +1,10 @@
 # External Integrations SPEC
 
+## 栏目调研（2026-09-09）
+
+- topic_research 复用 Codex JSONL/Schema/进程树，live web_search，候选批次与 Topic 分离。所有 Codex-as-Tool 新建/恢复均显式 gpt-5.6-luna/xhigh，不改全局配置。
+- 真实调研及边界见 docs/agent-studio/topic-research/SPEC.md。
+
 ## 本机 Studio 客户端（2026-09-07）
 
 - 2026-09-08：Web/CLI 复用客户端；返回摘要明确 cancelled/approved 是不可恢复或返工的只读终态，后续动作以 allowed_actions 为准。真实对话中的旧提示误导已记录为 badcase，见 docs/agent-studio/web-chat/SPEC.md。

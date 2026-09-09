@@ -1,5 +1,10 @@
 # CreatorOS Runtime SPEC
 
+## 栏目选题研究与入队（2026-09-09）
+
+- Web/CLI 新增共用的调研、查候选、准备选择 Tool；候选独立持久化，宿主确认后才入队，来源沿 Topic.brief 传入既有 ContentRun。
+- Codex-as-Tool 显式 Luna/xhigh；真实调研、DeepSeek 选择和隔离浏览器确认通过。范围、用量与下一步见 `docs/agent-studio/topic-research/SPEC.md`。
+
 ## Web 对话接入同一 Runtime（2026-09-08）
 
 - CLI/Web 共用原 Agent Loop 和 Studio 生产工具；Loop 仅增加宿主提供的 session_file、RuntimeContext。默认 CLI 行为不变，宿主可限定模型工具集合，执行时再次验证。

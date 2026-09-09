@@ -29,6 +29,8 @@ from .studio import (
     PageArgs, CreatorArgs, TopicsArgs, StartRunArgs, GetRunArgs,
     list_creators, list_creator_series, list_series_topics, start_content_run, get_content_run,
     InstallSkillArgs, SkillJobArgs, NoArgs, install_producer_skill, get_skill_install, list_producer_skills,
+    ResearchTopicsArgs, ResearchBatchArgs, SelectResearchArgs,
+    research_series_topics, get_topic_research, prepare_topic_selection,
 )
 
 
@@ -147,6 +149,12 @@ tool_registry = {
         ),
         Tool(name="list_creators", description="分页查询 Studio 运营账号（不是 PersonClone 作者）。先查真实目录，不编造 ID。",
              execute=list_creators, args_model=PageArgs),
+        Tool(name="research_series_topics", description="用户要求栏目选题调研时委托 Codex 联网研究，返回后台批次。只产生候选，不入队、不生产；提交后结束等待，不循环轮询。",
+             execute=research_series_topics, args_model=ResearchTopicsArgs),
+        Tool(name="get_topic_research", description="用户询问进展或要求选择时读取调研批次；ready 且非 stale 才可选，queued=true 的候选不可重复入队。",
+             execute=get_topic_research, args_model=ResearchBatchArgs),
+        Tool(name="prepare_topic_selection", description="把用户选择的候选及标题/切入点修改、顺序生成待确认 Preview，保留来源；不执行入队、不调用生产。歧义先询问。返回链接交用户人工确认。",
+             execute=prepare_topic_selection, args_model=SelectResearchArgs),
         Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，委托 Codex 后台下载检查。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
              execute=install_producer_skill, args_model=InstallSkillArgs),
         Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记。绑定需要用户在栏目页面确认，非图片轮播技能不可绑定。",

@@ -128,8 +128,8 @@ export function OperationDrawer() {
         </article>)}</div>
         {finalQueues.map(c => <section className="final-queue" key={c.series_id}><h3>{c.series_name} · 最终队列</h3><Topics topics={c.after_topics} />{operation.status === "succeeded" && <Link to={"/series/" + c.series_id}>查看栏目 →</Link>}</section>)}
         {editable && <>
-          <label>{operation.status === "needs_clarification" ? "补充信息" : "修改要求"}<textarea rows={3} maxLength={5000} value={text} onChange={e => setEditText(old => ({ ...old, [id!]: e.target.value }))} onKeyDown={e => enter(e, edit)} placeholder="把 Tool Calling 放第二条，其他顺序不变。" /></label>
-          <div className="drawer-foot"><button className="button button-secondary" disabled={disabled || !text.trim()} onClick={edit}>{change.isPending ? "正在处理…" : "更新预览"}</button>
+          {operation.research_selection ? <p className="drawer-hint">需要修改？关闭此预览，回到候选列表调整标题、切入点或顺序，再生成计划。来源会完整保留。</p> : <label>{operation.status === "needs_clarification" ? "补充信息" : "修改要求"}<textarea rows={3} maxLength={5000} value={text} onChange={e => setEditText(old => ({ ...old, [id!]: e.target.value }))} onKeyDown={e => enter(e, edit)} placeholder="把 Tool Calling 放第二条，其他顺序不变。" /></label>}
+          <div className="drawer-foot">{!operation.research_selection && <button className="button button-secondary" disabled={disabled || !text.trim()} onClick={edit}>{change.isPending ? "正在处理…" : "更新预览"}</button>}
             {operation.status === "awaiting_approval" && <button className="button button-primary" disabled={disabled || !!text.trim()} onClick={() => change.mutate({ kind: "confirm", snapshot: operation })}>确认写入队列</button>}
           </div>
           {text.trim() && <p className="drawer-hint">先提交修改或清空输入，再确认当前预览。</p>}

@@ -1,0 +1,21 @@
+.research-panel { --border: #34313d; --surface: #18191e; margin-top: 24px; }
+.research-form { display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: end; margin: 20px 0; }
+.research-panel label { display: grid; gap: 7px; min-width: 0; }
+.research-panel input:not([type=checkbox]), .research-panel textarea, .research-panel select { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 8px; padding: 10px; color: inherit; background: var(--surface); font: inherit; }
+.research-history { max-width: 480px; margin-bottom: 16px; }
+.research-actions { display: flex; gap: 10px; margin: 16px 0; }
+.research-candidates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.research-card { padding: 18px; border: 1px solid var(--border); border-radius: 12px; overflow-wrap: anywhere; }
+.research-card.chosen { border-color: #78948a; background: #78948a09; }
+.research-card .research-check { display: flex; align-items: baseline; gap: 9px; margin-bottom: 14px; }
+.research-panel .research-check input { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; padding: 0; }
+.research-check strong { min-width: 0; flex: 1; line-height: 1.6; }
+.research-card p { line-height: 1.65; }
+.research-card label + label { margin-top: 12px; }
+.research-card details { margin-top: 14px; font-size: .88rem; }
+.research-card summary { cursor: pointer; }
+.research-order { margin-bottom: 18px; }
+.research-order > div { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.research-order span { flex: 1; overflow-wrap: anywhere; }
+.research-order button { background: transparent; color: inherit; border: 1px solid var(--border); border-radius: 5px; padding: 5px 12px; }
+@media (max-width: 700px) { .research-form, .research-candidates { grid-template-columns: 1fr; } .research-panel .section-title { flex-wrap: wrap; } }

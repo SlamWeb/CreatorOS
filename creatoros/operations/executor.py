@@ -89,6 +89,12 @@ class OperationExecutor:
             if creator is None or not creator.is_active:
                 raise OperationConflictError("栏目所属账号已停用，不能执行计划。")
             series_meta[series_id] = (creator.display_name, series.name)
+            for operation in plan.operations:
+                if (isinstance(operation, AddTopicsOperation) and operation.series_id == series_id
+                        and operation.expected_series is not None):
+                    expected = operation.expected_series.model_dump()
+                    if any(getattr(series, key) != value for key, value in expected.items()):
+                        raise OperationConflictError("栏目定位、受众或 Skill 已变化，请按最新配置重新调研。")
             current_topics = repository.list_topics(series_id)
             orders[series_id] = [topic.id for topic in current_topics]
             topic_snapshots[series_id] = {
@@ -134,8 +140,13 @@ class OperationExecutor:
                 )
             )
 
+        plan_payload = plan.model_dump(mode="json")
+        # Preserve tokens of pre-research pending plans, whose JSON had no guard field.
+        for operation in plan_payload["operations"]:
+            if operation.get("expected_series") is None:
+                operation.pop("expected_series", None)
         token_payload = {
-            "plan": plan.model_dump(mode="json"),
+            "plan": plan_payload,
             "initial_orders": initial_orders,
         }
         canonical = json.dumps(

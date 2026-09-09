@@ -1,5 +1,11 @@
 # CreatorOS Operations SPEC
 
+## 调研候选计划（2026-09-09）
+
+- AddTopicsOperation 可携带 expected_series，在 Preview 与事务内确认时校验定位/受众/Skill；旧计划省略该字段时保持原 confirmation token 算法兼容。
+- 候选修改先回候选列表/选择 Tool，不允许通用 Parser 丢弃来源和版本约束。人工选题原有编辑不变；复用原事务与确认服务。
+- 新旧 smoke 均通过；完整证据见 docs/agent-studio/topic-research/SPEC.md。
+
 ## 本轮目标
 
 - 用严格 Pydantic `OperationPlan` 表示“向栏目批量加入选题”和“整列调整选题顺序”。

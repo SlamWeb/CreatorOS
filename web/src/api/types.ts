@@ -156,6 +156,7 @@ export interface PendingOperationView {
   version: number;
   request_text: string;
   scope_series_id: string | null;
+  research_selection?: boolean;
   preview: { changes: PreviewChange[] } | null;
   message: string | null;
   confirmation_token: string | null;

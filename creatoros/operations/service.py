@@ -126,6 +126,7 @@ class PendingOperationService:
             raise PendingOperationError("当前未配置 OperationPlanParser。")
         current = self._require(operation_id)
         self._check_expected_version(current, expected_version, expected_revision)
+        self._check_research_edit(current)
         if current.status not in EDITABLE_STATUSES:
             raise PendingOperationError("当前计划已结束，不能修改。")
         instruction = edit_instruction.strip()
@@ -158,6 +159,7 @@ class PendingOperationService:
     ) -> PendingOperation:
         current = self._require(operation_id)
         self._check_expected_version(current, expected_version, expected_revision)
+        self._check_research_edit(current)
         prepared = self._prepare(parse_result, current.scope_series_id)
         with self.pending_repository.transaction() as repository:
             pending = repository.get(operation_id)
@@ -314,6 +316,11 @@ class PendingOperationService:
 
     def list_actionable(self) -> tuple[PendingOperation, ...]:
         return self.pending_repository.list_actionable()
+
+    @staticmethod
+    def _check_research_edit(pending):
+        if any(op.get("expected_series") for op in (pending.plan_json or {}).get("operations", [])):
+            raise PendingOperationError("调研选题请回到候选列表修改标题、切入点或顺序，再生成 Preview；原计划可取消。")
 
     def _require(self, operation_id: str) -> PendingOperation:
         pending = self.pending_repository.get(operation_id)

@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 栏目选题 Tool（2026-09-09）
+
+- research_series_topics 提交后台研究；get_topic_research 读取状态/候选；prepare_topic_selection 按结构化选择、修改和顺序生成 Preview。CLI/Web 共用 Studio API，确认仍不暴露给模型。
+- 真实 DeepSeek 验证只选 c2 并修改标题成功，候选角度和来源保留；没有生产或确认副作用。详细记录见 docs/agent-studio/topic-research/SPEC.md。
+
 ## Web 宿主范围（2026-09-08）
 
 - RuntimeContext.allowed_tools 为可选宿主范围；Loop 过滤模型 schema，执行器再次拒绝范围外请求。默认 CLI 保留既有完整工具集合。

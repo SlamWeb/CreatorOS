@@ -16,10 +16,18 @@ class TopicDraft(OperationModel):
     source: Literal["research", "manual"] = "manual"
 
 
+class SeriesResearchContext(OperationModel):
+    name: str
+    description: str
+    audience: str
+    skill_name: str
+
+
 class AddTopicsOperation(OperationModel):
     action: Literal["add_topics"] = "add_topics"
     series_id: str = Field(min_length=1, max_length=80)
     topics: list[TopicDraft] = Field(min_length=1)
+    expected_series: SeriesResearchContext | None = None
 
     @model_validator(mode="after")
     def reject_duplicate_topics(self) -> "AddTopicsOperation":

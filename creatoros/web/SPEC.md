@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 栏目选题研究（2026-09-09）
+
+- 新增 research_routes：POST/GET series/{id}/topic-research，GET topic-research/{id}，POST topic-research/{id}/preview。后台研究由 lifespan 管理；选择复用 PendingOperation，模型没有确认权。
+- DTO 标记 research_selection，使共用抽屉提示回候选修改；错误不透传 Codex 原始栈。真实验证见 docs/agent-studio/topic-research/SPEC.md。
+
 ## Web Agent 宿主（2026-09-08）
 
 - 新增 chat/chat_routes：后台单指令宿主调用既有 run_agent；HTTP 提交 + SSE 快照观察，断订阅不取消执行。目录/生产复用五个 Studio Tool，自调用地址来自真实本机监听地址，不读取 Host 或修改全局环境变量。

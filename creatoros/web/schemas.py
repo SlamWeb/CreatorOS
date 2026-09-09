@@ -193,6 +193,7 @@ class PendingOperationView(ApiModel):
     version: int = Field(gt=0)
     request_text: str
     scope_series_id: str | None = None
+    research_selection: bool = False
     preview: OperationPreviewView | None = None
     message: str | None = None
     confirmation_token: str | None = None
