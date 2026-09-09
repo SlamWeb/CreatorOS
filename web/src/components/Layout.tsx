@@ -1,6 +1,7 @@
-import { NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { useHealth } from "../api/hooks";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
+import "./creative-studio.css";
 
 const navItems = [
   { to: "/", label: "今日", icon: "◒" },
@@ -15,14 +16,13 @@ export function Layout() {
   const [, setParams] = useSearchParams();
   const isDetail = location.pathname !== "/" && !navItems.some((item) => item.to !== "/" && location.pathname === item.to);
   return (
-    <div className="studio-shell">
+    <div className={`studio-shell ${location.pathname.startsWith("/series/") ? "series-studio" : ""}`}>
       <aside className="sidebar">
-        <div className="brand-mark" aria-label="CreatorOS">C<span>O</span></div>
-        <div className="brand-name">CreatorOS <span>Studio</span></div>
+        <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M30 9a14 14 0 1 0 0 18l-7-6a5 5 0 1 1 0-6z" fill="#2277f5" /><path d="m30 9-7 6-7-7 6-4z" fill="#74b7ff" /></svg><span>CreatorOS</span></Link>
         <nav className="primary-nav" aria-label="主导航">
           {navItems.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-              <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
+            <NavLink key={item.to} to={item.to} aria-label={item.label} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/creators" && location.pathname.startsWith("/series/")) ? "active" : ""}`}>
+              <span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>
             </NavLink>
           ))}
         </nav>

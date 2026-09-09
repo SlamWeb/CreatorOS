@@ -19,6 +19,7 @@ test("first use to revision and approval survives refresh", async ({ page }, tes
   await page.getByRole("button", { name: "保存栏目" }).click();
   await expect(page.getByRole("heading", { name: "Agent 每日一题" })).toBeVisible();
 
+  await page.getByText("手动添加选题 / 用一句话调整").click();
   await page.getByLabel(/添加选题/).fill("Agent State 和 Messages 有什么区别？");
   await page.getByRole("button", { name: "生成 Preview" }).click();
   const dialog = page.getByRole("dialog", { name: "运营指令" });

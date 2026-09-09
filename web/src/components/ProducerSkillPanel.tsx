@@ -26,7 +26,7 @@ export function ProducerSkillPanel({ seriesId, current }: { seriesId: string; cu
       method: "POST", body: JSON.stringify({ skill_id: choice!.id, expected_skill_name: choice!.expected }) }),
     onSuccess: async () => { setChoice(null); await client.invalidateQueries({ queryKey: ["series", seriesId] }); await client.invalidateQueries({ queryKey: ["creators"] }); } });
   const selected = skills.data?.items.find(s => s.id === choice?.id);
-  return <details className="content-section producer-skill-panel">
+  return <details open className="content-section producer-skill-panel">
     <summary>管理生产 Skill · 从 GitHub 安装 / 更换绑定</summary>
     <p className="page-subtitle">安装交给 Codex，绑定由你确认。不会生成内容，也不会改变已有任务。</p>
     <form className="topic-form" onSubmit={e => { e.preventDefault(); install.mutate(false); }}>
