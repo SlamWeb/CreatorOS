@@ -46,3 +46,9 @@
 - 单命令在隔离数据库的 8881 端口实际启动；`/`、`/runs/restart-check`、`/api/health` 均返回 200，后者是 JSON；`Ctrl+C` 完成应用关闭且无 traceback。
 - 真实 Codex S7 Run 首次生成了图片，但输出一份“制作中”的部分回执后未结束；主动中断后 Run 正确记为 `interrupted`。收紧 Prompt 后显式恢复同一 Run/thread，复用已有图片并完成 7 张真实轮播；重开数据库后状态为 `awaiting_approval`，7 个图片 URL 与 digest 全部通过。
 - 恢复尝试 usage：`input_tokens=404789`、`cached_input_tokens=378752`、`output_tokens=5037`，缓存输入占比约 93.6%。真实 Inspector 已检查首页、中段与收尾卡，完整截图保留在已忽略的 `tmp/s7-final-qa/real-inspector.png`；没有批准或发布。
+
+### Python Codex SDK 迁移后的真实联调（2026-09-10）
+
+- `openai-codex==0.147.0` 已安装到 `deepcode`；Studio 默认 ContentRun 走 `CodexSdkProducer`，固定 `gpt-5.6-luna/xhigh`，Skill 通过原生 `SkillInput` 注入。
+- 隔离 8879 Studio 浏览器真实走通账号/栏目/选题 Preview→确认→开始生产→刷新；本次 Run 因 Plus usage limit 记为 `failed/codex_usage_limit`，页面没有伪造图片或批准按钮。此前独立 SDK Producer 已完成两张真实图片、Manifest 和同 thread resume 验收。
+- 当前 Codex 内置 image tool 的官方文档写明使用 `gpt-image-2`；没有从 SDK 回执中得到 2.5 版本号，因此项目不把此次产物标为 GPT Image 2.5。

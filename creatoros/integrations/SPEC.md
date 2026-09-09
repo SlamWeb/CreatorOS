@@ -71,8 +71,16 @@
 
 ### SDK 接线复核（2026-09-10）
 
+本轮 Studio 验收计划：在 deepcode 安装已声明 SDK；使用 tmp/sdk-studio-qa 独立 SQLite/输出目录和 8879 服务，从浏览器创建账号、栏目、两张图选题并 Preview/确认，再开始真实 SDK 生产。检查切页/刷新不重复 Attempt、产物图片可读、批准为未发布；复用现有故障测试检查错误和版本冲突。不写正式运营库。
+
 - 修复父类初始化覆盖 `CodexSdkProducer.native_skill_inputs` 的问题；现在 SDK Prompt 不重复嵌入 Skill 全文。纯本地回归断言覆盖该行为。
 - 真实 `gpt-5.6-luna / xhigh` 文本请求返回 READY，账户仍为 ChatGPT Plus。随后在 tmp 隔离目录运行两张 HTTP 404 图片的生产验收，不写正式运营库。
 - 真实生成两张 PNG，逐张打开确认中文清晰、暖纸手绘风格一致。首次探针人为设置的 240 秒超时在回执前触发；正式默认仍为 1800 秒。续接同一 thread `01a0874d-8d26-7063-931d-9b0e255a6982`，复用图片补齐回执成功，复制图片及 `SocialContentPack.load()` 通过。
 - 证据目录：`tmp/sdk-production-20260910-015318-resume`，包含 images、social_content_pack.json、production_session.json、codex_trace.jsonl。此次验证生产器及 resume，不等于 Studio 数据库/UI 全链路验收。
 - `tests/live_codex_producer.py` 默认改走 SDK，可通过 `--backend cli` 验证旧路径；`smoke_codex_producer` 通过。SDK 仍在 tmp 隔离依赖目录，deepcode 环境尚未安装。
+
+### Studio 真实联调（2026-09-10）
+
+- 在 `tmp/sdk-studio-qa` 独立 SQLite/输出目录启动 8879 服务，浏览器真实走通创建账号、创建栏目、手动添加选题、Preview、确认入队、开始生产、打开 Run 和刷新页面；刷新没有创建第二个 Attempt。
+- 该 Studio Run 的生产请求被 Codex Plus usage limit 拒绝，Run 持久化为 `failed / codex_usage_limit`，页面保留可解释错误且没有批准入口；本次不重试、不写正式运营库。
+- 已在此前独立 Producer 验收真实生图与 resume；本轮 Studio 只补真实 UI 状态与失败持久化证据。内置 Codex image tool 的当前官方文档标注为 `gpt-image-2`，CreatorOS 没有指定或声称使用 GPT Image 2.5；`gpt-5.6-luna/xhigh` 是执行模型配置，不是底层生图模型。
