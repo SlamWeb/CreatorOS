@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -163,6 +164,7 @@ class CodexProducer:
         self.generated_images_root = Path(generated_images_root).resolve()
         self.executable = executable
         self.timeout_seconds = timeout_seconds
+        self.native_skill_inputs = False
 
     @classmethod
     def from_defaults(cls) -> "CodexProducer":
@@ -219,6 +221,7 @@ class CodexProducer:
         now = datetime.now().astimezone()
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=False)
+        skill_dir = self._resolve_skill_dir(skill_name, skills_root)
         prompt = self._build_prompt(
             creator_id,
             series_id,
@@ -229,6 +232,7 @@ class CodexProducer:
             audience=audience,
             skill_name=skill_name,
             skills_root=skills_root,
+            skill_dir=skill_dir,
             revision_instruction=revision_instruction,
         )
         try:
@@ -236,6 +240,8 @@ class CodexProducer:
                 prompt,
                 directory,
                 thread_id=thread_id,
+                skill_name=skill_name,
+                skill_path=skill_dir / "SKILL.md",
                 on_thread_started=on_thread_started,
                 cancel_event=cancel_event,
                 on_process_started=on_process_started,
@@ -274,6 +280,8 @@ class CodexProducer:
         working_directory: Path,
         *,
         thread_id: str | None = None,
+        skill_name: str = "knowledge-to-carousel",
+        skill_path: Path | None = None,
         on_thread_started: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
@@ -365,6 +373,15 @@ class CodexProducer:
             )
         return parse_codex_jsonl(stdout, fallback_thread_id=thread_id or "", receipt_model=self.receipt_model)
 
+    def _resolve_skill_dir(self, skill_name: str, skills_root: Path | None) -> Path:
+        from .producer_skills import ProducerSkillCatalog
+
+        catalog = ProducerSkillCatalog(
+            skills_root or self.project_root / "data" / "producer-skills",
+            self.project_root,
+        )
+        return catalog.resolve(skill_name)
+
     def _command(
         self,
         schema_path: Path,
@@ -409,12 +426,11 @@ class CodexProducer:
         audience: str = "",
         skill_name: str = "knowledge-to-carousel",
         skills_root: Path | None = None,
+        skill_dir: Path | None = None,
         revision_instruction: str | None = None,
     ) -> str:
-        from .producer_skills import ProducerSkillCatalog
-        catalog = ProducerSkillCatalog(skills_root or self.project_root / "data" / "producer-skills", self.project_root)
-        skill_dir = catalog.resolve(skill_name)
-        skill = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        skill_dir = skill_dir or self._resolve_skill_dir(skill_name, skills_root)
+        skill = "" if self.native_skill_inputs else (skill_dir / "SKILL.md").read_text(encoding="utf-8")
         contract = (self.project_root / "creatoros" / "skills" / "knowledge-to-carousel" / "references" / "social-content-pack.md").read_text(
             encoding="utf-8"
         )
@@ -423,8 +439,13 @@ class CodexProducer:
             if revision_instruction and revision_instruction.strip()
             else ""
         )
+        skill_block = (
+            f"{skill}\n\n"
+            if skill
+            else "本次 Skill 将通过 Codex SDK 的原生 SkillInput 注入；请读取其完整 SKILL.md，并按其相对路径解析附属资源。\n\n"
+        )
         return (
-            f"{skill}\n\n{contract}\n\n"
+            f"{skill_block}{contract}\n\n"
             f"本次 Skill 文件：{skill_dir / 'SKILL.md'}；附属 references/assets/scripts 相对此目录解析。\n"
             "你处于 CreatorOS receipt mode。请完成整篇图片轮播并真实调用图片生成能力。"
             "不要写最终 Manifest，也不要复制图片；最终只返回 output schema 要求的 JSON。"
@@ -498,3 +519,174 @@ class CodexProducer:
         )
         (directory / MANIFEST_FILENAME).write_text(pack.model_dump_json(indent=2), encoding="utf-8")
         return SocialContentPack.load(directory)
+
+
+class CodexSdkProducer(CodexProducer):
+    """Content producer backed by the local Codex app-server Python SDK."""
+
+    native_skill_inputs = True
+
+    @classmethod
+    def from_defaults(cls) -> "CodexSdkProducer":
+        from ..config import CODEX_PRODUCER_TIMEOUT_SECONDS, PROJECT_ROOT
+
+        codex_home = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex")
+        return cls(
+            project_root=PROJECT_ROOT,
+            generated_images_root=codex_home / "generated_images",
+            timeout_seconds=CODEX_PRODUCER_TIMEOUT_SECONDS,
+        )
+
+    def _execute(
+        self,
+        prompt: str,
+        working_directory: Path,
+        *,
+        thread_id: str | None = None,
+        skill_name: str = "knowledge-to-carousel",
+        skill_path: Path | None = None,
+        on_thread_started: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        on_process_started: Callable[[dict], None] | None = None,
+        on_process_stopped: Callable[[], None] | None = None,
+    ) -> CodexRun:
+        del on_process_started
+        try:
+            return asyncio.run(
+                self._execute_async(
+                    prompt,
+                    working_directory,
+                    thread_id=thread_id,
+                    skill_name=skill_name,
+                    skill_path=skill_path,
+                    on_thread_started=on_thread_started,
+                    cancel_event=cancel_event,
+                )
+            )
+        finally:
+            if on_process_stopped is not None:
+                on_process_stopped()
+
+    async def _execute_async(
+        self,
+        prompt: str,
+        working_directory: Path,
+        *,
+        thread_id: str | None,
+        skill_name: str,
+        skill_path: Path | None,
+        on_thread_started: Callable[[str], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> CodexRun:
+        try:
+            from openai_codex import ApprovalMode, AsyncCodex, Sandbox, SkillInput, TextInput
+        except ImportError as error:
+            raise CodexProducerError(
+                "未安装 openai-codex；请在当前 Python 环境执行 pip install openai-codex。",
+                error_type="codex_sdk_not_installed",
+            ) from error
+
+        if skill_path is None or not skill_path.is_file():
+            raise CodexProducerError("生产 Skill 文件不存在。", error_type="skill_not_found")
+
+        inputs = [
+            TextInput(text=prompt),
+            SkillInput(name=skill_name, path=str(skill_path.resolve())),
+        ]
+        try:
+            async with AsyncCodex() as codex:
+                if thread_id:
+                    thread = await codex.thread_resume(
+                        thread_id,
+                        approval_mode=ApprovalMode.deny_all,
+                        cwd=str(working_directory),
+                        model="gpt-5.6-luna",
+                        sandbox=Sandbox.read_only,
+                    )
+                else:
+                    thread = await codex.thread_start(
+                        approval_mode=ApprovalMode.deny_all,
+                        cwd=str(working_directory),
+                        model="gpt-5.6-luna",
+                        sandbox=Sandbox.read_only,
+                    )
+                if on_thread_started is not None:
+                    on_thread_started(thread.id)
+
+                turn = await thread.turn(
+                    inputs,
+                    cwd=str(working_directory),
+                    effort="xhigh",
+                    model="gpt-5.6-luna",
+                    output_schema=self.receipt_model.model_json_schema(),
+                    sandbox=Sandbox.read_only,
+                )
+                task = asyncio.create_task(turn.run())
+                started = monotonic()
+                interruption: str | None = None
+                while not task.done():
+                    if cancel_event is not None and cancel_event.is_set():
+                        interruption = "codex_interrupted"
+                        await turn.interrupt()
+                        break
+                    if monotonic() - started >= self.timeout_seconds:
+                        interruption = "codex_timeout"
+                        await turn.interrupt()
+                        break
+                    await asyncio.sleep(0.1)
+                if interruption is not None:
+                    try:
+                        await task
+                    except Exception:
+                        pass
+                    message = "本地执行器已停止生产。" if interruption == "codex_interrupted" else "Codex 内容生产超时。"
+                    raise CodexProducerError(message, error_type=interruption)
+                result = await task
+        except CodexProducerError:
+            raise
+        except Exception as error:
+            message = str(error) or error.__class__.__name__
+            error_type = "codex_usage_limit" if "usage limit" in message.lower() else "codex_sdk_failed"
+            raise CodexProducerError(f"Codex SDK 执行失败：{message}", error_type=error_type) from error
+
+        usage = self._sdk_usage(result.usage)
+        trace = working_directory / "codex_trace.jsonl"
+        with trace.open("w", encoding="utf-8") as stream:
+            stream.write(json.dumps({
+                "type": "thread.started",
+                "thread_id": thread.id,
+                "backend": "python-codex-sdk",
+                "model": "gpt-5.6-luna",
+                "reasoning_effort": "xhigh",
+            }, ensure_ascii=False) + "\n")
+            stream.write(json.dumps({
+                "type": "turn.completed",
+                "thread_id": thread.id,
+                "turn_id": result.id,
+                "status": str(result.status),
+                "usage": usage.model_dump(),
+            }, ensure_ascii=False) + "\n")
+
+        final_text = result.final_response or ""
+        if not final_text:
+            raise CodexProducerError("Codex SDK 未返回最终生产回执。", error_type="codex_protocol_error")
+        try:
+            receipt = self.receipt_model.model_validate_json(final_text)
+        except Exception as error:
+            raise CodexProducerError(
+                f"Codex SDK 生产回执不符合约定：{error}",
+                error_type="invalid_production_receipt",
+            ) from error
+        return CodexRun(thread.id, receipt, usage)
+
+    @staticmethod
+    def _sdk_usage(value) -> CodexUsage:
+        if value is None:
+            return CodexUsage()
+        total = value.total
+        return CodexUsage(
+            input_tokens=total.input_tokens,
+            cached_input_tokens=total.cached_input_tokens,
+            output_tokens=total.output_tokens,
+            reasoning_output_tokens=total.reasoning_output_tokens,
+        )

@@ -10,6 +10,16 @@
 - 已有 ContentRun 的 skill_name 是输入快照，新版本绑定只影响新 Run；生产器按版本 ID 查找文件，Manifest 记录实际使用 ID。内置 knowledge-to-carousel 向后兼容。
 - 当前只接受图片轮播生产契约；非轮播技能可以登记，但不可绑定生产。Codex 的兼容判断仅是预检，不等于真实生产验收。
 
+## Python SDK 接线（2026-09-09）
+
+- Skill 的下载、Git commit/digest 固定和栏目绑定仍由 CreatorOS 完成；这一步不再把“安装 Skill”理解成安装到 Codex CLI 全局目录。
+- ContentRun 默认通过 `CodexSdkProducer` 调用本机 Codex app-server，使用 `SkillInput(name, path)` 把已核验版本传给 Codex。CLI 仅保留在 topic research/兼容路径，不参与新的内容生产默认路径。
+- SDK 使用 `gpt-5.6-luna` + `xhigh`，复用本机 ChatGPT Plus 登录态；若本机未登录或额度耗尽，Run 必须落为结构化 `codex_sdk_failed`/`codex_usage_limit`，不能伪造完成。
+
+### 真实 SDK smoke（2026-09-09）
+
+- 隔离 `openai-codex==0.147.0` 已确认 SDK 能看到本机 `chatgpt / plus` 登录态，并接受原生 `SkillInput`；本次真实 turn 因官方 usage limit 被拒，未触发生图或发布。
+
 ## 实际入口与存放
 
 - Agent 新增 install_producer_skill、get_skill_install、list_producer_skills，Web/CLI 共用 StudioClient，不连接 GitHub MCP。

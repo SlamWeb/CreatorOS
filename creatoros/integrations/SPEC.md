@@ -55,3 +55,16 @@
 ## 生产 Skill 安装与动态接线（2026-09-08）
 
 - producer_skills 复用 Codex JSONL/output-schema/进程回收，安装用独立 workspace-write；真实 Git 文件核验后登记版本。生产 Prompt 和 Manifest 改为实际 skill_name，保留内置默认兼容。验证见 docs/agent-studio/producer-skills/SPEC.md。
+
+## Python Codex SDK 内容生产（2026-09-09）
+
+- ContentRun/`produce_content_pack` 默认使用 `CodexSdkProducer`，通过本机 Codex app-server 的 Python SDK 通信，不再为内容生产依赖 `codex` 可执行文件出现在 Web 后台的 PATH 中。
+- 每篇内容仍创建或恢复一个独立 Codex thread；thread/turn 显式使用 `gpt-5.6-luna` 与 `xhigh`，并设置 `deny_all + read_only`，避免生产器隐式修改 CreatorOS 工作区。
+- CreatorOS 对已核验的 Skill 继续保存 commit/digest 版本；SDK 路径用原生 `SkillInput(name, path)` 注入 Skill，不再把完整 `SKILL.md` 复制进 Prompt。ContentRun 和 Manifest 仍记录实际 Skill 版本。
+- SDK 复用本机 ChatGPT 登录态（Plus 账户），不要求 CreatorOS 配置 OpenAI API Key。`CodexProducer` CLI 实现暂时保留给 topic research 与兼容路径；两条路径都遵守同一 receipt schema 和图片目录隔离。
+- SDK 目前落盘紧凑的 thread/turn 摘要 Trace，尚未声称与 CLI 的完整 JSONL 事件等价；真实生图、取消和 resume 仍按 ContentRun 的隔离 smoke/人工验收逐项验证。
+
+### 真实 SDK smoke（2026-09-09）
+
+- 使用隔离安装的 `openai-codex==0.147.0` 真实调用本机 app-server：账户身份返回 `chatgpt / plus`，请求显式携带 `gpt-5.6-luna`、`xhigh` 和本地 `SkillInput`。
+- turn 在服务端返回官方 usage-limit 错误，未进入生图；CreatorOS 已将该错误映射为 `codex_usage_limit`，不伪造 ContentRun 完成。额度恢复后再做真实图片产物验收。

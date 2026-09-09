@@ -28,14 +28,14 @@ export function ProducerSkillPanel({ seriesId, current }: { seriesId: string; cu
   const selected = skills.data?.items.find(s => s.id === choice?.id);
   return <details open className="content-section producer-skill-panel">
     <summary>管理生产 Skill · 从 GitHub 安装 / 更换绑定</summary>
-    <p className="page-subtitle">安装交给 Codex，绑定由你确认。不会生成内容，也不会改变已有任务。</p>
+    <p className="page-subtitle">CreatorOS 下载并核验 Git 版本，绑定由你确认。不会生成内容，也不会改变已有任务。</p>
     <form className="topic-form" onSubmit={e => { e.preventDefault(); install.mutate(false); }}>
       <label>GitHub Skill 链接<input aria-label="GitHub Skill 链接" type="url" required value={url} onChange={e => setUrl(e.target.value)} placeholder="https://github.com/owner/repo/tree/main/skill" /></label>
-      <button className="button button-secondary" disabled={!url || install.isPending || job.data?.status === "installing"}>交给 Codex 安装</button>
+      <button className="button button-secondary" disabled={!url || install.isPending || job.data?.status === "installing"}>安装 GitHub Skill</button>
     </form>
     {install.error && <p className="form-error">{install.error.message} 可重新提交同一链接查询已有任务，不会重复安装。</p>}
     {job.data && <p role="status">{job.data.status} · {job.data.message}</p>}
-    {job.data && ["failed", "interrupted"].includes(job.data.status) && <button type="button" className="button button-secondary" disabled={install.isPending} onClick={() => install.mutate(true)}>重新调用 Codex 安装（消耗额度）</button>}
+    {job.data && ["failed", "interrupted"].includes(job.data.status) && <button type="button" className="button button-secondary" disabled={install.isPending} onClick={() => install.mutate(true)}>重新安装</button>}
     {job.error && <p className="form-error">{job.error.message}</p>}
     {skills.error && <p className="form-error">{skills.error.message}</p>}
     <label>已安装技能<select aria-label="已安装技能" value={choice?.id ?? ""} onChange={e => { setChoice(e.target.value ? { id: e.target.value, expected: current } : null); bind.reset(); }}>

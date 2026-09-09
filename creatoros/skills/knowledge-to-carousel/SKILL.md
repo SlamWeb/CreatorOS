@@ -1,6 +1,7 @@
 ---
 name: knowledge-to-carousel
 description: Turn one knowledge topic into an original, beginner-friendly, publish-ready image carousel with big visuals and few words.
+creatoros-output: social-content-pack.image-carousel
 ---
 
 # Knowledge to Carousel

@@ -4,10 +4,10 @@ import json
 from collections.abc import Callable
 
 from ..context import RuntimeContext
-from ..integrations.codex import CodexProducer, CodexProducerError
+from ..integrations.codex import CodexProducer, CodexProducerError, CodexSdkProducer
 from .results import ToolResult
 
-_producer_factory: Callable[[], CodexProducer] = CodexProducer.from_defaults
+_producer_factory: Callable[[], CodexProducer] = CodexSdkProducer.from_defaults
 
 
 def produce_content_pack(

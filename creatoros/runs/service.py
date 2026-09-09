@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from sqlalchemy import update
 
-from creatoros.integrations.codex import CodexProducer, ProducedPack
+from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
 from creatoros.integrations.producer_skills import skills_root_for
 from creatoros.storage import (
     ContentAttempt,
@@ -66,7 +66,7 @@ class ContentRunService:
         self,
         database: Database,
         *,
-        producer_factory: Callable[[], CodexProducer] = CodexProducer.from_defaults,
+        producer_factory: Callable[[], CodexProducer] = CodexSdkProducer.from_defaults,
         output_root: Path | None = None,
         lease_seconds: float = 30.0,
     ):

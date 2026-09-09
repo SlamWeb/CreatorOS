@@ -3,13 +3,12 @@ import json
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from creatoros.integrations.codex import CodexProducer, CodexUsage
+from creatoros.integrations.codex import CodexProducer
 from creatoros.integrations.producer_skills import (
-    ProducerSkillCatalog, SkillInstallService, InstallReceipt, github_url, skills_root_for,
+    ProducerSkillCatalog, SkillInstallService, InstallReceipt, _inspect_checkout, github_url, skills_root_for,
 )
 from creatoros.runs import ContentRunService
 from creatoros.storage import Database, upgrade_database, Topic, TopicSource
@@ -19,7 +18,7 @@ from creatoros.web import create_app
 def fixture(workspace, compatible=True):
     source = workspace / "source"
     source.mkdir(parents=True)
-    (source / "SKILL.md").write_text("---\nname: test-carousel\ndescription: Test image carousel\n---\nSPECIAL_SKILL_MARKER\n", encoding="utf-8")
+    (source / "SKILL.md").write_text("---\nname: test-carousel\ndescription: Test image carousel\ncreatoros-output: social-content-pack.image-carousel\n---\nSPECIAL_SKILL_MARKER\n", encoding="utf-8")
     for args in [("init",), ("add", "."), ("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"),
                  ("remote", "add", "origin", "https://github.com/example/test")]:
         subprocess.run(["git", "-C", str(source), *args], check=True, capture_output=True)
@@ -35,6 +34,8 @@ def main():
         catalog = ProducerSkillCatalog(skills_root_for(db))
         workspace = root / "fixture"
         receipt = fixture(workspace)
+        inspected = _inspect_checkout(workspace / "source", None)
+        assert inspected.carousel_compatible and inspected.skill_path == "."
         record = catalog.register(workspace, "https://github.com/example/test", receipt)
         skill_id = record["id"]
         assert catalog.resolve(skill_id).is_dir()
@@ -77,8 +78,7 @@ def main():
             calls = 0
             def install(self, url, directory, cancel):
                 self.calls += 1
-                assert (directory / ".git").is_dir()
-                return SimpleNamespace(receipt=fixture(directory), thread_id="test", usage=CodexUsage())
+                return fixture(directory)
         local = LocalInstaller()
         service = SkillInstallService(ProducerSkillCatalog(root / "jobs-test"), installer=local)
         job = service.submit("https://github.com/example/test")
