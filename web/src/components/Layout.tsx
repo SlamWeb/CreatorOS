@@ -1,7 +1,6 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { useHealth } from "../api/hooks";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
-import "./creative-studio.css";
 
 const navItems = [
   { to: "/", label: "今日", icon: "◒" },
@@ -14,7 +13,7 @@ export function Layout() {
   const location = useLocation();
   const health = useHealth();
   const [, setParams] = useSearchParams();
-  const isDetail = location.pathname !== "/" && !navItems.some((item) => item.to !== "/" && location.pathname === item.to);
+  const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/runs") ? "内容运行" : location.pathname === "/" ? "今天" : "账号与栏目";
   return (
     <div className={`studio-shell ${location.pathname.startsWith("/series/") ? "series-studio" : ""}`}>
       <aside className="sidebar">
@@ -34,8 +33,7 @@ export function Layout() {
       <main className="main-content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{isDetail ? "STUDIO / DETAIL" : "STUDIO / WORKSPACE"}</p>
-            <p className="topbar-caption">把栏目选题变成可检查的内容生产</p>
+            <p className="topbar-title">{section}</p>
           </div>
           <div className="topbar-actions"><button className="command-trigger" type="button" onClick={() => setParams(p => { p.delete("operation"); p.set("command", "new"); return p; })}>运营指令 <kbd>Ctrl K</kbd></button><HealthStatus health={health} /></div>
         </header>

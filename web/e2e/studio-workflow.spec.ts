@@ -77,4 +77,27 @@ test("first use to revision and approval survives refresh", async ({ page }, tes
   const width = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: window.innerWidth }));
   expect(width.body).toBeLessThanOrEqual(width.viewport);
   await page.screenshot({ path: testInfo.outputPath("06-mobile-approved.png"), fullPage: true });
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    for (const route of ["/", "/creators", "/runs", "/agent"]) {
+      await page.goto(route);
+      await expect(page.locator("h1")).toBeVisible();
+      await expect(page.locator(".studio-shell")).toHaveCSS("background-color", "rgb(246, 248, 252)");
+      await page.screenshot({ path: testInfo.outputPath(`theme-${route.slice(1) || "today"}-${viewport.width}.png`), fullPage: true });
+      const overflow = await page.evaluate(() => [...document.querySelectorAll("main *")].filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => ({ tag: el.tagName, cls: el.className, right: el.getBoundingClientRect().right })));
+      expect(overflow, route).toEqual([]);
+    }
+  }
+  await page.getByRole("button", { name: "看看我的账号和栏目 ↗" }).click();
+  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("看看我有哪些账号和栏目，先不要生产。");
+  await page.getByRole("button", { name: /运营指令/ }).click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  // Failure injection verifies readable feedback without making a model call.
+  await page.route("**/api/agent/sessions", route => route.fulfill({ status: 503, json: { error: { message: "隔离验收：服务暂不可用" } } }));
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("隔离验收：服务暂不可用", { timeout: 15_000 });
+  await page.screenshot({ path: testInfo.outputPath("agent-error-mobile.png"), fullPage: true });
 });

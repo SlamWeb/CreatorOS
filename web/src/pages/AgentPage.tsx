@@ -93,7 +93,7 @@ export function AgentPage() {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
       <div><span role="status">{send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]} · Enter 发送</span>
-        <button className="button primary" disabled={!draft.trim() || send.isPending || doc?.status === "running" || (!!id && !doc)}>发送 ↑</button></div>
+        <button className="button button-primary" disabled={!draft.trim() || send.isPending || doc?.status === "running" || (!!id && !doc)}>发送 ↑</button></div>
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     <p className="agent-note">离开页面不取消已提交的指令；服务停止会中断对话，不会自动重跑。<Link to="/runs">查看运行记录 ↗</Link></p>
