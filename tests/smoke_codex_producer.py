@@ -7,6 +7,7 @@ import creatoros.tools.content as content_tools
 from creatoros.ai.types import ToolCall
 from creatoros.integrations.codex import (
     CodexProducer,
+    CodexSdkProducer,
     CodexProducerError,
     CodexRun,
     CodexUsage,
@@ -99,6 +100,10 @@ def main() -> None:
             root / "creatoros" / "skills" / "knowledge-to-carousel",
         )
         generated_root = root / "codex-generated"
+        sdk = CodexSdkProducer(project_root=root, generated_images_root=generated_root)
+        prompt = sdk._build_prompt("creator", "series", "topic", "HTTP 404")
+        assert "SkillInput" in prompt
+        assert "# Knowledge to Carousel" not in prompt
         source = generated_root / "thread-1" / "exec-image.png"
         source.parent.mkdir(parents=True)
         source.write_bytes(b"fake png")

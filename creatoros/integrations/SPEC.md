@@ -68,3 +68,11 @@
 
 - 使用隔离安装的 `openai-codex==0.147.0` 真实调用本机 app-server：账户身份返回 `chatgpt / plus`，请求显式携带 `gpt-5.6-luna`、`xhigh` 和本地 `SkillInput`。
 - turn 在服务端返回官方 usage-limit 错误，未进入生图；CreatorOS 已将该错误映射为 `codex_usage_limit`，不伪造 ContentRun 完成。额度恢复后再做真实图片产物验收。
+
+### SDK 接线复核（2026-09-10）
+
+- 修复父类初始化覆盖 `CodexSdkProducer.native_skill_inputs` 的问题；现在 SDK Prompt 不重复嵌入 Skill 全文。纯本地回归断言覆盖该行为。
+- 真实 `gpt-5.6-luna / xhigh` 文本请求返回 READY，账户仍为 ChatGPT Plus。随后在 tmp 隔离目录运行两张 HTTP 404 图片的生产验收，不写正式运营库。
+- 真实生成两张 PNG，逐张打开确认中文清晰、暖纸手绘风格一致。首次探针人为设置的 240 秒超时在回执前触发；正式默认仍为 1800 秒。续接同一 thread `01a0874d-8d26-7063-931d-9b0e255a6982`，复用图片补齐回执成功，复制图片及 `SocialContentPack.load()` 通过。
+- 证据目录：`tmp/sdk-production-20260910-015318-resume`，包含 images、social_content_pack.json、production_session.json、codex_trace.jsonl。此次验证生产器及 resume，不等于 Studio 数据库/UI 全链路验收。
+- `tests/live_codex_producer.py` 默认改走 SDK，可通过 `--backend cli` 验证旧路径；`smoke_codex_producer` 通过。SDK 仍在 tmp 隔离依赖目录，deepcode 环境尚未安装。

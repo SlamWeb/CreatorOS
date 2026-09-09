@@ -1,14 +1,16 @@
 import argparse
 
-from creatoros.integrations.codex import CodexProducer
+from creatoros.integrations.codex import CodexProducer, CodexSdkProducer
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", choices=["sdk", "cli"], default="sdk")
     parser.add_argument("--topic-id", default="http-404")
     parser.add_argument("--topic-title", default="HTTP 404 到底是什么意思")
     args = parser.parse_args()
-    produced = CodexProducer.from_defaults().produce(
+    producer = CodexSdkProducer if args.backend == "sdk" else CodexProducer
+    produced = producer.from_defaults().produce(
         creator_id="creatoros-lab",
         series_id="knowledge-cards",
         topic_id=args.topic_id,

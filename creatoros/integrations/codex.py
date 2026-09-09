@@ -164,7 +164,7 @@ class CodexProducer:
         self.generated_images_root = Path(generated_images_root).resolve()
         self.executable = executable
         self.timeout_seconds = timeout_seconds
-        self.native_skill_inputs = False
+        self.native_skill_inputs = getattr(type(self), "native_skill_inputs", False)
 
     @classmethod
     def from_defaults(cls) -> "CodexProducer":
