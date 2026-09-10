@@ -11,7 +11,7 @@ import httpx
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
 from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.runs import ContentRunService
-from creatoros.storage import Database, ContentRepository, upgrade_database
+from creatoros.storage import Database, ContentRepository, Series, Topic, TopicSource, upgrade_database
 from creatoros.web import create_app
 from tests.agent_studio_support import serve
 from tests.smoke_topic_research import seed_batch
@@ -22,6 +22,11 @@ CASES = [
     {"id": "select_second", "prompt": "读取调研批次 {batch}，只选第二条，保留原内容，生成入队预览供我确认。不要入队或生产。", "selection": ["c2"]},
     {"id": "rename", "prompt": "读取调研批次 {batch}，只选第二条，标题改成‘上下文不是越长越好’，切入点和来源保持原样。生成预览，不要确认或生产。", "selection": ["c2"], "title": "上下文不是越长越好"},
     {"id": "batch_order", "prompt": "读取调研批次 {batch}，两条都要，把第二条放在第一条前面。保留原文，准备入队预览让我确认，先不要入队和生产。", "selection": ["c2", "c1"]},
+    {"id": "change_mind", "group": "advanced", "prompt": "读取调研批次 {batch}，两条都选，原顺序生成预览，不确认、不生产。",
+     "followup": "改一下，刚才第二条不要了，只留第一条，标题改成‘工具调用是谁在执行’，保留切入点和来源，重新给我预览。", "selection": ["c1"], "title": "工具调用是谁在执行"},
+    {"id": "ambiguous_series", "group": "advanced", "prompt": "帮我选每日图解AI栏目下的第一个选题，准备生产前的预览，先不要实际生产。", "selection": [], "mode": "clarify"},
+    {"id": "stale_batch", "group": "advanced", "prompt": "先读调研批次 {batch}，告诉我有哪些候选，不要选择，不要调研或生产。",
+     "followup": "现在把刚才第二条做成入队预览。不要重新调研，不确认也不生产。", "selection": [], "mode": "stale"},
 ]
 FORBIDDEN = {"start_content_run", "research_series_topics", "install_producer_skill"}
 
@@ -45,6 +50,24 @@ def grade_preview(after, expected, topic_id, replacement_title=None):
     }
 
 
+def send_turn(client, doc, text):
+    response = client.post(f"/api/agent/sessions/{doc['id']}/turns", json={
+        "request_id": str(uuid4()), "expected_version": doc["version"], "text": text})
+    response.raise_for_status()
+    deadline = monotonic() + 180
+    while monotonic() < deadline:
+        doc = client.get(f"/api/agent/sessions/{doc['id']}").json()
+        if doc["status"] != "running":
+            return doc
+        sleep(0.5)
+    raise TimeoutError("Agent turn exceeded 180 seconds")
+
+
+def queue_snapshot(db, series_ids):
+    return {sid: [(t.id, t.title, t.brief, t.position, t.status.value)
+                  for t in ContentRepository(db).list_topics(sid)] for sid in series_ids}
+
+
 def evaluate(case, root):
     root.mkdir(parents=True)
     url = f"sqlite:///{(root / 'eval.db').resolve().as_posix()}"
@@ -63,19 +86,33 @@ def evaluate(case, root):
         with serve(app) as base, httpx.Client(base_url=base, timeout=20) as client:
             creator = client.post("/api/creators", json={"display_name": "知识实验室"}).json()
             series = client.post(f"/api/creators/{creator['id']}/series", json={"name": "每日图解AI"}).json()
+            series_ids = [series["id"]]
+            if case.get("mode") == "clarify":
+                second = client.post("/api/creators", json={"display_name": "编程手记"}).json()
+                other = client.post(f"/api/creators/{second['id']}/series", json={"name": "每日图解AI"}).json()
+                series_ids.append(other["id"])
+                with db.session() as session:
+                    for index, sid in enumerate(series_ids):
+                        session.add(Topic(id=f"ambiguous-topic-{index}", series_id=sid,
+                                          title=f"待选知识点{index + 1}", position=1,
+                                          source=TopicSource.MANUAL))
+            initial_queue = queue_snapshot(db, series_ids)
             batch = seed_batch(research, series["id"])
             doc = client.post("/api/agent/sessions", json={}).json()
             report["session_id"] = doc["id"]
-            response = client.post(f"/api/agent/sessions/{doc['id']}/turns", json={
-                "request_id": str(uuid4()), "expected_version": doc["version"],
-                "text": case["prompt"].format(batch=batch["id"])})
-            response.raise_for_status()
-            deadline = monotonic() + 180
-            while monotonic() < deadline:
-                doc = client.get(f"/api/agent/sessions/{doc['id']}").json()
-                if doc["status"] != "running":
-                    break
-                sleep(0.5)
+            doc = send_turn(client, doc, case["prompt"].format(batch=batch["id"]))
+            message_path = root / "eval-agent-sessions" / doc["id"] / "messages.json"
+            first_messages = json.loads(message_path.read_text(encoding="utf-8"))
+            last_turn_offset = 0
+            if "followup" in case:
+                if case.get("mode") == "stale":
+                    with db.session() as session:
+                        session.get(Series, series["id"]).audience = "已改为资深工程师"
+                    report["checks"]["fixture_is_stale"] = research.get(batch["id"])["stale"]
+                report["checks"]["first_turn_completed"] = doc["status"] == "idle"
+                write_report(root / "first_turn.json", doc)
+                last_turn_offset = len(first_messages)
+                doc = send_turn(client, doc, case["followup"])
             report["checks"]["completed"] = doc["status"] == "idle"
             message_path = root / "eval-agent-sessions" / doc["id"] / "messages.json"
             messages = json.loads(message_path.read_text(encoding="utf-8"))
@@ -84,19 +121,27 @@ def evaluate(case, root):
             report["tool_calls"] = calls
             report["messages_path"] = str(message_path.resolve())
             report["checks"]["no_forbidden_calls"] = not FORBIDDEN.intersection(names)
-            report["checks"]["queue_unchanged"] = not ContentRepository(db).list_topics(series["id"])
+            report["checks"]["queue_unchanged"] = queue_snapshot(db, series_ids) == initial_queue
+            final_messages = messages[last_turn_offset:]
+            final_names = [c["name"] for m in final_messages for c in m.get("tool_calls", [])]
+            report["final_answer"] = "\n".join(m.get("content") or "" for m in final_messages if m["role"] == "assistant" and not m.get("tool_calls"))
             usage = [e for e in doc["entries"] if e["kind"] == "usage"]
             report["model_calls_with_usage"] = len(usage)
             if usage:
                 report["usage"] = {k: sum(e[k] for e in usage) if all(isinstance(e.get(k), int) for e in usage) else None
                                    for k in ("input_tokens", "output_tokens", "cache_hit_tokens")}
-            if not case["selection"]:
+            if case.get("mode") in {"clarify", "stale"}:
+                report["checks"]["no_preview_attempt"] = "prepare_topic_selection" not in final_names
+                report["checks"]["state_queried"] = ("get_topic_research" in final_names if case["mode"] == "stale"
+                                                     else {"list_creators", "list_creator_series"}.issubset(names))
+                report["answer_review"] = "required: clarify both accounts or explain stale candidates; inspect final_answer"
+            elif not case["selection"]:
                 answer = "\n".join(e.get("text", "") for e in doc["entries"] if e["kind"] == "assistant")
                 report["checks"]["catalog_queried"] = {"list_creators", "list_creator_series"}.issubset(names)
                 report["checks"]["correct_series_in_answer"] = "每日图解AI" in answer
             else:
                 results = []
-                for m in messages:
+                for m in final_messages:
                     if m["role"] == "tool":
                         try:
                             value = json.loads(m["content"])
@@ -125,12 +170,15 @@ def evaluate(case, root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=[c["id"] for c in CASES])
+    parser.add_argument("--group", choices=["basic", "advanced", "all"], default="all")
     args = parser.parse_args()
     root = Path("tmp") / ("studio-eval-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
     root.mkdir(parents=True)
-    report = {"dataset": "studio-development-v1", "synthetic_candidates": True, "results": []}
+    report = {"dataset": "studio-development-v2", "synthetic_candidates": True, "results": []}
     for case in CASES:
         if args.case and args.case != case["id"]:
+            continue
+        if not args.case and args.group != "all" and case.get("group", "basic") != args.group:
             continue
         result = evaluate(case, root / case["id"])
         report["results"].append(result)
