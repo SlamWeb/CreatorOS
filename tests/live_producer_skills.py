@@ -1,4 +1,4 @@
-"""Opt-in real Codex install of our existing carousel Skill into an isolated catalog.
+"""Real GitHub install of our existing carousel Skill into an isolated catalog.
 
 No image generation, publication or writes to the operational database.
 """

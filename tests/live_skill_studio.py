@@ -50,9 +50,20 @@ def main():
         # Check persisted runtime messages, not just the model's verbal claim.
         message_file = args.root / "creatoros-agent-sessions" / doc["id"] / "messages.json"
         messages = json.loads(message_file.read_text(encoding="utf-8"))
-        assert "list_producer_skills" in json.dumps(messages)
+        calls = [call["name"] for message in messages for call in message.get("tool_calls", [])]
+        assert "list_producer_skills" in calls, calls
+        assert not {"install_producer_skill", "start_content_run", "research_series_topics"}.intersection(calls), calls
+        # Host confirmation binds the installed version; the model only queried it.
+        endpoint = f"/api/series/{series['id']}/skill"
+        body = {"skill_id": installed["skill"]["id"], "expected_skill_name": series["skill_name"]}
+        bound = client.post(endpoint, json=body)
+        assert bound.status_code == 200, bound.text
+        assert client.get(f"/api/series/{series['id']}").json()["skill_name"] == body["skill_id"]
+        # Replaying the obsolete confirmation must not overwrite the new binding.
+        assert client.post(endpoint, json=body).status_code == 409
         evidence = {"series_id": series["id"], "job_id": installed["id"], "skill_id": installed["skill"]["id"],
-                    "session_id": doc["id"], "agent": doc}
+                    "session_id": doc["id"], "agent": doc, "tool_calls": calls,
+                    "binding_verified": True, "stale_confirmation_rejected": True}
         (args.root / "studio-result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"live_skill_studio=passed series={series['id']} session={doc['id']}", flush=True)
     db.close()

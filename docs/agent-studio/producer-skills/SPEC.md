@@ -1,5 +1,13 @@
 # Codex 安装与栏目 Skill 绑定
 
+## 当前行为与接入验收（2026-09-11）
+
+- 下文 2026-09-08 的 Codex 安装描述为历史方案。当前 `GitSkillInstaller` 直接下载 GitHub 文件并检查 `creatoros-output: social-content-pack.image-carousel` 声明；安装不调用模型，不消耗 Codex 额度。内容生产使用 Python SDK，选题调研仍使用 CLI。
+- 本轮补齐真实 GitHub 安装 → 真实 DeepSeek 查询 → 宿主确认绑定 → 刷新读取绑定 → 过期确认拒绝的隔离 HTTP 验收；新旧 Run 的 Skill 快照由已有 smoke 回归覆盖。
+- 未改前端和正式运营数据；本轮不生成图片。此验收不等同完整内容生产链路或 Agent Benchmark。
+- 真实 GitHub 安装通过：提交 `718662d` 的内置轮播 Skill 注册为 `knowledge-to-carousel--88350dbe3dee58c2`。随后真实 DeepSeek 查询、HTTP 显式绑定、读取新绑定和过期确认 409 全部通过；证据在 `tmp/producer-skills-live-20260911-013424/result.json` 与 `studio-result.json`，未提交本地会话数据。
+- `python -m tests.smoke_producer_skills` 通过：旧 Run 保留旧 Skill、新 Run 使用新版本、条件绑定、篡改拒绝和重复提交回归通过。此次为 HTTP/数据库与模型工具轨迹验收，没有新增浏览器视觉验收。
+
 ## 实现边界（2026-09-08）
 
 - 延续七天准备目标：先统一 Web/Agent 的实际业务能力，再补选题研究和任务级 Eval；本轮只完成生产技能接入，不扩展发布、记忆或市场自动搜索。
