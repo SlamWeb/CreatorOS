@@ -164,13 +164,20 @@ def run_agent(
                 )
                 context_budget = _context_budget_for(provider, model_context)
                 if context_budget.needs_attention:
-                    compacted = compact_session(
-                        provider,
-                        state.messages,
-                        model_tools,
-                        checkpoint=checkpoint,
-                        **({"session_file": session_file} if session_file is not None else {}),
-                    )
+                    compacted = None
+                    try:
+                        compacted = compact_session(
+                            provider,
+                            state.messages,
+                            model_tools,
+                            checkpoint=checkpoint,
+                            **({"session_file": session_file} if session_file is not None else {}),
+                        )
+                    except Exception:
+                        # Do not leak upstream errors or replace the last valid checkpoint.
+                        emit(AgentEvent("context_warning", {
+                            **context_budget.to_event_data(), "compaction_failed": True}))
+                        console.write("摘要未完成或未减少输入，已保留原始会话与已有检查点。")
                     if compacted is not None:
                         tokens_before = context_budget.input_tokens
                         checkpoint = compacted
@@ -197,6 +204,12 @@ def run_agent(
                                 context_budget.to_event_data(),
                             )
                         )
+                if context_budget.is_over_limit:
+                    message = "上下文超过估算输入预算，本轮已停止，未发送主模型请求。历史已保留；请新建会话并缩短输入，不会自动删除历史。"
+                    emit(AgentEvent("context_blocked", {**context_budget.to_event_data(), "message": message}))
+                    console.write(message)
+                    state.status = "idle"
+                    break
                 response = stream_llm(
                     provider=provider,
                     context=model_context,

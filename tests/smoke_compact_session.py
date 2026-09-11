@@ -50,7 +50,7 @@ class RecordingProvider:
 def main():
     old_turn = [
         {"role": "user", "content": "old request"},
-        {"role": "assistant", "content": "old answer"},
+        {"role": "assistant", "content": "old answer " * 100},
     ]
     recent_turn = [
         {"role": "user", "content": "recent request"},

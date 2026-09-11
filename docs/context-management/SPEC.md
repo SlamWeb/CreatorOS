@@ -1,6 +1,6 @@
 # Context Management：设计、实现与面试复习
 
-状态：2026-09-11 设计确认；C1 已完成，C2–C4 尚未实现。
+状态：2026-09-11；C1、C2 已完成，C3–C4 尚未实现。第 3 节保留 C2 前的基线，变更以末尾 C2 记录为准。
 
 ## 1. 为什么做
 
@@ -61,6 +61,14 @@ system/developer 稳定前缀在前，摘要以 user 历史资料注入；tools 
 
 ## 5. 后续切片与退出条件
 
+### C2 执行约定（2026-09-11）
+
+- 预估达到输入硬预算才停止主请求；90% 仍只是压缩触发线，不能把接近窗口等同超限。
+- 摘要请求独立计算输入（含旧摘要、序列化标记和摘要指令），输出上限为 min(4096, Provider 输出预留)。超限先拒绝，不分块、不丢用户正文、不循环重试。
+- 摘要输出使用请求级 max_tokens 限制，并在保存前检查长度与实际压缩收益；失败或无收益不覆盖已有 checkpoint。
+- 自动摘要失败时，若原请求仍在预算内则警告后继续；若原请求超限则停止本轮。用户输入仍保存，Web 显式显示失败原因；原始 Session 不删。
+- 本阶段基于估算，不保证服务端永不报窗口错误。真实小额摘要验证加本地故障注入，不用百万 Token 制造超限。
+
 | 阶段 | 改什么 | 完成条件 |
 |---|---|---|
 | C1 | 当前 Session 回读 | 上述隔离、分页、真实模型验证通过 |
@@ -110,4 +118,16 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 本次 3 次模型请求累计 input 25,263 / output 257 / cache hit 13,440 tokens；缓存包含于输入。证据：`tmp/context-read-20260911-120743/report.json`。这是单次链路验收，不是泛化质量或优化收益。
 - 本地确定性验证：相同 ID 不串会话、其他会话独有 ID 不可读、缺失 ID、默认 CLI 兼容、Loop 覆盖错误绑定且不修改调用者对象、投影和原文保留。
 - 回归通过：smoke_web_agent、smoke_runtime_context、smoke_auto_compaction、smoke_tool_result_projection。受控模型只用于确定性接线/故障检查，真实回读使用 DeepSeek。无页面改动，未做视觉验收。
-- C2–C4：计划，未完成。下一步 C2；先解决超限不盲发与摘要请求预算，不以 C1 声称压缩后决策不退化。
+- C2 完成记录见下；C3–C4 未完成，不以接线验收声称压缩后决策不退化。
+
+### C2 完成与验证
+
+- 摘要独立检查整个输入：包含指令、旧摘要及序列化历史；超过估算预算不调用模型。ModelContext 增加可选 max_output_tokens，DeepSeek complete 映射 max_tokens；摘要上限为 min(4096, Provider 输出预留)，普通请求未设置时保持原行为。
+- 摘要输出估算超限、格式错误或投影未缩减时拒绝替换旧 checkpoint。主循环摘要失败后保留原上下文，未超硬预算则继续，超限则 context_blocked 并停止本轮。90% 预警线不等于禁止请求线。
+- Web 保存停止事件并显示 failed/error，CLI 回到输入循环；用户输入仍落盘。不把上游异常正文透传用户，不自动重试、分块摘要或删除历史。
+- `tests.smoke_context_protection` 通过：等于/超过硬边界、超长单轮零主调用、摘要预检零调用、软预算失败后继续/硬预算停止、错误脱敏、无收益时旧 checkpoint 字节不变、请求输出限制、Web failed 状态。
+- `tests.live_compact_session` 真实 DeepSeek 通过：input 786 / output 275 tokens，切分位置 5。小额协议与 checkpoint 保存验收，不是语义质量评估。
+- 回归通过：smoke_auto_compaction、smoke_compact_session、smoke_web_agent、smoke_model_context、smoke_compaction_summary、check_session_result_read。旧成功夹具依赖超限摘要/膨胀摘要，改为可摘要的大工具结果或足够旧历史；失败路径另有显式断言，不放宽预算规则。
+- 限制：估算非精确 tokenizer；不保证服务端永不报超限；摘要失败的 usage 尚待 C3 统一记录。没有正式库修改、内容生产/发布或前端改版。
+- 面试回答更新：累计摘要不会多份叠加，C2 还限制输出并拒绝无缩减替换，但保住语义需要 C4 业务对照，长度检查不能证明质量。
+- 下一步 C3：补投影与压缩轨迹；C4 再做业务质量与成本对照。

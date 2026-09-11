@@ -1,5 +1,9 @@
 # CreatorOS Web API SPEC
 
+## 上下文预算停止（2026-09-11）
+
+- context_blocked 持久化进 Web entries，本轮 failed/error 明确提示预算不足且历史保留；宿主故障测试与 Web 回归通过。见 docs/context-management/SPEC.md C2。
+
 ## 会话工具结果回读（2026-09-11）
 
 - Web Agent 白名单加入 read_tool_result，按当前会话绑定回查被投影省略的正文；不新增任意路径接口、不开放 read_file、不注入无法读取的 Skill 目录。

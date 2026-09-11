@@ -76,6 +76,7 @@ class ModelContext:
     system_messages: tuple[dict, ...]
     tools: tuple[dict, ...]
     messages: tuple[dict, ...]
+    max_output_tokens: int | None = None
 
     @classmethod
     def from_messages(cls, messages, tools):

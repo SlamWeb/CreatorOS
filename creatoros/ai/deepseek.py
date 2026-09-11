@@ -106,6 +106,7 @@ class DeepSeekProvider:
             model=self.model,
             messages=self._to_openai_messages(messages),
             tools=tools,
+            **({"max_tokens": context.max_output_tokens} if context.max_output_tokens is not None else {}),
             extra_body={"thinking": {"type": "disabled"}},
         )
         assistant_message = response.choices[0].message

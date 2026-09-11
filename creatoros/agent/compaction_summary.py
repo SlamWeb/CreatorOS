@@ -1,7 +1,9 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from ..ai.context import ModelContext, project_tool_result_content
+from ..ai.context import (ModelContext, ContextBudget, estimate_tokens,
+                          DEFAULT_CONTEXT_WINDOW, DEFAULT_RESERVE_OUTPUT_TOKENS,
+                          project_tool_result_content)
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelUsage
 
@@ -168,10 +170,18 @@ def generate_compaction_summary(
     provider: ModelProvider,
     request: CompactionSummaryRequest,
 ) -> CompactionSummaryResult:
-    response = provider.complete(request.context)
+    output_limit = min(4096, getattr(provider, "reserve_output_tokens", None) or DEFAULT_RESERVE_OUTPUT_TOKENS)
+    budget = ContextBudget.from_context(request.context,
+        context_window=getattr(provider, "context_window", None) or DEFAULT_CONTEXT_WINDOW,
+        reserve_output_tokens=output_limit)
+    if budget.is_over_limit:
+        raise ValueError("摘要输入超过估算预算；未发送摘要请求。")
+    response = provider.complete(replace(request.context, max_output_tokens=output_limit))
     if response.tool_calls:
         raise ValueError("摘要请求不应该返回工具调用。")
     markdown = validate_summary_markdown(response.content)
+    if estimate_tokens(markdown) > output_limit:
+        raise ValueError("摘要输出超过估算预算；未保存摘要。")
     return CompactionSummaryResult(
         markdown=markdown,
         usage=response.usage,

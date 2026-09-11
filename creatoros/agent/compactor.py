@@ -98,5 +98,12 @@ def compact_session(
         tokens_before=context_budget.input_tokens,
         usage=result.usage,
     )
+    new_context = ModelContext.from_messages(
+        project_tool_results_for_model(new_checkpoint.project_messages(raw_messages)), tools)
+    new_budget = ContextBudget.from_context(new_context,
+        context_window=context_budget.context_window,
+        reserve_output_tokens=context_budget.reserve_output_tokens)
+    if new_budget.input_tokens >= context_budget.input_tokens:
+        raise ValueError("摘要没有减少估算输入；保留原有上下文和 checkpoint。")
     save_compaction_checkpoint(new_checkpoint, session_file)
     return new_checkpoint

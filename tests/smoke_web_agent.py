@@ -18,7 +18,7 @@ from creatoros.session.checkpoint import CompactionCheckpoint, save_compaction_c
 from creatoros.web.app import create_app
 from creatoros.web.chat import AgentChatService, STUDIO_TOOLS, WEB_INSTRUCTIONS
 from creatoros.web.chat import WebConsole
-from tests.smoke_auto_compaction import RecordingProvider
+from tests.smoke_auto_compaction import RecordingProvider, compaction_history
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
 
@@ -143,11 +143,7 @@ def main():
             assert recovered.get(b["id"])["entries"] == []
             # The actual Loop must write compaction next to the injected session, not CLI latest.json.
             compact_path = root / "compact-session" / "messages.json"
-            save_messages([{"role": "system", "content": "stable"},
-                           {"role": "user", "content": "old request " * 700},
-                           {"role": "assistant", "content": "old answer " * 700},
-                           {"role": "user", "content": "recent request"},
-                           {"role": "assistant", "content": "recent answer"}], compact_path)
+            save_messages(compaction_history(), compact_path)
             compact_provider = RecordingProvider()
             run_agent(compact_provider, console=WebConsole("new request"), session_file=compact_path,
                       runtime_context=RuntimeContext(project_root=root, allowed_tools=STUDIO_TOOLS))

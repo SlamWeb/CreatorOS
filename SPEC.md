@@ -3,7 +3,7 @@
 ## 上下文管理专项（2026-09-11）
 
 - 设计、现状、C1–C4 分阶段验收与面试问答集中于 [docs/context-management/SPEC.md](docs/context-management/SPEC.md)。
-- C1 已完成当前 Session 的工具原文回读；预算保护、上下文 Trace 与业务压缩对照 Eval 仍待后续实施，不以回读验收替代摘要质量评估。
+- C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；上下文 Trace 与压缩对照 Eval 待后续实施，不以接线验收替代摘要质量评估。
 
 ## 栏目选题研究与入队（2026-09-09）
 

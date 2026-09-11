@@ -222,7 +222,7 @@ class AgentChatService:
                         pass
             elif kind == "model_usage":
                 entries.append({"kind": "usage", **data})
-            elif kind in {"context_compacted", "context_warning", "guard_stop"}:
+            elif kind in {"context_compacted", "context_warning", "context_blocked", "guard_stop"}:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
@@ -243,6 +243,8 @@ class AgentChatService:
                                                      allowed_tools=STUDIO_TOOLS),
                       on_stream_event=lambda e: self._emit(doc, e) if isinstance(e, TextDelta) else None,
                       on_agent_event=lambda e: self._emit(doc, e))
+            if doc["entries"] and doc["entries"][-1]["kind"] == "context_blocked":
+                status, error = "failed", doc["entries"][-1]["message"]
         except ChatStopped:
             status, error = "interrupted", "服务关闭，指令已中断；请先查看已有任务。"
         except Exception:

@@ -7,6 +7,8 @@ from creatoros.agent import loop as agent_loop
 from creatoros.agent.compactor import compact_session
 from creatoros.ai.types import ModelResponse, StreamEnd, TextDelta
 from creatoros.terminal import Console
+from creatoros.context import RuntimeContext
+from creatoros.web.chat import STUDIO_TOOLS
 
 
 def summary():
@@ -20,7 +22,7 @@ def summary():
 
 
 class RecordingProvider:
-    context_window = 4_000
+    context_window = 6_000
     reserve_output_tokens = 500
 
     def __init__(self):
@@ -38,13 +40,7 @@ class RecordingProvider:
 
 
 def main():
-    messages = [
-        {"role": "system", "content": "stable"},
-        {"role": "user", "content": "old request " * 700},
-        {"role": "assistant", "content": "old answer " * 700},
-        {"role": "user", "content": "recent request"},
-        {"role": "assistant", "content": "recent answer"},
-    ]
+    messages = compaction_history()
     original = {
         "load": agent_loop.load_messages,
         "save": agent_loop.save_messages,
@@ -65,14 +61,10 @@ def main():
         )
         try:
             inputs = iter(["new request", "/exit"])
-            run = agent_loop.run_agent
-            run(
-                provider,
-                console=Console(
-                    input_fn=lambda prompt: next(inputs), output=output
-                ),
-                on_agent_event=events.append,
-            )
+            agent_loop.run_agent(provider,
+                runtime_context=RuntimeContext(Path(directory), allowed_tools=STUDIO_TOOLS),
+                console=Console(input_fn=lambda prompt: next(inputs), output=output),
+                on_agent_event=events.append)
         finally:
             agent_loop.load_messages = original["load"]
             agent_loop.save_messages = original["save"]
@@ -89,6 +81,18 @@ def main():
     assert compacted[0].data["tokens_after"] < compacted[0].data["tokens_before"]
     assert "已自动压缩" in output.getvalue()
     print("auto_compaction_smoke=passed")
+
+
+def compaction_history():
+    return [
+        {"role": "system", "content": "stable"},
+        {"role": "user", "content": "old request"},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "large-result", "name": "list_creators", "arguments": "{}"}]},
+        {"role": "tool", "tool_call_id": "large-result", "content": "x" * 30000},
+        {"role": "user", "content": "recent request"},
+        {"role": "assistant", "content": "recent answer"},
+    ]
 
 
 if __name__ == "__main__":
