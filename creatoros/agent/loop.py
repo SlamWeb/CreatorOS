@@ -7,7 +7,6 @@ from ..ai.context import (
     DEFAULT_RESERVE_OUTPUT_TOKENS,
     ContextBudget,
     ModelContext,
-    project_tool_results_for_model,
 )
 from ..ai.provider import ModelProvider
 from ..ai.types import ModelResponse, RuntimeStreamEvent
@@ -24,6 +23,7 @@ from ..terminal import Console
 from ..events import AgentEvent
 from ..skills.loader import SkillLoader
 from ..session import snapshot
+from ..session.artifacts import externalize
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .compactor import compact_session
 from .state import AgentState
@@ -67,7 +67,7 @@ def build_model_context(
     active_messages = (
         checkpoint.project_messages(messages) if checkpoint else messages
     )
-    projected_messages = project_tool_results_for_model(active_messages)
+    projected_messages = list(active_messages)
     if skill_loader is not None:
         projected_messages = skill_loader.inject_available_skills(projected_messages)
     return ModelContext.from_messages(projected_messages, tools)
@@ -96,7 +96,7 @@ def run_agent(
     runtime_context = replace(runtime_context, session_file=Path(session_file or snapshot.SESSION_FILE).resolve())
     allowed = runtime_context.allowed_tools
     model_tools = tools if allowed is None else [t for t in tools if t["function"]["name"] in allowed]
-    skill_loader = SkillLoader.from_defaults() if allowed is None or "read_file" in allowed else SkillLoader([])
+    skill_loader = SkillLoader.from_defaults() if not runtime_context.archive_only_reads and (allowed is None or "read_file" in allowed) else SkillLoader([])
     # Default call shapes remain compatible with CLI hosts and existing tests.
     persist = save_messages if session_file is None else lambda messages: save_messages(messages, session_file)
     state = AgentState(messages=load_messages() if session_file is None else load_messages(session_file))
@@ -205,6 +205,20 @@ def run_agent(
                             )
                         )
                 if context_budget.is_over_limit:
+                    # Last resort: externalize largest tool bodies, never user text.
+                    active = checkpoint.project_messages(state.messages) if checkpoint else list(state.messages)
+                    active = [dict(m) for m in active]
+                    indices = sorted((i for i, m in enumerate(active) if m.get("role") == "tool"),
+                                     key=lambda i: len(active[i].get("content", "")), reverse=True)
+                    for index in indices:
+                        if len(active[index].get("content", "")) < 2000:
+                            continue
+                        active[index] = externalize([active[index]], runtime_context.session_file)[0]
+                        model_context = build_model_context(active, model_tools, skill_loader=skill_loader)
+                        context_budget = _context_budget_for(provider, model_context)
+                        if not context_budget.is_over_limit:
+                            break
+                if context_budget.is_over_limit:
                     message = "上下文超过估算输入预算，本轮已停止，未发送主模型请求。历史已保留；请新建会话并缩短输入，不会自动删除历史。"
                     emit(AgentEvent("context_blocked", {**context_budget.to_event_data(), "message": message}))
                     console.write(message)
@@ -285,6 +299,8 @@ def run_agent(
                         }
                     )
                     persist(state.messages)
+                    externalize([{"role": "assistant", "tool_calls": [{"id": tool_call.id, "name": tool_call.name}]},
+                                 state.messages[-1]], runtime_context.session_file)
     except KeyboardInterrupt:
         emit(AgentEvent("session_saved", {}))
     finally:

@@ -9,6 +9,7 @@ class ReadFileArgs(BaseModel):
     path: str = Field(description="相对于 CreatorOS 项目目录的文件路径。")
     offset: int = Field(default=1, ge=1, description="从第几行开始读取，第一行是 1。")
     limit: int | None = Field(default=None, ge=1, description="最多读取多少行，不填写则读取到文件结尾。")
+    unit: Literal["lines", "chars"] = Field(default="lines", description="归档大文件可用 chars 按字符分页，offset 从 1 起。")
 
 
 class WriteFileArgs(BaseModel):

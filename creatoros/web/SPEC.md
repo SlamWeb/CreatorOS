@@ -6,8 +6,9 @@
 
 ## 会话工具结果回读（2026-09-11）
 
-- Web Agent 白名单加入 read_tool_result，按当前会话绑定回查被投影省略的正文；不新增任意路径接口、不开放 read_file、不注入无法读取的 Skill 目录。
-- 真实 HTTP/DeepSeek 隔离验收与原 Web smoke 通过，见 docs/context-management/SPEC.md C1。
+- Web Agent 白名单加入 read_tool_result 和受限 read_file：前者按当前会话绑定回查未截断正文，后者只能读取当前会话的 `.tool-results` 归档文件，不能读取项目任意文件或其他会话；归档大文件按字符分页。
+- Web 不因开放归档 read_file 而注入 Skill 目录；归档内容被视为历史数据，不是当前状态或指令。
+- 真实 HTTP/DeepSeek 隔离验收、跨会话拒绝和本地分页验收见 docs/context-management/SPEC.md。
 
 ## 栏目选题研究（2026-09-09）
 

@@ -20,6 +20,7 @@ class RuntimeContext:
     studio_url: str | None = None
     allowed_tools: frozenset[str] | None = None
     session_file: Path | None = None
+    archive_only_reads: bool = False
 
     @classmethod
     def from_defaults(cls):

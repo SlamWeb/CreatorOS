@@ -1,5 +1,14 @@
 # Context Management：设计、实现与面试复习
 
+## 最新决定：近期完整保留、旧结果外置（2026-09-11）
+
+- 本节覆盖旧的“所有主请求工具结果固定首尾截取”策略；近期默认完整保留。只在压缩后的主请求仍超预算时，按体积从大到小外置工具正文，保留用户原文。
+- 工具原文保留在 Session，并归档至同目录 `<session文件名>.tool-results/`（避免同目录多会话冲突）。文件名由 call ID 与正文摘要生成，不使用模型给出的路径。index.json 保留调用名、ID、简短描述、相对路径；索引不整份注入。
+- 摘要区的工具结果替换为确定性说明及文件引用。摘要旁追加机器维护的索引入口，不依赖 LLM 记住所有路径；原消息不改。
+- read_file 支持当前会话归档文件；Web 只允许此目录，CLI 普通文件规则不变。文件大时按字符分页，不取消普通文件安全限制；读回片段按近期结果保留。
+- 不新增完整 Skill 加载能力：Web 虽允许 read_file，但只读归档，所以不得自动注入 Skill 目录。
+- 验收：近期正文完整、旧摘要输入无巨大正文、原文/索引可读、跨会话/路径逃逸拒绝、滚动摘要索引仍在、真实 DeepSeek 摘要后按 read_file 找回随机证据。不实现 L3/长期 Memory/外部观测平台。
+
 状态：2026-09-11；C1、C2 已完成，C3–C4 尚未实现。第 3 节保留 C2 前的基线，变更以末尾 C2 记录为准。
 
 ## 1. 为什么做
@@ -19,16 +28,16 @@
 | CompactionPlan | 按完整用户轮次分旧历史与最近历史 | creatoros/agent/compaction.py |
 | SummaryRequest | 旧历史与上一份摘要生成新 Markdown 摘要 | creatoros/agent/compaction_summary.py |
 | CompactionCheckpoint | 保存摘要、切分位置、源校验及保留尾部 | creatoros/session/checkpoint.py |
-| build_model_context | 串起投影、工具结果裁剪和 Skill 目录注入 | creatoros/agent/loop.py |
+| build_model_context | 组装 checkpoint、近期完整消息和 Skill 目录注入；预算超限时由 Loop 触发外置 | creatoros/agent/loop.py |
 
 ```text
-完整 Session → checkpoint 投影 → 大工具结果首尾裁剪
-             → 可用 Skill 目录 → ModelContext → 预算检查 → Provider
+完整 Session → checkpoint 投影 → 近期工具正文保持完整
+             → 必要时旧/最大工具正文外置到归档 → ModelContext → 预算检查 → Provider
 ```
 
-system/developer 稳定前缀在前，摘要以 user 历史资料注入；tools 是请求的独立字段。稳定前缀有利于缓存，但没有显式缓存控制或命中保证。Skill 目录按需加载完整文件；Web 没开放 read_file，因此不注入不可执行的 Skill 目录。
+system/developer 稳定前缀在前，摘要以 user 历史资料注入；tools 是请求的独立字段。稳定前缀有利于缓存，但没有显式缓存控制或命中保证。Skill 目录按需加载完整文件；Web 虽开放归档限定的 read_file，但不因此注入 Skill 目录。
 
-## 3. 当前机制：实现事实，不是目标
+## 3. C2 前基线：历史实现事实（用于解释为什么改）
 
 - DeepSeekProvider 配置窗口 1,000,000、输出预留 32,768；这只是仓库配置，不是自动发现模型规格。输入预算 967,232，估算使用到约 90% 时尝试自动压缩。
 - 请求前用 ASCII/非 ASCII 字符规则估算；请求后读取实际 usage，但未持续校准下一次估算。不是精确 tokenizer，也不保证估算一定偏大。
@@ -48,7 +57,7 @@ system/developer 稳定前缀在前，摘要以 user 历史资料注入；tools 
 1. RuntimeContext 增加可选 session_file，仅宿主提供；模型参数仍只有 result_ref/offset/limit。
 2. run_agent 以自身实际读写的 session_file 绑定工具上下文，防止传入的 RuntimeContext 指向另一会话；不修改调用者对象。
 3. read_tool_result 从绑定文件读取；仅直接无上下文调用兼容原 CLI 默认文件。不跨会话搜索，不提供任意路径读取。
-4. Web 白名单开放 read_tool_result，并告知模型按省略标记分页回查；不开放 read_file，不额外注入 Skill。
+4. Web 白名单开放 read_tool_result，并告知模型按省略标记分页回查；后续归档方案再开放仅限当前会话目录的 read_file，不额外注入 Skill。
 5. 保持 1-based 字符 offset、原分页上限及错误类型；缺失 ID 返回错误，不退回其他会话。
 
 ### 验收
@@ -131,3 +140,13 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 限制：估算非精确 tokenizer；不保证服务端永不报超限；摘要失败的 usage 尚待 C3 统一记录。没有正式库修改、内容生产/发布或前端改版。
 - 面试回答更新：累计摘要不会多份叠加，C2 还限制输出并拒绝无缩减替换，但保住语义需要 C4 业务对照，长度检查不能证明质量。
 - 下一步 C3：补投影与压缩轨迹；C4 再做业务质量与成本对照。
+
+### 近期完整保留与旧结果外置记录（2026-09-11）
+
+- `creatoros/session/artifacts.py` 为每个 Session 建立 `<messages文件名>.tool-results/`，以 `sha256(tool_call_id + 正文)` 命名原文文件，并维护 `index.json`；写入使用临时文件替换且拒绝符号链接。重复结果不会产生第二份正文。
+- Loop 不再对每个主模型请求自动做 16,000 字符首尾投影。工具结果写入 Session 后立即归档一份原文；近期消息仍把完整正文送入模型。压缩摘要输入则使用短描述、结果引用和索引入口；硬预算仍超限时，才从最大的工具正文开始外置，用户消息不被外置。
+- `read_file` 增加 `unit=chars`，Web 通过 `archive_only_reads` 只允许读取当前 Session 归档；请求范围、符号链接、跨会话路径和无绑定会话均拒绝。每页返回范围与 `next_offset`，提示按顺序分页，不能用抽样证明全文不存在。
+- 本地验证 `python -m tests.check_archived_context`、`tests.check_session_result_read`、`tests.smoke_read_tool_result` 通过：近期正文完整、索引含原调用 ID、原文精确可读、两个会话互相隔离、路径逃逸拒绝、超长单行要求字符分页。
+- 真实 DeepSeek 隔离 Web 试验曾发现一个重要 badcase：模型读取开头/中部/末尾三个跳跃区间后漏掉位于约 18,000 字符处的随机标记，并错误声称资料没有该字段。该次结果保留为失败证据；因此当前实现只改善“可回读性”，不声称模型一定会穷尽搜索。另一次真实摘要返回缺少规定标题，被现有格式校验拒绝，旧 checkpoint 未被覆盖。
+- 更新后的真实 DeepSeek 隔离验收通过：模型按 `next_offset` 从 1 连续读取到标记所在页，6 次 `read_file` 后返回准确随机值；摘要 input/output 为 336/500 tokens，后续主请求合计 usage 为 34,414/1,328 tokens（含各请求的 cache hit 字段）。证据保存在本地临时 `tmp/archived-context-20260911-180558/report.json`，合成证据和临时 SQLite 均未进入正式库。
+- 这条链路仍不是 L3/长期 Memory，也没有语义检索、自动 grep/search 或完整上下文 Trace；下一步应在 C3/C4 记录归档读取轨迹并评估“连续分页能否找回证据”，而不是继续增加投影魔法。

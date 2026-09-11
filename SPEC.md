@@ -4,6 +4,7 @@
 
 - 设计、现状、C1–C4 分阶段验收与面试问答集中于 [docs/context-management/SPEC.md](docs/context-management/SPEC.md)。
 - C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；上下文 Trace 与压缩对照 Eval 待后续实施，不以接线验收替代摘要质量评估。
+- 当前主模型近期工具结果保持完整；旧结果和硬预算兜底结果外置到会话归档目录，由受限 `read_file` 按需回读。实现边界和已知跳跃分页 badcase 见上下文专项 SPEC。
 
 ## 栏目选题研究与入队（2026-09-09）
 

@@ -3,7 +3,7 @@
 ## 当前会话回读（2026-09-11）
 
 - read_tool_result 从 Loop 绑定的 RuntimeContext.session_file 回读；模型不可指定文件或其他会话。无上下文直接调用兼容 CLI 默认文件。
-- Web 开放该只读工具，未开放 read_file；隔离同 ID、分页、真实 DeepSeek 回读通过。详见 docs/context-management/SPEC.md C1。
+- Web 开放 read_tool_result；同时开放受宿主绑定的 read_file，但 Web 只能读取当前会话的 `.tool-results` 归档目录，不能读取项目任意文件或其他会话。归档大文件用 `unit=chars` 分页；详见 docs/context-management/SPEC.md。
 
 ## 栏目选题 Tool（2026-09-09）
 

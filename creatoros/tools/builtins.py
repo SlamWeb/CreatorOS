@@ -37,7 +37,7 @@ def get_current_date(context: RuntimeContext | None = None) -> ToolResult:
     return ToolResult(content=datetime.now().date().isoformat())
 
 
-def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None) -> ToolResult:
+def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None, unit="lines") -> ToolResult:
     if offset < 1:
         return ToolResult(
             content="错误：offset 必须从 1 开始。",
@@ -56,6 +56,45 @@ def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None)
 
     project_root = _project_root(context)
     requested_path = (project_root / path).resolve()
+    if context is not None and context.archive_only_reads and context.session_file is None:
+        return ToolResult("当前会话未绑定。", True, "path_out_of_scope")
+    if context is not None and context.session_file is not None:
+        from ..session.artifacts import root_for
+        archive = root_for(context.session_file).resolve()
+        if requested_path.is_relative_to(archive):
+            try:
+                if unit == "chars":
+                    count = min(limit or 8000, 16000)
+                    with requested_path.open(encoding="utf-8", newline="") as stream:
+                        remaining = offset - 1
+                        while remaining:
+                            skipped = stream.read(min(remaining, 65536))
+                            if not skipped:
+                                return ToolResult("offset 超出文件范围", True, "offset_out_of_range")
+                            remaining -= len(skipped)
+                        text = stream.read(count)
+                        more = bool(stream.read(1))
+                    header = f"[仅本页 chars={offset}-{offset + len(text) - 1}；不能根据抽样判断整份文件不存在某信息]\n"
+                    return ToolResult(header + text + (f"\n[next_offset={offset + len(text)} unit=chars；查找未命中请从此继续，勿跳过未读区间]" if more else "\n[EOF]"))
+                # Bounded line reads; long lines must use character paging.
+                rows, size = [], 0
+                with requested_path.open(encoding="utf-8") as stream:
+                    for number, line in enumerate(stream, 1):
+                        if number < offset:
+                            continue
+                        size += len(line)
+                        if size > 16000:
+                            return ToolResult("该行或页过大，请用 unit=chars 分页读取。", True, "page_too_large")
+                        rows.append(line)
+                        if len(rows) >= min(limit or 100, 100):
+                            break
+                return ToolResult("".join(rows) + f"\n[next_offset={offset + len(rows)} unit=lines]")
+            except (OSError, UnicodeError):
+                return ToolResult("无法读取当前会话归档文件。", True, "file_read_failed")
+        if context.archive_only_reads:
+            return ToolResult("仅允许读取当前会话的工具归档。", True, "path_out_of_scope")
+    if unit != "lines":
+        return ToolResult("普通项目文件仅支持按行读取。", True, "invalid_arguments")
 
     try:
         requested_path.relative_to(project_root)

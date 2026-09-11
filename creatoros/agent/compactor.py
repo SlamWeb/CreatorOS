@@ -6,7 +6,6 @@ from ..ai.context import (
     DEFAULT_RESERVE_OUTPUT_TOKENS,
     ContextBudget,
     ModelContext,
-    project_tool_results_for_model,
 )
 from ..ai.provider import ModelProvider
 from ..session.checkpoint import (
@@ -14,6 +13,8 @@ from ..session.checkpoint import (
     save_compaction_checkpoint,
 )
 from .compaction import CompactionPlan
+from ..session import snapshot
+from ..session.artifacts import externalize, index_note
 from .compaction_summary import (
     CompactionSummaryRequest,
     generate_compaction_summary,
@@ -50,7 +51,7 @@ def compact_session(
         checkpoint.project_messages(raw_messages) if checkpoint else raw_messages
     )
     active_context = ModelContext.from_messages(
-        project_tool_results_for_model(active_messages),
+        active_messages,
         tools,
     )
     context_budget = ContextBudget.from_context(
@@ -86,20 +87,20 @@ def compact_session(
         return None
 
     request = CompactionSummaryRequest.from_messages(
-        plan.messages_to_summarize,
+        externalize(plan.messages_to_summarize, session_file or snapshot.SESSION_FILE),
         previous_summary=previous_summary,
         custom_instructions=custom_instructions,
     )
     result = generate_compaction_summary(provider, request)
     new_checkpoint = CompactionCheckpoint.create(
-        summary=result.markdown,
+        summary=result.markdown + index_note(session_file or snapshot.SESSION_FILE),
         messages=raw_messages,
         first_retained_index=base_index + plan.first_retained_index,
         tokens_before=context_budget.input_tokens,
         usage=result.usage,
     )
     new_context = ModelContext.from_messages(
-        project_tool_results_for_model(new_checkpoint.project_messages(raw_messages)), tools)
+        new_checkpoint.project_messages(raw_messages), tools)
     new_budget = ContextBudget.from_context(new_context,
         context_window=context_budget.context_window,
         reserve_output_tokens=context_budget.reserve_output_tokens)

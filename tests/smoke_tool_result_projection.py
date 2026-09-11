@@ -36,10 +36,10 @@ def main():
     )
     context = build_model_context(large_messages, tools=[])
     request_messages, _ = context.to_request()
-    assert "model-context projection" in request_messages[2]["content"]
-    assert "FIRST" in request_messages[2]["content"]
-    assert "LAST" in request_messages[2]["content"]
-    assert len(request_messages[2]["content"]) < len(large_messages[2]["content"])
+    # Main model context keeps recent tool results verbatim.  Externalization
+    # is an explicit compaction/emergency path, not a blanket projection.
+    assert request_messages[2]["content"] == large_messages[2]["content"]
+    assert "model-context projection" not in request_messages[2]["content"]
     assert "model-context projection" not in large_messages[2]["content"]
     assert messages == original
     print("tool_result_projection_smoke=passed")

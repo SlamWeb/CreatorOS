@@ -59,7 +59,7 @@ def local():
         with patch.object(snapshot, "SESSION_FILE", b):
             assert "SESSION_B" in read_tool_result("shared-ref", 17990, 200).content
             wrong = RuntimeContext(root, session_file=b, allowed_tools=frozenset({"read_tool_result"}))
-            assert "SESSION_A" not in str(build_model_context(history("SESSION_A"), []))
+            assert "SESSION_A" in str(build_model_context(history("SESSION_A"), []))
             run_agent(ReadProvider(), session_file=a, runtime_context=wrong, console=WebConsole("查证"))
             assert wrong.session_file == b
         assert snapshot.load_messages(a)[3]["content"] == history("SESSION_A")[3]["content"]
@@ -89,8 +89,8 @@ def live():
             messages = snapshot.load_messages(path)
             messages.extend(history(secret)[1:])
             snapshot.save_messages(messages, path)
-            assert secret not in str(build_model_context(messages, []))
-            doc = send_turn(client, doc, "请从刚才工具资料正文中找到‘验证标记’，准确回复其值。若被省略请回读；仅查询，不生产、安装或调研。")
+            assert secret in str(build_model_context(messages, []))
+            doc = send_turn(client, doc, "请用 read_tool_result 回读刚才工具资料原文并核对‘验证标记’，准确回复其值；仅查询，不生产、安装或调研。")
             saved = snapshot.load_messages(path)
             calls = [c for m in saved[len(messages):] for c in m.get("tool_calls", [])]
             answer = "\n".join(m.get("content") or "" for m in saved[len(messages):]
