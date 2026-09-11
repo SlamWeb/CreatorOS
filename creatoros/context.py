@@ -19,6 +19,7 @@ class RuntimeContext:
     shell: str = field(default_factory=detect_shell)
     studio_url: str | None = None
     allowed_tools: frozenset[str] | None = None
+    session_file: Path | None = None
 
     @classmethod
     def from_defaults(cls):

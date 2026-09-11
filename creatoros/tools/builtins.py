@@ -142,7 +142,8 @@ def read_tool_result(
             retryable=True,
         )
 
-    message = find_tool_result(load_messages(), result_ref)
+    session_file = context.session_file if context is not None else None
+    message = find_tool_result(load_messages(session_file), result_ref)
     if message is None:
         return ToolResult(
             content=f"找不到工具结果：{result_ref}",

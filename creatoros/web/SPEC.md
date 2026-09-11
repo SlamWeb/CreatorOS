@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 会话工具结果回读（2026-09-11）
+
+- Web Agent 白名单加入 read_tool_result，按当前会话绑定回查被投影省略的正文；不新增任意路径接口、不开放 read_file、不注入无法读取的 Skill 目录。
+- 真实 HTTP/DeepSeek 隔离验收与原 Web smoke 通过，见 docs/context-management/SPEC.md C1。
+
 ## 栏目选题研究（2026-09-09）
 
 - 新增 research_routes：POST/GET series/{id}/topic-research，GET topic-research/{id}，POST topic-research/{id}/preview。后台研究由 lifespan 管理；选择复用 PendingOperation，模型没有确认权。

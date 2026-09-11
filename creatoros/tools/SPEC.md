@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 当前会话回读（2026-09-11）
+
+- read_tool_result 从 Loop 绑定的 RuntimeContext.session_file 回读；模型不可指定文件或其他会话。无上下文直接调用兼容 CLI 默认文件。
+- Web 开放该只读工具，未开放 read_file；隔离同 ID、分页、真实 DeepSeek 回读通过。详见 docs/context-management/SPEC.md C1。
+
 ## 栏目选题 Tool（2026-09-09）
 
 - research_series_topics 提交后台研究；get_topic_research 读取状态/候选；prepare_topic_selection 按结构化选择、修改和顺序生成 Preview。CLI/Web 共用 Studio API，确认仍不暴露给模型。

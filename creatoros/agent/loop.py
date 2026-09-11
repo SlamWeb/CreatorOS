@@ -1,5 +1,6 @@
 from typing import Callable
 from pathlib import Path
+from dataclasses import replace
 
 from ..ai.context import (
     DEFAULT_CONTEXT_WINDOW,
@@ -22,6 +23,7 @@ from ..context import RuntimeContext
 from ..terminal import Console
 from ..events import AgentEvent
 from ..skills.loader import SkillLoader
+from ..session import snapshot
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .compactor import compact_session
 from .state import AgentState
@@ -90,6 +92,8 @@ def run_agent(
 
     guard = MaxTurnGuard(max_turns)
     runtime_context = runtime_context or RuntimeContext.from_defaults()
+    # The loop owns the active ledger; a caller cannot redirect tool reads elsewhere.
+    runtime_context = replace(runtime_context, session_file=Path(session_file or snapshot.SESSION_FILE).resolve())
     allowed = runtime_context.allowed_tools
     model_tools = tools if allowed is None else [t for t in tools if t["function"]["name"] in allowed]
     skill_loader = SkillLoader.from_defaults() if allowed is None or "read_file" in allowed else SkillLoader([])
