@@ -1,6 +1,7 @@
 from typing import Callable
 from pathlib import Path
 from dataclasses import replace
+from uuid import uuid4
 
 from ..ai.context import (
     DEFAULT_CONTEXT_WINDOW,
@@ -9,7 +10,7 @@ from ..ai.context import (
     ModelContext,
 )
 from ..ai.provider import ModelProvider
-from ..ai.types import ModelResponse, RuntimeStreamEvent
+from ..ai.types import ModelResponse, RuntimeStreamEvent, StreamEnd
 from ..commands import render_command_help
 from ..session.checkpoint import (
     CompactionCheckpoint,
@@ -24,6 +25,7 @@ from ..events import AgentEvent
 from ..skills.loader import SkillLoader
 from ..session import snapshot
 from ..session.artifacts import externalize
+from ..session.context_trace import ContextTrace
 from .guards import DEFAULT_MAX_TURNS, MaxTurnGuard
 from .compactor import compact_session
 from .state import AgentState
@@ -103,6 +105,7 @@ def run_agent(
     checkpoint = (load_compaction_checkpoint(state.messages) if session_file is None
                   else load_compaction_checkpoint(state.messages, session_file))
     persist(state.messages)
+    trace = ContextTrace(runtime_context.session_file)
 
     try:
         while True:
@@ -146,6 +149,7 @@ def run_agent(
             persist(state.messages)
             state.status = "running"
             task_start_turn = state.turn
+            turn_id = uuid4().hex
 
             while True:
                 turns_used = state.turn - task_start_turn
@@ -163,6 +167,10 @@ def run_agent(
                     skill_loader,
                 )
                 context_budget = _context_budget_for(provider, model_context)
+                tokens_before = context_budget.input_tokens
+                compaction_attempted = context_budget.needs_attention
+                compacted_this_request = False
+                externalized_count = 0
                 if context_budget.needs_attention:
                     compacted = None
                     try:
@@ -171,6 +179,7 @@ def run_agent(
                             state.messages,
                             model_tools,
                             checkpoint=checkpoint,
+                            trace=trace, turn_id=turn_id,
                             **({"session_file": session_file} if session_file is not None else {}),
                         )
                     except Exception:
@@ -179,6 +188,7 @@ def run_agent(
                             **context_budget.to_event_data(), "compaction_failed": True}))
                         console.write("摘要未完成或未减少输入，已保留原始会话与已有检查点。")
                     if compacted is not None:
+                        compacted_this_request = True
                         tokens_before = context_budget.input_tokens
                         checkpoint = compacted
                         model_context = build_model_context(
@@ -214,22 +224,46 @@ def run_agent(
                         if len(active[index].get("content", "")) < 2000:
                             continue
                         active[index] = externalize([active[index]], runtime_context.session_file)[0]
+                        externalized_count += 1
                         model_context = build_model_context(active, model_tools, skill_loader=skill_loader)
                         context_budget = _context_budget_for(provider, model_context)
                         if not context_budget.is_over_limit:
                             break
-                if context_budget.is_over_limit:
-                    message = "上下文超过估算输入预算，本轮已停止，未发送主模型请求。历史已保留；请新建会话并缩短输入，不会自动删除历史。"
-                    emit(AgentEvent("context_blocked", {**context_budget.to_event_data(), "message": message}))
-                    console.write(message)
-                    state.status = "idle"
-                    break
-                response = stream_llm(
-                    provider=provider,
-                    context=model_context,
-                    on_event=on_stream_event,
-                    console=console,
-                )
+                with trace.request('main', provider, turn_id=turn_id, checkpoint=checkpoint,
+                                   source_message_count=len(state.messages),
+                                   compaction_attempted=compaction_attempted,
+                                   compacted=compacted_this_request, externalized_count=externalized_count,
+                                   tokens_before=tokens_before) as span:
+                    span.record['stage'] = 'preflight'
+                    span.begin(model_context, context_budget,
+                               skill_text=skill_loader.format_available_prompt(),
+                               summary_text=checkpoint.summary if checkpoint else '')
+                    if context_budget.is_over_limit:
+                        span.record['status'] = 'blocked'
+                        message = "上下文超过估算输入预算，本轮已停止，未发送主模型请求。历史已保留；请新建会话并缩短输入，不会自动删除历史。"
+                        emit(AgentEvent("context_blocked", {**context_budget.to_event_data(), "message": message}))
+                        console.write(message)
+                        state.status = "idle"
+                        break
+
+                    def traced_event(event):
+                        if isinstance(event, StreamEnd):
+                            span.record['stream_finished'] = True
+                            span.usage(event.usage)
+                        if on_stream_event is not None:
+                            on_stream_event(event)
+
+                    span.record['sent'] = True
+                    span.record['stage'] = 'model_request'
+                    span.record['stream_finished'] = False
+                    response = stream_llm(provider=provider, context=model_context,
+                                          on_event=traced_event, console=console)
+                    span.usage(response.usage)
+                    span.record['tool_calls'] = [{'id': call.id, 'name': call.name} for call in response.tool_calls]
+                    if not span.record['stream_finished']:
+                        span.record['status'] = 'interrupted'
+                    else:
+                        span.record['stage'] = 'complete'
                 if response.usage is not None:
                     emit(AgentEvent("model_usage", response.usage.to_dict()))
                     measured_budget = context_budget.with_usage(response.usage)

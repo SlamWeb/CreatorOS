@@ -18,6 +18,7 @@ from creatoros.ai.types import TextDelta
 from creatoros.config import PROJECT_ROOT
 from creatoros.context import RuntimeContext
 from creatoros.session.snapshot import load_messages, new_messages, save_messages
+from creatoros.session.context_trace import read_trace
 from creatoros.terminal import Console
 
 STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics",
@@ -168,6 +169,11 @@ class AgentChatService:
             docs = [self._read(p.parent.name) for p in self.root.glob("*/view.json")]
             return [{k: d[k] for k in ("id", "title", "status", "updated_at")}
                     for d in sorted(docs, key=lambda d: d["updated_at"], reverse=True)[:30]]
+
+    def context_trace(self, session_id, after=0, limit=50):
+        with self.lock:
+            self._read(session_id)
+            return read_trace(self._path(session_id).with_name('messages.json'), after, limit)
 
     def submit(self, session_id, request_id, text, version, studio_url):
         with self.lock:

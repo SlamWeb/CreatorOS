@@ -169,14 +169,28 @@ def validate_summary_markdown(markdown: str | None) -> str:
 def generate_compaction_summary(
     provider: ModelProvider,
     request: CompactionSummaryRequest,
+    trace=None,
+    previous_summary=None,
 ) -> CompactionSummaryResult:
     output_limit = min(4096, getattr(provider, "reserve_output_tokens", None) or DEFAULT_RESERVE_OUTPUT_TOKENS)
     budget = ContextBudget.from_context(request.context,
         context_window=getattr(provider, "context_window", None) or DEFAULT_CONTEXT_WINDOW,
         reserve_output_tokens=output_limit)
+    context = replace(request.context, max_output_tokens=output_limit)
+    if trace is not None:
+        trace.record['stage'] = 'preflight'
+        trace.begin(context, budget, summary_text=previous_summary or '')
     if budget.is_over_limit:
+        if trace is not None:
+            trace.record['status'] = 'blocked'
         raise ValueError("摘要输入超过估算预算；未发送摘要请求。")
-    response = provider.complete(replace(request.context, max_output_tokens=output_limit))
+    if trace is not None:
+        trace.record['sent'] = True
+        trace.record['stage'] = 'model_request'
+    response = provider.complete(context)
+    if trace is not None:
+        trace.usage(response.usage)
+        trace.record['stage'] = 'summary_validation'
     if response.tool_calls:
         raise ValueError("摘要请求不应该返回工具调用。")
     markdown = validate_summary_markdown(response.content)

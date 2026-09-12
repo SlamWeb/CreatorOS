@@ -2,7 +2,7 @@ import asyncio
 import json
 from uuid import UUID
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
@@ -29,6 +29,10 @@ def chat_routes(service):
     @router.get("/{session_id}")
     def get(session_id: UUID):
         return service.get(str(session_id))
+
+    @router.get("/{session_id}/context-trace")
+    def context_trace(session_id: UUID, after: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+        return service.context_trace(str(session_id), after, limit)
 
     @router.post("/{session_id}/turns", status_code=202)
     def submit(session_id: UUID, payload: ChatTurnRequest, request: Request):

@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## Context Trace 查询（2026-09-12）
+
+- `GET /api/agent/sessions/{session_id}/context-trace` 复用会话所有者路径，after为事件行游标、limit 1–100，返回items/next_cursor/has_more。只提供结构化计数与ID，无原文/文件路径；未知会话404，空记录合法。
+- Trace属于Agent Session，不是ContentRun；原Web usage/event行为保留，页面展示本轮未修改。真实DeepSeek、隔离HTTP分页/会话边界与原Web smoke通过，细节见上下文专项SPEC C3。
+
 ## 上下文预算停止（2026-09-11）
 
 - context_blocked 持久化进 Web entries，本轮 failed/error 明确提示预算不足且历史保留；宿主故障测试与 Web 回归通过。见 docs/context-management/SPEC.md C2。

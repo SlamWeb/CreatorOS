@@ -1,5 +1,13 @@
 # Context Management：设计、实现与面试复习
 
+## C3 Context Trace（2026-09-12）
+
+- 每个 Session 增加相邻 `.context-trace.jsonl`，记录请求 started/finished；UUID request_id、turn_id 跨进程不复用，session_id 为会话路径哈希，checkpoint_id 为检查点内容哈希。CLI reset 后保持独立 turn_id。
+- 主请求在所有压缩/外置结束后统计最终 ModelContext；摘要请求统计实际带输出上限的上下文。互斥分项为 system、tools、summary、recent_messages、tool_results、skills、summary_source 和 serialization_overhead，合计等于既有预算估算。不是厂商 tokenizer 或精确 HTTP 字节统计。
+- 实际 prompt/output/cache hit/cache miss 独立保存，缺失为 null；失败摘要即使被格式/收益校验拒绝也保留已知 usage。记录耗时、模型名、预算、压缩结果、外置数量、源消息位置；不存正文、工具参数、路径或异常原文。
+- 复用同一 Loop/Compactor，Web 提供当前 Session 的分页只读 Trace API；本切片先完成数据与查询，不修改页面布局、不把 ContentRun 当成 Agent Session。
+- 验收：隔离本地故障注入检查预算阻止、摘要格式/无收益失败、usage 缺失、中断、分项可加性、重启追加；真实 DeepSeek + 隔离 Web 验证主/摘要 usage 和请求关联。C4 质量对照另做。
+
 ## 最新决定：近期完整保留、旧结果外置（2026-09-11）
 
 - 本节覆盖旧的“所有主请求工具结果固定首尾截取”策略；近期默认完整保留。只在压缩后的主请求仍超预算时，按体积从大到小外置工具正文，保留用户原文。
@@ -9,7 +17,7 @@
 - 不新增完整 Skill 加载能力：Web 虽允许 read_file，但只读归档，所以不得自动注入 Skill 目录。
 - 验收：近期正文完整、旧摘要输入无巨大正文、原文/索引可读、跨会话/路径逃逸拒绝、滚动摘要索引仍在、真实 DeepSeek 摘要后按 read_file 找回随机证据。不实现 L3/长期 Memory/外部观测平台。
 
-状态：2026-09-11；C1、C2 已完成，C3–C4 尚未实现。第 3 节保留 C2 前的基线，变更以末尾 C2 记录为准。
+状态：2026-09-12；C1–C3 已完成，C4 尚未实现。第 3 节保留 C2 前基线，当前变更以顶部决定和实施记录为准。
 
 ## 1. 为什么做
 
@@ -150,3 +158,16 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 真实 DeepSeek 隔离 Web 试验曾发现一个重要 badcase：模型读取开头/中部/末尾三个跳跃区间后漏掉位于约 18,000 字符处的随机标记，并错误声称资料没有该字段。该次结果保留为失败证据；因此当前实现只改善“可回读性”，不声称模型一定会穷尽搜索。另一次真实摘要返回缺少规定标题，被现有格式校验拒绝，旧 checkpoint 未被覆盖。
 - 更新后的真实 DeepSeek 隔离验收通过：模型按 `next_offset` 从 1 连续读取到标记所在页，6 次 `read_file` 后返回准确随机值；摘要 input/output 为 336/500 tokens，后续主请求合计 usage 为 34,414/1,328 tokens（含各请求的 cache hit 字段）。证据保存在本地临时 `tmp/archived-context-20260911-180558/report.json`，合成证据和临时 SQLite 均未进入正式库。
 - 这条链路仍不是 L3/长期 Memory，也没有语义检索、自动 grep/search 或完整上下文 Trace；下一步应在 C3/C4 记录归档读取轨迹并评估“连续分页能否找回证据”，而不是继续增加投影魔法。
+
+### C3 完成与验证（2026-09-12）
+
+- 新增 `session/context_trace.py`；主请求在预算恢复之后记录，摘要 span 覆盖预检、调用、格式验证、收益验证和保存 checkpoint，失败可以从 stage 定位；exception 仅存类型。原 ContextBudget 估算和工具执行规则不改变。
+- started/finished 共用 request_id；同一用户指令的多次主调用与自动摘要共用 turn_id。独立调用 compact_session 则拥有独立 turn_id；通过 output_checkpoint_id 关联后续使用这份摘要的主调用。`source_message_count` 定位原 Session 请求前边界，返回工具只记录名称与调用 ID，正文仍在原 Session。
+- Trace是诊断元数据，未另存每份请求正文或旧checkpoint文件；原Session reset/宿主规则变更后不承诺逐字重建过去的完整请求。保留记录不等于实现完整可重放审计系统。
+- 使用 `estimated_parts` 互斥归类，Tool Results 不重复算入 Recent Messages；summary_source 表示摘要专用的待总结历史；加载 Skill 全文后的 read_file 结果属于 tool_results，skills 仅表示注入的目录元数据。system 包含固定 Runtime Rules，framing/舍入余量归 serialization_overhead。主请求 `tokens_before` 是此次恢复前的有效投影估算，不是整个原始账本体积。
+- `usage=null` 表示没有收到用量；cache 字段缺失时为 null，不推算为零。SDK 内部重试并非独立 span，本版统计 Provider 调用与最终可见 usage，不能保证覆盖服务端未知失败费用。
+- `sent=false + blocked` 表示本地预检拒绝发送；started 且没有 finished 表示运行中或硬中断后的未知结局，不能当成功。JSONL 不完整末行等待下次读取，重启追加时隔开残片；普通关闭刷新文件，不承诺断电持久性或多进程并发写同一 Session。
+- 新增 `GET /api/agent/sessions/{session_id}/context-trace?after=0&limit=50`，按事件行分页，上限100；未知会话404、非法范围422、无记录返回空。返回计数/ID/类型，无正文或文件路径。页面尚无图表组件，ContentRun 不挂接为同一对象。
+- `tests.check_context_trace` 故障注入与纯变换通过：分项可加、压缩关联、失败摘要保留usage、硬预算/摘要预检不调用、外置后统计、流异常/中断、缺失usage、分页和重启残片。关联9项 Runtime/Web/归档回归通过，默认 Session 文件替换为临时目录以避免污染。
+- `tests.check_context_trace --live` 真实 DeepSeek + 隔离 Web 通过，`tmp/context-trace-b62735cedc/report.json`：摘要 input/output=9,176/215，主请求两次=3,215/63、3,314/135；主请求cache hit=2,688、3,072。实测与Web原usage逐项核对；最后请求估算3,393而实测3,314，明确显示估算误差。仅合成历史与查询空测试库，无生产/发布/正式库修改。
+- 下一步 C4：用约束保留、改口、ID、证据回读、滚动摘要和重启六类开发案例，对完整历史/摘要/摘要加证据回读做任务结果与总费用比较。此处的trace smoke不是质量Benchmark。
