@@ -2,11 +2,12 @@
 
 ## 上下文管理专项（2026-09-11）
 
+- 2026-09-13：C4第一版六类Context开发集、full/recent/compact三组、真实DeepSeek与隔离HTTP/SQLite评估已实现。v1全量运行后发现恢复夹具顺序错误，排除该题并以v1.1独立验证；不混版本宣称通过率。结果与候选/队列混淆badcase见 `docs/context-management/C4-RESULTS.md`，保留集/重复试验尚未做。
 - 2026-09-13：压缩优先完整用户 Turn，仅最新 Turn 超保留预算时回退完整 Step，原用户请求独立固定且不改 Session 索引；两次滚动摘要/恢复、同 query 内自动压缩循环及真实 DeepSeek 延续验证通过，详见专项 SPEC。C4质量评估尚未完成。
 - 设计、现状、C1–C4 分阶段验收与面试问答集中于 [docs/context-management/SPEC.md](docs/context-management/SPEC.md)。
-- C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；C3已完成上下文Trace，C4压缩对照Eval待实施，不以接线验收替代摘要质量评估。
+- C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；C3已完成上下文Trace，C4已完成首版开发集对照，不以单次开发集结果替代泛化评估。
 - 当前主模型近期工具结果保持完整；旧结果和硬预算兜底结果外置到会话归档目录，由受限 `read_file` 按需回读。实现边界和已知跳跃分页 badcase 见上下文专项 SPEC。
-- C3 已完成主/摘要 Context Trace：分项估算、实际usage、缓存、状态/耗时和检查点关联保存于会话相邻JSONL，Web可分页读取；真实DeepSeek与故障注入验收通过。C4质量对照和Trace页面展示仍待后续。
+- C3 已完成主/摘要 Context Trace：分项估算、实际usage、缓存、状态/耗时和检查点关联保存于会话相邻JSONL，Web可分页读取；真实DeepSeek与故障注入验收通过。C4保留集/重复试验和Trace页面展示仍待后续。
 
 ## 栏目选题研究与入队（2026-09-09）
 
