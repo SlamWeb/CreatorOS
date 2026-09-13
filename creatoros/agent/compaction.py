@@ -21,9 +21,37 @@ def calculate_keep_recent_tokens(input_limit: int) -> int:
     return min(input_limit, bounded)
 
 
+def _step_cuts(messages: list[dict], user_index: int) -> list[int]:
+    """Boundaries after complete steps, never within a tool-call batch."""
+    cuts = []
+    index = user_index + 1
+    while index < len(messages):
+        assistant = messages[index]
+        if assistant.get("role") != "assistant":
+            break
+        calls = assistant.get("tool_calls") or []
+        ids = [call.get("id") for call in calls]
+        if any(not value for value in ids) or len(set(ids)) != len(ids):
+            break
+        pending = set(ids)
+        index += 1
+        while pending and index < len(messages):
+            result = messages[index]
+            if result.get("role") != "tool" or result.get("tool_call_id") not in pending:
+                return cuts
+            pending.remove(result["tool_call_id"])
+            index += 1
+        if pending or index == len(messages):
+            break
+        if messages[index].get("role") != "assistant":
+            break
+        cuts.append(index)
+    return cuts
+
+
 @dataclass(frozen=True)
 class CompactionPlan:
-    """A read-only split of old history and recent complete user turns."""
+    """Prefer whole user turns; split oversized latest turns at safe steps."""
 
     messages_to_summarize: tuple[dict, ...]
     retained_messages: tuple[dict, ...]
@@ -31,6 +59,7 @@ class CompactionPlan:
     estimated_retained_tokens: int
     input_limit: int
     keep_recent_tokens: int
+    pinned_user_index: int | None = None
 
     @classmethod
     def from_context(
@@ -72,15 +101,29 @@ class CompactionPlan:
                 break
             first_retained_index = candidate_index
 
+        pinned_user_index = None
+        latest_user_index = turn_starts[-1]
+        if _message_tokens(messages[latest_user_index:]) > keep_recent_tokens:
+            # Try the largest safe recent suffix first; retain at least one step.
+            for candidate_index in _step_cuts(messages, latest_user_index):
+                first_retained_index = candidate_index
+                pinned_user_index = latest_user_index
+                candidate = [messages[latest_user_index], *messages[candidate_index:]]
+                if _message_tokens(candidate) <= keep_recent_tokens:
+                    break
+
         old_messages = messages[:first_retained_index]
         retained_messages = messages[first_retained_index:]
+        projected = ([messages[pinned_user_index]] if pinned_user_index is not None else [])
+        projected.extend(retained_messages)
         return cls(
             messages_to_summarize=tuple(old_messages),
             retained_messages=tuple(retained_messages),
             first_retained_index=first_retained_index,
-            estimated_retained_tokens=_message_tokens(retained_messages),
+            estimated_retained_tokens=_message_tokens(projected),
             input_limit=input_limit,
             keep_recent_tokens=keep_recent_tokens,
+            pinned_user_index=pinned_user_index,
         )
 
     @property

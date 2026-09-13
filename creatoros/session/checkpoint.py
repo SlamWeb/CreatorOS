@@ -45,6 +45,7 @@ class CompactionCheckpoint:
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+    pinned_user_index: int | None = None
 
     def __post_init__(self):
         summary = self.summary.strip()
@@ -52,6 +53,10 @@ class CompactionCheckpoint:
             raise ValueError("checkpoint summary 不能为空。")
         if not 0 <= self.first_retained_index <= self.source_message_count:
             raise ValueError("first_retained_index 超出 Session 范围。")
+        if self.pinned_user_index is not None and not (
+            0 <= self.pinned_user_index < self.first_retained_index
+        ):
+            raise ValueError("pinned_user_index 必须位于保留后缀之前。")
         expected_retained = self.source_message_count - self.first_retained_index
         if len(self.retained_messages) != expected_retained:
             raise ValueError("retained_messages 与切分位置不一致。")
@@ -79,8 +84,11 @@ class CompactionCheckpoint:
         first_retained_index: int,
         tokens_before: int,
         usage: ModelUsage | None = None,
+        pinned_user_index: int | None = None,
     ) -> "CompactionCheckpoint":
         source_messages = deepcopy(list(messages))
+        if pinned_user_index is not None and source_messages[pinned_user_index].get("role") != "user":
+            raise ValueError("只能固定原始用户请求。")
         return cls(
             summary=summary,
             first_retained_index=first_retained_index,
@@ -89,6 +97,7 @@ class CompactionCheckpoint:
             source_digest=_messages_digest(source_messages),
             tokens_before=tokens_before,
             usage=usage,
+            pinned_user_index=pinned_user_index,
         )
 
     def matches_session(self, messages) -> bool:
@@ -96,6 +105,8 @@ class CompactionCheckpoint:
         if len(current_messages) < self.source_message_count:
             return False
         source_messages = current_messages[: self.source_message_count]
+        if self.pinned_user_index is not None and source_messages[self.pinned_user_index].get("role") != "user":
+            return False
         return _messages_digest(source_messages) == self.source_digest
 
     def project_messages(self, messages) -> list[dict]:
@@ -123,6 +134,7 @@ class CompactionCheckpoint:
         return [
             *stable_prefix,
             summary_message,
+            *([current_messages[self.pinned_user_index]] if self.pinned_user_index is not None else []),
             *deepcopy(list(self.retained_messages)),
             *appended_messages,
         ]
@@ -137,6 +149,7 @@ class CompactionCheckpoint:
             "tokens_before": self.tokens_before,
             "usage": self.usage.to_dict() if self.usage else None,
             "created_at": self.created_at,
+            "pinned_user_index": self.pinned_user_index,
         }
 
     @classmethod
@@ -152,6 +165,7 @@ class CompactionCheckpoint:
             tokens_before=data["tokens_before"],
             usage=usage,
             created_at=data["created_at"],
+            pinned_user_index=data.get("pinned_user_index"),
         )
 
 

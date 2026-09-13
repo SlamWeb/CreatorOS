@@ -1,5 +1,19 @@
 # Context Management：设计、实现与面试复习
 
+## 长 Turn 的 Step 回退（完成，2026-09-13）
+
+- 普通历史仍优先完整 user Turn；只有最新 Turn 自身超过近期保留预算，才允许摘要其中较早的完整 Step。
+- Step 为一次 assistant 输出及其全部 tool results；不切开并行 tool-call 批次，不越过缺失或不匹配的结果。至少保留最后一个 Step，单个不可分割 Step 超预算仍走现有外置/硬预算保护。
+- 中途切分时单独保留该 Turn 的用户请求原文，并计入保留预算；checkpoint 保存其原账本索引，后续压缩只处理新增历史和旧摘要，不重新读取已摘要的大段历史。
+- 验收：普通短 Turn 不变、长循环切分、多工具配对、未完成 Step、原请求只注入一次、连续压缩/新请求/重启索引正确；小额真实 DeepSeek 摘要及继续回答。仅临时 Session，不修改正式数据。
+- `CompactionPlan` 仍按 Token Budget 选完整 Turn，最新 Turn 超预算才扫描 Step 边界。`retained_messages` 保持连续原账本后缀，`pinned_user_index` 额外标识被切开 Turn 的用户原话；`estimated_retained_tokens` 包含原话与后缀。只有一个 Step 时不为移走用户原话而压缩。
+- Checkpoint 的 `first_retained_index`、`source_message_count` 仍对应原始 Session；pin 不是新增账本消息。恢复投影为稳定前缀＋累计摘要＋用户原话（如有）＋近期后缀＋新追加消息。旧 checkpoint 缺少 pin 字段仍可加载。
+- 第二次压缩只把 pin 临时补回规划输入，切分结果再映射回原账本索引；摘要输入为旧摘要＋本次待压缩 Step（带原请求作为语境）。下一条用户 Turn 到来后，旧残余 Step 被摘要时旧 pin 一并释放。摘要指令明确处于未完结 Turn 内，不把截断点误当任务完成；不能保证模型绝不丢语义。
+- `python -m tests.check_step_compaction` 通过：完整/超长 Turn、单个不可分割 Step、多结果乱序、未完批次、原文不变、连续 checkpoint/重载/新 Turn/旧格式兼容；真实 Loop 使用确定性 Provider 和工具夹具，单条 query 内 8 次工具调用、9 次主调用，触发自动压缩并完成，Trace 共用一个 turn_id，账本保留8份完整结果。
+- `python -m tests.check_step_compaction --live` 真实 DeepSeek 通过两次滚动摘要及重载后的继续回答，找回早期 `C7-ANCHOR-924` 并回复“仅草稿”。三次请求 input/output 分别为 663/521、1219/925、1822/12 tokens；总 input=3704、output=1458。测试使用合成历史、临时目录且无业务工具执行；这是单案例接线验证，不是约束保留率或压缩收益 Benchmark。一次早先运行的进程回执丢失，不计入上述已观测结果。
+- 7项隔离回归通过：smoke_compaction_plan、smoke_compaction_checkpoint、smoke_compact_session、smoke_compacted_model_context、smoke_auto_compaction、smoke_context_protection、check_context_trace。没有新增依赖、前端或正式业务库变更。
+- 面试口径：Turn 是一次用户请求，Step 是一次模型输出及对应工具结果；预算检查仍在每次主模型请求前。优先 Turn 保持完整语境，长循环才退到协议安全的 Step；原请求＋累计进度摘要承接语义，原始证据仍可回读。暂不做语义边界分类器、历史 embedding 或固定保留多条用户输入。下一步仍为 C4 Context Eval。
+
 ## C3 Context Trace（2026-09-12）
 
 - 每个 Session 增加相邻 `.context-trace.jsonl`，记录请求 started/finished；UUID request_id、turn_id 跨进程不复用，session_id 为会话路径哈希，checkpoint_id 为检查点内容哈希。CLI reset 后保持独立 turn_id。

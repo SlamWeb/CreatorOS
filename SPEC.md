@@ -2,6 +2,7 @@
 
 ## 上下文管理专项（2026-09-11）
 
+- 2026-09-13：压缩优先完整用户 Turn，仅最新 Turn 超保留预算时回退完整 Step，原用户请求独立固定且不改 Session 索引；两次滚动摘要/恢复、同 query 内自动压缩循环及真实 DeepSeek 延续验证通过，详见专项 SPEC。C4质量评估尚未完成。
 - 设计、现状、C1–C4 分阶段验收与面试问答集中于 [docs/context-management/SPEC.md](docs/context-management/SPEC.md)。
 - C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；C3已完成上下文Trace，C4压缩对照Eval待实施，不以接线验收替代摘要质量评估。
 - 当前主模型近期工具结果保持完整；旧结果和硬预算兜底结果外置到会话归档目录，由受限 `read_file` 按需回读。实现边界和已知跳跃分页 badcase 见上下文专项 SPEC。
