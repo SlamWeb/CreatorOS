@@ -3,13 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request } from "../api/client";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
-  list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务" };
+  list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务",
+  research_series_topics: "调研选题", get_topic_research: "查看调研候选", prepare_topic_selection: "准备选题预览",
+  list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
+  read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
 
@@ -20,6 +24,7 @@ export function AgentPage() {
   const [draft, setDraft] = useState("");
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const sessions = useQuery({ queryKey: ["agent-sessions"], queryFn: () => request<{ items: Session[] }>(base), refetchInterval: 5000 });
@@ -67,19 +72,37 @@ export function AgentPage() {
     if (!draft.trim() || send.isPending || doc?.status === "running" || (id && !doc)) return;
     setError(""); send.mutate({ text: draft.trim(), current: doc });
   };
+  const chooseSession = (next: string | null) => {
+    setError(""); setDraft(""); setHistoryOpen(false);
+    setParams(next ? { chat: next } : {});
+  };
+  const history = sessions.data?.items ?? [];
   return <section className="agent-workspace">
-    <div className="agent-heading"><div><p className="eyebrow">AGENT / CONVERSATION</p><h1>把想法交给 Agent</h1>
-      <p>聊清楚要做什么，再去内容页看结果。</p></div><Link className="text-link" to="?command=new">添加 / 调整选题 ↗</Link></div>
-    <div className="agent-sessions"><label>对话 <select aria-label="选择对话" value={id ?? ""} disabled={send.isPending}
-      onChange={e => { setError(""); setDraft(""); setParams(e.target.value ? { chat: e.target.value } : {}); }}>
-      <option value="">新对话</option>{sessions.data?.items.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
-      {id && !sessions.data?.items.some(s => s.id === id) && <option value={id}>{doc?.title ?? "读取中…"}</option>}
-    </select></label><span className="agent-connection">{id ? connected ? "实时连接" : "连接中 · 自动刷新" : "本地会话"}</span></div>
+    <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls="agent-history"
+      onClick={() => setHistoryOpen(!historyOpen)}>历史对话</button>
+    <aside id="agent-history" className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
+      <button type="button" className="agent-new" disabled={send.isPending} onClick={() => chooseSession(null)}><span aria-hidden="true">＋</span> 新对话</button>
+      <p className="agent-history-label">最近对话</p>
+      <nav aria-label="选择对话" className="agent-history-list">
+        {sessions.isPending && <p className="agent-note">正在读取…</p>}
+        {!sessions.isPending && !sessions.isError && !history.length && <p className="agent-note">开始对话后，会保存在这里。</p>}
+        {history.map(s => <button key={s.id} type="button" disabled={send.isPending} title={s.title}
+          aria-current={s.id === id ? "page" : undefined} onClick={() => chooseSession(s.id)}>
+          <span className="agent-history-title">{s.title}</span><small>{s.status === "running" ? "处理中" : new Date(s.updated_at).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })}</small>
+        </button>)}
+        {id && !history.some(s => s.id === id) && <button type="button" aria-current="page" disabled>{doc?.title ?? "读取当前对话…"}</button>}
+      </nav>
+      <p className="agent-history-foot">切换不会中止已提交的任务。<br />未发送草稿会清空。</p>
+    </aside>
+    <div className="agent-conversation">
+    <div className="agent-heading"><div><h1>{doc?.title ?? "把想法交给 Agent"}</h1>
+      <span className="agent-connection">{id ? connected ? "实时连接" : "连接中 · 自动刷新" : "聊清楚想法，再去内容页看结果"}</span></div><Link className="text-link" to={id ? `?chat=${encodeURIComponent(id)}&command=new` : "?command=new"}>添加 / 调整选题 ↗</Link></div>
     {(session.isError || sessions.isError) && <p role="alert" className="review-warning">{session.error?.message ?? sessions.error?.message}</p>}
     <div className="agent-transcript" ref={transcript} onScroll={e => {
       const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     }} aria-label="对话记录">
-      {!doc?.entries.length && <div className="agent-welcome"><span>✦</span><h2>从你已有的账号开始</h2>
+      {id && session.isPending && <p className="agent-note">正在读取对话…</p>}
+      {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>从你已有的账号开始</h2>
         <p>我能帮你查看栏目和选题，把选好的内容交给 Codex 生产，并查询进度。提交后可以继续聊天，产物在运行页验收。</p>
         <button type="button" onClick={() => setDraft("看看我有哪些账号和栏目，先不要生产。")}>看看我的账号和栏目 ↗</button>
         <small>创建与调整选题走 Preview；批准与返工仍由你在内容页决定。</small></div>}
@@ -88,7 +111,7 @@ export function AgentPage() {
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
-      <textarea aria-label="给 Agent 的消息" placeholder="说说你想做什么…" value={draft} maxLength={8000} rows={3}
+      <textarea aria-label="给 Agent 的消息" placeholder="说说你想做什么…" value={draft} maxLength={8000} rows={2}
         onChange={e => setDraft(e.target.value)} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
@@ -97,12 +120,14 @@ export function AgentPage() {
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     <p className="agent-note">离开页面不取消已提交的指令；服务停止会中断对话，不会自动重跑。<Link to="/runs">查看运行记录 ↗</Link></p>
+    </div>
   </section>;
 }
 
 function ChatEntry({ entry }: { entry: Entry }) {
   if (entry.kind === "user") return <div className="chat-user">{entry.text}</div>;
-  if (entry.kind === "assistant") return entry.text ? <div className="chat-answer"><Markdown skipHtml components={{
+  if (entry.kind === "assistant") return entry.text ? <div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+    table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,
     a: ({ href, children }) => {
       const runPath = href?.match(/^(?:http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)?(\/runs\/[a-f0-9-]{36})$/)?.[1];
