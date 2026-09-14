@@ -1,6 +1,6 @@
 # 栏目选题调研与选择
 
-## 统一选题库切片（2026-09-14，API/Agent 完成，Web 待接）
+## 统一选题库切片（2026-09-14，API/Agent/Web 已接）
 
 - 自动保存的调研建议作为待选选题；人工确认后成为正式队列，绝不因调研自动生产。本轮统一 API 和 Agent 查询，Web 列表合并随后实施。
 - 不迁移底层 JSON/SQLite，新增只读 topic-library 投影；同一确定性 topic ID 在确认前后保持一致，正式 Topic 的编辑和执行状态优先，不重复展示。
@@ -10,7 +10,7 @@
 - 实现 GET /api/series/{id}/topic-library；list_series_topics 默认查 all，可筛 pending/queued。已入队按原队列顺序，待选按批次新到旧、批次内原顺序；序号只指当前返回列表，不是持久 ID。正式项保留当前 brief，research_angle 明确只是调研原始角度。
 - smoke_topic_research、smoke_web_agent、smoke_agent_studio 通过。真实 DeepSeek 经隔离 loopback HTTP 调用 list_series_topics → prepare_topic_selection，正确选第二条并保留来源，正式 Topic 仍为零。报告 tmp/topic-library-20260914-182135/report.json；这是单次接线验证，不是成功率提升证明。
 - 真实模型测试使用合成已保存候选（不伪称联网调研），宿主仅开放查询/预览三个工具防误启动付费生产；模型本身与 API 均真实。没有改正式库或运行生图/发布。
-- 当前是请求时只读合并，批次多时会扫描工件，并非跨存储事务快照；最终确认仍重新校验。本轮不迁移库、不改 Web 页面，下一步接统一列表和状态筛选，再补不同自然语言表达的回归。
+- 当前是请求时只读合并，批次多时会扫描工件，并非跨存储事务快照；最终确认仍重新校验。不迁移库。Web 后续切片已接统一列表/筛选/分页，批次选择复用原编辑面板；仍不支持跨批次一次确认。浏览器验收见 web/SPEC.md，下一步补不同自然语言表达的回归。
 
 ## 已确认的边界（2026-09-09）
 

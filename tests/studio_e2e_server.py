@@ -46,6 +46,13 @@ database = Database(database_url)
 runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs")
 app = create_app(database=database, run_service=runs)
 
+# Only this isolated test executable exposes fixture creation, never the production app.
+@app.post("/test/series/{series_id}/research")
+def seed_research(series_id: str):
+    from tests.smoke_topic_research import seed_batch
+    from uuid import uuid4
+    return seed_batch(app.state.topic_research, series_id, uuid4().hex)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -12,16 +12,16 @@ type Batch = { id: string; series_id: string; status: string; stale: boolean; no
 type Selection = { candidate_id: string; title: string; angle: string };
 const labels: Record<string, string> = { researching: "调研中", ready: "待选择", failed: "失败", interrupted: "已中断", stale: "需要重新调研" };
 
-export function TopicResearchPanel({ seriesId }: { seriesId: string }) {
+export function TopicResearchPanel({ seriesId, controlsOnly = false }: { seriesId: string; controlsOnly?: boolean }) {
   const [params] = useSearchParams();
   const history = useQuery({ queryKey: ["research-history", seriesId],
     queryFn: () => request<{ items: Batch[] }>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`), refetchInterval: 5000 });
   const batchId = params.get("research") ?? history.data?.items[0]?.id ?? null;
   if (history.isPending && !batchId) return <section className="research-panel"><p role="status">正在读取调研记录…</p></section>;
-  return <ResearchPanel key={`${seriesId}-${batchId ?? "new"}`} seriesId={seriesId} batchId={batchId} history={history} />;
+  return <ResearchPanel key={`${seriesId}-${batchId ?? "new"}`} seriesId={seriesId} batchId={batchId} history={history} controlsOnly={controlsOnly} />;
 }
 
-function ResearchPanel({ seriesId, batchId, history }: { seriesId: string; batchId: string | null;
+function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId: string; batchId: string | null; controlsOnly: boolean;
   history: ReturnType<typeof useQuery<{ items: Batch[] }>> }) {
   const [, setParams] = useSearchParams();
   const [count, setCount] = useState(10);
@@ -59,7 +59,7 @@ function ResearchPanel({ seriesId, batchId, history }: { seriesId: string; batch
   const data = batch.data;
   const canSelect = data?.status === "ready" && !data.stale && data.series_id === seriesId;
   return <section className="research-panel" aria-label="选题候选">
-    <div className="research-heading"><div><h2>选题候选</h2><p>找到值得讲的内容，再决定制作什么。</p></div>
+    <div className="research-heading"><div><h2>{controlsOnly ? "选题调研" : "选择本批次选题"}</h2><p>{controlsOnly ? "调研结果自动保存为待选，不会自动生产。" : "一次确认一个调研批次；保留切入点与来源。"}</p></div>
       <button className="button button-secondary" aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}>{batchId ? "重新调研" : "调研选题"} ↻</button></div>
     {researchOpen && <form className="research-form" onSubmit={e => { e.preventDefault(); start.mutate(); }}>
       <label>候选数量<input type="number" min={1} max={30} required value={count} onChange={e => setCount(e.target.valueAsNumber)} /></label>
@@ -80,7 +80,7 @@ function ResearchPanel({ seriesId, batchId, history }: { seriesId: string; batch
     {data?.stale && <p className="form-error" role="alert">栏目配置已变化。请按最新配置重新调研，旧候选不会自动入队。</p>}
     {data?.status === "ready" && !data.candidates.length && <p className="research-empty">{data.note || "本次未找到适合的候选，可调整偏好重新调研。"}</p>}
     {!batchId && !history.isError && <div className="research-empty"><CreativeMark /><h3>给下一篇内容找个好起点</h3><p>填写本次偏好，让 Codex 根据栏目定位和 Skill 提供候选。你决定哪些入队。</p></div>}
-    {!!data?.candidates.length && <>
+    {!controlsOnly && !!data?.candidates.length && <>
       <div className="research-actions"><button disabled={!canSelect || !!editing} onClick={() => setSelected(data.candidates.filter(c => !c.queued).map(effective))}>选择全部未入队</button><button disabled={!!editing || !selected.length} onClick={() => setSelected([])}>清空选择</button></div>
       <div className="research-candidates">{data.candidates.map((c, index) => {
         const choice = selected.some(s => s.candidate_id === c.id);
