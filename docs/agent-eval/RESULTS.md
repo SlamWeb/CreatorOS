@@ -1,7 +1,7 @@
 # CreatorOS 运营 Agent Eval 结果
 
-更新时间：2026-09-14  
-数据集：`creator-operating-v1`，`case_version=1`  
+更新时间：2026-09-14
+数据集：`creator-operating-v1`，`case_version=1`
 代码版本：`f529b63dda025d125c87673881e98b9294d84006`
 
 ## 本轮结论
