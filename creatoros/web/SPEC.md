@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## Agent 展示范围规则（2026-09-14）
+
+- D05 开发评测发现：用户禁止重复已入队标题时，Agent 在正文正确筛选，却在补充说明重述排除项。
+- 新增 DISPLAY_SCOPE_RULE 并接入 WEB_INSTRUCTIONS，明确筛选与禁止重述约束同样适用于补充说明。运营 Eval 复用该规则，验证记录见 docs/agent-eval/RESULTS.md。
+- 只调整宿主说明；不改页面、API、队列或发布行为。
+
 ## 统一选题库 API（2026-09-14）
 
 - 新增 GET /api/series/{id}/topic-library：只读合并持久化候选与正式 Topic，按确定性 ID 去重，正式编辑优先；支持 all/pending/queued 和分页。旧 /topics 不变，Web 视觉尚未接入。
