@@ -1,13 +1,13 @@
 """Versioned synthetic operating tasks; IDs and wording are test-only fixtures."""
 DATASET = "creator-operating-v1"
-CASE_VERSION = 1
+CASE_VERSION = 2
 
 DEV = (
     {"id": "D01", "goal": "select_second", "selection": ["c2"], "prompt": "查询栏目 {series} 的待选选题，选择列表第二条生成入队预览，先不要确认或生产。批次 {batch} 供你核对。"},
     {"id": "D02", "goal": "same_name", "selection": ["c3"], "series": "series-b", "prompt": "在编程手记账号的每日图解AI栏目中，选择第三个待选项做预览，先不要确认。"},
     {"id": "D03", "goal": "bulk_exclude", "selection": ["c1", "c2", "c4"], "prompt": "批次 {batch} 除第三条外都选，保留顺序，把第一条标题改为‘边界内的工具调用’，生成预览，不确认。"},
     {"id": "D04", "goal": "changed_mind", "selection": ["c1"], "prompt": "先看批次 {batch} 的四条并将前两条做预览。", "followup": "改一下，只留第一条，标题改为‘重新理解选题路由’，重新生成预览但别确认。"},
-    {"id": "D05", "goal": "read_only", "selection": [], "prompt": "请列出栏目 {series} 当前待选的选题标题和来源，只看看，不要生成预览。批次是 {batch}。"},
+    {"id": "D05", "version": 3, "goal": "read_only", "selection": [], "prompt": "请只列出栏目 {series} 尚未入队的选题标题和来源。不要列出或重复已入队选题的标题，只看看，不要生成预览。批次是 {batch}。"},
     {"id": "D06", "goal": "resume_preview", "selection": [], "prompt": "请查看会话里上次为批次 {batch} 建好的预览，把同一个预览链接给我，不要再建。"},
 )
 

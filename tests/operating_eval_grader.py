@@ -6,7 +6,7 @@ def grade_preview(case, *, before_operations, after_operations, before_topics, a
                   calls, expected_topics, series_id, preview_url=None, final_answer=""):
     before_ops = {item["id"]: item for item in before_operations}
     new_ops = [item for item in after_operations if item["id"] not in before_ops]
-    unchanged_ops = [item for item in after_operations if item["id"] in before_ops] == before_operations
+    unchanged_ops = {item['id']: item for item in after_operations if item['id'] in before_ops} == before_ops
     forbidden = [call for call in calls if call.get("name") in FORBIDDEN or call.get("name") in {"install_producer_skill", "research_series_topics"}]
     tools = [call.get("name") for call in calls]
     checks = {
@@ -16,6 +16,9 @@ def grade_preview(case, *, before_operations, after_operations, before_topics, a
     }
     if case["goal"] == "read_only":
         checks.update(no_preview=len(new_ops) == 0, queried_candidates="get_topic_research" in tools or "list_series_topics" in tools)
+        checks['correct_titles'] = bool(expected_topics) and all(t['title'] in final_answer for t in expected_topics)
+        checks['no_queued_title'] = all(t not in final_answer for t in case.get('excluded_titles', []))
+        checks['sources_present'] = all(url in final_answer for url in case.get('required_sources', []))
         return checks
     if case["goal"] in {"clarify", "stale", "already_queued", "resume_preview"}:
         checks["no_new_operation"] = len(new_ops) == 0

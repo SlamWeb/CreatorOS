@@ -16,6 +16,16 @@ def main():
                   calls=[{"name": "list_series_topics"}, {"name": "prepare_topic_selection"}],
                   expected_topics=expected, series_id="series-x")
     assert all(grade_preview(case, **kwargs).values())
+    ordered = deepcopy(kwargs)
+    ordered['expected_topics'] *= 2
+    ordered['expected_topics'][1] = {'id': 'other', 'title': '另一条', 'brief': '来源'}
+    ordered['after_operations'][-1]['preview']['changes'][0]['after_topics'].append({'topic_id': 'other', 'title': '另一条', 'brief': '来源'})
+    assert all(grade_preview(case, **ordered).values())
+    ordered['after_operations'][-1]['preview']['changes'][0]['after_topics'].reverse()
+    assert not grade_preview(case, **ordered)['exact_topics']
+    resumed = {**kwargs, 'after_operations': before_ops, 'preview_url': '/operation/old-op', 'final_answer': '/operation/fake'}
+    assert not grade_preview({'goal': 'resume_preview'}, **resumed)['original_preview_reference']
+    assert grade_preview({'goal': 'resume_preview'}, **{**resumed, 'final_answer': '/operation/old-op'})['original_preview_reference']
     for mutate in (
         lambda x: x["after_operations"].append({"id": "extra", "series": "series-x", "status": "awaiting_approval", "preview": {}}),
         lambda x: x["after_operations"][-1]["preview"]["changes"][0]["after_topics"][0].update(topic_id="wrong"),
@@ -35,6 +45,13 @@ def main():
     read_case = next(c for c in CASES if c["goal"] == "read_only")
     read = grade_preview(read_case, **{**kwargs, "after_operations": before_ops, "expected_topics": [], "calls": [{"name": "get_topic_research"}]})
     assert read["no_preview"] and read["queried_candidates"]
+    assert not read['correct_titles']
+    assert grade_preview(read_case, **{**kwargs, 'after_operations': before_ops, 'final_answer': '标题二'})['correct_titles']
+    scoped = {**read_case, 'excluded_titles': ['已排队标题'], 'required_sources': ['https://example.org/source-two']}
+    missing_source = grade_preview(scoped, **{**kwargs, 'after_operations': before_ops, 'final_answer': '标题二'})
+    assert not missing_source['sources_present']
+    excluded = grade_preview(scoped, **{**kwargs, 'after_operations': before_ops, 'final_answer': '标题二；已排队标题'})
+    assert not excluded['no_queued_title']
     read_bad = grade_preview(read_case, **{**kwargs, "expected_topics": [], "calls": [{"name": "start_content_run"}]})
     assert not read_bad["no_forbidden_attempt"]
     clarify = next(c for c in CASES if c["goal"] == "clarify")
