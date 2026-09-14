@@ -1,6 +1,6 @@
 # 运营 Agent Eval：统一选题库的任务级验证
 
-状态：规划待实施，2026-09-14。用户交给 Luna 实施；本次仅编写 SPEC，不运行付费评估。
+状态：第一批实现已完成，2026-09-14。隔离夹具、终态 grader、负例 smoke 与 D01 双组真实 DeepSeek 探针已落地；开发集/保留集尚未完整运行，见 RESULTS.md。
 
 ## 1. 目标与边界
 
@@ -112,6 +112,25 @@ grader 必须有负例 smoke：空回答/空预览、错误账号/ID、错顺序
 
 完成第一批即可形成清晰提交，不要求为了“一次做完”消耗完预算。若72项未跑完，区分“运行器完成”和“评估完成”。
 
-## 9. 给 Luna 的执行入口
+## 9. 第一批实施记录（D01）
+
+本轮新增并验证：
+
+- `tests/operating_eval_cases.py`：冻结 `creator-operating-v1` 的 12 个版本化任务（6 个开发、6 个保留）。
+- `tests/operating_eval_grader.py`：以隔离数据库的 `PendingOperation`、正式 Topic 快照和工具轨迹判分，不接受模型口头声称；覆盖错误 ID、标题、顺序、来源、额外 Operation、禁止工具、空 Preview 和歧义澄清等负例。
+- `tests/smoke_operating_eval.py`：无模型调用的正/负例 smoke。
+- `tests/eval_operating_tasks.py`：默认只做本地检查；`--live --case D01` 用随机本机端口、临时 SQLite、临时候选目录和独立 Session，串行执行 `split_catalog` 与 `unified_catalog`。旧组同时替换模型可见 schema 与实际 registry，避免“旧 schema 调新 endpoint”的伪对照；副作用接口在宿主侧拦截但保留工具尝试记录。
+
+已执行：
+
+```powershell
+D:\Anaconda4.7g\envs\deepcode\python.exe -m tests.smoke_operating_eval
+D:\Anaconda4.7g\envs\deepcode\python.exe -m tests.eval_operating_tasks
+D:\Anaconda4.7g\envs\deepcode\python.exe -m tests.eval_operating_tasks --live --case D01 --output tmp/operating-eval-d01
+```
+
+本地 smoke 通过 12 个 case 的数据校验和 grader 正/负例；D01 两组均完成“查询候选 → 选择第二条 → 生成 awaiting-approval Preview”，正式队列、已有 Operation、生产/调研/安装副作用均未变化。模型、调用次数、usage 和限制见 `docs/agent-eval/RESULTS.md`。本轮没有运行 D02–D06/H01–H06，也没有声称 routing 或统一选题库已经整体提升。
+
+## 10. 给 Luna 的执行入口
 
 阅读 AGENTS.md、docs/agent-eval/SPEC.md，按本文实现运营 Agent Eval。复用现有 Runtime、真实 HTTP 服务和测试工具，先完成隔离夹具与 grader 负例，再做 D01 双组真实 DeepSeek 探针，然后按预算推进开发/保留集。不要启动 Codex 调研、生图、发布或安装，不改正式运营数据，不做 Trace UI。每个阶段说明做了什么、如何判分以及下一步；更新 SPEC 和结果报告，commit、push。额度或服务阻塞时保留失败和部分结果，给出精确续跑命令，不编造评估改善。
