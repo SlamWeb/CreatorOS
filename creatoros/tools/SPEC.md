@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 统一选题查询（2026-09-14）
+
+- list_series_topics 默认返回栏目统一选题库，state=all/pending/queued；待选提供批次/候选 ID 给现有 prepare_topic_selection，仍须用户确认。Tool 数量不增加。
+- 真实 DeepSeek/隔离 HTTP 查询后直接准备第二条预览通过，来源保留且零入队。细节见 docs/agent-studio/topic-research/SPEC.md；旧正式队列 API 不变。
+
 ## 当前会话回读（2026-09-11）
 
 - read_tool_result 从 Loop 绑定的 RuntimeContext.session_file 回读；模型不可指定文件或其他会话。无上下文直接调用兼容 CLI 默认文件。

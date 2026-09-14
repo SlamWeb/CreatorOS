@@ -1,9 +1,11 @@
 """Research is asynchronous; selecting candidates only creates an approval preview."""
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
+from typing import Literal
 from pydantic import Field
 
 from creatoros.integrations.topic_research import CandidateSelection
 from .schemas import WriteRequest
+from .topic_library import topic_library
 
 
 class ResearchRequest(WriteRequest):
@@ -17,6 +19,14 @@ class SelectionRequest(WriteRequest):
 
 def research_routes(service, queries):
     router = APIRouter(prefix="/api")
+
+    @router.get("/series/{series_id}/topic-library")
+    def library(series_id: str, state: Literal["all", "pending", "queued"] = "all",
+                offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100)):
+        result = topic_library(service, queries, series_id, state, offset, limit)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Series 不存在。")
+        return result
 
     @router.post("/series/{series_id}/topic-research", status_code=202)
     def research(series_id: str, request: ResearchRequest):

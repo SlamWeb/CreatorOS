@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 统一选题库 API（2026-09-14）
+
+- 新增 GET /api/series/{id}/topic-library：只读合并持久化候选与正式 Topic，按确定性 ID 去重，正式编辑优先；支持 all/pending/queued 和分页。旧 /topics 不变，Web 视觉尚未接入。
+- 隔离库验证确认前后同 ID、保留来源、过期不可选、待选不能创建 Run，真实 DeepSeek 查询/预览通过；详见 docs/agent-studio/topic-research/SPEC.md。
+
 ## Context Trace 查询（2026-09-12）
 
 - `GET /api/agent/sessions/{session_id}/context-trace` 复用会话所有者路径，after为事件行游标、limit 1–100，返回items/next_cursor/has_more。只提供结构化计数与ID，无原文/文件路径；未知会话404，空记录合法。

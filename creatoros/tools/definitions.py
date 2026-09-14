@@ -163,7 +163,7 @@ tool_registry = {
              execute=list_producer_skills, args_model=NoArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),
-        Tool(name="list_series_topics", description="分页查询栏目的选题、真实 ID、顺序和已有 Run；按 page.total 判断是否需要翻页。",
+        Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs),
         Tool(name="start_content_run", description="用户明确要求生产时，把真实选题提交 Studio 后台，返回 Run 链接与当前状态；提交不等于完成。不会自动恢复旧任务。busy 或网络结果未知时不要自动重试，也不要轮询等待整篇完成。",
              execute=start_content_run, args_model=StartRunArgs),

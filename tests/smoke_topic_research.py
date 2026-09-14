@@ -44,6 +44,17 @@ def main():
             base = "/api/topic-research/" + "a" * 32
             assert client.get(base).json()["status"] == "ready"
             assert not repo.list_topics(sid)
+            library = f"/api/series/{sid}/topic-library"
+            initial = client.get(library).json()
+            assert initial["page"]["total"] == 2
+            first_id = initial["items"][0]["id"]
+            assert initial["items"][0]["selection_state"] == "pending"
+            assert client.get(library, params={"state": "queued"}).json()["page"]["total"] == 0
+            assert client.get(library, params={"offset": 1, "limit": 1}).json()["items"][0]["candidate_id"] == "c2"
+            assert client.get(library, params={"state": "invalid"}).status_code == 422
+            assert client.get("/api/series/missing/topic-library").status_code == 404
+            assert client.post("/api/runs", json={"topic_id": first_id}).status_code >= 400
+            assert not repo.list_topics(sid)
             select = {"selections": [{"candidate_id": "c2", "title": "改后的标题", "angle": "修改切入点"}, {"candidate_id": "c1"}]}
             response = client.post(base + "/preview", json=select)
             assert response.status_code == 200, response.text
@@ -59,6 +70,12 @@ def main():
             topics = repo.list_topics(sid)
             assert [t.title for t in topics] == ["改后的标题", "工具调用"]
             assert "修改切入点" in topics[0].brief and "https://docs.python.org/3/" in topics[0].brief
+            approved = client.get(library).json()
+            assert approved["page"]["total"] == 2
+            assert approved["items"][1]["id"] == first_id
+            assert approved["items"][0]["title"] == "改后的标题"
+            assert approved["items"][0]["sources"][0]["url"] == "https://docs.python.org/3/"
+            assert client.get(library, params={"state": "pending"}).json()["page"]["total"] == 0
             run = runs.create(topics[0].id)
             assert run.input_snapshot_json["topic_brief"] == topics[0].brief
             prompt = CodexProducer.from_defaults()._build_prompt("c", sid, topics[0].id, topics[0].title,
@@ -73,6 +90,9 @@ def main():
             with db.session() as session:
                 session.get(Series, sid).audience = "changed"
             assert client.get(newer).json()["stale"]
+            stale_rows = client.get(library, params={"state": "pending"}).json()["items"]
+            assert len(stale_rows) == 2 and all(r["stale"] and not r["available_actions"] for r in stale_rows)
+            assert client.get(library, params={"state": "queued"}).json()["items"][0]["title"] == "改后的标题"
             assert client.post(newer + "/preview", json={"selections": [{"candidate_id": "c1"}]}).status_code == 422
             body = {"expected_version": pending["version"], "expected_revision": pending["revision"],
                     "confirmation_token": pending["confirmation_token"]}

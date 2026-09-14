@@ -1,5 +1,7 @@
 """Thin model-facing adapters over the same Studio API used by the browser."""
 import json
+from typing import Literal
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -56,6 +58,7 @@ class CreatorArgs(BaseModel):
 
 class TopicsArgs(PageArgs):
     series_id: str = Field(min_length=1, description="从 list_creator_series 取得的真实栏目 ID。")
+    state: Literal["all", "pending", "queued"] = Field(default="all", description="all 全部；pending 调研待选；queued 已确认入队。待选不可直接生产。")
 
 
 class StartRunArgs(BaseModel):
@@ -125,8 +128,9 @@ def list_creator_series(creator_id, context=None):
     return _call(lambda client: client.creator_series(creator_id), context)
 
 
-def list_series_topics(series_id, offset=0, limit=20, context=None):
-    return _call(lambda client: client.topics(series_id, offset, limit), context)
+def list_series_topics(series_id, offset=0, limit=20, context=None, state="all"):
+    return _call(lambda client: client.request("GET", f"/api/series/{quote(series_id, safe='')}/topic-library",
+                 params={"offset": offset, "limit": limit, "state": state}), context)
 
 
 def start_content_run(topic_id, context=None):
