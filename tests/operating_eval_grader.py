@@ -28,8 +28,11 @@ def grade_preview(case, *, before_operations, after_operations, before_topics, a
             checks["no_unambiguous_guess"] = len(new_ops) == 0
         if case["goal"] == "stale":
             checks["stale_review"] = "needs_review"
+            checks['queried_current_state'] = bool(set(tools) & {'list_series_topics', 'get_topic_research', 'prepare_topic_selection'})
         if case["goal"] == "already_queued":
-            checks["status_lookup"] = "list_series_topics" in tools
+            checks["status_lookup"] = bool(set(tools) & {'list_series_topics', 'get_topic_research'})
+            checks['correct_topic_id'] = bool(case.get('expected_topic_id')) and case['expected_topic_id'] in final_answer
+            checks['correct_status'] = bool(case.get('expected_status')) and case['expected_status'] in final_answer
         if case["goal"] == "resume_preview":
             checks["original_preview_reference"] = bool(preview_url and preview_url in final_answer)
         return checks
@@ -51,3 +54,12 @@ def grade_preview(case, *, before_operations, after_operations, before_topics, a
 
 def attempted_forbidden(calls):
     return [call for call in calls if call.get("name") in FORBIDDEN]
+
+
+def grade_status(checks):
+    """Review markers never count as passing assertions."""
+    if not checks or any(value is False for value in checks.values()):
+        return 'failed'
+    if any(value != True for value in checks.values()):
+        return 'needs_review'
+    return 'passed'

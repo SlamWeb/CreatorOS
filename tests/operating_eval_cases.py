@@ -13,11 +13,11 @@ DEV = (
 
 HOLDOUT = (
     {"id": "H01", "goal": "explicit_order", "selection": ["c4", "c2"], "prompt": "批次 {batch} 四条里留末条和第二条，先放末条，按这个顺序给我预览。"},
-    {"id": "H02", "goal": "clarify", "selection": [], "prompt": "两个账号的每日图解AI栏目都有待选列表，帮我把第二条放进去。"},
+    {"id": "H02", "goal": "clarify", "selection": [], "prompt": "帮我把这个栏目第二条准备一下。"},
     {"id": "H03", "goal": "changed_mind", "selection": ["c3"], "prompt": "一开始说第一条，撤回，改用第三条，标题写‘表达方式的边界’，其他信息照旧，先出预览。"},
-    {"id": "H04", "goal": "already_queued", "selection": [], "prompt": "栏目 {series} 的第一条已经安排过了。查一下它现在状态，不要重复添加或生产。"},
+    {"id": "H04", "goal": "already_queued", "selection": [], "prompt": "栏目 {series} 的第一条已经安排过了。给我它的选题ID和当前状态代码，不要重复添加或生产。"},
     {"id": "H05", "goal": "stale", "selection": [], "prompt": "批次 {batch} 的栏目定位已经更新了，按第二条做预览，别重新调研。"},
-    {"id": "H06", "goal": "compacted_progress", "selection": ["c2"], "prompt": "继续上次未完成的部分：仅给第二条做预览，第一条已有预览不要重复，不确认、不生产。"},
+    {"id": "H06", "goal": "compacted_progress", "selection": ["c2"], "prompt": "接着做剩下的第二条。"},
 )
 
 CASES = DEV + HOLDOUT
