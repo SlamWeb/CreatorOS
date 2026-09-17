@@ -1,6 +1,6 @@
 # 运营 Agent Eval：统一选题库的任务级验证
 
-状态：开发集实施与一次修复回归完成，双组各6/6。当前目标是运营指令、对象选择、多轮修改与会话重载；双组查询契约是其中一项实验，不代表整个产品的端到端质量。完整记录及限制见 RESULTS.md。
+状态：开发集一次修复回归完成；h1 保留集已完成六题双组各三次真实运行（36次）：24 passed、6 failed、6 needs_review。两组结果相同，尚未证明契约改造提升。当前目标是运营指令、对象选择、多轮修改与会话重载，不代表产品端到端质量。保留集详情见 HOLDOUT-RESULTS.md，历史开发记录见 RESULTS.md。
 
 ## 本轮增量（2026-09-14）
 
@@ -12,7 +12,7 @@
 - 原先 smoke 文档所称顺序负例没有实际构造；本轮补齐。只读题增加标题、来源和排除项检查；自然语言澄清仍待人工复核，不能当成自动通过。
 - 暂不执行 holdout，也不启动生产、发布和真实调研。本轮先完成开发集和一次针对性回归。
 
-## 保留集实施 Draft（2026-09-15）
+## 保留集实施与验证（2026-09-15—16）
 
 - 冻结 `d1d1e52` 的 Runtime、Web 提示与工具契约；本阶段只修改测试与报告。保留集首次完整夹具版本为 h1；不使用结果调整 Agent。
 - H01/H03 的历史列表、H02 的两组同名栏目、H06 的原预览从隔离真实 API 获取，形成配对的固定历史，标注 fixture，不伪称模型自己执行。使用不同账号名、候选标题和题目措辞；同一重复内双组共享确定性 ID 和语义数据。
@@ -20,6 +20,24 @@
 - H06 使用已有 compact_session 和一次真实 DeepSeek 摘要，近期保留8000 tokens；合成背景明确标注，无真实调研。检查 checkpoint 存在、压缩覆盖旧任务、后续请求使用 checkpoint，并保持完整 Session。
 - H02/H05 输出 needs_review；自动边界失败则 failed，不能以字符串 truthiness 判通过。本 Agent 的阅读仅为辅助复核，不冒充人工签署。
 - 先本地夹具与 grader 正负例，再冻结测试代码，执行保留集双组首次验证；如预算允许再做重复。每次结算记录usage并限制下一次请求，单请求可能跨阈值。之前已记录消耗约380366 tokens，本阶段预算最多600000，保留报告和精确续跑入口。
+
+实际完成：
+
+- 冻结测试提交 `903c5b0`，两批 source-hashes 完全一致；未根据保留集输出修改 Runtime、Prompt 或 grader。
+- 首轮12次与后续24次均完成，无 infra_error、usage 缺失或预算中断；实际消耗439470 tokens（主调用333273＋摘要106197）。
+- H01/H03/H04/H06 两组均3/3；H02 两组各3次等待人工复核；H05 两组各3次失败：没有调用工具刷新状态，将历史 ready/stale=false 当作当前状态，提出额外澄清。
+- H06 六次真实摘要均生成并使用 checkpoint，原任务历史被覆盖进摘要，后续只新增 c2 Preview。此为合成背景、8000近期预算的受控续办测试，不是1M自然压力实验。
+- `smoke_operating_eval`、`smoke_operating_holdout`、`smoke_context_eval`、`smoke_topic_research`、`smoke_web_agent`、`smoke_agent_studio` 均通过；未改前端，无需浏览器验收。
+- 未完成：H02 人工签署、最终开发版本重复2/3；不宣称72次冻结矩阵全部完成。未启动调研、生图、安装或发布，未改正式数据。
+
+本轮命令（目录已存在，不可覆盖重跑）：
+
+```powershell
+python -m tests.eval_operating_tasks --live --holdout --output tmp/operating-holdout-h1-r1 --token-budget 600000
+python -m tests.eval_operating_tasks --live --holdout --repeat 2 --start-repeat 2 --output tmp/operating-holdout-h1-r2-r3 --token-budget 456180
+```
+
+下一步：先复核 H02，并将 H05 作为已发现的开发回归。针对“用户明确提到配置更新时重新查询持久状态”做最小规则修复；修复后不可再将 h1 称为未见保留集，须新建状态变化题验证迁移。预算与未完成项续跑详见 HOLDOUT-RESULTS.md。
 
 ## 1. 目标与边界
 
