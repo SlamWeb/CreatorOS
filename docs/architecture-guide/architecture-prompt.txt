@@ -1,0 +1,57 @@
+Use case: infographic-diagram
+Asset type: Chinese technical learning architecture poster for CreatorOS, not a marketing poster.
+Create one polished, genuinely legible high-resolution landscape diagram, approximately 3:2. Warm ivory paper background, elegant near-black Chinese sans-serif labels, airy spacing, restrained hand-drawn editorial strokes, subtle apricot / sage / powder-blue accents. Flat clean architecture, not isometric, not neon, no robot mascots. Prioritize clear arrows and large readable Chinese text over decoration. Render only the supplied labels, no fake statistics.
+
+Title: "CreatorOS：谁决定，谁执行，谁批准？"
+Subtitle: "运营 Agent × 可恢复生产流程 × Codex 内容创作"
+
+At top a thin full-width business journey with 7 short numbered nodes and forward arrows:
+"① 栏目定位" → "② 调研待选" → "③ 选择预览" → "④ 人工确认入队" → "⑤ 显式启动生产" → "⑥ 图文产物" → "⑦ 人工验收"
+Below journey small note: "待选 ≠ 已入队 · 提交 ≠ 完成 · 批准 ≠ 已发布"
+
+Main middle area: three large equal-width panels, left to right, numbered A B C. Panels distinguished by understated accent bands. Use short lines. Draw connector arrows only between adjacent panels and label them. Their enclosing titles:
+A "运营 Agent｜选择下一步" (apricot)
+B "业务服务｜保证执行规则" (sage)
+C "Codex Agent｜完成内容创作" (powder blue)
+
+A inside:
+"Web / CLI 对话"
+down arrow
+"Context Builder → DeepSeek"
+down arrow
+"选择工具与参数"
+down arrow
+"Runtime 校验并调用工具"
+draw a clear returning loop from bottom tool execution upward to Context Builder labelled "工具结果回填".
+small note: "查目录 · 调研 · 选候选 · 提交任务"
+A→B connector label "HTTP 工具调用".
+B→A thin return connector label "状态 / ID / 结果".
+
+B inside two clearly separate stacked subregions, not one unconditional chain:
+upper "选题计划"
+"候选 → Preview → 人工确认"
+"版本检查 → 正式队列"
+lower "ContentRun 生产流程"
+"输入快照 → 执行 → 校验产物"
+"状态持久化 · 中断后显式恢复"
+"No automatic publish" do NOT print English here, instead footer "不由模型自动批准".
+
+B→C forward connector label "委托调研 / 生产".
+C→B return connector label "结构化结果 / 产物".
+C inside:
+"栏目定位 + 选题 + Skill"
+down arrow
+"读取说明 · 调研或图文生成"
+down arrow
+"候选列表 或 SocialContentPack"
+small note: "两类独立任务；调研不生成图片"
+At bottom of C add emphatic one-line note: "外层流程固定，内部创作仍是 Agent"
+
+Bottom: four small horizontal support blocks across width with shared heading "支撑层：不同数据，各司其职"
+1 "Session" / "完整对话账本"
+2 "ModelContext" / "摘要 + 近期原文 + 按需回读"
+3 "业务库 / 文件" / "账号 · 栏目 · 任务 · 图文"
+4 "Trace / Eval" / "记录轨迹 · 检查终态"
+
+Very bottom quiet footnote "当前主线：自有栏目图文生产与人工验收；自动发布、反馈闭环尚未完成。"
+Important correctness: do not imply the operator LLM itself executes functions; Runtime calls them. Do not imply selecting a candidate automatically starts production. Do not imply creation inside Codex is deterministic. Do not draw automatic publishing or distributed multi-agent workers. Do not add MCP, vector database, long-term memory labels. All text must be clean and faithful; use layout space efficiently.
