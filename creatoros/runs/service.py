@@ -103,7 +103,12 @@ class ContentRunService:
             if topic is None:
                 raise ContentRunError(f"Topic 不存在：{topic_id}", status_code=404, code="not_found")
             series = topic.series
-            if not series.is_active or not series.creator.is_active:
+            if series.creator_id is None:
+                raise ContentRunError("栏目尚未分配账号，先把栏目归属到一个账号再生产。")
+            if series.skill_name is None:
+                raise ContentRunError("双 Skill 栏目生产尚未接入，当前只支持单生产 Skill 栏目。")
+            creator = series.creator
+            if not series.is_active or creator is None or not creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
             if topic.status is not TopicStatus.QUEUED:
                 raise ContentRunError("仅待生产选题可以创建 Run。")

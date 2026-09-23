@@ -108,5 +108,22 @@ P4 先用受控生产器测试快照/中断/重复提交/缺工件，明确不�
 
 ## 实施记录
 
+### P1 数据与安装契约（2026-09-23，完成）
+
+- 迁移 `20260923_0005`：`series.creator_id` 与 `skill_name` 可空；新增 `mind_skill_id`、`production_skill_id`、`revision`（ORM version_id_col 乐观并发）；`skill_binding_shape` CHECK 强制"旧单 Skill XOR 完整 pair"，禁止半套绑定；未分配栏目同名由部分唯一索引 `uq_series_unassigned_name`（`creator_id IS NULL`）兜底，已分配栏目沿用 `(creator_id, name)` 唯一约束。降级会明确删除未分配/组合栏目，不留脏数据。
+- `ProducerSkillCatalog`：角色（mind/production/legacy_end_to_end）与产物能力（carousel_compatible）分离；`list()` 新增 `role` 与 `producible`；旧注册记录缺 `role` 键时读取映射为 `legacy_end_to_end`，不回写历史文件；新增 `locate()` 只做完整性校验（供调研等只读上下文），`resolve()` 保持生产门禁（mind、未分类、非轮播契约分别给出明确错误）。安装请求可显式声明 `role`（API/服务/注册贯通），省略即未分类——可展示不可生产；同一 URL 的既有任务保留首次声明的角色。
+- 读路径：`SeriesView.creator_id/skill_name` 可空并新增 `mind_skill_id/production_skill_id/revision`；前端 types 同步，栏目页对未分配账号与双 Skill 组合做空值展示，不伪造单 Skill。
+- 显式守卫：未分配栏目生产报"尚未分配账号"、双 Skill 栏目生产报"尚未接入"（ContentRunError，非 AttributeError）；调研允许未分配旧栏目（候选只是建议），组合栏目用 mind Skill 的 `locate` 做上下文；`validate_scope` 允许未分配栏目作计划范围，执行器明确拒绝并说明原因。
+- 旧 Run 输入快照不变：`ContentRunInput` 字段集合未动，smoke 逐键比对通过。
+- 验证（全部隔离临时库，不触碰正式 `data/creatoros.db`）：
+  - `smoke_series_composition=passed`：0004 旧库（含 Creator/Series/Topic/ContentRun 与真实快照 JSON）升级后逐字段不变、新列 NULL/revision=1、`compare_metadata` 零漂移、降级再升级数据一致；半 pair、pair+skill_name、revision=0、未分配同名、已分配同名均被约束拒绝。
+  - `smoke_skill_roles=passed`：内置/新装/未分类/旧记录映射、resolve 门禁三类拒绝、locate 只读、角色白名单、未知 ID。
+  - `smoke_series_guards=passed`：未分配与双 Skill 的生产拒绝、调研双分支、API 空值投影、执行器守卫。
+  - 回归：`smoke_content_storage`、`smoke_content_run_storage`（head 断言更新为 0005）、`smoke_producer_skills`（fixture 按新契约声明 role=production，bind/CAS/篡改流程不变）、`smoke_operation_*`、`smoke_pending_operation_*`、`smoke_studio_*`（8 个）、`smoke_topic_research`、`smoke_agent_studio`、`smoke_web_agent` 全部通过；`compileall` 与前端 `typecheck`/`build` 通过。
+  - 正式库副本彩排：复制 `data/creatoros.db` 到临时文件升级 0005，真实"Agent"栏目 creator_id/skill_name 保留、ORM 读取与 creator 关系正常；原库保持 0004 未动。正式库将在用户下次启动 Web/CLI 时由既有启动迁移自动升级（应用自有行为，非本轮测试副作用）。
+- 明确未做：未迁移正式数据；未实现 pair 栏目的创建/绑定 API（P2）；未实现双 Skill 生产（P4）；`prepare_topic_selection` 仍要求人工确认（A 未接线）；前端仅做类型兼容，未做组合 UI（P3）。
+- 已知边界：SQLite 部分唯一索引依赖 SQLite ≥3.8；`bind_skill` 仍按 `expected_skill_name` CAS（revision CAS 留给 P2 的组合写接口）；调研对组合栏目只读 mind Skill，不读 production Skill。
+
+### 设计核对（2026-09-21）
+
 - 本轮仅完成代码核对与本 SPEC，未实现 P1–P5，未修改生产配置、Skill安装目录或正式数据库。
-- 实施次序 P1 → P2 → P3 → P4；P5 可在事件关联完成后追加。每步更新验收记录并独立提交，不把设计文档当作完成证明。

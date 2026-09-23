@@ -2,11 +2,14 @@ export type CreatorPlatform = "xiaohongshu" | "zhihu" | string;
 
 export interface SeriesView {
   id: string;
-  creator_id: string;
+  creator_id: string | null;
   name: string;
   description: string;
   audience: string;
-  skill_name: string;
+  skill_name: string | null;
+  mind_skill_id: string | null;
+  production_skill_id: string | null;
+  revision: number;
   is_active: boolean;
   topic_count: number;
   available_topic_count: number;

@@ -49,13 +49,13 @@ function SeriesContent({ seriesId }: { seriesId?: string }) {
   };
   const startButton = (topic: TopicView) => <button type="button" className="button button-secondary queue-start" disabled={!series.is_active || runMutation.isPending} title="会调用 Codex 开始后台生产并消耗额度" onClick={() => runMutation.mutate(topic)}>{runMutation.isPending && runMutation.variables?.id === topic.id ? "提交中…" : topic.available_actions.includes("resume") ? "恢复生产" : "开始生产"}</button>;
   return <div className="series-index">
-    <nav className="series-breadcrumb" aria-label="栏目路径"><Link to={`/creators/${series.creator_id}`}>{creatorQuery.data?.display_name ?? "返回账号"}</Link><span>/</span><b>{series.name}</b></nav>
+    <nav className="series-breadcrumb" aria-label="栏目路径">{series.creator_id ? <Link to={`/creators/${series.creator_id}`}>{creatorQuery.data?.display_name ?? "返回账号"}</Link> : <Link to="/creators">未分配账号</Link>}<span>/</span><b>{series.name}</b></nav>
     <div className="series-workspace library-workspace">
       <div className="series-main">
         <section className="series-hero"><CreativeMark /><div className="series-identity"><h1>{series.name}</h1><p>{series.description || "还没有填写栏目定位"}</p>
-          <div className="series-tags"><span>◉ {series.audience || "未设置受众"}</span><span title={series.skill_name}>▤ {series.skill_name === "knowledge-to-carousel" ? "知识点 → 图片轮播" : series.skill_name}</span>{!series.is_active && <StatusPill status="cancelled" />}</div>
-        </div><button className="button button-secondary" aria-expanded={skillOpen} onClick={() => setSkillOpen(!skillOpen)}>生产 Skill</button></section>
-        {skillOpen && <ProducerSkillPanel key={series.id} seriesId={series.id} current={series.skill_name} />}
+          <div className="series-tags"><span>◉ {series.audience || "未设置受众"}</span><span title={series.skill_name ?? undefined}>▤ {series.skill_name === null ? "双 Skill 组合（生产尚未接入）" : series.skill_name === "knowledge-to-carousel" ? "知识点 → 图片轮播" : series.skill_name}</span>{!series.is_active && <StatusPill status="cancelled" />}</div>
+        </div>{series.skill_name !== null && <button className="button button-secondary" aria-expanded={skillOpen} onClick={() => setSkillOpen(!skillOpen)}>生产 Skill</button>}</section>
+        {skillOpen && series.skill_name !== null && <ProducerSkillPanel key={series.id} seriesId={series.id} current={series.skill_name} />}
         <TopicLibrary key={series.id} seriesId={series.id} startButton={startButton} />
         {runMutation.isError && <p className="form-error" role="alert">{runMutation.error.message}{runMutation.error instanceof ApiError && runMutation.error.runId && <Link to={`/runs/${runMutation.error.runId}`}>查看当前运行 →</Link>}</p>}
         {runMutation.isSuccess && <p className="queue-submitted" role="status">已提交后台，尚未完成。<Link to={`/runs/${runMutation.data.id}`}>查看本次运行 →</Link></p>}

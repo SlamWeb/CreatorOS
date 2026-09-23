@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from sqlalchemy import update
+from typing import Literal
 
 from creatoros.storage import Series
 from .schemas import WriteRequest
@@ -10,6 +11,7 @@ from .schemas import WriteRequest
 class InstallSkillRequest(WriteRequest):
     github_url: str = Field(min_length=1, max_length=1000)
     retry: bool = False
+    role: Literal["mind", "production", "legacy_end_to_end"] | None = None
 
 
 class BindSkillRequest(WriteRequest):
@@ -26,7 +28,7 @@ def skill_routes(database, service):
 
     @router.post("/producer-skills/install", status_code=202)
     def install_skill(request: InstallSkillRequest):
-        return service.submit(request.github_url, retry=request.retry)
+        return service.submit(request.github_url, retry=request.retry, role=request.role)
 
     @router.get("/producer-skills/jobs/{job_id}")
     def get_job(job_id: str):

@@ -14,11 +14,14 @@ class ApiModel(BaseModel):
 
 class SeriesView(ApiModel):
     id: str
-    creator_id: str
+    creator_id: str | None
     name: str
     description: str
     audience: str
-    skill_name: str
+    skill_name: str | None
+    mind_skill_id: str | None = None
+    production_skill_id: str | None = None
+    revision: int = Field(ge=1)
     is_active: bool
     topic_count: int = Field(ge=0)
     available_topic_count: int = Field(ge=0)

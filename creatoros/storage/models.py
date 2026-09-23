@@ -9,12 +9,14 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     MetaData,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -161,6 +163,13 @@ class Series(TimestampMixin, Base):
     __tablename__ = "series"
     __table_args__ = (
         UniqueConstraint("creator_id", "name"),
+        # SQLite 唯一约束把 NULL 视为互不相同；未分配栏目的同名去重由部分索引兜底。
+        Index(
+            "uq_series_unassigned_name",
+            "name",
+            unique=True,
+            sqlite_where=text("creator_id IS NULL"),
+        ),
         CheckConstraint("replenish_threshold > 0", name="replenish_threshold_positive"),
         CheckConstraint(
             "selection_policy IN ('approval', 'auto')", name="selection_policy_values"
@@ -168,16 +177,25 @@ class Series(TimestampMixin, Base):
         CheckConstraint(
             "publish_policy IN ('approval', 'auto')", name="publish_policy_values"
         ),
+        # 栏目只能是旧单 Skill 或完整 mind+production 组合，禁止半套绑定。
+        CheckConstraint(
+            "(skill_name IS NOT NULL AND mind_skill_id IS NULL AND production_skill_id IS NULL) "
+            "OR (skill_name IS NULL AND mind_skill_id IS NOT NULL AND production_skill_id IS NOT NULL)",
+            name="skill_binding_shape",
+        ),
+        CheckConstraint("revision > 0", name="revision_positive"),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
-    creator_id: Mapped[str] = mapped_column(
-        ForeignKey("creators.id", ondelete="CASCADE"), index=True, nullable=False
+    creator_id: Mapped[str | None] = mapped_column(
+        ForeignKey("creators.id", ondelete="CASCADE"), index=True, nullable=True
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     audience: Mapped[str] = mapped_column(Text, nullable=False)
-    skill_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    skill_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    mind_skill_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    production_skill_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     selection_policy: Mapped[OperationPolicy] = mapped_column(
         SAEnum(
             OperationPolicy,
@@ -199,9 +217,12 @@ class Series(TimestampMixin, Base):
         nullable=False,
     )
     replenish_threshold: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    creator: Mapped[Creator] = relationship(back_populates="series")
+    __mapper_args__ = {"version_id_col": revision}
+
+    creator: Mapped[Creator | None] = relationship(back_populates="series")
     topics: Mapped[list["Topic"]] = relationship(
         back_populates="series",
         cascade="all, delete-orphan",

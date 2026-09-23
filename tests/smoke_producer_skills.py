@@ -36,7 +36,7 @@ def main():
         receipt = fixture(workspace)
         inspected = _inspect_checkout(workspace / "source", None)
         assert inspected.carousel_compatible and inspected.skill_path == "."
-        record = catalog.register(workspace, "https://github.com/example/test", receipt)
+        record = catalog.register(workspace, "https://github.com/example/test", receipt, role="production")
         skill_id = record["id"]
         assert catalog.resolve(skill_id).is_dir()
         producer = CodexProducer.from_defaults()

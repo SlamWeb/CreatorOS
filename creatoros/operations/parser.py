@@ -44,9 +44,13 @@ def validate_scope(repository: ContentRepository, series_id: str | None):
     series = repository.get_series(series_id)
     if series is None:
         raise OperationScopeError("栏目不存在。", 404)
-    creator = repository.get_creator(series.creator_id)
-    if not series.is_active or creator is None or not creator.is_active:
+    if not series.is_active:
         raise OperationScopeError("栏目或所属账号已停用。", 409)
+    # 未分配账号的栏目允许作为选题计划范围；生产由 ContentRun 单独把关。
+    if series.creator_id is not None:
+        creator = repository.get_creator(series.creator_id)
+        if creator is None or not creator.is_active:
+            raise OperationScopeError("栏目或所属账号已停用。", 409)
 
 
 class LazyOperationParser:

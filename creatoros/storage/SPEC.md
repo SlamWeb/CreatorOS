@@ -10,7 +10,7 @@
 ## 当前模型
 
 - `Creator` 对应一个真实平台账号，保存展示名、平台、时区、可选每日总上限和启用状态。
-- `Series` 对应 Creator 下的独立栏目，固定 Skill，并保存选题确认、发布审批和自动补货策略。
+- `Series` 对应独立栏目；可暂不归属账号（`creator_id` 可空，未分配同名由部分唯一索引去重）。Skill 绑定二选一：旧单 `skill_name`，或完整 `mind_skill_id + production_skill_id` 组合（`skill_binding_shape` 禁止半套）。`revision` 为配置乐观并发版本。选题确认、发布审批和自动补货策略保持不变。
 - `Topic` 对应 Series 的有序选题，区分 research/manual 来源并保存最小生命周期状态。
 
 ## 当前边界
@@ -40,3 +40,9 @@
 - 新 Alembic 20260904_0004 增加 PendingOperation.scope_series_id 和 ORM version；旧记录 version=1、scope=None，revision/事件保留。
 - smoke_operation_migration 从含旧计划和事件的 0003 升级，验证行保留、foreign_key_check、metadata 无 drift；content_storage/content_run_storage 通过。
 - 本轮只迁移隔离测试库，没有升级正式运营库；日常启动仍由既有入口显式升级。
+
+## P1 组合契约完成（2026-09-23）
+
+- 新 Alembic `20260923_0005`：`creator_id`、`skill_name` 可空；新增 `mind_skill_id`、`production_skill_id`、`revision`（version_id_col）；`skill_binding_shape` 禁止半套绑定；`uq_series_unassigned_name` 部分唯一索引兜底未分配同名。
+- `series_composition_migration_smoke=passed`：0004 旧库升级/降级/再升级数据逐字段不变，`compare_metadata` 零漂移；约束与索引行为逐项验证。详见 docs/studio/composition/SPEC.md 实施记录。
+- 本轮只迁移隔离库与正式库副本彩排，原 `data/creatoros.db` 保持 0004；日常启动仍由既有入口显式升级。

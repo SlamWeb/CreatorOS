@@ -124,29 +124,57 @@ class GitSkillInstaller:
 
 
 class ProducerSkillCatalog:
+    """已安装 Skill 目录：角色（mind/production/legacy_end_to_end）与产物能力分离。
+
+    旧注册记录没有 role 键，读取时映射为 legacy_end_to_end；不回写历史文件。
+    """
+
+    ROLES = frozenset({"mind", "production", "legacy_end_to_end"})
+    PRODUCIBLE_ROLES = frozenset({"production", "legacy_end_to_end"})
+    BUILTIN_ID = "knowledge-to-carousel"
+
     def __init__(self, root: Path, project_root: Path | None = None):
         from creatoros.config import PROJECT_ROOT
         self.root = Path(root).resolve()
         self.project_root = project_root or PROJECT_ROOT
 
+    @classmethod
+    def _role(cls, data: dict):
+        # 键缺失 = 0005 之前的旧记录；键存在但为 None = 安装时明确未分类。
+        if "role" not in data:
+            return "legacy_end_to_end"
+        role = data["role"]
+        if role is not None and role not in cls.ROLES:
+            raise ValueError(f"Skill 角色无效：{role}")
+        return role
+
+    @classmethod
+    def _producible(cls, data: dict) -> bool:
+        # 当前执行/验收器只支持图片轮播；新制作 Skill 未接入适配前不可生产。
+        return bool(data["carousel_compatible"]) and cls._role(data) in cls.PRODUCIBLE_ROLES
+
+    @classmethod
+    def _public(cls, data: dict) -> dict:
+        role = cls._role(data)
+        return {**data, "role": role, "producible": cls._producible(data)}
+
     def list(self):
-        builtin = {"id": "knowledge-to-carousel", "name": "knowledge-to-carousel",
+        builtin = {"id": self.BUILTIN_ID, "name": self.BUILTIN_ID,
                    "description": "把知识点转成图片轮播", "carousel_compatible": True,
-                   "compatibility_note": "内置生产技能", "commit": None, "github_url": None}
-        return [builtin] + [json.loads(p.read_text(encoding="utf-8"))
+                   "compatibility_note": "内置生产技能", "commit": None, "github_url": None,
+                   "role": "legacy_end_to_end", "producible": True}
+        return [builtin] + [self._public(json.loads(p.read_text(encoding="utf-8")))
                             for p in sorted((self.root / "registry").glob("*.json"))]
 
-    def resolve(self, skill_id: str) -> Path:
-        if skill_id == "knowledge-to-carousel":
-            return self.project_root / "creatoros" / "skills" / skill_id
+    def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
             raise ValueError("未知生产 Skill ID。")
         record = self.root / "registry" / f"{skill_id}.json"
         if not record.is_file():
             raise ValueError("生产 Skill 未安装。")
-        data = json.loads(record.read_text(encoding="utf-8"))
-        if not data["carousel_compatible"]:
-            raise ValueError("该 Skill 不是图片轮播生产技能，请先改造产物契约再绑定。")
+        return json.loads(record.read_text(encoding="utf-8"))
+
+    def _verified_directory(self, skill_id: str, data: dict) -> Path:
         directory = self.root / "versions" / skill_id
         if directory.is_symlink() or not directory.resolve().is_relative_to(self.root):
             raise ValueError("Skill 目录不在受管理的安装范围内。")
@@ -154,7 +182,29 @@ class ProducerSkillCatalog:
             raise ValueError("已安装 Skill 文件发生变化，拒绝静默使用被修改的版本。")
         return directory
 
-    def register(self, workspace: Path, url: str, receipt: InstallReceipt) -> dict:
+    def locate(self, skill_id: str) -> Path:
+        """完整性校验后的目录读取，不做生产能力门禁（供调研等只读上下文使用）。"""
+        if skill_id == self.BUILTIN_ID:
+            return self.project_root / "creatoros" / "skills" / skill_id
+        return self._verified_directory(skill_id, self._record(skill_id))
+
+    def resolve(self, skill_id: str) -> Path:
+        """生产门禁：只有声明为可生产角色且满足当前轮播产物契约的 Skill 可绑定/生产。"""
+        if skill_id == self.BUILTIN_ID:
+            return self.project_root / "creatoros" / "skills" / skill_id
+        data = self._record(skill_id)
+        role = self._role(data)
+        if role is None:
+            raise ValueError("该 Skill 尚未声明内容/制作角色，先完成配置再绑定生产。")
+        if role == "mind":
+            raise ValueError("该 Skill 是内容 Skill（mind），不能单独承担图片轮播生产。")
+        if not data["carousel_compatible"]:
+            raise ValueError("该 Skill 不是图片轮播生产技能，请先改造产物契约再绑定。")
+        return self._verified_directory(skill_id, data)
+
+    def register(self, workspace: Path, url: str, receipt: InstallReceipt, role: str | None = None) -> dict:
+        if role is not None and role not in self.ROLES:
+            raise ValueError(f"Skill 角色必须是 {sorted(self.ROLES)} 之一，或省略表示暂不分类。")
         source = workspace / "source"
         def git(*args, binary=False):
             result = subprocess.run(["git", "-C", str(source), *args], check=True,
@@ -210,7 +260,8 @@ class ProducerSkillCatalog:
         record = {"id": skill_id, "name": skill.name, "description": skill.description,
                   "github_url": url, "commit": commit, "skill_path": path, "digest": digest,
                   "carousel_compatible": receipt.carousel_compatible,
-                  "compatibility_note": receipt.compatibility_note}
+                  "compatibility_note": receipt.compatibility_note,
+                  "role": role}
         destination = self.root / "versions" / skill_id
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists():
@@ -252,8 +303,10 @@ class SkillInstallService:
             if data["status"] == "installing":
                 _write(path, {**data, "status": "interrupted", "message": "宿主已重启；未自动重试安装。"})
 
-    def submit(self, url, *, retry=False):
+    def submit(self, url, *, retry=False, role=None):
         url = github_url(url)
+        if role is not None and role not in ProducerSkillCatalog.ROLES:
+            raise ValueError(f"Skill 角色必须是 {sorted(ProducerSkillCatalog.ROLES)} 之一，或省略表示暂不分类。")
         job_id = hashlib.sha256(url.encode()).hexdigest()
         with self.lock:
             previous = self.get(job_id) if self._path(job_id).exists() else None
@@ -265,6 +318,7 @@ class SkillInstallService:
                 raise ValueError("另一个 Skill 正在安装，请完成后再提交。")
             job = {"id": job_id, "github_url": url, "status": "installing", "skill": None,
                    "attempt": (previous or {}).get("attempt", 0) + 1,
+                   "role": role if previous is None else previous.get("role"),
                    "message": "CreatorOS 正在下载和核验，尚未绑定栏目。"}
             _write(self._path(job_id), job)
             self.thread = Thread(target=self._run, args=(job,), daemon=True)
@@ -282,7 +336,7 @@ class SkillInstallService:
             receipt = self.installer.install(job["github_url"], workspace, self.cancel)
             if self.cancel.is_set():
                 raise ValueError("安装已中断。")
-            record = self.catalog.register(workspace, job["github_url"], receipt)
+            record = self.catalog.register(workspace, job["github_url"], receipt, role=job.get("role"))
             job = {**job, "status": "installed", "skill": record, "message": "已安装，尚未绑定栏目。"}
         except Exception as error:
             # Keep detailed errors local, not in model context/browser (may contain paths).

@@ -104,10 +104,18 @@ class TopicResearchService:
         series = self.repository.get_series(series_id)
         if not series or not series.is_active:
             raise ValueError("栏目不存在或已停用。")
-        creator = self.repository.get_creator(series.creator_id)
-        if not creator or not creator.is_active:
-            raise ValueError("账号不存在或已停用。")
-        directory = self.catalog.resolve(series.skill_name)
+        # 未分配账号的栏目允许调研（候选只是建议）；生产仍由 ContentRun 单独把关。
+        if series.creator_id is not None:
+            creator = self.repository.get_creator(series.creator_id)
+            if not creator or not creator.is_active:
+                raise ValueError("账号不存在或已停用。")
+        # 组合栏目用内容 Skill（mind）作为调研上下文；旧栏目沿用单 Skill。
+        if series.skill_name is not None:
+            directory = self.catalog.resolve(series.skill_name)
+        elif series.mind_skill_id:
+            directory = self.catalog.locate(series.mind_skill_id)
+        else:
+            raise ValueError("栏目未配置内容 Skill，无法调研。")
         return {
             "series": {key: getattr(series, key) for key in SeriesResearchContext.model_fields},
             "skill_digest": _digest(directory),
