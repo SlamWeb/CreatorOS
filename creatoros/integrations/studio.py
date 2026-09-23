@@ -15,13 +15,14 @@ class StudioClientError(RuntimeError):
 
 
 class StudioClient:
-    def __init__(self, base_url: str, *, client: httpx.Client | None = None):
+    def __init__(self, base_url: str, *, client: httpx.Client | None = None, origin: str = "agent"):
         parsed = urlsplit(base_url)
         if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
                 or parsed.username or parsed.password or parsed.path not in {"", "/"}
                 or parsed.query or parsed.fragment):
             raise ValueError("Studio 地址必须是本机 HTTP 地址，例如 http://127.0.0.1:8765。")
         self.base_url = base_url.rstrip("/")
+        self.origin = origin
         self.client = client or httpx.Client(timeout=30, trust_env=False, follow_redirects=False)
 
     @classmethod
@@ -33,7 +34,8 @@ class StudioClient:
 
     def request(self, method: str, path: str, *, params=None, payload=None) -> dict:
         try:
-            response = self.client.request(method, self.base_url + path, params=params, json=payload)
+            response = self.client.request(method, self.base_url + path, params=params, json=payload,
+                                           headers={"x-creatoros-origin": self.origin})
         except httpx.ConnectError as error:
             raise StudioClientError(
                 "无法连接 Studio。请先运行 python -m creatoros.web，并核对 Studio 地址。",

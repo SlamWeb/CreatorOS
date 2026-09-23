@@ -85,12 +85,11 @@ class OperationExecutor:
                 raise OperationPlanError(f"栏目不存在：{series_id}")
             if not series.is_active:
                 raise OperationConflictError(f"栏目已停用：{series.name}")
-            if series.creator_id is None:
-                raise OperationConflictError(f"栏目尚未分配账号，不能执行计划：{series.name}")
-            creator = repository.get_creator(series.creator_id)
-            if creator is None or not creator.is_active:
+            # 未分配账号的栏目允许管理选题（添加/调序）；只有生产才要求账号。
+            creator = repository.get_creator(series.creator_id) if series.creator_id is not None else None
+            if series.creator_id is not None and (creator is None or not creator.is_active):
                 raise OperationConflictError("栏目所属账号已停用，不能执行计划。")
-            series_meta[series_id] = (creator.display_name, series.name)
+            series_meta[series_id] = (creator.display_name if creator else "未分配账号", series.name)
             for operation in plan.operations:
                 if (isinstance(operation, AddTopicsOperation) and operation.series_id == series_id
                         and operation.expected_series is not None):

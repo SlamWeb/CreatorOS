@@ -1,9 +1,10 @@
 """Research is asynchronous; selecting candidates only creates an approval preview."""
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Literal
 from pydantic import Field
 
 from creatoros.integrations.topic_research import CandidateSelection
+from creatoros.operations.service import PendingOperationError
 from .schemas import WriteRequest
 from .topic_library import topic_library
 
@@ -15,6 +16,10 @@ class ResearchRequest(WriteRequest):
 
 class SelectionRequest(WriteRequest):
     selections: list[CandidateSelection] = Field(min_length=1, max_length=30)
+
+
+class QueueSelectionRequest(SelectionRequest):
+    request_id: str = Field(min_length=8, max_length=64)
 
 
 def research_routes(service, queries):
@@ -44,5 +49,18 @@ def research_routes(service, queries):
     def select(batch_id: str, request: SelectionRequest):
         pending = service.prepare(batch_id, request.selections)
         return queries.get_operation(pending.id)
+
+    @router.post("/topic-research/{batch_id}/queue", status_code=201)
+    def queue(batch_id: str, request: QueueSelectionRequest, raw_request: Request):
+        origin = raw_request.headers.get("x-creatoros-origin", "web")
+        origin = origin if origin in {"web", "agent", "cli"} else "web"
+        try:
+            pending, deduplicated = service.queue(
+                batch_id, request.selections, request_id=request.request_id, origin=origin)
+        except PendingOperationError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"request_id": request.request_id, "deduplicated": deduplicated,
+                "operation_id": pending.id, "series_id": pending.scope_series_id,
+                "message": "已直接入队并记录审计。"}
 
     return router

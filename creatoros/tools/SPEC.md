@@ -1,5 +1,14 @@
 # CreatorOS Tool Exposure SPEC
 
+## 栏目组合 Tool（2026-09-23，P2）
+
+- 新增 compose_series / update_series_composition / assign_series / queue_topics 四个写工具，全部经同一 Studio API（StudioClient 带 x-creatoros-origin 头），与 Web 表单同一服务、同一幂等与 revision CAS。
+- queue_topics 是 A 策略直接入队：明确指令一次事务完成校验/写入/审计；prepare_topic_selection 保留为"先看影响"能力，两者都不暴露可复用的确认凭证。
+- install_producer_skill 可声明 role（mind/production）；省略即未分类，可展示不可生产。
+- Web allowed_tools（STUDIO_TOOLS）与 AgentPage 中文名同步更新；CLI 使用同一 tool_registry。
+- 宿主指令补充 A 边界：明确给标题+栏目则直接入队（source=manual，不因库中不存在而追问）；查看/建议不写；删除/覆盖/发布不在入口内。
+- 验证：smoke_studio_composition_tools（真实本地 HTTP，跨入口一致性）与 live_a_boundary_eval（真实 DeepSeek，6 题）通过；详见 docs/studio/composition/SPEC.md P2 记录。
+
 ## 统一选题查询（2026-09-14）
 
 - list_series_topics 默认返回栏目统一选题库，state=all/pending/queued；待选提供批次/候选 ID 给现有 prepare_topic_selection，仍须用户确认。Tool 数量不增加。

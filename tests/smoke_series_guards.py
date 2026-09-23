@@ -8,10 +8,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from creatoros.integrations.producer_skills import InstallReceipt, ProducerSkillCatalog
 from creatoros.integrations.topic_research import TopicResearchService
-from creatoros.operations.executor import OperationConflictError, OperationExecutor
+from creatoros.operations.executor import OperationExecutor
 from creatoros.operations.models import OperationPlan
 from creatoros.operations.parser import validate_scope
 from creatoros.runs import ContentRunError, ContentRunService
@@ -100,18 +101,42 @@ def main() -> None:
         pair_snapshot = research.snapshot("series-pair")
         assert "面试题内容切入点" in pair_snapshot["skill_text"]
 
-        # 计划执行：未分配栏目给出明确错误而不是含混的"账号已停用"。
+        # 计划执行：未分配栏目允许管理选题（P2 起），生产才要求账号。
         repository = ContentRepository(database)
         validate_scope(repository, "series-unassigned")  # 不抛错：允许作为选题计划范围
         plan = OperationPlan(operations=[
             {"action": "add_topics", "series_id": "series-unassigned",
              "topics": [{"topic_id": "topic-x", "title": "x"}]},
         ])
-        try:
-            OperationExecutor(repository).preview(plan)
-            raise AssertionError("未分配栏目不应通过执行预览")
-        except OperationConflictError as error:
-            assert "尚未分配账号" in str(error)
+        preview = OperationExecutor(repository).preview(plan)
+        assert preview.confirmation_token
+
+        # A 策略直接入队：原子完成、写审计事件、同 request_id 重放不重复写入。
+        from creatoros.operations import PendingOperationService
+        pending_service = PendingOperationService(database, parser=None)
+        direct_plan = OperationPlan(operations=[
+            {"action": "add_topics", "series_id": "series-unassigned",
+             "topics": [{"topic_id": "topic-direct-1", "title": "直入队一", "brief": "b", "source": "research"},
+                        {"topic_id": "topic-direct-2", "title": "直入队二", "source": "research"}]},
+        ])
+        pending, deduplicated = pending_service.execute_direct(
+            "直接入队 2 条选题", direct_plan,
+            scope_series_id="series-unassigned", request_id="req-direct-1", origin="agent",
+        )
+        assert deduplicated is False and pending.status.value == "succeeded"
+        replay, deduplicated = pending_service.execute_direct(
+            "直接入队 2 条选题", direct_plan,
+            scope_series_id="series-unassigned", request_id="req-direct-1", origin="agent",
+        )
+        assert deduplicated is True and replay.id == pending.id
+        with database.session() as session:
+            titles = [t.title for t in session.query(Topic).filter_by(series_id="series-unassigned").order_by(Topic.position)]
+            assert titles == ["选题2", "直入队一", "直入队二"], titles
+            events = session.execute(
+                text("SELECT event_type FROM operation_events WHERE pending_operation_id = :id ORDER BY id"),
+                {"id": pending.id},
+            ).fetchall()
+            assert [row[0] for row in events] == ["proposed", "confirmed", "succeeded"]
 
         # API 读路径：未分配与双 Skill 栏目可见，字段为 null 而非崩溃。
         app = create_app(database=database, run_service=runs)

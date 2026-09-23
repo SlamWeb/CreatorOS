@@ -34,10 +34,11 @@ with TemporaryDirectory() as temporary_directory:
         "pending_operations",
         "series",
         "topics",
+        "write_receipts",
     }
     with database.engine.connect() as connection:
         migration_context = MigrationContext.configure(connection)
-        assert migration_context.get_current_revision() == "20260923_0005"
+        assert migration_context.get_current_revision() == "20260923_0006"
         assert compare_metadata(migration_context, Base.metadata) == []
 
     repository = ContentRepository(database)

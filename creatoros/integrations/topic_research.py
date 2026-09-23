@@ -212,7 +212,7 @@ class TopicResearchService:
     def topic_id(batch_id, candidate_id):
         return f"research-{batch_id}-{candidate_id}"
 
-    def prepare(self, batch_id, selections):
+    def _draft_plan(self, batch_id, selections):
         record = self._load(batch_id)
         if record["status"] != "ready":
             raise ValueError("该批次尚未就绪，不能入队。")
@@ -239,9 +239,21 @@ class TopicResearchService:
         plan = OperationPlan(operations=[AddTopicsOperation(
             series_id=record["series_id"], topics=drafts,
             expected_series=SeriesResearchContext(**record["snapshot"]["series"]))])
+        return record, plan
+
+    def prepare(self, batch_id, selections):
+        record, plan = self._draft_plan(batch_id, selections)
         result = OperationParseResult(decision=OperationParseDecision(status="ready", plan=plan), usage=ModelUsage(0, 0, 0))
         return PendingOperationService(self.database, parser=None).persist_proposal(
             "从调研候选按所列顺序入队；保留切入点与来源。", result, scope_series_id=record["series_id"])
+
+    def queue(self, batch_id, selections, *, request_id, origin):
+        """A 策略：明确选择的候选直接入队，同一事务完成校验/写入/审计。"""
+        record, plan = self._draft_plan(batch_id, selections)
+        pending, deduplicated = PendingOperationService(self.database, parser=None).execute_direct(
+            "从调研候选按所列顺序直接入队；保留切入点与来源。", plan,
+            scope_series_id=record["series_id"], request_id=request_id, origin=origin)
+        return pending, deduplicated
 
     def start(self):
         self.cancel.clear()

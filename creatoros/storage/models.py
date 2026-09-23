@@ -361,6 +361,30 @@ class OperationEvent(Base):
     pending_operation: Mapped[PendingOperation] = relationship(back_populates="events")
 
 
+class WriteReceipt(Base):
+    """写请求幂等回执：同一 request_id 重复提交返回首次结果，不重复写入。
+
+    只记录成功写入；失败不留回执，客户端可用同一 request_id 安全重试。
+    """
+
+    __tablename__ = "write_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "operation IN ('create_series', 'update_composition', 'assign_series', 'queue_topics')",
+            name="write_operation_values",
+        ),
+    )
+
+    request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(40), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    response_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
 class ContentRun(TimestampMixin, Base):
     __tablename__ = "content_runs"
     __table_args__ = (

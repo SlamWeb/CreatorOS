@@ -108,6 +108,31 @@ P4 先用受控生产器测试快照/中断/重复提交/缺工件，明确不�
 
 ## 实施记录
 
+### P2 共用服务与 Tools（2026-09-23，完成）
+
+- **幂等锚点**：迁移 `20260923_0006` 新增 `write_receipts`（request_id 主键）；只记录成功写入，失败不留回执可用同 ID 安全重试；同一 request_id 跨操作复用返回 409。
+- **组合写服务** `SeriesCompositionService`（唯一写入点）：创建栏目（legacy 或完整 pair，账号可选）、改组合（仅 pair 栏目，legacy 不转换）、分配/撤回账号；全部 expected_revision CAS + request_id 幂等；pair 槽位校验角色（mind/production）且内置端到端 Skill 不能进槽位；组合可保存为未验证，生产门禁仍在 Run 创建时。
+- **A 策略直入队**：`PendingOperationService.execute_direct` 一次事务完成 校验→PendingOperation(proposed/confirmed/succeeded)→写入→write_receipt；确认凭证生成即消费，模型接触不到可复用 token；历史 Preview 不因"继续"获得授权。选题操作对未分配栏目放行（P1 执行器过严已修正为"只有生产要求账号"）。
+- **HTTP**：`POST /api/series`、`/api/series/{id}/composition`、`/api/series/{id}/assignment`、`/api/series/{id}/queue`、`/api/topic-research/{batch}/queue`（调研候选走确定性 topic_id + 服务端来源拼接，不经客户端）。origin 由宿主 `x-creatoros-origin` 头提供，不信客户端 body。
+- **Agent 工具**：compose_series / update_series_composition / assign_series / queue_topics 注册进 tool_registry + Web STUDIO_TOOLS + 中文展示名；install_producer_skill 支持 role；宿主指令写入 A 边界。
+- **Web**：候选选择栏主按钮改为"确认入队"直接写入（request_id 每次操作生成，重试安全），"预览"降级为可选次级按钮；自然语言抽屉仍走 Preview。
+- **验证**（全部隔离环境）：
+  - `series_composition_service_smoke=passed`：创建/幂等重放/跨操作 request_id 复用 409/半套与全空 422/角色错槽/未装 Skill/未知账号 404/分配与撤回/revision CAS 冲突 409 零写/legacy 拒转/agent origin 记录/直入队。
+  - `studio_composition_tools_smoke=passed`：真实本地 HTTP 服务，Agent 工具写入 + HTTP 读取跨入口一致；旧 revision 拒绝；四个新工具已暴露。
+  - `live_composition_skills=passed`：真实 GitHub 安装 mind=`knowledge-to-storyboard-deep--039c5af915d13784`、production=`xiaobai--901ca2275bec0b70`（均不声明轮播契约 → 可组合、当前不可生产），组成 pair 栏目；未分配先拦"尚未分配账号"，分配后拦"双 Skill 尚未接入"（P4）。
+  - `live_a_boundary_eval`（真实 DeepSeek，6 题）：A1 明确入队、A2 查看不写、A3 歧义澄清、A4 删除拒绝、A5 历史 Preview 不授权均通过；**A6 初跑失败**——空库+明确标题下模型过度澄清未执行，宿主指令补"明确标题直接新建入队"后复跑通过（queue→生产链路，受控 Producer），按惯例不宣称单次通过即稳定消除。
+  - Playwright e2e 4 passed（topic-research 用例更新为 Preview 零写入 + 直接入队断言）；既有 smoke 回归与 compileall/typecheck/build 全绿。
+- 已知语义：同值重写不推进 revision（ORM 无变化不触发 version_id_col）；系列同名冲突与并发同 request_id 竞态由 IntegrityError 归一为 409；正式库由启动迁移升至 0006（只加表，无数据变更）。
+
+### P2 决策（2026-09-23，用户逐条确认）
+
+1. **Web 显性结构化操作跳过强制 Preview**：勾选候选+点确认本身就是明确指令，直接写入；Preview 降级为"查看影响"的可选能力。自然语言入口（Ctrl+K 抽屉）仍走 Preview，因为模型解析可能出错，Preview 是消歧面。
+2. **不允许空白草稿栏目**：创建栏目必须当场选定 legacy 单 Skill 或完整 pair；P1 的 `skill_binding_shape` 约束保持不变。
+3. **pair 验证使用真实 Skill**：mind = `SlamWeb/knowledge-to-storyboard`（skills/knowledge-to-storyboard-deep），production = `SlamWeb/creatorOS-ip-skills`（xiaobai）。注意 xiaobai 只交付生图 Prompt、不声明轮播契约，该 pair 在 P2 为"可保存、未验证、不可生产"，生产链路属 P4。
+4. **legacy → pair 转换不做**：旧栏目永远 legacy，组合只能新建。
+5. **范围**：P2 不做组合 UI（P3）；A 边界专项 eval 做最小集（5–8 题）；撤回分配不限制（进行中的 Run 有输入快照不受影响，未分配后新生产被守卫拒绝）；request_id 由宿主生成（Web 每次动作一个 uuid，Agent 由 Runtime 按调用生成），服务端按 request_id 幂等。
+6. **生产恢复已有 checkpoint 机制**（用户提问确认）：ContentRun/Revision/Attempt 分离 + `producer_thread_id` 在 thread.started 时持久化 + lease/heartbeat + 重启后显式恢复；P4 双 Skill 生产复用同一 ContentRun 机器，不另造恢复逻辑。
+
 ### P1 数据与安装契约（2026-09-23，完成）
 
 - 迁移 `20260923_0005`：`series.creator_id` 与 `skill_name` 可空；新增 `mind_skill_id`、`production_skill_id`、`revision`（ORM version_id_col 乐观并发）；`skill_binding_shape` CHECK 强制"旧单 Skill XOR 完整 pair"，禁止半套绑定；未分配栏目同名由部分唯一索引 `uq_series_unassigned_name`（`creator_id IS NULL`）兜底，已分配栏目沿用 `(creator_id, name)` 唯一约束。降级会明确删除未分配/组合栏目，不留脏数据。

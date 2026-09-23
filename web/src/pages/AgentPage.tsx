@@ -12,6 +12,7 @@ type Session = { id: string; title: string; version: number; status: string; err
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
   list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务",
   research_series_topics: "调研选题", get_topic_research: "查看调研候选", prepare_topic_selection: "准备选题预览",
+  queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };

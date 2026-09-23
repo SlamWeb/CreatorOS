@@ -20,6 +20,7 @@ from .models import (
     Topic,
     TopicSource,
     TopicStatus,
+    WriteReceipt,
 )
 from .repository import ContentRepository
 
@@ -45,5 +46,6 @@ __all__ = [
     "Topic",
     "TopicSource",
     "TopicStatus",
+    "WriteReceipt",
     "upgrade_database",
 ]

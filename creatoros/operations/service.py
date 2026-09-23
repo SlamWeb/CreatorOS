@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 import json
 from functools import wraps
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm.exc import StaleDataError
 
 from creatoros.storage import (
@@ -14,10 +14,11 @@ from creatoros.storage import (
     OperationEventType,
     PendingOperation,
     PendingOperationStatus,
+    WriteReceipt,
 )
 
 from .executor import OperationConflictError, OperationExecutor
-from .models import OperationPlan, OperationPreview
+from .models import OperationParseDecision, OperationPlan, OperationPreview
 from .parser import OperationParseResult, OperationPlanParser, OperationParseError, validate_scope
 from .repository import PendingOperationRepository
 
@@ -316,6 +317,103 @@ class PendingOperationService:
 
     def list_actionable(self) -> tuple[PendingOperation, ...]:
         return self.pending_repository.list_actionable()
+
+    def execute_direct(
+        self,
+        request_text: str,
+        plan: OperationPlan,
+        *,
+        scope_series_id: str,
+        request_id: str,
+        origin: str,
+    ) -> tuple[PendingOperation, bool]:
+        """A 策略：明确指令在一次事务里完成 校验→写入→审计，token 生成即消费。
+
+        模型/客户端接触不到可复用的确认凭证；历史 Preview 不因"继续"获得授权。
+        同一 request_id 重放返回首次结果；执行中状态变化则整体回滚，调用方重试。
+        """
+        with self.database.session() as session:
+            existing = session.get(WriteReceipt, request_id)
+            if existing is not None:
+                if existing.operation != "queue_topics":
+                    raise PendingOperationError("request_id 已被其他操作占用。")
+                return self._require(existing.response_json["operation_id"]), True
+
+        prepared = self._prepare(
+            OperationParseResult(
+                decision=OperationParseDecision(status="ready", plan=plan),
+                usage=None,
+            ),
+            scope_series_id,
+        )
+        if prepared.status is not PendingOperationStatus.AWAITING_APPROVAL:
+            raise PendingOperationError("直接执行的计划未通过校验，未写入。")
+        assert prepared.plan_json is not None and prepared.confirmation_token is not None
+
+        try:
+            with self.database.session() as session:
+                existing = session.get(WriteReceipt, request_id)
+                if existing is not None:
+                    return self._require(existing.response_json["operation_id"]), True
+                pending_repository = PendingOperationRepository(self.database, session=session)
+                content_repository = ContentRepository(self.database, session=session)
+                now = datetime.now(timezone.utc)
+                pending = PendingOperation(
+                    id=str(uuid4()),
+                    request_text=request_text.strip(),
+                    scope_series_id=scope_series_id,
+                    decision_status="ready",
+                    status=PendingOperationStatus.AWAITING_APPROVAL,
+                    plan_json=prepared.plan_json,
+                    preview_json=prepared.preview_json,
+                    confirmation_token=prepared.confirmation_token,
+                    message="直接执行（明确指令）。",
+                    usage_json=None,
+                    revision=1,
+                    version=1,
+                )
+                pending_repository.create(pending)
+                pending_repository.add_event(
+                    pending.id,
+                    OperationEventType.PROPOSED,
+                    {"decision_status": "ready", "revision": 1, "direct": True, "origin": origin,
+                     "request_id": request_id},
+                )
+                pending_repository.add_event(
+                    pending.id,
+                    OperationEventType.CONFIRMED,
+                    {"direct": True, "origin": origin, "request_id": request_id},
+                )
+                receipt = self.executor.execute_in_transaction(
+                    content_repository,
+                    plan,
+                    prepared.confirmation_token,
+                )
+                pending.status = PendingOperationStatus.SUCCEEDED
+                pending.confirmed_at = now
+                pending.completed_at = now
+                pending_repository.add_event(
+                    pending.id,
+                    OperationEventType.SUCCEEDED,
+                    receipt.model_dump(mode="json"),
+                )
+                session.add(WriteReceipt(
+                    request_id=request_id,
+                    operation="queue_topics",
+                    resource_id=scope_series_id,
+                    origin=origin,
+                    response_json={"operation_id": pending.id, "topic_orders": receipt.topic_orders},
+                ))
+                session.flush()
+                return pending, False
+        except IntegrityError:
+            with self.database.session() as session:
+                existing = session.get(WriteReceipt, request_id)
+                if existing is not None and existing.operation == "queue_topics":
+                    return self._require(existing.response_json["operation_id"]), True
+            raise PendingOperationError("写入冲突，请重试。")
+        except OperationConflictError as error:
+            raise PendingOperationError(f"状态已变化，请重新确认后再执行：{error}") from error
 
     @staticmethod
     def _check_research_edit(pending):

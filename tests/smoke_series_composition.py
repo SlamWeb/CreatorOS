@@ -17,7 +17,7 @@ from creatoros.config import PROJECT_ROOT
 from creatoros.storage import Base, Database, Series, upgrade_database
 
 OLD_REVISION = "20260904_0004"
-HEAD_REVISION = "20260923_0005"
+HEAD_REVISION = "20260923_0006"
 TS = "2026-09-20 10:00:00.000000"
 
 SNAPSHOT = {

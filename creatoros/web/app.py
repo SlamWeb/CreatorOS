@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -13,14 +14,19 @@ from fastapi.exceptions import RequestValidationError
 from creatoros.config import DATABASE_URL, PROJECT_ROOT
 from creatoros.ai import DeepSeekProvider
 from creatoros.operations import OperationPlanParser
+from creatoros.operations.models import OperationPlan
 from creatoros.operations.parser import LazyOperationParser, OperationParserUnavailable, OperationParseError, OperationScopeError
+from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRepository
 from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
 from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
 
 from .queries import StudioQueryService
+from .composition import CompositionError, SeriesCompositionService
 from .schemas import (
+    AssignmentRequest,
+    CompositionUpdateRequest,
     CreatorCreateRequest,
     CreatorView,
     ErrorResponse,
@@ -35,8 +41,12 @@ from .schemas import (
     PendingOperationView,
     RunDetail,
     RunSummary,
+    QueueTopicsRequest,
+    QueueTopicsResponse,
+    SeriesComposeRequest,
     SeriesView,
     SeriesCreateRequest,
+    SeriesWriteResponse,
     TopicView,
     RunCancelRequest,
     RunStartRequest,
@@ -89,6 +99,7 @@ def create_app(
     chat = AgentChatService(chat_root or session_root, chat_provider_factory)
     skill_installs = skill_install_service or SkillInstallService(ProducerSkillCatalog(skills_root_for(db)))
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
+    composition = SeriesCompositionService(db, skill_installs.catalog)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -143,6 +154,10 @@ def create_app(
     @app.exception_handler(ContentRunError)
     async def run_error_handler(_request: Request, error: ContentRunError):
         return _error_response(error.status_code, error.code, str(error), run_id=error.run_id)
+
+    @app.exception_handler(CompositionError)
+    async def composition_error_handler(_request: Request, error: CompositionError):
+        return _error_response(error.status_code, error.code, str(error))
 
     @app.exception_handler(ExecutionOwnershipError)
     async def ownership_error_handler(_request: Request, error: ExecutionOwnershipError):
@@ -239,6 +254,84 @@ def create_app(
         if result is None:
             raise HTTPException(status_code=503, detail="栏目已保存，但读取新栏目失败。")
         return result
+
+    def _request_origin(request: Request) -> str:
+        origin = request.headers.get("x-creatoros-origin", "web")
+        return origin if origin in {"web", "agent", "cli"} else "web"
+
+    def _series_write_response(request_id: str, series_id: str, deduplicated: bool) -> SeriesWriteResponse:
+        view = queries.get_series(series_id)
+        if view is None:
+            raise HTTPException(status_code=503, detail="写入已完成，但读取栏目失败。")
+        return SeriesWriteResponse(request_id=request_id, deduplicated=deduplicated, series=view)
+
+    @app.post("/api/series", response_model=SeriesWriteResponse, status_code=201)
+    def compose_series(payload: SeriesComposeRequest, request: Request) -> SeriesWriteResponse:
+        series_id, deduplicated = composition.create_series(
+            name=payload.name,
+            description=payload.description,
+            audience=payload.audience,
+            creator_id=payload.creator_id,
+            skill_name=payload.skill_name,
+            mind_skill_id=payload.mind_skill_id,
+            production_skill_id=payload.production_skill_id,
+            request_id=payload.request_id,
+            origin=_request_origin(request),
+        )
+        return _series_write_response(payload.request_id, series_id, deduplicated)
+
+    @app.post("/api/series/{series_id}/composition", response_model=SeriesWriteResponse)
+    def update_composition(series_id: str, payload: CompositionUpdateRequest, request: Request) -> SeriesWriteResponse:
+        result_id, deduplicated = composition.update_composition(
+            series_id,
+            mind_skill_id=payload.mind_skill_id,
+            production_skill_id=payload.production_skill_id,
+            expected_revision=payload.expected_revision,
+            request_id=payload.request_id,
+            origin=_request_origin(request),
+        )
+        return _series_write_response(payload.request_id, result_id, deduplicated)
+
+    @app.post("/api/series/{series_id}/assignment", response_model=SeriesWriteResponse)
+    def assign_series(series_id: str, payload: AssignmentRequest, request: Request) -> SeriesWriteResponse:
+        result_id, deduplicated = composition.assign_series(
+            series_id,
+            creator_id=payload.creator_id,
+            expected_revision=payload.expected_revision,
+            request_id=payload.request_id,
+            origin=_request_origin(request),
+        )
+        return _series_write_response(payload.request_id, result_id, deduplicated)
+
+    @app.post("/api/series/{series_id}/queue", response_model=QueueTopicsResponse, status_code=201)
+    def queue_topics(series_id: str, payload: QueueTopicsRequest, request: Request) -> QueueTopicsResponse:
+        topic_ids = [f"topic-{uuid4().hex[:20]}" for _ in payload.topics]
+        plan = OperationPlan(operations=[
+            {
+                "action": "add_topics",
+                "series_id": series_id,
+                "topics": [
+                    {"topic_id": topic_id, "title": item.title, "brief": item.brief, "source": item.source}
+                    for topic_id, item in zip(topic_ids, payload.topics)
+                ],
+            }
+        ])
+        try:
+            pending, deduplicated = writes.pending_operations.execute_direct(
+                payload.summary or f"直接入队 {len(payload.topics)} 条选题",
+                plan,
+                scope_series_id=series_id,
+                request_id=payload.request_id,
+                origin=_request_origin(request),
+            )
+        except PendingOperationError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return QueueTopicsResponse(
+            request_id=payload.request_id,
+            deduplicated=deduplicated,
+            operation_id=pending.id,
+            topic_ids=topic_ids,
+        )
 
     @app.get("/api/series/{series_id}/topics", response_model=PageResponse[TopicView])
     def list_topics(

@@ -31,6 +31,8 @@ from .studio import (
     InstallSkillArgs, SkillJobArgs, NoArgs, install_producer_skill, get_skill_install, list_producer_skills,
     ResearchTopicsArgs, ResearchBatchArgs, SelectResearchArgs,
     research_series_topics, get_topic_research, prepare_topic_selection,
+    ComposeSeriesArgs, UpdateCompositionArgs, AssignSeriesArgs, QueueTopicsArgs,
+    compose_series, update_series_composition, assign_series, queue_topics,
 )
 
 
@@ -155,7 +157,15 @@ tool_registry = {
              execute=get_topic_research, args_model=ResearchBatchArgs),
         Tool(name="prepare_topic_selection", description="把用户选择的候选及标题/切入点修改、顺序生成待确认 Preview，保留来源；不执行入队、不调用生产。歧义先询问。返回链接交用户人工确认。",
              execute=prepare_topic_selection, args_model=SelectResearchArgs),
-        Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，委托 Codex 后台下载检查。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
+        Tool(name="queue_topics", description="用户明确指定条目入队时直接写入正式队列（一次完成，含审计）。只用于明确指令：'看看/调研'用别的工具；重复调用返回首次结果不重复写入。",
+             execute=queue_topics, args_model=QueueTopicsArgs),
+        Tool(name="compose_series", description="用户明确要求创建栏目时使用：legacy 单 Skill 或完整 mind+production 组合二选一；creator_id 可选，未分配栏目生产前必须分配。",
+             execute=compose_series, args_model=ComposeSeriesArgs),
+        Tool(name="update_series_composition", description="用户明确要求修改栏目 Skill 组合时使用；必须先查询取得当前 revision。旧单 Skill 栏目不可转换，需新建组合栏目。",
+             execute=update_series_composition, args_model=UpdateCompositionArgs),
+        Tool(name="assign_series", description="用户明确要求时分配或撤回栏目归属账号；creator_id 为 null 表示撤回，撤回后不可生产。必须携带当前 revision。",
+             execute=assign_series, args_model=AssignSeriesArgs),
+        Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，委托 Codex 后台下载检查。可按用户声明传入 role（mind 内容/production 制作）；省略则暂不分类、不可生产。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
              execute=install_producer_skill, args_model=InstallSkillArgs),
         Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记。绑定需要用户在栏目页面确认，非图片轮播技能不可绑定。",
              execute=get_skill_install, args_model=SkillJobArgs),

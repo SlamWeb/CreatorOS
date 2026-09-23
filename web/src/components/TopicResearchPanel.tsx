@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import { CreativeMark } from "./CreativeMark";
@@ -42,6 +42,15 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
     mutationFn: () => request<{ id: string }>(`/api/topic-research/${batchId}/preview`, {
       method: "POST", body: JSON.stringify({ selections: selected }) }),
     onSuccess: data => setParams(p => { p.set("operation", data.id); return p; }) });
+  const queueClient = useQueryClient();
+  const queue = useMutation({ retry: false,
+    mutationFn: () => request<{ operation_id: string; deduplicated: boolean }>(`/api/topic-research/${batchId}/queue`, {
+      method: "POST", body: JSON.stringify({ selections: selected, request_id: crypto.randomUUID().replaceAll("-", "") }) }),
+    onSuccess: async () => { setSelected([]);
+      await Promise.all([["research", batchId], ["research-history", seriesId], ["series", seriesId]]
+        .map(key => queueClient.invalidateQueries({ queryKey: key })));
+      await queueClient.invalidateQueries({ queryKey: ["topics"] });
+      await queueClient.invalidateQueries({ queryKey: ["overview"] }); } });
   const effective = (c: Candidate): Selection => edits[c.id] ?? { candidate_id: c.id, title: c.title, angle: c.angle };
   const toggle = (c: Candidate) => setSelected(items => items.some(s => s.candidate_id === c.id)
     ? items.filter(s => s.candidate_id !== c.id) : [...items, effective(c)]);
@@ -103,8 +112,11 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
       })}</div>
       {selected.length > 1 && <details className="research-order"><summary>调整入队顺序 · {selected.length} 项</summary>{selected.map((s, i) => <div key={s.candidate_id}><span>{i + 1}. {s.title}</span><button aria-label={`${s.candidate_id} 上移`} disabled={!i || !!editing} onClick={() => move(i, -1)}>↑</button><button aria-label={`${s.candidate_id} 下移`} disabled={i === selected.length - 1 || !!editing} onClick={() => move(i, 1)}>↓</button></div>)}</details>}
       {preview.error && <p className="form-error" role="alert">{preview.error.message}</p>}
-      <div className="research-selection-bar"><span>已选 <b>{selected.length}</b> 项<small>预览后由你确认入队</small></span>
-      <button className="button button-primary" disabled={!canSelect || !selected.length || !!editing || preview.isPending || selected.some(s => data.candidates.find(c => c.id === s.candidate_id)?.queued)} onClick={() => preview.mutate()}>{preview.isPending ? "准备计划…" : "预览入队 →"}</button></div>
+      {queue.error && <p className="form-error" role="alert">{queue.error.message} 结果未知时先查看选题库，勿连续重发。</p>}
+      {queue.isSuccess && <p className="queue-submitted" role="status">已入队，来源与切入点已保留；可在上方"已入队"筛选查看。</p>}
+      <div className="research-selection-bar"><span>已选 <b>{selected.length}</b> 项<small>点击直接入队；也可先预览影响</small></span>
+      <button className="button button-quiet" disabled={!canSelect || !selected.length || !!editing || preview.isPending || queue.isPending || selected.some(s => data.candidates.find(c => c.id === s.candidate_id)?.queued)} onClick={() => preview.mutate()}>预览</button>
+      <button className="button button-primary" disabled={!canSelect || !selected.length || !!editing || queue.isPending || preview.isPending || selected.some(s => data.candidates.find(c => c.id === s.candidate_id)?.queued)} onClick={() => queue.mutate()}>{queue.isPending ? "入队中…" : "确认入队"}</button></div>
       {!!selected.length && <p className="research-draft-note">选择与修改尚未入队；刷新或切换批次会清空本页草稿。</p>}
     </>}
   </section>;

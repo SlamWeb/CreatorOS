@@ -49,13 +49,15 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await page.screenshot({ path: testInfo.outputPath("candidate-mobile.png"), fullPage: true });
   const dimensions = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: window.innerWidth }));
   expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport);
-  await page.getByRole("button", { name: "预览入队 →" }).click();
+  await page.getByRole("button", { name: "预览", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "运营指令" });
   await expect(dialog.getByText("等待确认")).toBeVisible();
   expect((await page.request.get(`/api/series/${series.id}/topics`).then(r => r.json())).page.total).toBe(0);
-  await dialog.getByRole("button", { name: "确认写入队列" }).click();
-  await expect.poll(async () => (await page.request.get(`/api/series/${series.id}/topics`).then(r => r.json())).page.total).toBe(2);
   await page.keyboard.press("Escape");
+  // A 策略：显性勾选后确认入队直接写入，不再强制人工确认抽屉。
+  await page.getByRole("button", { name: "确认入队" }).click();
+  await expect(page.getByText(/已入队，来源与切入点已保留/)).toBeVisible();
+  await expect.poll(async () => (await page.request.get(`/api/series/${series.id}/topics`).then(r => r.json())).page.total).toBe(2);
   await page.getByRole("button", { name: "← 返回选题库" }).click();
   await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(page.locator(".library-item")).toHaveCount(2);

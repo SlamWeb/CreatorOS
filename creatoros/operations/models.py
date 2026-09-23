@@ -20,7 +20,7 @@ class SeriesResearchContext(OperationModel):
     name: str
     description: str
     audience: str
-    skill_name: str
+    skill_name: str | None  # 组合栏目为 None（走 mind/production），旧栏目为单 Skill 名
 
 
 class AddTopicsOperation(OperationModel):

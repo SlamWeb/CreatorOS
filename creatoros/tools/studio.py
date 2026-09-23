@@ -2,6 +2,7 @@
 import json
 from typing import Literal
 from urllib.parse import quote
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,6 +76,77 @@ class InstallSkillArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     github_url: str = Field(description="用户明确要求安装的 GitHub 仓库或 tree/ref/skill-path 链接。")
     retry: bool = Field(default=False, description="仅用户明确要求重试失败/中断的安装时为 true；可能再次消耗额度。")
+    role: Literal["mind", "production", "legacy_end_to_end"] | None = Field(
+        default=None, description="Skill 角色：mind 内容方法；production 制作呈现；省略表示暂不分类（可展示不可生产）。")
+
+
+class ComposeSeriesArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=120, description="栏目名称。")
+    description: str = Field(default="", max_length=10_000, description="栏目定位。")
+    audience: str = Field(default="", max_length=4_000, description="目标受众。")
+    creator_id: str | None = Field(default=None, description="归属账号 ID；省略则暂不分配，生产前必须分配。")
+    skill_name: str | None = Field(default=None, description="legacy 单 Skill 绑定，如 knowledge-to-carousel；与组合二选一。")
+    mind_skill_id: str | None = Field(default=None, description="组合的内容 Skill ID；必须与 production_skill_id 同时提供。")
+    production_skill_id: str | None = Field(default=None, description="组合的制作 Skill ID；必须与 mind_skill_id 同时提供。")
+
+
+class UpdateCompositionArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    series_id: str = Field(min_length=1, description="目标栏目 ID。")
+    mind_skill_id: str = Field(min_length=1, description="新的内容 Skill ID。")
+    production_skill_id: str = Field(min_length=1, description="新的制作 Skill ID。")
+    expected_revision: int = Field(ge=1, description="当前栏目的 revision；先从 list_creator_series 查询取得，过期会被拒绝。")
+
+
+class AssignSeriesArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    series_id: str = Field(min_length=1, description="目标栏目 ID。")
+    creator_id: str | None = Field(description="归属账号 ID；null 表示撤回分配。撤回后该栏目不可生产。")
+    expected_revision: int = Field(ge=1, description="当前栏目的 revision；先查询取得，过期会被拒绝。")
+
+
+class QueueTopicItem(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=240, description="选题标题。")
+    brief: str | None = Field(default=None, max_length=4_000, description="切入点/简介；保留候选来源信息。")
+    source: Literal["research", "manual"] = Field(default="manual", description="调研候选为 research，手动添加为 manual。")
+
+
+class QueueTopicsArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    series_id: str = Field(min_length=1, description="目标栏目 ID。")
+    topics: list[QueueTopicItem] = Field(min_length=1, max_length=50, description="按用户指定的条目标题/切入点直接入队。")
+    summary: str | None = Field(default=None, max_length=500, description="本次入队的用户原话摘要，用于审计。")
+
+
+def compose_series(name, description="", audience="", creator_id=None, skill_name=None,
+                   mind_skill_id=None, production_skill_id=None, context=None):
+    payload = {"name": name, "description": description, "audience": audience, "creator_id": creator_id,
+               "skill_name": skill_name, "mind_skill_id": mind_skill_id, "production_skill_id": production_skill_id,
+               "request_id": uuid4().hex}
+    return _call(lambda c: c.request("POST", "/api/series", payload=payload), context)
+
+
+def update_series_composition(series_id, mind_skill_id, production_skill_id, expected_revision, context=None):
+    payload = {"mind_skill_id": mind_skill_id, "production_skill_id": production_skill_id,
+               "expected_revision": expected_revision, "request_id": uuid4().hex}
+    return _call(lambda c: c.request("POST", f"/api/series/{quote(series_id, safe='')}/composition", payload=payload), context)
+
+
+def assign_series(series_id, creator_id, expected_revision, context=None):
+    payload = {"creator_id": creator_id, "expected_revision": expected_revision, "request_id": uuid4().hex}
+    return _call(lambda c: c.request("POST", f"/api/series/{quote(series_id, safe='')}/assignment", payload=payload), context)
+
+
+def queue_topics(series_id, topics, summary=None, context=None):
+    items = [t.model_dump() if isinstance(t, QueueTopicItem) else t for t in topics]
+    payload = {"topics": items, "summary": summary, "request_id": uuid4().hex}
+    def submit(client):
+        data = client.request("POST", f"/api/series/{quote(series_id, safe='')}/queue", payload=payload)
+        return {**data, "url": f"/series/{series_id}",
+                "message": "已直接入队并记录审计；deduplicated=true 表示该请求已执行过，未重复写入。"}
+    return _call(submit, context)
 
 
 class SkillJobArgs(BaseModel):
@@ -86,8 +158,9 @@ class NoArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
 
-def install_producer_skill(github_url, retry=False, context=None):
-    return _call(lambda c: c.request("POST", "/api/producer-skills/install", payload={"github_url": github_url, "retry": retry}), context)
+def install_producer_skill(github_url, retry=False, role=None, context=None):
+    return _call(lambda c: c.request("POST", "/api/producer-skills/install",
+                                     payload={"github_url": github_url, "retry": retry, "role": role}), context)
 
 
 def get_skill_install(job_id, context=None):

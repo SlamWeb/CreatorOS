@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Generic, TypeVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.operations.models import OperationPlan
 
@@ -275,6 +275,69 @@ class SeriesCreateRequest(WriteRequest):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=10_000)
     audience: str = Field(default="", max_length=4_000)
+
+
+class SeriesComposeRequest(WriteRequest):
+    """组合/legacy 创建栏目：必须当场二选一绑定，允许暂不归属账号。"""
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=10_000)
+    audience: str = Field(default="", max_length=4_000)
+    creator_id: str | None = Field(default=None, min_length=1, max_length=80)
+    skill_name: str | None = Field(default=None, min_length=1, max_length=120)
+    mind_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    production_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    request_id: str = Field(min_length=8, max_length=64)
+
+    @model_validator(mode="after")
+    def exactly_one_binding(self) -> "SeriesComposeRequest":
+        legacy = self.skill_name is not None
+        pair = self.mind_skill_id is not None or self.production_skill_id is not None
+        if legacy == pair:
+            raise ValueError("栏目必须二选一：legacy 单 Skill，或完整 mind+production 组合。")
+        if pair and not (self.mind_skill_id and self.production_skill_id):
+            raise ValueError("组合必须同时包含内容 Skill 与制作 Skill。")
+        return self
+
+
+class CompositionUpdateRequest(WriteRequest):
+    mind_skill_id: str = Field(min_length=1, max_length=120)
+    production_skill_id: str = Field(min_length=1, max_length=120)
+    expected_revision: int = Field(ge=1)
+    request_id: str = Field(min_length=8, max_length=64)
+
+
+class AssignmentRequest(WriteRequest):
+    creator_id: str | None = Field(default=None, min_length=1, max_length=80)
+    expected_revision: int = Field(ge=1)
+    request_id: str = Field(min_length=8, max_length=64)
+
+
+class SeriesWriteResponse(ApiModel):
+    request_id: str
+    deduplicated: bool
+    series: SeriesView
+
+
+class QueueTopicItem(ApiModel):
+    title: str = Field(min_length=1, max_length=240)
+    brief: str | None = Field(default=None, max_length=4_000)
+    source: Literal["research", "manual"] = "manual"
+
+
+class QueueTopicsRequest(WriteRequest):
+    """A 策略直接入队：明确的结构化选择，一次事务完成校验/写入/审计。"""
+
+    topics: list[QueueTopicItem] = Field(min_length=1, max_length=50)
+    request_id: str = Field(min_length=8, max_length=64)
+    summary: str | None = Field(default=None, max_length=500)
+
+
+class QueueTopicsResponse(ApiModel):
+    request_id: str
+    deduplicated: bool
+    operation_id: str
+    topic_ids: list[str]
 
 
 class OperationPreviewRequest(WriteRequest):
