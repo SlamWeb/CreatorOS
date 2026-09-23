@@ -1,5 +1,14 @@
 # CreatorOS Studio Web SPEC
 
+## 视觉方向再改判：Apple 式极简（2026-09-24，用户确认）
+
+- 用户评价旧版为"一坨屎"、暖纸档案改版为"屎上雕花"，明确要求推倒重做：Apple 官网式极简——纯白底、`#f5f5f7` 灰卡、近黑正文 `#1d1d1f`、单一蓝色动作 `#0071e3`、药丸按钮、大号紧排标题；删除一切装饰性文字（编号 eyebrow、彩色 chip、角色 tag），保留 CreatorOS 品牌标。
+- 字体从 Manrope 换为 Inter Variable（更接近 SF Pro），保留 IBM Plex Mono 仅用于 ID/技术字段。
+- 范围：全站（今日/创作/账号/栏目/运行/Run 详情/Agent/抽屉），不是只改创作空间；结构与逻辑不动，只重写视觉层（theme/styles/creative-studio/agent/studio-space 五个样式文件全量重写，选择器保持）。
+- 功能性标识保留但弱化：状态 pill 改为灰字+彩色小点；栏目的"单 Skill/组合"用灰色纯文本，不用彩色 chip。
+- 验证：typecheck/build 通过；Playwright e2e 4 passed；1440×900 与 390×844 截图检查今日/创作/Agent/栏目；无横向溢出。
+- 缺陷记录：重写 creative-studio.css 时误删 `.queue-card/.run-row/.queue-head { min-width: 0 }` 收缩规则，移动端整页溢出被 e2e 溢出断言捕获，已补回并重跑原路径通过；`.studio-shell` 显式声明 canvas 背景（e2e 主题断言依赖）。
+
 ## 创作空间 P3-S1 设计说明（2026-09-23）
 
 - 用户目标：一个"像主编排栏目"的真实创作空间：左 Skill 库（真实角色）、中组合器+未分配栏目、右账号及栏目；组合即可建栏目，分配即归属。

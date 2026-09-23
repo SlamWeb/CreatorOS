@@ -53,7 +53,7 @@ function SeriesContent({ seriesId }: { seriesId?: string }) {
     <div className="series-workspace library-workspace">
       <div className="series-main">
         <section className="series-hero"><CreativeMark /><div className="series-identity"><h1>{series.name}</h1><p>{series.description || "还没有填写栏目定位"}</p>
-          <div className="series-tags"><span>◉ {series.audience || "未设置受众"}</span><span title={series.skill_name ?? undefined}>▤ {series.skill_name === null ? "双 Skill 组合（生产尚未接入）" : series.skill_name === "knowledge-to-carousel" ? "知识点 → 图片轮播" : series.skill_name}</span>{!series.is_active && <StatusPill status="cancelled" />}</div>
+          <div className="series-tags"><span>{series.audience || "未设置受众"}</span><span title={series.skill_name ?? undefined}>{series.skill_name === null ? "双 Skill 组合 · 生产待接入" : series.skill_name === "knowledge-to-carousel" ? "知识点 → 图片轮播" : series.skill_name}</span>{!series.is_active && <StatusPill status="cancelled" />}</div>
         </div>{series.skill_name !== null && <button className="button button-secondary" aria-expanded={skillOpen} onClick={() => setSkillOpen(!skillOpen)}>生产 Skill</button>}</section>
         {skillOpen && series.skill_name !== null && <ProducerSkillPanel key={series.id} seriesId={series.id} current={series.skill_name} />}
         <TopicLibrary key={series.id} seriesId={series.id} startButton={startButton} />

@@ -102,7 +102,7 @@ export function OperationDrawer() {
   return <>
     {notice && <div className="command-notice" role="status">计划已就绪 <button onClick={() => { show(notice.id); setNotice(null); }}>查看</button><button aria-label="关闭通知" onClick={() => setNotice(null)}>×</button></div>}
     <dialog className="command-drawer" ref={dialog} aria-label="运营指令" onCancel={e => { e.preventDefault(); close(); }}>
-      <div className="drawer-head"><div><p className="section-kicker">OPERATIONS</p><h2>{id ? "检查运营计划" : command === "list" ? "已保存的计划" : "用一句话调整选题"}</h2></div><button className="icon-button" aria-label="关闭运营指令" onClick={close}>×</button></div>
+      <div className="drawer-head"><div><h2>{id ? "检查运营计划" : command === "list" ? "已保存的计划" : "用一句话调整选题"}</h2></div><button className="icon-button" aria-label="关闭运营指令" onClick={close}>×</button></div>
       {command === "list" && !id ? <>
         <p>计划已保存在本地；打开不会重新调用模型。</p>
         {plans.isPending ? <p>正在读取…</p> : plans.isError ? <p role="alert">{plans.error.message}<button onClick={() => void plans.refetch()}>重试</button></p> : <>

@@ -83,7 +83,7 @@ test("first use to revision and approval survives refresh", async ({ page }, tes
     for (const route of ["/", "/creators", "/runs", "/agent"]) {
       await page.goto(route);
       await expect(page.locator("h1")).toBeVisible();
-      await expect(page.locator(".studio-shell")).toHaveCSS("background-color", "rgb(250, 250, 248)");
+      await expect(page.locator(".studio-shell")).toHaveCSS("background-color", "rgb(255, 255, 255)");
       await page.screenshot({ path: testInfo.outputPath(`theme-${route.slice(1) || "today"}-${viewport.width}.png`), fullPage: true });
       const overflow = await page.evaluate(() => [...document.querySelectorAll("main *")].filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => ({ tag: el.tagName, cls: el.className, right: el.getBoundingClientRect().right })));
       expect(overflow, route).toEqual([]);

@@ -15,7 +15,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <>
     <Link className="back-link" to={`/series/${run.series_id}`}>← 返回栏目</Link>
-    <header className="page-heading inspector-heading"><div><p className="section-kicker">{run.creator_name} / {run.series_name}</p><h1>{run.topic_title}</h1></div><StatusPill status={run.status} /></header>
+    <header className="page-heading inspector-heading"><div><p className="run-context">{run.creator_name} / {run.series_name}</p><h1>{run.topic_title}</h1></div><StatusPill status={run.status} /></header>
     <div className="inspector-toolbar"><label>内容版本 <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)}>{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select></label><span className="stream-status" role="status">{connection}</span></div>
     {old ? <div className="review-warning">正在查看历史版本，仅供对照，不能批准或修改。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本 →</button></div> : null}
     <div className="inspector-grid">

@@ -7,10 +7,6 @@ import type { ProducerSkillItem, SeriesView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import "./studio-space.css";
 
-const ROLE_LABEL: Record<string, string> = {
-  mind: "内容", production: "制作", legacy_end_to_end: "端到端",
-};
-
 function skillIcon(role: ProducerSkillItem["role"]) {
   if (role === "mind") return <BookOpen size={16} strokeWidth={1.8} />;
   if (role === "production") return <ImageIcon size={16} strokeWidth={1.8} />;
@@ -94,16 +90,15 @@ export function StudioSpacePage() {
   return <div className="space-page">
     <header className="space-head">
       <div>
-        <p className="space-eyebrow">01 · Compose / 创作空间</p>
-        <h1>组合出你的栏目</h1>
-        <p>内容 Skill 负责"讲什么、怎么讲懂"，制作 Skill 负责"怎么呈现"。两个组合成一个栏目；栏目可以先不分配账号，生产前再归属。</p>
+        <h1>创作空间</h1>
+        <p>内容 Skill 决定讲什么，制作 Skill 决定怎么呈现。组合两个 Skill 建成栏目；栏目可以先不分配账号，生产前再归属。</p>
       </div>
     </header>
     <div className="space-columns">
       <section className="space-col" aria-label="Skill 库">
-        <div className="space-col-head"><h2>Skill 库</h2><span>{allSkills.length} installed</span></div>
+        <div className="space-col-head"><h2>Skill 库</h2><span>{allSkills.length}</span></div>
         <div className="skill-group">
-          <h3>内容 / 制作</h3>
+          <h3>内容与制作</h3>
           {!composable.length && <div className="space-empty"><b>还没有可组合的 Skill</b>从 GitHub 安装时声明内容或制作角色。</div>}
           {composable.map(skill => {
             const picked = (skill.role === "mind" ? mind : production)?.id === skill.id;
@@ -112,35 +107,33 @@ export function StudioSpacePage() {
               onClick={() => pick(skill)}>
               <span className={`skill-icon ${skill.role === "production" ? "production-role" : ""}`}>{skillIcon(skill.role)}</span>
               <span className="skill-copy"><strong>{skill.name}</strong><small>{skill.description}</small></span>
-              <span className="skill-tag">{ROLE_LABEL[skill.role ?? ""]}</span>
             </button>;
           })}
         </div>
         {!!others.length && <div className="skill-group">
-          <h3>端到端 / 未分类</h3>
+          <h3>端到端与未分类</h3>
           {others.map(skill => <button key={skill.id} type="button" className="skill-card" disabled
             title="端到端 Skill 不参与组合；未分类 Skill 需在安装时声明角色">
             <span className="skill-icon legacy-role">{skillIcon(skill.role)}</span>
             <span className="skill-copy"><strong>{skill.name}</strong><small>{skill.description}</small></span>
-            <span className="skill-tag">{skill.role === null ? "未分类" : ROLE_LABEL[skill.role ?? ""]}</span>
           </button>)}
         </div>}
         <p className="space-note">安装新 Skill：打开任意栏目页 → 生产 Skill 面板；声明角色后才能参与组合。</p>
       </section>
 
       <section className="space-col" aria-label="组合与未分配栏目">
-        <div className="space-col-head"><h2>组合栏目</h2><span>mind + production</span></div>
+        <div className="space-col-head"><h2>组合栏目</h2></div>
         <div className="composer">
           <button type="button" className={`slot ${mind ? "filled" : ""}`} onClick={() => setMind(null)} aria-label="内容 Skill 槽">
-            <small>MIND · 内容 Skill</small>
+            <small>内容 Skill</small>
             {mind ? <strong>{mind.name}</strong> : <span>从左侧选择一个内容 Skill</span>}
-            {mind && <span>点击移除</span>}
+            {mind && <span>点击移除 ×</span>}
           </button>
           <div className="slot-plus">+</div>
           <button type="button" className={`slot production-slot ${production ? "filled" : ""}`} onClick={() => setProduction(null)} aria-label="制作 Skill 槽">
-            <small>PRODUCTION · 制作 Skill</small>
+            <small>制作 Skill</small>
             {production ? <strong>{production.name}</strong> : <span>从左侧选择一个制作 Skill</span>}
-            {production && <span>点击移除</span>}
+            {production && <span>点击移除 ×</span>}
           </button>
           <form className="composer-form" onSubmit={event => { event.preventDefault(); setNotice(null); compose.mutate(); }}>
             <label>栏目名称<input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
@@ -155,7 +148,7 @@ export function StudioSpacePage() {
         </div>
 
         <div className="unassigned">
-          <div className="space-col-head"><h2>未分配栏目</h2><span>{unassigned.length}</span></div>
+          <div className="space-col-head"><h2>未分配栏目</h2><span>{unassigned.length || ""}</span></div>
           {!unassigned.length && <div className="space-empty"><b>没有未分配栏目</b>创建的栏目会先出现在这里，分配账号后才能生产。</div>}
           {unassigned.map(series => <div className="series-row" key={series.id}>
             <div className="series-row-head"><strong>{series.name}</strong>
@@ -174,7 +167,7 @@ export function StudioSpacePage() {
       </section>
 
       <section className="space-col accounts-col" aria-label="账号">
-        <div className="space-col-head"><h2>账号</h2><span>{accounts.length} 个</span></div>
+        <div className="space-col-head"><h2>账号</h2><span>{accounts.length || ""}</span></div>
         {!accounts.length && <div className="space-empty"><b>还没有运营账号</b><Link to="/creators">先创建账号 →</Link></div>}
         {accounts.map(account => <div className="account-card" key={account.id}>
           <div className="account-card-head">

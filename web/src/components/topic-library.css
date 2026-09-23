@@ -1,19 +1,20 @@
 .series-workspace.library-workspace { display:block; max-width:1100px; margin:0 auto; }
 .topic-library { margin:24px 0; min-width:0; }
 .library-filters { display:flex; gap:8px; margin:20px 0; }
-.library-filters button { border:1px solid #dce3ed; border-radius:20px; padding:8px 18px; background:white; color:#526077; }
-.library-filters button[aria-pressed="true"] { background:#edf3ff; color:#165bd5; border-color:#93b8fb; }
-.library-item { padding:22px; margin:12px 0; background:white; border:1px solid #e1e6ee; border-radius:14px; overflow-wrap:anywhere; }
+.library-filters button { border:0; border-radius:980px; padding:8px 18px; background:var(--surface); color:var(--muted); }
+.library-filters button:hover { background:#ececf0; }
+.library-filters button[aria-pressed="true"] { background:#e8e8ed; color:var(--ink); font-weight:550; }
+.library-item { padding:20px; margin:12px 0; background:var(--surface); border:0; border-radius:var(--radius-lg); overflow-wrap:anywhere; }
 .library-item-heading { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-.library-item-heading h3 { flex:1; min-width:140px; margin:0; }
-.library-number { color:#8390a2; font-size:13px; }
-.library-pending,.library-enqueued { font-size:12px; border-radius:6px; padding:4px 8px; background:#fff2df; color:#886126; }
-.library-enqueued { background:#eaf5ef; color:#316e53; }
-.library-item p { color:#526077; line-height:1.7; }
+.library-item-heading h3 { flex:1; min-width:140px; margin:0; font-size:15px; font-weight:600; }
+.library-number { color:var(--muted); font-size:13px; font-family:var(--font-mono); }
+.library-pending,.library-enqueued { font-size:12px; border-radius:980px; padding:3px 10px; background:var(--warning-soft); color:var(--warning); }
+.library-enqueued { background:var(--success-soft); color:var(--success); }
+.library-item p { color:var(--muted); line-height:1.7; font-size:13px; }
 .library-item details { margin:14px 0; }
 .library-brief { white-space:pre-wrap; }
 .library-actions,.library-pagination { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
 .library-pagination { justify-content:center; margin:20px 0; }
-.library-research { margin-top:24px; border-top:1px solid #e1e6ee; padding-top:18px; }
+.library-research { margin-top:24px; border-top:1px solid #e8e8eb; padding-top:18px; }
 .library-item small { display:block; margin-top:8px; }
 @media(max-width:600px) { .library-item { padding:16px; } .library-item-heading { gap:8px; } }
