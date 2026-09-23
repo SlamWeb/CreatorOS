@@ -1,5 +1,14 @@
 # CreatorOS Studio Web SPEC
 
+## 视觉方向改判（2026-09-23）
+
+- 用户明确：旧主站淡色卡片风格不合格；新参照 = GPT 制作的 `/studio-preview`（暖纸底 `#fafaf8`、暖灰描边、雾紫/赤陶/灰绿低饱和点缀、炭黑主按钮、Inter 字体）+ K3 宣传片中的前端视觉（科学档案感）。
+- 2026-09-23 上午对旧浅色主题的精细化改写（theme.css/styles.css）已回滚，未提交；视觉重设计不单独迭代旧页面，合入 P3「原型接真实数据」时以 preview 视觉语言整体落地。
+- 已安装 `@fontsource-variable/manrope`、`@fontsource/ibm-plex-mono`、`lucide-react`（用户授权放开安装），供 P3 视觉落地使用；当前代码尚未引用。
+- 主线回到 docs/studio/composition/SPEC.md：P1 数据/安装契约 → P2 共用服务与 Tools → P3 原型接真实数据 → P4 双 Skill 生产溯源 → P5 Trace/Eval 展示。
+
+## 创作空间交互原型（2026-09-21）
+
 ## 创作空间交互原型（2026-09-21）
 
 - 入口 `/studio-preview`，独立于正式Layout和API。用户确认先验证Skill库→组合栏目→分配账号→本地选题，不改正式数据，不接模型、生图或安装。
