@@ -9,13 +9,16 @@ import type {
   OperationEditInput,
   PageResponse,
   PendingOperationView,
+  ProducerSkillItem,
   RunDetail,
   RunCancelInput,
   RunStartInput,
   RunSummary,
   RunEventView,
+  SeriesComposeInput,
   SeriesCreateInput,
   SeriesView,
+  SeriesWriteResult,
   TopicView,
 } from "./types";
 
@@ -74,6 +77,10 @@ export const studioApi = {
   approveRun: (id: string, input: { expected_version: number; revision_id: string; artifact_digest: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify(input) }),
   reviseRun: (id: string, input: { expected_version: number; instruction: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/revisions`, { method: "POST", body: JSON.stringify(input) }),
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
+  seriesAll: () => request<SeriesView[]>("/api/series"),
+  producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
+  composeSeries: (input: SeriesComposeInput) => request<SeriesWriteResult>("/api/series", { method: "POST", body: JSON.stringify(input) }),
+  assignSeries: (id: string, input: { creator_id: string | null; expected_revision: number; request_id: string }) => request<SeriesWriteResult>(`/api/series/${encodeURIComponent(id)}/assignment`, { method: "POST", body: JSON.stringify(input) }),
 };
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;

@@ -8,9 +8,10 @@ import { TodayPage } from "./pages/TodayPage";
 import { RunDetailPage, RunsPage } from "./pages/RunsPage";
 import { AgentPage } from "./pages/AgentPage";
 import { StudioPreview } from "./pages/StudioPreview";
+import { StudioSpacePage } from "./pages/StudioSpacePage";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: true } } });
 
 export function App() {
-  return <QueryClientProvider client={queryClient}><BrowserRouter><Routes><Route path="/studio-preview" element={<StudioPreview />} /><Route element={<Layout />}><Route path="/" element={<TodayPage />} /><Route path="/creators" element={<CreatorsPage />} /><Route path="/creators/:creatorId" element={<CreatorDetailPage />} /><Route path="/series/:seriesId" element={<SeriesPage />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/:runId" element={<RunDetailPage />} /><Route path="/agent" element={<AgentPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes></BrowserRouter></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><BrowserRouter><Routes><Route path="/studio-preview" element={<StudioPreview />} /><Route element={<Layout />}><Route path="/" element={<TodayPage />} /><Route path="/studio" element={<StudioSpacePage />} /><Route path="/creators" element={<CreatorsPage />} /><Route path="/creators/:creatorId" element={<CreatorDetailPage />} /><Route path="/series/:seriesId" element={<SeriesPage />} /><Route path="/runs" element={<RunsPage />} /><Route path="/runs/:runId" element={<RunDetailPage />} /><Route path="/agent" element={<AgentPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes></BrowserRouter></QueryClientProvider>;
 }

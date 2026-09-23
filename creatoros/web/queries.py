@@ -114,6 +114,27 @@ class StudioQueryService:
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             return self._creator_views([creator], series, topics, runs)[0]
 
+    def list_series(self) -> list[SeriesView]:
+        """全部栏目（含未分配账号的），供创作空间三栏使用。"""
+        with self.database.session() as session:
+            all_series = list(session.scalars(select(Series).order_by(Series.created_at, Series.id)))
+            topics = list(session.scalars(select(Topic).order_by(Topic.position, Topic.id)))
+            runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
+            topics_by_series: dict[str, list[Topic]] = {}
+            for topic in topics:
+                topics_by_series.setdefault(topic.series_id, []).append(topic)
+            runs_by_topic: dict[str, list[ContentRun]] = {}
+            for run in runs:
+                runs_by_topic.setdefault(run.topic_id, []).append(run)
+            return [
+                self._series_view(
+                    item,
+                    topics_by_series.get(item.id, []),
+                    [run for topic in topics_by_series.get(item.id, []) for run in runs_by_topic.get(topic.id, [])],
+                )
+                for item in all_series
+            ]
+
     def get_series(self, series_id: str) -> SeriesView | None:
         with self.database.session() as session:
             series = session.get(Series, series_id)

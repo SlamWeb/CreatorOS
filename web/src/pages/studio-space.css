@@ -1,0 +1,83 @@
+/* 创作空间：暖纸档案风（以 /studio-preview 为参照）。作用域限于 .space-page。 */
+.space-page { --space-ink: #292d34; --space-muted: #7d8288; color: var(--space-ink); }
+.space-page * { box-sizing: border-box; }
+.space-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 26px; }
+.space-head h1 { margin: 8px 0 6px; font-size: clamp(26px, 2.6vw, 34px); letter-spacing: -.03em; line-height: 1.15; }
+.space-head p { margin: 0; color: var(--space-muted); font-size: 13px; line-height: 1.7; max-width: 560px; }
+.space-eyebrow { margin: 0; font: 500 11px/1.4 var(--font-mono); letter-spacing: .14em; color: var(--space-muted); text-transform: uppercase; }
+.space-columns { display: grid; grid-template-columns: minmax(240px, .85fr) minmax(300px, 1.1fr) minmax(280px, 1fr); gap: 22px; align-items: start; }
+.space-col { min-width: 0; }
+.space-col-head { display: flex; align-items: baseline; gap: 10px; padding-bottom: 10px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.space-col-head h2 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -.01em; }
+.space-col-head span { margin-left: auto; font: 500 10px/1 var(--font-mono); letter-spacing: .1em; color: var(--space-muted); text-transform: uppercase; }
+.space-note { color: var(--space-muted); font-size: 12px; line-height: 1.6; }
+.space-empty { border: 1.5px dashed var(--line-strong); border-radius: 12px; background: transparent; padding: 22px 16px; color: var(--space-muted); font-size: 12px; line-height: 1.7; text-align: center; }
+.space-empty b { display: block; color: var(--space-ink); font-size: 13px; margin-bottom: 5px; }
+
+/* Skill 库 */
+.skill-group { margin-bottom: 20px; }
+.skill-group > h3 { margin: 0 0 9px; font: 500 11px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--space-muted); }
+.skill-card { width: 100%; display: flex; align-items: center; gap: 11px; text-align: left; padding: 12px; margin-bottom: 8px; background: #fff; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; font: inherit; color: inherit; transition: border-color .15s, background .15s, transform .15s; }
+.skill-card:hover:not(:disabled) { border-color: var(--line-strong); transform: translateY(-1px); }
+.skill-card:disabled { cursor: not-allowed; opacity: .55; }
+.skill-card.picked { background: var(--mind-soft); border-color: #c9bde4; }
+.skill-card.picked.production-role { background: var(--production-soft); border-color: #e5c9ae; }
+.skill-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 9px; background: var(--mind-soft); color: var(--mind); }
+.skill-icon.production-role { background: var(--production-soft); color: var(--production); }
+.skill-icon.legacy-role { background: var(--surface-soft); color: var(--space-muted); }
+.skill-card > span.skill-copy { flex: 1; min-width: 0; }
+.skill-card strong { display: block; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+.skill-card small { display: block; margin-top: 4px; font-size: 11px; color: var(--space-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.skill-tag { font: 500 9px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--space-muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; white-space: nowrap; }
+
+/* 组合器 */
+.composer { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; box-shadow: var(--shadow-sm); }
+.slot { position: relative; width: 100%; min-height: 86px; border: 1.5px dashed #cdc4e2; border-radius: 11px; background: #fbf9ff; padding: 13px 14px; display: flex; flex-direction: column; justify-content: center; gap: 5px; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.slot.production-slot { border-color: #e3c9b0; background: #fffaf5; }
+.slot small { font: 500 10px/1.2 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mind); }
+.slot.production-slot small { color: var(--production); }
+.slot > span { color: var(--space-muted); font-size: 12px; }
+.slot strong { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; padding-right: 18px; }
+.slot.filled { border-style: solid; cursor: pointer; }
+.slot.filled:hover { border-color: var(--danger); background: var(--danger-soft); }
+.slot.filled:hover > span { color: var(--danger); }
+.slot-plus { text-align: center; font-size: 17px; color: #b5b3ad; padding: 7px 0; }
+.composer-form { display: grid; gap: 11px; margin-top: 14px; }
+.composer-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 550; color: var(--space-muted); margin: 0; }
+.composer-form input, .composer-form textarea { display: block; width: 100%; color: var(--space-ink); background: #fff; border: 1px solid var(--line-strong); border-radius: 9px; outline: none; padding: 9px 11px; font: 13px/1.5 inherit; margin: 0; resize: vertical; transition: border-color .15s, box-shadow .15s; }
+.composer-form input:focus, .composer-form textarea:focus { border-color: var(--accent); box-shadow: var(--ring); }
+.composer-create { width: 100%; margin-top: 4px; border: 0; border-radius: 10px; padding: 11px 14px; background: var(--charcoal); color: #fff; font: 600 13px inherit; cursor: pointer; transition: background .15s, transform .15s; }
+.composer-create:hover:not(:disabled) { background: #232b32; transform: translateY(-1px); }
+.composer-create:disabled { cursor: not-allowed; opacity: .45; }
+.space-error { margin: 12px 0 0; padding: 9px 11px; border-radius: 8px; background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.6; }
+.space-ok { margin: 12px 0 0; color: var(--success); font-size: 12px; line-height: 1.6; }
+.space-ok a, .space-error a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* 未分配栏目与账号 */
+.unassigned { margin-top: 22px; }
+.series-row { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; margin-bottom: 9px; font: inherit; color: inherit; transition: border-color .15s, box-shadow .15s; }
+a.series-row:hover { border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
+.series-row-head { display: flex; align-items: center; gap: 8px; }
+.series-row-head strong { font-size: 13px; font-weight: 650; min-width: 0; overflow-wrap: anywhere; flex: 1; }
+.bind-tag { font: 500 9px/1 var(--font-mono); letter-spacing: .06em; border-radius: 4px; padding: 4px 6px; white-space: nowrap; }
+.bind-tag.pair { background: var(--mind-soft); color: var(--mind); border: 1px solid #ddd2ef; }
+.bind-tag.legacy { background: var(--surface-soft); color: var(--space-muted); border: 1px solid var(--line); }
+.series-row small { display: block; margin-top: 7px; color: var(--space-muted); font-size: 11px; }
+.series-assign { display: flex; gap: 8px; margin-top: 10px; }
+.series-assign select { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fff; color: var(--space-ink); font: 12px inherit; }
+.account-card { background: var(--sage-soft); border: 1px solid #dbe7dd; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+.account-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.account-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #dbeee1; color: var(--sage); font-weight: 700; font-size: 14px; }
+.account-card-head h3 { margin: 0; font-size: 14px; font-weight: 650; }
+.account-card-head small { display: block; margin-top: 3px; color: #78867f; font-size: 11px; }
+.account-card .series-row { background: #fff; }
+.account-empty { color: #78867f; font-size: 12px; margin: 0; }
+
+@media (max-width: 1100px) {
+  .space-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .space-col.accounts-col { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .space-head { display: block; }
+  .space-columns { grid-template-columns: minmax(0, 1fr); }
+}

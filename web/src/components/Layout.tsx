@@ -1,19 +1,21 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { Sunrise, Layers, Users, TrendingUp, Sparkles } from "lucide-react";
 import { useHealth } from "../api/hooks";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 
 const navItems = [
-  { to: "/", label: "今日", icon: "◒" },
-  { to: "/creators", label: "账号", icon: "◌" },
-  { to: "/runs", label: "运行", icon: "↗" },
-  { to: "/agent", label: "Agent", icon: "✦" },
+  { to: "/", label: "今日", icon: Sunrise },
+  { to: "/studio", label: "创作", icon: Layers },
+  { to: "/creators", label: "账号", icon: Users },
+  { to: "/runs", label: "运行", icon: TrendingUp },
+  { to: "/agent", label: "Agent", icon: Sparkles },
 ];
 
 export function Layout() {
   const location = useLocation();
   const health = useHealth();
   const [, setParams] = useSearchParams();
-  const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/runs") ? "内容运行" : location.pathname === "/" ? "今天" : "账号与栏目";
+  const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/studio") ? "创作空间" : location.pathname.startsWith("/runs") ? "内容运行" : location.pathname === "/" ? "今天" : "账号与栏目";
   return (
     <div className={`studio-shell ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">
@@ -21,7 +23,7 @@ export function Layout() {
         <nav className="primary-nav" aria-label="主导航">
           {navItems.map((item) => (
             <NavLink key={item.to} to={item.to} aria-label={item.label} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/creators" && location.pathname.startsWith("/series/")) ? "active" : ""}`}>
-              <span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>
+              <span className="nav-icon" aria-hidden="true"><item.icon size={17} strokeWidth={1.8} /></span><span>{item.label}</span>
             </NavLink>
           ))}
         </nav>

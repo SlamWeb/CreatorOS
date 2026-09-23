@@ -52,8 +52,7 @@ export interface PageResponse<T> {
   page: PageInfo;
 }
 
-export interface RunSummary {
-  id: string;
+export interface RunSummary {  id: string;
   creator_id: string;
   creator_name: string;
   series_id: string;
@@ -232,4 +231,35 @@ export interface HealthView {
   database: string;
   codex_available: boolean;
   writable_routes_enabled: boolean;
+}
+
+export type SkillRole = "mind" | "production" | "legacy_end_to_end" | null;
+
+export interface ProducerSkillItem {
+  id: string;
+  name: string;
+  description: string;
+  carousel_compatible: boolean;
+  compatibility_note: string;
+  commit: string | null;
+  github_url: string | null;
+  role: SkillRole;
+  producible: boolean;
+}
+
+export interface SeriesComposeInput {
+  name: string;
+  description: string;
+  audience: string;
+  creator_id?: string | null;
+  skill_name?: string | null;
+  mind_skill_id?: string | null;
+  production_skill_id?: string | null;
+  request_id: string;
+}
+
+export interface SeriesWriteResult {
+  request_id: string;
+  deduplicated: boolean;
+  series: SeriesView;
 }

@@ -244,6 +244,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Series 不存在。")
         return result
 
+    @app.get("/api/series", response_model=list[SeriesView])
+    def list_series() -> list[SeriesView]:
+        return queries.list_series()
+
     @app.post("/api/creators/{creator_id}/series", response_model=SeriesView, status_code=201)
     def create_series(creator_id: str, payload: SeriesCreateRequest) -> SeriesView:
         try:
