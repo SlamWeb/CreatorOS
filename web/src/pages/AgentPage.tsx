@@ -93,20 +93,17 @@ export function AgentPage() {
         </button>)}
         {id && !history.some(s => s.id === id) && <button type="button" aria-current="page" disabled>{doc?.title ?? "读取当前对话…"}</button>}
       </nav>
-      <p className="agent-history-foot">切换不会中止已提交的任务。<br />未发送草稿会清空。</p>
     </aside>
     <div className="agent-conversation">
     <div className="agent-heading"><div><h1>{doc?.title ?? "把想法交给 Agent"}</h1>
-      <span className="agent-connection">{id ? connected ? "实时连接" : "连接中 · 自动刷新" : "聊清楚想法，再去内容页看结果"}</span></div><Link className="text-link" to={id ? `?chat=${encodeURIComponent(id)}&command=new` : "?command=new"}>添加 / 调整选题 ↗</Link></div>
+      {id && <span className="agent-connection">{connected ? "实时连接" : "连接中 · 自动刷新"}</span>}</div><Link className="text-link" to={id ? `?chat=${encodeURIComponent(id)}&command=new` : "?command=new"}>添加 / 调整选题 ↗</Link></div>
     {(session.isError || sessions.isError) && <p role="alert" className="review-warning">{session.error?.message ?? sessions.error?.message}</p>}
     <div className="agent-transcript" ref={transcript} onScroll={e => {
       const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     }} aria-label="对话记录">
       {id && session.isPending && <p className="agent-note">正在读取对话…</p>}
       {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>从你已有的账号开始</h2>
-        <p>我能帮你查看栏目和选题，把选好的内容交给 Codex 生产，并查询进度。提交后可以继续聊天，产物在运行页验收。</p>
-        <button type="button" onClick={() => setDraft("看看我有哪些账号和栏目，先不要生产。")}>看看我的账号和栏目 ↗</button>
-        <small>创建与调整选题走 Preview；批准与返工仍由你在内容页决定。</small></div>}
+        <button type="button" onClick={() => setDraft("看看我有哪些账号和栏目，先不要生产。")}>看看我的账号和栏目 ↗</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
       {doc?.entries.map((entry, index) => <ChatEntry key={index} entry={entry} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
@@ -120,7 +117,6 @@ export function AgentPage() {
         <button className="button button-primary" disabled={!draft.trim() || send.isPending || doc?.status === "running" || (!!id && !doc)}>发送 ↑</button></div>
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
-    <p className="agent-note">离开页面不取消已提交的指令；服务停止会中断对话，不会自动重跑。<Link to="/runs">查看运行记录 ↗</Link></p>
     </div>
   </section>;
 }

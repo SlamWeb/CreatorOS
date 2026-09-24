@@ -1,6 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Sunrise, Layers, Users, TrendingUp, Sparkles } from "lucide-react";
-import { useHealth } from "../api/hooks";
+import { Sunrise, Layers, Users, TrendingUp, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 
 const navItems = [
@@ -13,7 +12,6 @@ const navItems = [
 
 export function Layout() {
   const location = useLocation();
-  const health = useHealth();
   const [, setParams] = useSearchParams();
   const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/studio") ? "创作空间" : location.pathname.startsWith("/runs") ? "内容运行" : location.pathname === "/" ? "今天" : "账号与栏目";
   return (
@@ -27,29 +25,17 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <div className="connection-dot"><span /> 本地 Studio</div>
-          <p>本地执行 · 人工验收</p>
-        </div>
       </aside>
       <main className="main-content">
         <header className="topbar">
           <div>
             <p className="topbar-title">{section}</p>
           </div>
-          <div className="topbar-actions"><button className="command-trigger" type="button" onClick={() => setParams(p => { p.delete("operation"); p.set("command", "new"); return p; })}>运营指令 <kbd>Ctrl K</kbd></button><HealthStatus health={health} /></div>
+          <div className="topbar-actions"><button className="command-trigger" type="button" aria-label="运营指令" title="运营指令 (Ctrl K)" onClick={() => setParams(p => { p.delete("operation"); p.set("command", "new"); return p; })}><SquarePen size={15} strokeWidth={1.8} /></button></div>
         </header>
         <div className="page-container"><Outlet /></div>
         <OperationDrawer />
       </main>
     </div>
   );
-}
-
-function HealthStatus({ health }: { health: ReturnType<typeof useHealth> }) {
-  if (health.isError) return <div className="topbar-status status-problem" title={health.error.message}><span className="status-dot" /> 服务连接失败</div>;
-  if (health.isPending) return <div className="topbar-status"><span className="status-dot" /> 正在检查</div>;
-  if (!health.data.codex_available) return <div className="topbar-status status-problem" title="请先在本机安装并登录 Codex CLI"><span className="status-dot" /> Codex 未就绪</div>;
-  if (!health.data.operation_parser_configured) return <div className="topbar-status" title="可使用表单；自然语言指令需要 DEEPSEEK_API_KEY"><span className="status-dot" /> 表单模式</div>;
-  return <div className="topbar-status"><span className="status-dot" /> 本地就绪</div>;
 }

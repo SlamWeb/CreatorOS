@@ -1,44 +1,45 @@
-/* 创作空间 — Apple 式极简：无装饰标签，灰卡，清晰层级。作用域 .space-page。 */
+/* 创作空间 — Apple 式极简。Mind / Visualize 双栏 + 拖拽组合。作用域 .space-page。 */
 .space-page { color: var(--ink); }
 .space-page * { box-sizing: border-box; }
-.space-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-bottom: 32px; }
+.space-head { margin-bottom: 28px; }
 .space-head h1 { margin: 0; font-size: clamp(28px, 3vw, 38px); letter-spacing: -.025em; font-weight: 650; line-height: 1.08; }
-.space-head p { margin: 10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; max-width: 560px; }
-.space-columns { display: grid; grid-template-columns: minmax(240px, .85fr) minmax(300px, 1.1fr) minmax(280px, 1fr); gap: 24px; align-items: start; }
+.space-columns { display: grid; grid-template-columns: repeat(2, minmax(0, .9fr)) minmax(300px, 1.15fr) minmax(260px, 1fr); gap: 22px; align-items: start; }
 .space-col { min-width: 0; }
 .space-col-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .space-col-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
 .space-col-head span { margin-left: auto; font-size: 12px; color: var(--muted); }
 .space-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
-.space-empty { border: 0; border-radius: var(--radius-lg); background: var(--surface); padding: 26px 18px; color: var(--muted); font-size: 13px; line-height: 1.7; text-align: center; }
-.space-empty b { display: block; color: var(--ink); font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+.space-empty { border: 0; border-radius: var(--radius-lg); background: var(--surface); padding: 22px 16px; color: var(--muted); font-size: 13px; text-align: center; }
+.space-empty b { color: var(--ink); font-weight: 600; }
+.space-empty a { color: var(--accent); }
 
-/* Skill 库 */
-.skill-group { margin-bottom: 22px; }
+/* Skill 卡片 */
+.skill-group { margin-top: 20px; }
 .skill-group > h3 { margin: 0 0 9px; font-size: 12px; font-weight: 550; color: var(--muted); }
-.skill-card { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 14px; margin-bottom: 8px; background: var(--surface); border: 0; border-radius: var(--radius-md); cursor: pointer; font: inherit; color: inherit; transition: background .15s; }
+.skill-card-wrap { margin-bottom: 8px; }
+.skill-card-wrap.drag-source { opacity: .45; }
+.skill-card { width: 100%; display: flex; align-items: center; gap: 11px; text-align: left; padding: 13px 14px; background: var(--surface); border: 0; border-radius: var(--radius-md); cursor: grab; font: inherit; color: inherit; transition: background .15s; touch-action: none; user-select: none; }
 .skill-card:hover:not(:disabled) { background: #ececf0; }
-.skill-card:disabled { cursor: not-allowed; opacity: .5; }
-.skill-card.picked { background: #dfe9fb; }
-.skill-card.picked.production-role { background: #dfe9fb; }
-.skill-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px; background: #e8e8ed; color: var(--ink); }
-.skill-icon.production-role { background: #e8e8ed; color: var(--ink); }
-.skill-icon.legacy-role { background: #e8e8ed; color: var(--muted); }
-.skill-card > span.skill-copy { flex: 1; min-width: 0; }
-.skill-card strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.skill-card small { display: block; margin-top: 3px; font-size: 11px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
-.skill-tag { display: none; }
+.skill-card:active { cursor: grabbing; }
+.skill-card:disabled { cursor: not-allowed; opacity: .5; touch-action: auto; }
+.skill-card.open { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.skill-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 9px; background: #e8e8ed; color: var(--ink); }
+.skill-copy { flex: 1; min-width: 0; }
+.skill-copy strong { display: block; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.skill-detail { padding: 12px 14px; margin-top: -8px; margin-bottom: 0; background: var(--canvas); border: 1px solid #e8e8eb; border-top: 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }
+.skill-detail p { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.skill-add { border: 0; border-radius: 980px; background: #e8e8ed; color: var(--ink); padding: 6px 14px; font: 550 12px inherit; cursor: pointer; }
+.skill-add:hover { background: #dedee3; }
 
 /* 组合器 */
 .composer { background: var(--surface); border: 0; border-radius: var(--radius-lg); padding: 20px; }
-.slot { position: relative; width: 100%; min-height: 84px; border: 1px dashed var(--line-strong); border-radius: var(--radius-md); background: transparent; padding: 14px; display: flex; flex-direction: column; justify-content: center; gap: 4px; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
-.slot:hover { border-color: var(--accent); }
-.slot small { font-size: 11px; font-weight: 550; color: var(--muted); }
-.slot > span { color: var(--muted); font-size: 12px; }
-.slot strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; padding-right: 18px; }
-.slot.filled { border-style: solid; border-color: var(--line); background: var(--canvas); }
-.slot.filled:hover { border-color: var(--danger); }
+.slot { position: relative; width: 100%; min-height: 76px; border: 1.5px dashed var(--line-strong); border-radius: var(--radius-md); background: transparent; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.slot > span { color: var(--muted); font-size: 13px; }
+.slot strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.slot.filled { border-style: solid; border-color: transparent; background: var(--canvas); }
 .slot.filled:hover > span { color: var(--danger); }
+.slot.can-drop { border-color: var(--accent); }
+.slot.drop-ok { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
 .slot-plus { text-align: center; font-size: 17px; color: var(--muted); padding: 8px 0; }
 .composer-form { display: grid; gap: 12px; margin-top: 16px; }
 .composer-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 450; color: var(--muted); margin: 0; }
@@ -49,35 +50,34 @@
 .composer-create:disabled { cursor: not-allowed; opacity: .42; }
 .space-error { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--danger-soft); color: var(--danger); font-size: 12px; line-height: 1.6; }
 .space-ok { margin: 12px 0 0; color: var(--success); font-size: 12px; line-height: 1.6; }
-.space-ok a, .space-error a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* 未分配栏目与账号 */
 .unassigned { margin-top: 24px; }
-.series-row { display: block; width: 100%; text-align: left; background: var(--surface); border: 0; border-radius: var(--radius-md); padding: 14px; margin-bottom: 8px; font: inherit; color: inherit; transition: background .15s; }
+.series-row { display: block; width: 100%; text-align: left; background: var(--surface); border: 0; border-radius: var(--radius-md); padding: 14px; margin-bottom: 8px; font: inherit; color: inherit; transition: background .15s; touch-action: none; user-select: none; }
 a.series-row:hover { background: #ececf0; box-shadow: none; }
 .series-row-head { display: flex; align-items: center; gap: 8px; }
 .series-row-head strong { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; flex: 1; }
 .bind-tag { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.bind-tag.pair { background: transparent; border: 0; color: var(--muted); }
-.bind-tag.legacy { background: transparent; border: 0; color: var(--muted); }
 .series-row small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
 .series-assign { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
 .series-assign select { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); font: 12px inherit; }
 a.bind-tag { color: var(--accent); }
-.account-card { background: var(--surface); border: 0; border-radius: var(--radius-lg); padding: 18px; margin-bottom: 14px; }
+.account-card { background: var(--surface); border: 2px solid transparent; border-radius: var(--radius-lg); padding: 18px; margin-bottom: 14px; transition: border-color .15s, background .15s; }
+.account-card.can-drop { border-color: var(--line-strong); border-style: dashed; }
+.account-card.drop-ok { border-color: var(--accent); background: var(--accent-soft); }
 .account-card-head { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
-.account-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #e8e8ed; color: var(--ink); font-weight: 600; font-size: 14px; }
 .account-card-head h3 { margin: 0; font-size: 14px; font-weight: 600; }
-.account-card-head small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
-.account-card .series-row { background: var(--canvas); }
+.account-avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #e8e8ed; color: var(--ink); font-weight: 600; font-size: 14px; }
+.account-card .series-row { background: var(--canvas); touch-action: auto; }
 .account-card .series-row:hover { background: #ececf0; }
-.account-empty { color: var(--muted); font-size: 12px; margin: 0; }
+
+/* 拖拽跟手 */
+.drag-ghost { position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -130%); max-width: 240px; padding: 8px 14px; border-radius: 980px; background: var(--ink); color: #f5f5f7; font-size: 12px; font-weight: 550; box-shadow: var(--shadow-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drag-ghost.on-target { background: var(--accent); color: #fff; }
 
 @media (max-width: 1100px) {
   .space-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .space-col.accounts-col { grid-column: 1 / -1; }
 }
 @media (max-width: 700px) {
-  .space-head { display: block; }
   .space-columns { grid-template-columns: minmax(0, 1fr); }
 }
