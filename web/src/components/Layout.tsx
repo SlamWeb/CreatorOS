@@ -1,19 +1,17 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Sunrise, Layers, Users, TrendingUp, Sparkles, SquarePen } from "lucide-react";
+import { LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 
 const navItems = [
-  { to: "/", label: "今日", icon: Sunrise },
-  { to: "/studio", label: "创作", icon: Layers },
-  { to: "/creators", label: "账号", icon: Users },
-  { to: "/runs", label: "运行", icon: TrendingUp },
+  { to: "/", label: "栏目", icon: LayoutGrid },
+  { to: "/skills", label: "Skill", icon: Layers },
   { to: "/agent", label: "Agent", icon: Sparkles },
 ];
 
 export function Layout() {
   const location = useLocation();
   const [, setParams] = useSearchParams();
-  const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/studio") ? "创作空间" : location.pathname.startsWith("/runs") ? "内容运行" : location.pathname === "/" ? "今天" : "账号与栏目";
+  const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "栏目";
   return (
     <div className={`studio-shell ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">

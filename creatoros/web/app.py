@@ -47,6 +47,8 @@ from .schemas import (
     SeriesView,
     SeriesCreateRequest,
     SeriesWriteResponse,
+    TopicEditRequest,
+    TopicReorderRequest,
     TopicView,
     RunCancelRequest,
     RunStartRequest,
@@ -336,6 +338,30 @@ def create_app(
             operation_id=pending.id,
             topic_ids=topic_ids,
         )
+
+    @app.patch("/api/topics/{topic_id}")
+    def edit_topic(topic_id: str, payload: TopicEditRequest):
+        try:
+            writes.edit_topic(topic_id, title=payload.title, brief=payload.brief)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        return {"ok": True}
+
+    @app.post("/api/topics/{topic_id}/delete")
+    def delete_topic(topic_id: str):
+        try:
+            writes.delete_topic(topic_id)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        return {"ok": True}
+
+    @app.post("/api/series/{series_id}/reorder")
+    def reorder_topics(series_id: str, payload: TopicReorderRequest):
+        try:
+            writes.reorder_topics(series_id, payload.ordered_topic_ids)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        return {"ok": True}
 
     @app.get("/api/series/{series_id}/topics", response_model=PageResponse[TopicView])
     def list_topics(

@@ -277,6 +277,15 @@ class SeriesCreateRequest(WriteRequest):
     audience: str = Field(default="", max_length=4_000)
 
 
+class TopicEditRequest(WriteRequest):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    brief: str | None = Field(default=None, max_length=10_000)
+
+
+class TopicReorderRequest(WriteRequest):
+    ordered_topic_ids: list[str] = Field(min_length=1, max_length=500)
+
+
 class SeriesComposeRequest(WriteRequest):
     """组合/legacy 创建栏目：必须当场二选一绑定，允许暂不归属账号。"""
 

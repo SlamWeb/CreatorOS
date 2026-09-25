@@ -1,5 +1,22 @@
 # CreatorOS Studio Web SPEC
 
+## 信息架构重构实施（2026-09-25，完成）
+
+- 落地"栏目 / Skill / Agent"三导航。栏目页（/）：左栏 账号→栏目树（未分配独立成组，"+"新建栏目/账号行内表单），右栏工作台：栏目头（名称/归属/绑定）、归属下拉（revision CAS）、手动直加选题（走 A 策略直入队接口）、选题库条目级 编辑/删除/上移/下移/生产/查看运行。
+- Skill 页（/skills，/studio 兼容跳转）：Mind/Visualize 双栏拖拽组合 + 安装入口（GitHub 链接+角色）+ 归属账号可选；账号列撤除。
+- 选题后端新端点：`PATCH /api/topics/{id}`（编辑，生产中拒绝）、`POST /api/topics/{id}/delete`（有生产记录拒绝）、`POST /api/series/{id}/reorder`（直写完整调序）；自然幂等不进 write_receipts。`smoke_topic_crud=passed`。
+- 删除 TodayPage/CreatorsPage/CreatorDetailPage/SeriesPage/StudioSpacePage/RunsPage 列表；保留 /runs/{id} 验收页与运营抽屉；/series/{id} 301 到 /?series=。
+- 缺陷记录：OperationDrawer.close/show 历史上会删 `series` 查询参数（旧结构 series 在路径里无害）；新结构 series 是查询参数，关抽屉会丢选择态——全量 e2e 抓到（topic-research 在全量失败、单跑通过），改为不再删除该参数并重跑原路径通过。
+- 验证：Playwright e2e 4 passed（studio-workflow 重写为工作台流）；typecheck/build 通过；1440×900 与 390×844 截图检查首页/SKILL/Agent。
+
+## 信息架构重构（2026-09-24，用户确认）
+
+- 用户判断：今日/创作/账号三页内容重合、生产入口被埋。新导航只留三项：**栏目（首页）/ Skill / Agent**。
+- 栏目页 = 生产控制台：左栏 账号→栏目 层级树（未分配独立成组，可拖入账号），右栏选题队列为主界面——条目级增删改查+拖拽调序+直接生产入口；调研候选同列表淡态展示、一键入队；Run 详情从条目状态进入，全局"运行"列表页删除。
+- Skill 页 = Mind/Visualize 双栏 + 拖拽组合创建栏目（可选归属账号）+ 安装入口（GitHub 链接+角色）上移。
+- 后端新缺口（本设计需要）：选题删除（有生产记录禁止删）、编辑、直写调序端点；均为自然幂等，不进 write_receipts。
+- 删除旧页面：TodayPage、CreatorsPage、CreatorDetailPage、RunsPage 列表、StudioSpacePage 账号/未分配列；保留 /runs/{id} 验收详情页与运营指令抽屉。
+
 ## 去装饰文案 + 拖拽组合（2026-09-24，用户验收反馈）
 
 - 用户设计原则："人家会自己探索，如果不好探索那是设计不好，不是解释性语言不够"。删除：页面副标题、安装提示、账号卡副字段、侧栏"本地 Studio / 本地执行 · 人工验收"、Agent 欢迎块说明文字、会话脚注"切换不会中止/草稿清空"、底部"离开页面不取消…"、顶栏"Codex 未就绪"、"运营指令 Ctrl K"文字（收成纯图标按钮，aria-label 保留，快捷键与功能不变）。

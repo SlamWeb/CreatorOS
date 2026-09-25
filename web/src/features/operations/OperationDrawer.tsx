@@ -50,8 +50,8 @@ export function OperationDrawer() {
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [setParams]);
-  const close = () => setParams(p => { p.delete("operation"); p.delete("command"); p.delete("series"); return p; });
-  const show = (operationId: string) => setParams(p => { p.delete("command"); p.delete("series"); p.set("operation", operationId); return p; });
+  const close = () => setParams(p => { p.delete("operation"); p.delete("command"); return p; });
+  const show = (operationId: string) => setParams(p => { p.delete("command"); p.set("operation", operationId); return p; });
   const list = () => setParams(p => { p.delete("operation"); p.set("command", "list"); return p; });
   const refresh = () => {
     for (const key of ["overview", "operations", "topics", "series"]) void cache.invalidateQueries({ queryKey: [key] });

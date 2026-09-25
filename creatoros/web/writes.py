@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from creatoros.ai import ModelUsage
@@ -13,11 +14,15 @@ from creatoros.operations import (
     OperationPlanParser,
 )
 from creatoros.storage import (
+    ContentRepository,
+    ContentRun,
     Creator,
     CreatorPlatform,
     Database,
     OperationPolicy,
     Series,
+    Topic,
+    TopicStatus,
 )
 
 from .schemas import (
@@ -32,6 +37,10 @@ from creatoros.operations.parser import OperationParseError, OperationScopeError
 
 class StudioWriteError(ValueError):
     """A user-facing write validation or conflict error."""
+
+    def __init__(self, message: str, *, status_code: int = 409):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class StudioWriteService:
@@ -124,6 +133,47 @@ class StudioWriteService:
         except (OperationParseError, OperationScopeError):
             raise
         except (PendingOperationError, ValueError) as error:
+            raise StudioWriteError(str(error)) from error
+
+    def edit_topic(self, topic_id: str, *, title: str | None = None, brief: str | None = None) -> Topic:
+        """编辑选题标题/简介；生产中禁止编辑。至少提供一个字段。"""
+        if title is None and brief is None:
+            raise StudioWriteError("没有需要修改的内容。")
+        with self.database.session() as session:
+            topic = session.get(Topic, topic_id)
+            if topic is None:
+                raise StudioWriteError("选题不存在。", status_code=404)
+            if topic.status is TopicStatus.PRODUCING:
+                raise StudioWriteError("选题正在生产中，不能编辑。")
+            if title is not None:
+                cleaned = title.strip()
+                if not cleaned:
+                    raise StudioWriteError("标题不能为空。")
+                topic.title = cleaned
+            if brief is not None:
+                topic.brief = brief.strip() or None
+            session.flush()
+            return topic
+
+    def delete_topic(self, topic_id: str) -> None:
+        """删除选题；有生产记录或正在生产的禁止删除（产物链与历史保留）。"""
+        with self.database.session() as session:
+            topic = session.get(Topic, topic_id)
+            if topic is None:
+                raise StudioWriteError("选题不存在。", status_code=404)
+            if topic.status is TopicStatus.PRODUCING:
+                raise StudioWriteError("选题正在生产中，不能删除。")
+            has_runs = session.scalar(select(func.count()).select_from(ContentRun).where(ContentRun.topic_id == topic_id))
+            if has_runs:
+                raise StudioWriteError("已有生产记录的选题不能删除。")
+            session.delete(topic)
+            session.flush()
+
+    def reorder_topics(self, series_id: str, ordered_topic_ids: list[str]) -> None:
+        """显性直写调序：完整顺序列表，一次性事务生效。"""
+        try:
+            ContentRepository(self.database).reorder_topics(series_id, ordered_topic_ids)
+        except ValueError as error:
             raise StudioWriteError(str(error)) from error
 
     def cancel(self, operation_id: str, *, expected_version: int, expected_revision: int):

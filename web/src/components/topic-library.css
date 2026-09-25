@@ -18,3 +18,8 @@
 .library-research { margin-top:24px; border-top:1px solid #e8e8eb; padding-top:18px; }
 .library-item small { display:block; margin-top:8px; }
 @media(max-width:600px) { .library-item { padding:16px; } .library-item-heading { gap:8px; } }
+.library-actions button { border:0; padding:0; background:transparent; color:var(--accent); font-size:12px; cursor:pointer; }
+.library-actions button:hover:not(:disabled) { text-decoration:underline; }
+.library-actions button:disabled { color:var(--muted); cursor:not-allowed; }
+.library-actions button.library-delete { color:var(--danger); }
+.library-actions a { color:var(--accent); font-size:12px; }
