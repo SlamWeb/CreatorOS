@@ -6,7 +6,6 @@ import { studioApi } from "../api/client";
 import type { SeriesView, TopicView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { StatusPill } from "../components/StatusPill";
-import { ProducerSkillPanel } from "../components/ProducerSkillPanel";
 import { TopicLibrary } from "../components/TopicLibrary";
 import "./workspace.css";
 
@@ -23,8 +22,12 @@ export function WorkspacePage() {
   const client = useQueryClient();
   const creators = useCreators();
   const seriesAll = useQuery({ queryKey: ["series-all"], queryFn: studioApi.seriesAll });
+  const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const [accountDraft, setAccountDraft] = useState("");
   const [seriesDraft, setSeriesDraft] = useState<{ name: string; creatorId: string | null } | null>(null);
+  const [recipe, setRecipe] = useState<"legacy" | "pair">("legacy");
+  const [pairMind, setPairMind] = useState("");
+  const [pairVisual, setPairVisual] = useState("");
 
   const refresh = async () => {
     await Promise.all([
@@ -42,11 +45,14 @@ export function WorkspacePage() {
 
   const createSeries = useMutation({
     retry: false,
-    mutationFn: (input: { name: string; creatorId: string | null }) => studioApi.composeSeries({
-      name: input.name, description: "", audience: "", creator_id: input.creatorId,
-      skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID().replaceAll("-", ""),
-    }),
-    onSuccess: async (result) => { setSeriesDraft(null); await refresh(); selectSeries(result.series.id); },
+    mutationFn: (input: { name: string; creatorId: string | null }) => studioApi.composeSeries(
+      recipe === "pair"
+        ? { name: input.name, description: "", audience: "", creator_id: input.creatorId,
+            mind_skill_id: pairMind, production_skill_id: pairVisual, request_id: crypto.randomUUID().replaceAll("-", "") }
+        : { name: input.name, description: "", audience: "", creator_id: input.creatorId,
+            skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID().replaceAll("-", "") },
+    ),
+    onSuccess: async (result) => { setSeriesDraft(null); setRecipe("legacy"); await refresh(); selectSeries(result.series.id); },
   });
 
   const assign = useMutation({
@@ -113,7 +119,21 @@ export function WorkspacePage() {
         }}>
           <input autoFocus required maxLength={120} placeholder="栏目名称" value={seriesDraft.name}
             aria-label="新栏目名称" onChange={event => setSeriesDraft({ ...seriesDraft, name: event.target.value })} />
-          <div><button className="button button-primary" disabled={createSeries.isPending}>创建</button>
+          <select aria-label="配方" value={recipe} onChange={event => setRecipe(event.target.value as "legacy" | "pair")}>
+            <option value="legacy">知识点轮播</option>
+            <option value="pair">组合（Mind × Visualize）</option>
+          </select>
+          {recipe === "pair" && <>
+            <select aria-label="Mind" value={pairMind} onChange={event => setPairMind(event.target.value)}>
+              <option value="">Mind…</option>
+              {(skills.data?.items ?? []).filter(s => s.role === "mind").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <select aria-label="Visualize" value={pairVisual} onChange={event => setPairVisual(event.target.value)}>
+              <option value="">Visualize…</option>
+              {(skills.data?.items ?? []).filter(s => s.role === "production").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </>}
+          <div><button className="button button-primary" disabled={createSeries.isPending || (recipe === "pair" && (!pairMind || !pairVisual))}>创建</button>
             <button className="button button-secondary" type="button" onClick={() => setSeriesDraft(null)}>取消</button></div>
           {createSeries.isError && <p className="form-error" role="alert">{createSeries.error.message}</p>}
         </form> : null}
@@ -173,6 +193,7 @@ function SeriesWorkspace({ series, accounts, onAssign }: {
     <header className="workspace-head">
       <div>
         <h1>{series.name}</h1>
+        <p className="workspace-recipe">{series.skill_name ? "知识点轮播" : [series.mind_skill_id, series.production_skill_id].map(id => id?.split("--")[0]).filter(Boolean).join(" × ")}</p>
         {series.description ? <p className="workspace-meta">{series.description}</p> : null}
       </div>
       <select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
@@ -181,7 +202,6 @@ function SeriesWorkspace({ series, accounts, onAssign }: {
         {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
       </select>
     </header>
-    {series.skill_name !== null && <details className="workspace-skill"><summary>生产 Skill</summary><ProducerSkillPanel seriesId={series.id} current={series.skill_name} /></details>}
     <form className="workspace-add" onSubmit={event => {
       event.preventDefault();
       if (topicTitle.trim()) addTopic.mutate(topicTitle.trim());

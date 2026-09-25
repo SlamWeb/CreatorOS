@@ -13,7 +13,7 @@ export function Layout() {
   const [, setParams] = useSearchParams();
   const section = location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "栏目";
   return (
-    <div className={`studio-shell ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
+    <div className={`studio-shell ${location.pathname === "/" ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">
         <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M30 9a14 14 0 1 0 0 18l-7-6a5 5 0 1 1 0-6z" fill="#2277f5" /><path d="m30 9-7 6-7-7 6-4z" fill="#74b7ff" /></svg><span>CreatorOS</span></Link>
         <nav className="primary-nav" aria-label="主导航">

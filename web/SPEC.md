@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## 配方统一 + 版面放宽（2026-09-26，用户确认）
+
+- 创建心智统一为"建栏目 = 起名字 + 选配方"：rail "+栏目" 表单新增配方选择（知识点轮播 默认 / 组合 Mind×Visualize 两个下拉），与 Skill 页组合器同接口同概念，重合消除。
+- 栏目头亮配方：单 Skill 显示"知识点轮播"，组合显示 `mind × visualize` 可读名；`workspace-recipe` 独立一行，不再是 dot-joined meta。
+- 删除工作台的"生产 Skill"换绑面板（绑定即定型，旧 Run 快照本就冻结）；安装入口只在 Skill 页。
+- 版面：工作台容器放宽到 1600px、rail 260px、间隙 36px；rail/选题库/输入框字号整体上调（13→14 档）。
+- 验证：e2e 4 passed；1440×900 截图检查单/组合两个栏目头。
+
 ## 精修一轮（2026-09-25）：pagination/胶囊 summary/文案瘦身
 
 - 参照 Anthropic frontend-design Skill（已下载到 tmp/ 仅作参考）做精修：分页改为圆形 ‹ › + "1 / N" 等宽数字且单页隐藏；"调研选题"与"生产 Skill" 的 details summary 统一为胶囊按钮 + 旋转 chevron；删除选题库副标题与栏目头 dot-joined meta（该模式是 Skill 点名的 AI 模板味）；空态文案瘦身。
