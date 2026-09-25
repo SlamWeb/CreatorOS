@@ -23,3 +23,16 @@
 .library-actions button:disabled { color:var(--muted); cursor:not-allowed; }
 .library-actions button.library-delete { color:var(--danger); }
 .library-actions a { color:var(--accent); font-size:12px; }
+.library-count { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+.library-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 18px 0; }
+.library-pagination button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--surface); color: var(--ink); cursor: pointer; transition: background .15s; }
+.library-pagination button:hover:not(:disabled) { background: #e8e8ed; }
+.library-pagination button:disabled { opacity: .35; cursor: default; }
+.library-pagination span { color: var(--muted); font-size: 12px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.library-research { border-top: 1px solid #e8e8eb; margin-top: 8px; }
+.library-research > summary { display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; margin: 14px 0 0; padding: 7px 14px; border-radius: 980px; background: var(--surface); color: var(--ink); font-size: 12px; font-weight: 550; transition: background .15s; }
+.library-research > summary::-webkit-details-marker { display: none; }
+.library-research > summary::after { content: "›"; display: inline-block; transition: transform .15s; transform: rotate(90deg); color: var(--muted); }
+.library-research[open] > summary::after { transform: rotate(-90deg); }
+.library-research > summary:hover { background: #e8e8ed; }
+.library-research > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

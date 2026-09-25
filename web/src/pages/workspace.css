@@ -43,3 +43,10 @@
   .workspace-head { flex-wrap: wrap; }
   .workspace-assign { max-width: 100%; }
 }
+.workspace-skill { margin: 0 0 18px; }
+.workspace-skill > summary { display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; padding: 7px 14px; border-radius: 980px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 550; transition: background .15s, color .15s; }
+.workspace-skill > summary::-webkit-details-marker { display: none; }
+.workspace-skill > summary::after { content: "›"; display: inline-block; transition: transform .15s; transform: rotate(90deg); }
+.workspace-skill[open] > summary::after { transform: rotate(-90deg); }
+.workspace-skill > summary:hover { background: #e8e8ed; color: var(--ink); }
+.workspace-skill > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

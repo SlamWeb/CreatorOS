@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { request, studioApi } from "../api/client";
 import type { PageResponse, TopicView } from "../api/types";
@@ -57,12 +58,12 @@ export function TopicLibrary({ seriesId, startButton }: { seriesId: string; star
     <TopicResearchPanel key={seriesId} seriesId={seriesId} />
   </section>;
   return <section className="topic-library" aria-label="选题库">
-    <header className="research-heading"><div><h2>选题库</h2><p>先挑选，再生产。所有选题都在这里。</p></div><span>{query.data?.page.total ?? "—"} 项</span></header>
+    <header className="research-heading"><div><h2>选题库</h2></div><span className="library-count">{query.data?.page.total ?? "—"} 项</span></header>
     <div className="library-filters" role="group" aria-label="选题状态">{[["all", "全部"], ["pending", "待选"], ["queued", "已入队"]].map(([value, label]) =>
       <button key={value} aria-pressed={state === value} onClick={() => change("topics", value)}>{label}</button>)}</div>
     {query.isPending && <p role="status">正在读取选题库…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
-    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "queued" ? "还没有已入队选题。先从待选中挑选并确认。" : state === "pending" ? "暂无待选建议，可在下方发起调研。" : "还没有选题。可以调研获取建议，也可以手动添加。"}</p>}
+    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "queued" ? "还没有已入队选题。先从待选中挑选并确认。" : state === "pending" ? "暂无待选建议。" : "还没有选题。"}</p>}
     {!query.error && query.data?.items.map((topic, index) => <article className="library-item" key={topic.id} data-testid={`library-${topic.id}`}>
       <div className="library-item-heading"><span className="library-number">{offset + index + 1}</span><h3>{topic.title}</h3>
         {topic.selection_state === "pending" ? <span className="library-pending">{topic.stale ? "待选 · 已过期" : "待选"}</span> : <><span className="library-enqueued">已入队</span><StatusPill status={topic.existing_run_status ?? topic.status} /></>}</div>
@@ -90,7 +91,7 @@ export function TopicLibrary({ seriesId, startButton }: { seriesId: string; star
         {actionError && <p className="form-error" role="alert">{actionError}</p>}
       </>}
     </article>)}
-    <nav className="library-pagination" aria-label="选题分页"><button disabled={!offset || query.isFetching} onClick={() => change("offset", String(Math.max(0, offset - 20)))}>上一页</button><span>第 {Math.floor(offset / 20) + 1} 页</span><button disabled={query.isFetching || !query.data || offset + 20 >= query.data.page.total} onClick={() => change("offset", String(offset + 20))}>下一页</button></nav>
-    <details className="library-research"><summary>调研选题 / 查看调研进度</summary><TopicResearchPanel seriesId={seriesId} controlsOnly /></details>
+    {query.data && (query.data.page.total > 20 || offset > 0) && <nav className="library-pagination" aria-label="选题分页"><button aria-label="上一页" disabled={!offset || query.isFetching} onClick={() => change("offset", String(Math.max(0, offset - 20)))}><ChevronLeft size={15} strokeWidth={2} /></button><span>{Math.floor(offset / 20) + 1} / {Math.max(1, Math.ceil(query.data.page.total / 20))}</span><button aria-label="下一页" disabled={query.isFetching || offset + 20 >= query.data.page.total} onClick={() => change("offset", String(offset + 20))}><ChevronRight size={15} strokeWidth={2} /></button></nav>}
+    <details className="library-research"><summary>调研选题</summary><TopicResearchPanel seriesId={seriesId} controlsOnly /></details>
   </section>;
 }

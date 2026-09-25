@@ -73,7 +73,7 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await expect(page.getByRole("button", { name: "重新读取选题库" })).toBeVisible();
   await page.unroute("**/topic-library?**");
   await page.getByRole("button", { name: "重新读取选题库" }).click();
-  await expect(page.getByText("暂无待选建议，可在下方发起调研。")).toBeVisible();
+  await expect(page.getByText("暂无待选建议。")).toBeVisible();
   // Deterministic pagination fixture; all writes/confirmation above used real isolated API.
   await page.route("**/topic-library?**", r => {
     const offset = Number(new URL(r.request().url()).searchParams.get("offset") || 0);

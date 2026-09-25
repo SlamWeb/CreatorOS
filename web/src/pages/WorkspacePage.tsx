@@ -70,7 +70,6 @@ export function WorkspacePage() {
   const valid = allSeries.some(s => s.id === params.get("series"));
   const seriesId = valid ? params.get("series")! : (allSeries[0]?.id ?? null);
   const series = allSeries.find(s => s.id === seriesId) ?? null;
-  const accountName = (id: string | null) => accounts.find(a => a.id === id)?.display_name ?? null;
 
   function selectSeries(id: string) {
     setParams(previous => {
@@ -134,16 +133,15 @@ export function WorkspacePage() {
         <p>还没有栏目。先在 Skill 页组合或在这里新建。</p>
         <button type="button" className="button button-primary" onClick={() => setSeriesDraft({ name: "", creatorId: accounts[0]?.id ?? null })}>新建栏目</button>
       </div>}
-      {series && <SeriesWorkspace key={series.id} series={series} accountLabel={accountName(series.creator_id)}
+      {series && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
         onAssign={(creatorId) => assign.mutate({ series, creatorId })} />}
     </main>
   </div>;
 }
 
-function SeriesWorkspace({ series, accountLabel, accounts, onAssign }: {
+function SeriesWorkspace({ series, accounts, onAssign }: {
   series: SeriesView;
-  accountLabel: string | null;
   accounts: { id: string; name: string }[];
   onAssign: (creatorId: string | null) => void;
 }) {
@@ -175,7 +173,7 @@ function SeriesWorkspace({ series, accountLabel, accounts, onAssign }: {
     <header className="workspace-head">
       <div>
         <h1>{series.name}</h1>
-        <p className="workspace-meta">{accountLabel ?? "未分配账号"} · {series.skill_name ?? "组合"}{series.skill_name === "knowledge-to-carousel" ? " · 知识点轮播" : ""}{series.description ? ` · ${series.description}` : ""}</p>
+        {series.description ? <p className="workspace-meta">{series.description}</p> : null}
       </div>
       <select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
         onChange={event => onAssign(event.target.value || null)}>

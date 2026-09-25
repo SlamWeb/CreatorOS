@@ -1,5 +1,10 @@
 # CreatorOS Studio Web SPEC
 
+## 精修一轮（2026-09-25）：pagination/胶囊 summary/文案瘦身
+
+- 参照 Anthropic frontend-design Skill（已下载到 tmp/ 仅作参考）做精修：分页改为圆形 ‹ › + "1 / N" 等宽数字且单页隐藏；"调研选题"与"生产 Skill" 的 details summary 统一为胶囊按钮 + 旋转 chevron；删除选题库副标题与栏目头 dot-joined meta（该模式是 Skill 点名的 AI 模板味）；空态文案瘦身。
+- 验证：e2e 4 passed（topic-research 的空态文案断言同步更新）；typecheck/build 通过。
+
 ## 信息架构重构实施（2026-09-25，完成）
 
 - 落地"栏目 / Skill / Agent"三导航。栏目页（/）：左栏 账号→栏目树（未分配独立成组，"+"新建栏目/账号行内表单），右栏工作台：栏目头（名称/归属/绑定）、归属下拉（revision CAS）、手动直加选题（走 A 策略直入队接口）、选题库条目级 编辑/删除/上移/下移/生产/查看运行。
