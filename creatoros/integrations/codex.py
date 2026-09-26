@@ -20,6 +20,8 @@ from ..content.models import MANIFEST_FILENAME
 from .process_tree import ProcessTree
 
 SESSION_FILENAME = "production_session.json"
+CODEX_MODEL = "gpt-6-luna"
+CODEX_EFFORT = "xhigh"
 CardKind = Literal["cover", "content", "summary", "sources", "cta"]
 
 
@@ -209,7 +211,8 @@ class CodexProducer:
         topic_brief: str | None = None,
         series_description: str = "",
         audience: str = "",
-        skill_name: str = "knowledge-to-carousel",
+        skill_name: str | None = "knowledge-to-carousel",
+        composition=None,
         skills_root: Path | None = None,
         thread_id: str | None = None,
         revision_instruction: str | None = None,
@@ -221,20 +224,40 @@ class CodexProducer:
         now = datetime.now().astimezone()
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=False)
-        skill_dir = self._resolve_skill_dir(skill_name, skills_root)
-        prompt = self._build_prompt(
-            creator_id,
-            series_id,
-            topic_id,
-            topic_title,
-            topic_brief=topic_brief,
-            series_description=series_description,
-            audience=audience,
-            skill_name=skill_name,
-            skills_root=skills_root,
-            skill_dir=skill_dir,
-            revision_instruction=revision_instruction,
-        )
+        skill_refs = None
+        if composition is not None:
+            from .producer_skills import ProducerSkillCatalog
+            from .skill_pair import PairReceipt, freeze_pair, pair_prompt
+            if not self.native_skill_inputs:
+                raise CodexProducerError("双 Skill 生产需要 SDK Producer。", error_type="unsupported_skill_pair")
+            skill_refs = freeze_pair(ProducerSkillCatalog(
+                skills_root or self.project_root / "data" / "producer-skills", self.project_root), composition, directory)
+            self.receipt_model = PairReceipt
+            skill_dir = skill_refs[1][1].parent
+            skill_name = composition.production.id
+            prompt = pair_prompt(composition, skill_refs) + json.dumps({
+                "creator_id": creator_id, "series_id": series_id, "topic_id": topic_id,
+                "topic_title": topic_title, "topic_brief": topic_brief,
+                "series_description": series_description, "audience": audience,
+                "revision_instruction": revision_instruction,
+            }, ensure_ascii=False)
+            (directory / "production_request.txt").write_text(prompt, encoding="utf-8")
+        else:
+            self.receipt_model = ProductionReceipt
+            skill_dir = self._resolve_skill_dir(skill_name, skills_root)
+            prompt = self._build_prompt(
+                creator_id,
+                series_id,
+                topic_id,
+                topic_title,
+                topic_brief=topic_brief,
+                series_description=series_description,
+                audience=audience,
+                skill_name=skill_name,
+                skills_root=skills_root,
+                skill_dir=skill_dir,
+                revision_instruction=revision_instruction,
+            )
         try:
             run = self._execute(
                 prompt,
@@ -242,6 +265,7 @@ class CodexProducer:
                 thread_id=thread_id,
                 skill_name=skill_name,
                 skill_path=skill_dir / "SKILL.md",
+                **({"skill_refs": skill_refs} if skill_refs else {}),
                 on_thread_started=on_thread_started,
                 cancel_event=cancel_event,
                 on_process_started=on_process_started,
@@ -263,6 +287,9 @@ class CodexProducer:
             generated_at=generated_at,
             skill_name=skill_name,
         )
+        if composition is not None:
+            from .skill_pair import write_evidence
+            write_evidence(directory, composition, run.receipt)
         session = ProductionSession(
             thread_id=run.thread_id,
             pack_id=pack_id,
@@ -388,7 +415,7 @@ class CodexProducer:
         working_directory: Path,
         thread_id: str | None,
     ) -> list[str]:
-        settings = ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="xhigh"']
+        settings = ["-c", f'model="{CODEX_MODEL}"', "-c", f'model_reasoning_effort="{CODEX_EFFORT}"']
         if thread_id:
             return [
                 self.executable, *settings, "-a", "never", "exec", "resume", "--json",
@@ -545,6 +572,7 @@ class CodexSdkProducer(CodexProducer):
         thread_id: str | None = None,
         skill_name: str = "knowledge-to-carousel",
         skill_path: Path | None = None,
+        skill_refs: list[tuple[str, Path]] | None = None,
         on_thread_started: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
@@ -559,6 +587,7 @@ class CodexSdkProducer(CodexProducer):
                     thread_id=thread_id,
                     skill_name=skill_name,
                     skill_path=skill_path,
+                    skill_refs=skill_refs,
                     on_thread_started=on_thread_started,
                     cancel_event=cancel_event,
                 )
@@ -575,6 +604,7 @@ class CodexSdkProducer(CodexProducer):
         thread_id: str | None,
         skill_name: str,
         skill_path: Path | None,
+        skill_refs: list[tuple[str, Path]] | None = None,
         on_thread_started: Callable[[str], None] | None,
         cancel_event: threading.Event | None,
     ) -> CodexRun:
@@ -589,10 +619,8 @@ class CodexSdkProducer(CodexProducer):
         if skill_path is None or not skill_path.is_file():
             raise CodexProducerError("生产 Skill 文件不存在。", error_type="skill_not_found")
 
-        inputs = [
-            TextInput(text=prompt),
-            SkillInput(name=skill_name, path=str(skill_path.resolve())),
-        ]
+        refs = skill_refs or [(skill_name, skill_path)]
+        inputs = [TextInput(text=prompt)] + [SkillInput(name=name, path=str(path.resolve())) for name, path in refs]
         try:
             async with AsyncCodex() as codex:
                 if thread_id:
@@ -600,14 +628,14 @@ class CodexSdkProducer(CodexProducer):
                         thread_id,
                         approval_mode=ApprovalMode.deny_all,
                         cwd=str(working_directory),
-                        model="gpt-5.6-luna",
+                        model=CODEX_MODEL,
                         sandbox=Sandbox.read_only,
                     )
                 else:
                     thread = await codex.thread_start(
                         approval_mode=ApprovalMode.deny_all,
                         cwd=str(working_directory),
-                        model="gpt-5.6-luna",
+                        model=CODEX_MODEL,
                         sandbox=Sandbox.read_only,
                     )
                 if on_thread_started is not None:
@@ -616,8 +644,8 @@ class CodexSdkProducer(CodexProducer):
                 turn = await thread.turn(
                     inputs,
                     cwd=str(working_directory),
-                    effort="xhigh",
-                    model="gpt-5.6-luna",
+                    effort=CODEX_EFFORT,
+                    model=CODEX_MODEL,
                     output_schema=self.receipt_model.model_json_schema(),
                     sandbox=Sandbox.read_only,
                 )
@@ -656,8 +684,8 @@ class CodexSdkProducer(CodexProducer):
                 "type": "thread.started",
                 "thread_id": thread.id,
                 "backend": "python-codex-sdk",
-                "model": "gpt-5.6-luna",
-                "reasoning_effort": "xhigh",
+                "model": CODEX_MODEL,
+                "reasoning_effort": CODEX_EFFORT,
             }, ensure_ascii=False) + "\n")
             stream.write(json.dumps({
                 "type": "turn.completed",

@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## P4 逐页证据（2026-09-26，完成）
+
+- 复用 RunInspector，在图片下增加默认收起的“本页内容与生图 Prompt”，切换图片时同步切换证据。不改栏目视觉与发布逻辑。
+- 仅通过已校验 Revision 的 CardView 返回 page_spec/image_prompt；旧单 Skill 无证据时不显示，损坏产物不显示可验收图片。
+- 验收：pair 网站生产进入同一 Run；刷新不重提；已有批准/失败路径保持；隔离 API 断言每页证据与图对应；浏览器检查折叠与翻页。
+- 真实 Run `4d4f6bc6-22ab-401a-86f5-7644c9b457bb` 六张图进入待批准；保留旧模型错误版本，新版本成功。CUA 桌面 1440×900 依次展开第一页、翻第二页自动收起、再展开核对 Page 2；手机 390×844 点击第六张并展开 Page 6，正文换行、无页面横溢出（缩略图条为预期局部横滚）；刷新仍是同 Run 的六图待批准。未点击批准/发布。
+- 截图：本机 Temp 下 `creatoros-mq-pair-ready-desktop.png`、`creatoros-mq-pair-evidence-mobile.png`；build 含 TypeScript 通过，保留既有主包 >500kB 警告。未重跑独立 Playwright Test（宿主浏览器控制限制），不能据此宣称全量 E2E。
+
 ## 账号管理改动补提交（2026-09-26）
 
 - 收录已有未提交实现：新账号入口展开名称/可选账号标识表单；空账号提供二次点击删除；后端拒绝删除仍有栏目的账号，避免级联删除内容。

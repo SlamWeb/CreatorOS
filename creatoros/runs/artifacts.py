@@ -13,7 +13,7 @@ from creatoros.content.models import MANIFEST_FILENAME
 from .models import ArtifactValidation, ValidatedImage
 
 
-def validate_artifact(directory: str | Path) -> ArtifactValidation:
+def validate_artifact(directory: str | Path, *, composition=None) -> ArtifactValidation:
     root = Path(directory).resolve()
     if not (root / MANIFEST_FILENAME).resolve().is_relative_to(root):
         raise ValueError("Manifest 路径越过产物目录。")
@@ -53,6 +53,15 @@ def validate_artifact(directory: str | Path) -> ArtifactValidation:
                 sha256=hashlib.sha256(image_bytes).hexdigest(),
             )
         )
+    if composition is not None:
+        from creatoros.integrations.skill_pair import evidence_files
+        for path in evidence_files(root, composition, [card.order for card in pack.cards]):
+            relative = path.relative_to(root).as_posix().encode("utf-8")
+            raw = path.read_bytes()
+            digest.update(len(relative).to_bytes(4, "big"))
+            digest.update(relative)
+            digest.update(len(raw).to_bytes(8, "big"))
+            digest.update(raw)
     return ArtifactValidation(
         artifact_digest=digest.hexdigest(),
         card_count=len(pack.cards),

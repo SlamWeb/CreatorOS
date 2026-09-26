@@ -123,6 +123,8 @@ export interface CardView {
   url: string;
   width: number;
   height: number;
+  page_spec?: string | null;
+  image_prompt?: string | null;
 }
 
 export interface RunEventView {

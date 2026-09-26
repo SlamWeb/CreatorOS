@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -57,15 +58,22 @@ class StudioArtifacts:
             if digest is None:
                 return dict(artifact_available=False, artifact_error=None, review_digest=None)
             pack = self.pack(root, data)
-            checked = validate_artifact(root)
+            checked = validate_artifact(root, composition=data.composition)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
             prefix = f"/api/runs/{run_id}/revisions/{revision_id}/cards"
+            pages = {}
+            if data.composition is not None:
+                from creatoros.integrations.skill_pair import EVIDENCE_FILE
+                evidence = json.loads((root / EVIDENCE_FILE).read_text(encoding="utf-8"))
+                pages = {page["order"]: page for page in evidence["pages"]}
             return dict(
                 artifact_available=True, artifact_error=None, review_digest=digest,
                 content_summary=pack.content_summary,
                 cards=[CardView(order=card.order, headline=card.headline, width=info.width, height=info.height,
-                                url=f"{prefix}/{card.order}?digest={digest}&checksum={info.sha256}")
+                                url=f"{prefix}/{card.order}?digest={digest}&checksum={info.sha256}",
+                                page_spec=pages.get(card.order, {}).get("page_spec"),
+                                image_prompt=pages.get(card.order, {}).get("image_prompt"))
                        for card, info in zip(pack.cards, checked.images)],
                 publish_copy=PublishCopyView(**pack.publish_copy.model_dump()),
                 sources=[SourceView(title=source.title, url=_safe_url(source.url)) for source in pack.sources],
@@ -86,7 +94,7 @@ class StudioArtifacts:
             expected_checksum = saved_image.get("sha256")
             if expected_checksum is None:
                 # Older validation JSON has no per-image hashes; verify its unchanged whole pack.
-                checked = validate_artifact(root)
+                checked = validate_artifact(root, composition=data.composition)
                 if checked.artifact_digest != recorded_digest:
                     raise ContentRunError("产物已变化，请重新检查。", code="artifact_changed")
                 expected_checksum = checked.images[order - 1].sha256

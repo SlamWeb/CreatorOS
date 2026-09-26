@@ -127,7 +127,7 @@ def main():
             assert service.get(abandoned["id"])["status"] == "interrupted"
         for thread in [None, "test-thread"]:
             command = CodexProducer.from_defaults()._command(root / "schema.json", root, thread)
-            assert 'model="gpt-5.6-luna"' in command and 'model_reasoning_effort="xhigh"' in command
+            assert 'model="gpt-6-luna"' in command and 'model_reasoning_effort="xhigh"' in command
         db.close()
     print("topic_research_smoke=passed preview=readonly provenance=passed duplicate=blocked stale=blocked config_refresh=passed restart=passed")
 

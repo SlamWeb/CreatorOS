@@ -49,6 +49,12 @@ function Carousel({ cards }: { cards: CardView[] }) {
     <div className="carousel-stage">{failed ? <p className="review-warning">图片无法读取或已变化，请刷新详情重新检查。</p> : <button className="image-open" aria-label={`放大第 ${card.order} 张图片`} onClick={() => dialog.current?.showModal()}><img src={apiUrl(card.url)} alt={card.headline} width={card.width} height={card.height} onError={() => setFailed(true)} /></button>}</div>
     <div className="carousel-nav"><button aria-label="上一张" onClick={() => move(-1)} disabled={cards.length < 2}>←</button><span>{card.order} / {cards.length} <b>{card.headline}</b></span><button aria-label="下一张" onClick={() => move(1)} disabled={cards.length < 2}>→</button></div>
     <div className="carousel-thumbnails" aria-label="选择图片">{cards.map((item, i) => <button key={item.order} aria-label={`查看第 ${item.order} 张`} aria-pressed={i === index} onClick={() => setIndex(i)}><img src={apiUrl(item.url)} alt="" loading="lazy" /><span>{item.order.toString().padStart(2, "0")}</span></button>)}</div>
+    {card.page_spec && card.image_prompt ? <details className="page-evidence" key={card.order}>
+      <summary>本页内容与生图 Prompt</summary>
+      <h3>内容稿</h3><pre>{card.page_spec}</pre>
+      <h3>生图 Prompt</h3><pre>{card.image_prompt}</pre>
+      <p>由生产器报告；不代表图像服务内部改写后的 Prompt。</p>
+    </details> : null}
     <dialog className="image-dialog" ref={dialog} aria-label="放大图片"><button className="dialog-close" onClick={() => dialog.current?.close()}>关闭 ×</button><img src={apiUrl(card.url)} alt={card.headline} /><div className="dialog-nav"><button onClick={() => move(-1)}>← 上一张</button><span>{card.order} / {cards.length}</span><button onClick={() => move(1)}>下一张 →</button></div></dialog>
   </div>;
 }

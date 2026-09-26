@@ -333,6 +333,10 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: var(--rin
 .publication h2, .copy-empty h2 { margin: 0; font-size: 14px; font-weight: 500; color: var(--muted); }
 .publication h3 { font-size: 19px; line-height: 1.5; margin: 22px 0 12px; }
 .publication-body { white-space: pre-wrap; line-height: 1.9; font-size: 16px; color: var(--ink); overflow-wrap: anywhere; }
+.page-evidence { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.page-evidence summary { cursor: pointer; }
+.page-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.page-evidence p { color: var(--muted); font-size: 12px; }
 .hashtags { font-size: 14px; line-height: 1.8; color: var(--accent); overflow-wrap: anywhere; }
 .inspector-copy .text-link, .review-warning .text-link { font: inherit; font-size: 14px; border: none; background: transparent; cursor: pointer; }
 .sources { margin-top: 22px; border-top: 1px solid #e8e8eb; padding-top: 16px; font-size: 14px; color: var(--muted); }

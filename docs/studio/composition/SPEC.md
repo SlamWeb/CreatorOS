@@ -1,6 +1,6 @@
 # 创作空间：Web / Agent 共用业务能力
 
-状态：设计已确认，待实施。2026-09-21。
+状态：P1–P3 已接入，P4 首个双 Skill 轮播适配器已通过真实生产与浏览器操作验收。内容仍待用户批准，不发布。更新于 2026-09-26；下方早期基线为历史记录。
 
 ## 用户确认
 
@@ -90,6 +90,16 @@ P3 验收：真实隔离 HTTP/SQLite；创建/组合/归属/撤回/选题查询/
 
 ## P4 双 Skill 生产与溯源
 
+### P4 本轮实施约定（2026-09-26）
+
+- 先支持已核对的 knowledge-to-storyboard / knowledge-to-storyboard-deep + xiaobai，适配器 `pagespec-xiaobai-carousel-v1`；未知组合仍拒绝生产，不因保存成功宣称兼容。
+- 不改外部 Skill，不做 merger。一次 SDK thread/turn 注入两个原生 SkillInput；上游交付内容、下游交付 Prompt，宿主委托再明确要求真实生图。默认 6–12 页（本次首跑尽量 6 页），不静默改用旧单 Skill。
+- Run JSON 冻结两个 Skill 的 ID/name/source/commit/digest、账号名称/平台/栏目 revision 和选题来源；执行前复核版本，复制完整 Skill 资源到独立 Attempt。旧单 Skill 快照及摘要算法保持兼容，无数据库迁移。
+- 扩展 pair 专用回执：Research Brief、因果链、逐页 PageSpec、逐页 image_prompt 与相对参考资产。宿主落盘并验收页/Prompt/图一一对应；Prompt 标记为生产器报告，未捕获图像服务内部改写则不声称其为内部最终 Prompt。
+- 图片、生产证据、冻结 Skill 文件均参与 pair 产物 digest；批准前重验，缺文件/改稿/改参考图均不得沿用旧批准摘要。
+- 用户追加：生产与调研（含新建/resume）统一 `gpt-6-luna/xhigh`，不修改全局 Codex 配置。
+- 先隔离测试：旧链路、未知组合、版本冻结/篡改、回执缺页/缺 Prompt/缺引用、恢复及幂等、验收摘要；再从现有网站执行已入队消息队列选题。仅此次真实生产可写正式运行数据，不发布。
+
 - Run 输入冻结账号、栏目定位、受众、topic及来源、两个Skill ID/版本/digest。本次临时覆盖不反写栏目。
 - 一次 Codex 委托依序读取内容 Skill 与制作 Skill，输出可追溯中间内容、逐页最终 prompt、引用资产与最终包；不另起两个运营 Agent。
 - 兼容现有 legacy producer；pair 路径显式分支，不能把两个 Skill 拼成一个 skill_name。
@@ -108,7 +118,21 @@ P4 先用受控生产器测试快照/中断/重复提交/缺工件，明确不�
 
 ## 实施记录
 
-### 真实网站生产尝试（2026-09-26）
+### P4 首个生产适配器（2026-09-26）
+
+- 入口不变：Web 生产与 Agent `start_content_run` 共用 ContentRunService；支持本仓库确认的 `knowledge-to-storyboard(-deep) × xiaobai`，其他组合仍明确拒绝，不按任意 Skill 名称推断兼容。
+- 创建时保存双 Skill ID/commit/digest、栏目/账号/选题快照；执行前校验安装版本并复制到 Attempt 的 `skills/mind` 与 `skills/production`。旧单 Skill 快照与执行路径兼容，无新迁移。
+- SDK 一次委托使用两个原生 SkillInput：内容研究/分镜 → 小白逐页 Prompt → 真实生图 → 结构化回执。宿主落盘 Research Brief、因果链、逐页 `pages/NN/content.md` / `prompt.txt`、图片与 SocialContentPack；未额外创建运营 Agent。
+- 页数/顺序、非空内容/Prompt、角色引用与图片对应确定性校验；生产证据和冻结 Skill 资源均参与批准 digest。Prompt 的出处明确为生产器报告，不伪称图像模型内部最终 Prompt 或完整内部工具轨迹。
+- 隔离验证：`smoke_pair_production`、`smoke_series_guards`、`smoke_codex_producer`、`smoke_content_run_service`、`smoke_topic_research`、`smoke_studio_artifacts`、`smoke_studio_executor`、`smoke_studio_composition_tools` 通过；compileall / TypeScript / Vite build / diff check 通过。故障与材料篡改使用受控 Producer，不消耗真实生图、不修改正式库。
+- 真实 SDK 模型探针：`python -m tests.live_codex_sdk_model` 新建/resume 都以 `gpt-6-luna/xhigh` 成功；SDK 升级原因与命令验证见 `creatoros/integrations/SPEC.md`。
+- 真实网站复用已入队消息队列选题，Run `4d4f6bc6-22ab-401a-86f5-7644c9b457bb`。旧 SDK 0.147.0 首次报模型不支持，保留失败 Revision 1；升级到 0.157.1 后，通过网站保存技术返工说明并显式启动 Revision 2，续接同一 Codex thread。没有重复添加选题，没有改库伪造成功。
+- 生图中间稿出现透明背景（不符合小白白底约定）；生产器自行重绘后，最终交付六张均为 RGB 不透明背景，941×1672，共 8,709,530 bytes。宿主没有改图。后续委托 Prompt 额外补 `transparent_background=false`，受控测试检查该指令；这条新增约束尚未单独重跑真实生图。
+- 最终状态 `awaiting_approval`，六份 PageSpec/Prompt/图片对应且 digest 验收通过；网页桌面 1440×900 与手机 390×844 实际翻页、展开/收起、检查第 1/2/6 页对应证据、刷新保持同 Run，未批准、未发布。截图见本机临时文件 `creatoros-mq-pair-ready-desktop.png` / `creatoros-mq-pair-evidence-mobile.png`，不入 Git。
+- 本次完成回执记录模型 `gpt-6-luna`、effort `xhigh`；累计 input 1,262,301 / cached input 1,150,976 / output 26,825 tokens，为多次内部调用总和，不是单次上下文大小，也不是质量 Benchmark。真实 Skill 版本与证据保存在该 Run 快照/产物目录，正式产物不入 Git。
+- 未覆盖：任意 Skill 组合、阶段级独立 checkpoint、图像模型内部 Prompt 核验。内容正确性仍由用户逐页验收。未运行独立 Playwright 浏览器进程（当前宿主仅允许 CUA 控制浏览器）；不把手工 CUA 验收写成全量 E2E 通过。
+
+### 首次网站生产尝试（2026-09-26，P4 接入前）
 
 - 用户授权通过现有网站生产《一文通关ai agent岗位需要懂的消息队列》，不发布。
 - 启动 `python -m creatoros.web` 后，在真实浏览器打开“小白带你学AI”栏目，确认绑定 `knowledge-to-storyboard-deep × xiaobai`。

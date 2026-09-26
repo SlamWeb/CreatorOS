@@ -11,7 +11,8 @@ from uuid import uuid4
 from sqlalchemy import update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
-from creatoros.integrations.producer_skills import skills_root_for
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
+from creatoros.integrations.skill_pair import snapshot_pair
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -105,14 +106,23 @@ class ContentRunService:
             series = topic.series
             if series.creator_id is None:
                 raise ContentRunError("栏目尚未分配账号，先把栏目归属到一个账号再生产。")
-            if series.skill_name is None:
-                raise ContentRunError("双 Skill 栏目生产尚未接入，当前只支持单生产 Skill 栏目。")
             creator = series.creator
             if not series.is_active or creator is None or not creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
             if topic.status is not TopicStatus.QUEUED:
                 raise ContentRunError("仅待生产选题可以创建 Run。")
+            pair_fields = {}
+            if series.skill_name is None:
+                try:
+                    pair = snapshot_pair(ProducerSkillCatalog(skills_root_for(self.database)),
+                                         series.mind_skill_id, series.production_skill_id)
+                except ValueError as error:
+                    raise ContentRunError(str(error), code="unsupported_skill_pair") from error
+                pair_fields = dict(composition=pair, creator_name=creator.display_name,
+                                   creator_platform=creator.platform.value,
+                                   series_revision=series.revision, topic_source=topic.source.value)
             snapshot = ContentRunInput(
+                **pair_fields,
                 creator_id=series.creator_id,
                 series_id=series.id,
                 series_name=series.name,
@@ -131,7 +141,7 @@ class ContentRunService:
                 topic_id=topic.id,
                 idempotency_key=key,
                 status=ContentRunStatus.QUEUED,
-                input_snapshot_json=snapshot.model_dump(mode="json"),
+                input_snapshot_json=snapshot.model_dump(mode="json", exclude_unset=True),
                 origin_session_id=origin_session_id,
                 context_snapshot_ref=context_snapshot_ref,
             )
@@ -141,7 +151,7 @@ class ContentRunService:
                     id=revision_id,
                     content_run_id=run_id,
                     revision_number=1,
-                    production_input_json=snapshot.model_dump(mode="json"),
+                    production_input_json=snapshot.model_dump(mode="json", exclude_unset=True),
                 )
             )
             repository.add_event(
@@ -215,6 +225,7 @@ class ContentRunService:
                 series_description=prepared["input"].series_description,
                 audience=prepared["input"].audience,
                 skill_name=prepared["input"].skill_name,
+                **({"composition": prepared["input"].composition} if prepared["input"].composition else {}),
                 skills_root=skills_root_for(self.database),
                 thread_id=prepared["thread_id"],
                 revision_instruction=prepared["instruction"],
@@ -289,7 +300,8 @@ class ContentRunService:
             revision = repository.get_revision_number(run_id, content_run.active_revision_number)
             if revision is None or revision.id != revision_id or not revision.artifact_directory:
                 raise ContentRunError("批准的 Revision 不是当前待验收版本。")
-            current = validate_artifact(revision.artifact_directory)
+            current = validate_artifact(revision.artifact_directory,
+                                        composition=ContentRunInput.model_validate(revision.production_input_json).composition)
             if current.artifact_digest != artifact_digest or current.artifact_digest != revision.artifact_digest:
                 raise ContentRunError("产物已变化，旧 digest 不能批准，请重新验收。")
             previous = content_run.status
@@ -584,7 +596,8 @@ class ContentRunService:
         revision = self.repository.get_revision_number(run_id, content_run.active_revision_number)
         if revision is None or not revision.artifact_directory:
             raise ContentRunError("当前 Revision 没有可验收的产物目录。")
-        validation = validate_artifact(revision.artifact_directory)
+        validation = validate_artifact(revision.artifact_directory,
+                                       composition=ContentRunInput.model_validate(revision.production_input_json).composition)
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)

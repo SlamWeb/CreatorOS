@@ -1,5 +1,12 @@
 # ContentRun SPEC
 
+## P4 接线（2026-09-26）
+
+- 可选 composition 输入快照承载双 Skill，旧快照仍可读取；复用已有 Run/Revision/Attempt/显式恢复，不另建执行器。
+- pair 产物证据和 Skill 资源纳入验收/审批摘要；详细边界与验证见 `docs/studio/composition/SPEC.md` P4。
+- 隔离 `smoke_pair_production` 通过：HTTP 幂等创建、配置冻结、中断后续接同 thread、新 Attempt、页/Prompt/图对应、缺文件/篡改/越界路径拒绝审批、坏证据 API 不产生 500。故障注入使用受控 Producer，不冒充真实生图。
+- 旧链路 `smoke_content_run_service`、`smoke_series_guards`、`smoke_studio_artifacts`、`smoke_studio_executor` 回归通过。没有新建恢复状态机或新增数据库迁移；不宣称逐个教学/生图阶段都有独立 checkpoint。
+
 ## 本轮目标
 
 - 用 `ContentRun` 表示一篇内容从排队、生产、确定性验收到人工批准的完整生命周期。

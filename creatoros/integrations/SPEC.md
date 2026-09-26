@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## P4 接线与 GPT-6 Luna（2026-09-26）
+
+- 双 Skill 图片轮播适配契约、回执与验收见 `docs/studio/composition/SPEC.md` P4；保持单 Skill 路径不变。
+- 生产/调研新建与恢复统一改用 gpt-6-luna/xhigh（用户指定）。历史验证中记录的 5.6 模型不追改。
+- `openai-codex` 固定升级到 `0.157.1`。实测旧 `0.147.0` 捆绑 runtime 只列出 5.6 系列，真实生产返回模型不支持；同一登录态用新 SDK runtime 可列出并调用 GPT-6 Luna。未修改用户全局配置、未降级模型。
+- `python -m tests.live_codex_sdk_model`：真实 SDK 新建与 resume 均以 `gpt-6-luna/xhigh` 返回 READY；无工具、生图、业务数据写入。调研继承 CLI 的统一模型参数，`smoke_topic_research` 验证命令与原调研契约；此检查不代表重新跑过联网选题调研。
+- 双 Skill 通过两个原生 SkillInput 传入，宿主保存冻结的 Skill、逐页内容/Prompt 和轮播包。Prompt 为生产器报告值，不能宣称已核对图像服务内部最终 Prompt。SDK 的本地 codex_trace 目前仅完成后写 thread/turn/usage 摘要，不是完整内部工具轨迹。
+
 ## 栏目调研（2026-09-09）
 
 - topic_research 复用 Codex JSONL/Schema/进程树，live web_search，候选批次与 Topic 分离。所有 Codex-as-Tool 新建/恢复均显式 gpt-5.6-luna/xhigh，不改全局配置。

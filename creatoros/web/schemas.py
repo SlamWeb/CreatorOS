@@ -89,6 +89,8 @@ class CardView(ApiModel):
     url: str
     width: int
     height: int
+    page_spec: str | None = None
+    image_prompt: str | None = None
 
 
 class PublishCopyView(ApiModel):
