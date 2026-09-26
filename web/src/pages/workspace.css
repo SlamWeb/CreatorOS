@@ -65,3 +65,6 @@
 @media (max-width: 760px) {
   .studio-shell.workspace-studio .workspace { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
+.rail-new-account { width: 100%; text-align: left; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 9px 12px; font: 550 13px inherit; cursor: pointer; transition: border-color .15s, color .15s; }
+.rail-new-account:hover { border-color: var(--accent); color: var(--ink); }
+.rail-add.rail-delete { color: var(--danger); font-size: 12px; white-space: nowrap; }

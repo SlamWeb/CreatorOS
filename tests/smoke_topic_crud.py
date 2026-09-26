@@ -58,6 +58,12 @@ def main() -> None:
             remaining = client.get(f"/api/series/{series['id']}/topics").json()["items"]
             assert [t["id"] for t in remaining] == [ids[2], ids[0]]
             assert client.post(f"/api/topics/{ids[1]}/delete", json={}).status_code == 404
+
+            # 账号删除：名下有栏目拒绝；空账号可删；再删 404。
+            assert client.post(f"/api/creators/{creator['id']}/delete", json={}).status_code == 409
+            empty = client.post("/api/creators", json={"display_name": "空账号"}).json()
+            assert client.post(f"/api/creators/{empty['id']}/delete", json={}).status_code == 200
+            assert client.post(f"/api/creators/{empty['id']}/delete", json={}).status_code == 404
         database.close()
     print("topic_crud_smoke=passed")
 

@@ -339,6 +339,14 @@ def create_app(
             topic_ids=topic_ids,
         )
 
+    @app.post("/api/creators/{creator_id}/delete")
+    def delete_creator(creator_id: str):
+        try:
+            writes.delete_creator(creator_id)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        return {"ok": True}
+
     @app.patch("/api/topics/{topic_id}")
     def edit_topic(topic_id: str, payload: TopicEditRequest):
         try:

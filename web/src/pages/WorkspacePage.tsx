@@ -23,11 +23,12 @@ export function WorkspacePage() {
   const creators = useCreators();
   const seriesAll = useQuery({ queryKey: ["series-all"], queryFn: studioApi.seriesAll });
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
-  const [accountDraft, setAccountDraft] = useState("");
+  const [accountDraft, setAccountDraft] = useState<{ name: string; handle: string } | null>(null);
   const [seriesDraft, setSeriesDraft] = useState<{ name: string; creatorId: string | null } | null>(null);
   const [recipe, setRecipe] = useState<"legacy" | "pair">("legacy");
   const [pairMind, setPairMind] = useState("");
   const [pairVisual, setPairVisual] = useState("");
+  const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
 
   const refresh = async () => {
     await Promise.all([
@@ -39,8 +40,15 @@ export function WorkspacePage() {
 
   const createAccount = useMutation({
     retry: false,
-    mutationFn: (name: string) => studioApi.createCreator({ display_name: name }),
-    onSuccess: async () => { setAccountDraft(""); await refresh(); },
+    mutationFn: (input: { name: string; handle: string }) => studioApi.createCreator({ display_name: input.name, account_handle: input.handle || undefined }),
+    onSuccess: async () => { setAccountDraft(null); await refresh(); },
+  });
+
+  const deleteAccount = useMutation({
+    retry: false,
+    mutationFn: (id: string) => studioApi.deleteCreator(id),
+    onSuccess: async () => { setConfirmingAccount(null); await refresh(); },
+    onError: () => setConfirmingAccount(null),
   });
 
   const createSeries = useMutation({
@@ -92,8 +100,15 @@ export function WorkspacePage() {
         <div className="rail-account">
           <span className="rail-avatar" aria-hidden="true">{account.display_name.slice(0, 1)}</span>
           <h2>{account.display_name}</h2>
+          {!allSeries.some(s => s.creator_id === account.id) && (
+            confirmingAccount === account.id
+              ? <button type="button" className="rail-add rail-delete" disabled={deleteAccount.isPending}
+                  onClick={() => deleteAccount.mutate(account.id)}>确认删除</button>
+              : <button type="button" className="rail-add" aria-label={`删除账号 ${account.display_name}`}
+                  title="删除账号" onClick={() => setConfirmingAccount(account.id)}>×</button>
+          )}
           <button type="button" className="rail-add" aria-label={`在 ${account.display_name} 下新建栏目`}
-            onClick={() => setSeriesDraft({ name: "", creatorId: account.id })}>+</button>
+            onClick={() => { setSeriesDraft({ name: "", creatorId: account.id }); setConfirmingAccount(null); }}>+</button>
         </div>
         {allSeries.filter(s => s.creator_id === account.id).map(item => <button type="button" key={item.id}
           className={`rail-series ${item.id === seriesId ? "active" : ""}`}
@@ -137,14 +152,21 @@ export function WorkspacePage() {
             <button className="button button-secondary" type="button" onClick={() => setSeriesDraft(null)}>取消</button></div>
           {createSeries.isError && <p className="form-error" role="alert">{createSeries.error.message}</p>}
         </form> : null}
-        <form className="rail-form" onSubmit={event => {
+        {accountDraft === null ? (
+          <button type="button" className="rail-new-account" onClick={() => setAccountDraft({ name: "", handle: "" })}>+ 新账号</button>
+        ) : <form className="rail-form" onSubmit={event => {
           event.preventDefault();
-          if (accountDraft.trim()) createAccount.mutate(accountDraft.trim());
+          if (accountDraft.name.trim()) createAccount.mutate({ name: accountDraft.name.trim(), handle: accountDraft.handle.trim() });
         }}>
-          <input maxLength={120} placeholder="新账号名称" value={accountDraft}
-            aria-label="新账号名称" onChange={event => setAccountDraft(event.target.value)} />
-        </form>
-        {createAccount.isError && <p className="form-error" role="alert">{createAccount.error.message}</p>}
+          <input autoFocus required maxLength={120} placeholder="账号名称" value={accountDraft.name}
+            aria-label="新账号名称" onChange={event => setAccountDraft({ ...accountDraft, name: event.target.value })} />
+          <input maxLength={160} placeholder="账号标识（可选）" value={accountDraft.handle}
+            aria-label="新账号标识" onChange={event => setAccountDraft({ ...accountDraft, handle: event.target.value })} />
+          <div><button className="button button-primary" disabled={createAccount.isPending}>创建</button>
+            <button className="button button-secondary" type="button" onClick={() => setAccountDraft(null)}>取消</button></div>
+          {createAccount.isError && <p className="form-error" role="alert">{createAccount.error.message}</p>}
+        </form>}
+        {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
       </div>
     </aside>
     <main className="workspace-main">

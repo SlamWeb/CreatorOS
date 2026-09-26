@@ -5,8 +5,10 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await expect(page.getByText("还没有栏目")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("01-first-use.png"), fullPage: true });
 
+  await page.getByRole("button", { name: "+ 新账号" }).click();
   await page.getByLabel("新账号名称").fill("E2E 知识实验室");
-  await page.getByLabel("新账号名称").press("Enter");
+  await page.getByLabel("新账号标识").fill("e2e_lab");
+  await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E 知识实验室", level: 2 })).toBeVisible();
 
   await page.getByRole("button", { name: "在 E2E 知识实验室 下新建栏目" }).click();

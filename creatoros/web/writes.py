@@ -135,6 +135,18 @@ class StudioWriteService:
         except (PendingOperationError, ValueError) as error:
             raise StudioWriteError(str(error)) from error
 
+    def delete_creator(self, creator_id: str) -> None:
+        """删除账号；名下还有栏目时拒绝（栏目与产物链不级联删除）。"""
+        with self.database.session() as session:
+            creator = session.get(Creator, creator_id)
+            if creator is None:
+                raise StudioWriteError("账号不存在。", status_code=404)
+            has_series = session.scalar(select(func.count()).select_from(Series).where(Series.creator_id == creator_id))
+            if has_series:
+                raise StudioWriteError("账号下还有栏目，不能删除。")
+            session.delete(creator)
+            session.flush()
+
     def edit_topic(self, topic_id: str, *, title: str | None = None, brief: str | None = None) -> Topic:
         """编辑选题标题/简介；生产中禁止编辑。至少提供一个字段。"""
         if title is None and brief is None:

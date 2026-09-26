@@ -85,6 +85,7 @@ export const studioApi = {
   deleteTopic: (id: string) => request<{ ok: boolean }>(`/api/topics/${encodeURIComponent(id)}/delete`, { method: "POST", body: "{}" }),
   reorderTopics: (seriesId: string, ordered_topic_ids: string[]) => request<{ ok: boolean }>(`/api/series/${encodeURIComponent(seriesId)}/reorder`, { method: "POST", body: JSON.stringify({ ordered_topic_ids }) }),
   queueTopics: (seriesId: string, topics: { title: string; brief?: string | null; source?: "research" | "manual" }[]) => request<{ topic_ids: string[] }>(`/api/series/${encodeURIComponent(seriesId)}/queue`, { method: "POST", body: JSON.stringify({ topics, request_id: crypto.randomUUID().replaceAll("-", "") }) }),
+  deleteCreator: (id: string) => request<{ ok: boolean }>(`/api/creators/${encodeURIComponent(id)}/delete`, { method: "POST", body: "{}" }),
 };
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
