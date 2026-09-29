@@ -143,6 +143,26 @@ export interface RunDetail extends RunSummary {
   producer_thread_id: string | null;
   revisions: RevisionView[];
   events_url: string;
+  publication: ManualPublicationView | null;
+}
+
+export interface ManualPublicationView {
+  id: string;
+  platform: string;
+  post_url: string;
+  published_at: string;
+  recorded_at: string;
+  metrics: PublicationMetricView[];
+}
+
+export interface PublicationMetricView {
+  id: string;
+  views: number | null;
+  likes: number | null;
+  favorites: number | null;
+  comments: number | null;
+  shares: number | null;
+  measured_at: string;
 }
 
 export interface PreviewTopic { topic_id: string; title: string; brief: string | null }

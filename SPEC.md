@@ -1,5 +1,9 @@
 # CreatorOS Runtime SPEC
 
+## 当前业务闭环切片（2026-09-30）
+
+- 在已有真实 6 图生产与人工批准之上，新增人工发布凭证及分次手填数据；批准≠发布。正式消息队列 Run 仍待用户审核，未替用户发帖。实施/测试见 `creatoros/publication/SPEC.md`；下一步是用户真实发布并回填第一组真实数据，之后再评估自动化与反馈选题。
+
 ## 上下文管理专项（2026-09-11）
 
 - 2026-09-13：C4第一版六类Context开发集、full/recent/compact三组、真实DeepSeek与隔离HTTP/SQLite评估已实现。v1全量运行后发现恢复夹具顺序错误，排除该题并以v1.1独立验证；不混版本宣称通过率。结果与候选/队列混淆badcase见 `docs/context-management/C4-RESULTS.md`，保留集/重复试验尚未做。

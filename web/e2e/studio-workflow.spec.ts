@@ -69,6 +69,26 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await page.reload();
   await expect(page.getByText("✓ 已批准 · 尚未发布")).toBeVisible();
 
+  // Isolated browser test: this link is deliberately not a real platform post.
+  await expect(page.getByRole("link", { name: "下载已批准图片包" })).toBeVisible();
+  await page.getByLabel("发布后粘贴笔记链接").fill("https://www.xiaohongshu.com/explore/e2e-isolated-example");
+  await page.getByRole("button", { name: "登记为已发布" }).click();
+  await expect(page.getByRole("link", { name: "打开笔记 ↗" })).toBeVisible();
+  await page.getByLabel("阅读").fill("120");
+  await page.getByLabel("点赞").fill("8");
+  await page.getByRole("button", { name: "保存这次数据" }).click();
+  await expect(page.getByText("历史回填 · 1 次")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("link", { name: "打开笔记 ↗" })).toBeVisible();
+  await page.getByText("历史回填 · 1 次").click();
+  await expect(page.getByText(/阅读 120 · 赞 8/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("approved-manual-publication.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const publicationWidth = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: window.innerWidth }));
+  expect(publicationWidth.body).toBeLessThanOrEqual(publicationWidth.viewport);
+  await page.screenshot({ path: testInfo.outputPath("approved-manual-publication-mobile.png"), fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+
   await page.goto("/");
   await expect(page.getByRole("button", { name: /Agent 每日一题/ })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("05-workspace-with-data.png"), fullPage: true });

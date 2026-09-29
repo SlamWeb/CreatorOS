@@ -1,5 +1,9 @@
 # CreatorOS Storage SPEC
 
+## 人工发布迁移（2026-09-30）
+
+- `20260930_0007` 增加 `manual_publications` 和 `publication_metrics`，分别保存已批准产物对应的人工发布凭证与追加式数据快照。隔离 Alembic/ORM 对比零 drift，正式库在备份后由本机启动入口增量升级；现有 Creator/Series/Topic/Run 行未由迁移重写。业务与验收见 `creatoros/publication/SPEC.md`。
+
 ## 本轮目标
 
 - 用 SQLAlchemy 2.x 定义 `Creator`、`Series`、`Topic` 三个最小业务表。

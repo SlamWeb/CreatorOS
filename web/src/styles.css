@@ -358,6 +358,16 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: var(--rin
 .revision-note { font-size: 14px; line-height: 1.8; color: var(--muted); }
 .revision-note h3 { font-size: 14px; color: var(--ink); }
 .revision-note p { white-space: pre-wrap; }
+.manual-publication { margin-top: 20px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+.manual-publication h2 { margin: 0 0 12px; font-size: 17px; }
+.manual-publication h3 { margin: 0 0 12px; font-size: 14px; }
+.manual-publication p, .manual-publication li { font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.manual-publication form { display: grid; gap: 12px; margin: 16px 0; }
+.manual-publication label { display: grid; gap: 6px; font-size: 13px; }
+.manual-publication input { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); }
+.manual-publication .button { justify-self: start; }
+.manual-publication a:not(.button) { color: var(--accent); }
+.feedback-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 9px; }
 .artifact-empty { display: grid; align-content: center; justify-items: center; min-height: 470px; border: 0; border-radius: var(--radius-lg); background: var(--surface); padding: 26px; text-align: center; color: var(--muted); }
 .artifact-empty-icon { display: none; }
 .artifact-empty h2 { font-size: 19px; color: var(--ink); font-weight: 650; }

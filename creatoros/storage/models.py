@@ -552,3 +552,42 @@ class ContentRunEvent(Base):
     )
 
     content_run: Mapped[ContentRun] = relationship(back_populates="events")
+
+
+class ManualPublication(Base):
+    __tablename__ = "manual_publications"
+    __table_args__ = (CheckConstraint("platform = 'xiaohongshu'", name="platform_values"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content_run_id: Mapped[str] = mapped_column(
+        ForeignKey("content_runs.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    artifact_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    post_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PublicationMetric(Base):
+    __tablename__ = "publication_metrics"
+    __table_args__ = (
+        CheckConstraint("views IS NULL OR views >= 0", name="views_nonnegative"),
+        CheckConstraint("likes IS NULL OR likes >= 0", name="likes_nonnegative"),
+        CheckConstraint("favorites IS NULL OR favorites >= 0", name="favorites_nonnegative"),
+        CheckConstraint("comments IS NULL OR comments >= 0", name="comments_nonnegative"),
+        CheckConstraint("shares IS NULL OR shares >= 0", name="shares_nonnegative"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    publication_id: Mapped[str] = mapped_column(
+        ForeignKey("manual_publications.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    views: Mapped[int | None] = mapped_column(Integer)
+    likes: Mapped[int | None] = mapped_column(Integer)
+    favorites: Mapped[int | None] = mapped_column(Integer)
+    comments: Mapped[int | None] = mapped_column(Integer)
+    shares: Mapped[int | None] = mapped_column(Integer)
+    measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

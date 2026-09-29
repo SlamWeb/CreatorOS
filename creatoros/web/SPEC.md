@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 人工发布与反馈 API（2026-09-30）
+
+- 复用 Run Inspector：POST `/api/runs/{id}/publication` 登记批准后的人工笔记链接，POST `/api/runs/{id}/publication/metrics` 追加手填指标，GET `/api/runs/{id}/download` 下载经摘要重验的图片/文案 ZIP；RunDetail 加 publication 投影。平台发布与指标查询仍完全由用户手工完成。
+- 隔离 HTTP smoke、现有产物回归通过；正式服务 GET 显示真实消息队列 Run 待批准且 publication 为空。完整契约与下一步见 `creatoros/publication/SPEC.md`。
+
 ## Agent 展示范围规则（2026-09-14）
 
 - D05 开发评测发现：用户禁止重复已入队标题时，Agent 在正文正确筛选，却在补充说明重述排除项。

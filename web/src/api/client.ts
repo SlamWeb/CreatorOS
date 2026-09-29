@@ -76,6 +76,8 @@ export const studioApi = {
   cancelRun: (id: string, input: RunCancelInput) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),
   approveRun: (id: string, input: { expected_version: number; revision_id: string; artifact_digest: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify(input) }),
   reviseRun: (id: string, input: { expected_version: number; instruction: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/revisions`, { method: "POST", body: JSON.stringify(input) }),
+  recordPublication: (id: string, input: { expected_version: number; revision_id: string; artifact_digest: string; post_url: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/publication`, { method: "POST", body: JSON.stringify(input) }),
+  addPublicationMetrics: (id: string, input: { request_id: string; views?: number; likes?: number; favorites?: number; comments?: number; shares?: number }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/publication/metrics`, { method: "POST", body: JSON.stringify(input) }),
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
   seriesAll: () => request<SeriesView[]>("/api/series"),
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),

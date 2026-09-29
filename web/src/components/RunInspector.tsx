@@ -15,7 +15,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <>
     <Link className="back-link" to={`/series/${run.series_id}`}>← 返回栏目</Link>
-    <header className="page-heading inspector-heading"><div><p className="run-context">{run.creator_name} / {run.series_name}</p><h1>{run.topic_title}</h1></div><StatusPill status={run.status} /></header>
+    <header className="page-heading inspector-heading"><div><p className="run-context">{run.creator_name} / {run.series_name}</p><h1>{run.topic_title}</h1></div>{run.publication ? <span className="status-active">● 已发布</span> : <StatusPill status={run.status} />}</header>
     <div className="inspector-toolbar"><label>内容版本 <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)}>{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select></label><span className="stream-status" role="status">{connection}</span></div>
     {old ? <div className="review-warning">正在查看历史版本，仅供对照，不能批准或修改。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本 →</button></div> : null}
     <div className="inspector-grid">
@@ -29,6 +29,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
         {revision?.publish_copy ? <Publication revision={revision} /> : <div className="copy-empty"><h2>发布文案</h2><p>产物生成后展示标题、正文与标签。</p></div>}
         {revision?.instruction ? <div className="revision-note"><h3>本版返工要求</h3><p>{revision.instruction}</p></div> : null}
         {!old && revision ? <ReviewActions run={run} revision={revision} onRevision={() => setSelected(null)} /> : null}
+        {!old && revision && run.status === "approved" ? <ManualPublicationPanel run={run} revision={revision} /> : null}
       </aside>
     </div>
     <details className="inspector-details"><summary>生产记录与技术详情 <span>{events.length} 条事件</span></summary>
@@ -36,6 +37,57 @@ export function RunInspector({ run }: { run: RunDetail }) {
         <section><h3>第 {revision?.revision_number} 版 · 执行尝试</h3>{revision?.attempts.map((attempt) => <div className="attempt-detail" key={attempt.id}><div><b>尝试 {attempt.attempt_number}</b><StatusPill status={attempt.status} /></div><p>{formatDate(attempt.started_at)} · {attempt.duration_ms !== null ? `${Math.round(attempt.duration_ms / 1000)} 秒` : "耗时未记录"}</p><p>{attempt.error_message}</p><dl><dt>Token 用量</dt><dd>{attempt.usage ? JSON.stringify(attempt.usage) : "未记录"}</dd><dt>生产日志</dt><dd>{attempt.trace_available ? "已保存" : "未记录"}</dd></dl></div>)}<dl className="technical-ids"><dt>Run</dt><dd>{run.id}</dd><dt>Thread</dt><dd>{run.producer_thread_id ?? "未记录"}</dd><dt>产物摘要</dt><dd>{revision?.artifact_digest ?? "未记录"}</dd></dl></section></div>
     </details>
   </>;
+}
+
+function ManualPublicationPanel({ run, revision }: { run: RunDetail; revision: RevisionView }) {
+  const queryClient = useQueryClient();
+  const [postUrl, setPostUrl] = useState("");
+  const [metrics, setMetrics] = useState({ views: "", likes: "", favorites: "", comments: "", shares: "" });
+  const [metricRequestId, setMetricRequestId] = useState(() => crypto.randomUUID());
+  const [receipt, setReceipt] = useState("");
+  const publish = useMutation({
+    mutationFn: () => studioApi.recordPublication(run.id, {
+      expected_version: run.version, revision_id: revision.id,
+      artifact_digest: revision.artifact_digest ?? "", post_url: postUrl.trim(),
+    }),
+    onSuccess: (result) => { queryClient.setQueryData(["run", run.id], result); setReceipt("发布链接已登记；接下来可回填效果数据。"); void queryClient.invalidateQueries(); },
+  });
+  const feedback = useMutation({
+    mutationFn: () => studioApi.addPublicationMetrics(run.id, {
+      request_id: metricRequestId,
+      ...Object.fromEntries(Object.entries(metrics).filter(([, value]) => value !== "").map(([key, value]) => [key, Number(value)])),
+    }),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["run", run.id], result);
+      setMetrics({ views: "", likes: "", favorites: "", comments: "", shares: "" });
+      setMetricRequestId(crypto.randomUUID());
+      setReceipt("这次反馈已保存。以后可以再次回填，形成时间序列。");
+      void queryClient.invalidateQueries();
+    },
+  });
+  const publication = run.publication;
+  return <section className="manual-publication">
+    <h2>人工发布与反馈</h2>
+    <a className="button button-quiet" href={apiUrl(`/api/runs/${run.id}/download`)}>下载已批准图片包</a>
+    {!publication ? <>
+      <p>产物已批准，但还没登记发布。请先下载图片，在自己的小红书账号手动发布。</p>
+      <form onSubmit={(event) => { event.preventDefault(); publish.mutate(); }}>
+        <label>发布后粘贴笔记链接<input type="url" required value={postUrl} onChange={(event) => setPostUrl(event.target.value)} placeholder="https://www.xiaohongshu.com/explore/…" /></label>
+        <button className="button button-primary" disabled={publish.isPending || !postUrl.trim()}>登记为已发布</button>
+      </form>
+      <p className="approval-note">这里只记录真实笔记链接，不会替你发布。</p>
+    </> : <>
+      <p>已人工发布 · {formatDate(publication.published_at)} · <a href={publication.post_url} target="_blank" rel="noopener noreferrer">打开笔记 ↗</a></p>
+      <form onSubmit={(event) => { event.preventDefault(); feedback.mutate(); }}>
+        <h3>回填笔记数据</h3>
+        <div className="feedback-fields">{(["views", "likes", "favorites", "comments", "shares"] as const).map((key) => <label key={key}>{({ views: "阅读", likes: "点赞", favorites: "收藏", comments: "评论", shares: "分享" })[key]}<input type="number" min="0" step="1" value={metrics[key]} onChange={(event) => setMetrics((old) => ({ ...old, [key]: event.target.value }))} /></label>)}</div>
+        <button className="button button-primary" disabled={feedback.isPending || Object.values(metrics).every((value) => value === "")}>保存这次数据</button>
+      </form>
+      {publication.metrics.length ? <details><summary>历史回填 · {publication.metrics.length} 次</summary><ul>{publication.metrics.map((item) => <li key={item.id}>{formatDate(item.measured_at)}：阅读 {item.views ?? "—"} · 赞 {item.likes ?? "—"} · 收藏 {item.favorites ?? "—"} · 评论 {item.comments ?? "—"} · 分享 {item.shares ?? "—"}</li>)}</ul></details> : null}
+    </>}
+    {receipt ? <p role="status" className="copy-receipt">{receipt}</p> : null}
+    {publish.isError || feedback.isError ? <p role="alert" className="form-error">{publish.error?.message ?? feedback.error?.message} 请刷新后核对状态；系统不会自动重复提交。</p> : null}
+  </section>;
 }
 
 function Carousel({ cards }: { cards: CardView[] }) {
@@ -89,7 +141,7 @@ function ReviewActions({ run, revision, onRevision }: { run: RunDetail; revision
   });
   const conflict = mutation.error instanceof ApiError && mutation.error.status === 409;
   return <div className="review-actions">
-    {run.status === "approved" ? <p className="approval-receipt">✓ 已批准 · 尚未发布</p> : null}
+    {run.status === "approved" ? <p className="approval-receipt">{run.publication ? "✓ 已发布 · 可继续回填数据" : "✓ 已批准 · 尚未发布"}</p> : null}
     {run.allowed_actions.includes("approve") ? <><button className="button button-primary approve-button" disabled={mutation.isPending || conflict || !revision.review_digest || !revision.cards.length} onClick={() => mutation.mutate("approve")}>批准第 {revision.revision_number} 版</button><p className="approval-note">请先检查全部图片。批准只记录验收，不会发布。</p></> : null}
     {run.allowed_actions.includes("revise") ? <button className="button button-quiet" disabled={mutation.isPending || conflict} onClick={() => setEditing(!editing)}>提出返工</button> : null}
     {editing ? <form onSubmit={(e) => { e.preventDefault(); mutation.mutate("revise"); }}><label>告诉生产者要改哪里<textarea autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder="例如：第二张的例子太抽象，换成点餐场景。" /></label><div className="form-actions"><button className="button button-primary" disabled={!instruction.trim() || mutation.isPending || conflict}>保存返工要求</button><button className="button button-quiet" type="button" onClick={() => setEditing(false)}>收起</button></div><p className="approval-note">保留旧图，创建新版本；现在不会开始生产。</p></form> : null}

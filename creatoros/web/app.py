@@ -19,6 +19,7 @@ from creatoros.operations.parser import LazyOperationParser, OperationParserUnav
 from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRepository
 from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
+from creatoros.publication import ManualPublicationService
 from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
 
@@ -92,6 +93,7 @@ def create_app(
     parser = operation_parser or LazyOperationParser(operation_parser_factory or default_parser)
     writes = StudioWriteService(db, parser=parser)
     runs = run_service or ContentRunService(db)
+    publications = ManualPublicationService(db)
     artifacts = StudioArtifacts(db, runs.output_root)
     queries = StudioQueryService(db, artifacts=artifacts)
     executor = run_executor or ManagedRunExecutor(runs)
@@ -139,7 +141,7 @@ def create_app(
     app.include_router(research_routes(research, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(chat_routes(chat))
-    app.include_router(review_routes(runs, queries, artifacts))
+    app.include_router(review_routes(runs, queries, artifacts, publications))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):

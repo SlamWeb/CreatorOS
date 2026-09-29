@@ -162,11 +162,48 @@ class RunSummary(ApiModel):
     card_count: int | None = None
 
 
+class PublicationMetricView(ApiModel):
+    id: str
+    views: int | None
+    likes: int | None
+    favorites: int | None
+    comments: int | None
+    shares: int | None
+    measured_at: datetime
+
+
+class ManualPublicationView(ApiModel):
+    id: str
+    platform: str
+    post_url: str
+    published_at: datetime
+    recorded_at: datetime
+    metrics: list[PublicationMetricView]
+
+
 class RunDetail(RunSummary):
     input_snapshot: dict[str, Any]
     producer_thread_id: str | None = None
     revisions: list[RevisionView]
     events_url: str
+    publication: ManualPublicationView | None = None
+
+
+class ManualPublicationRequest(ApiModel):
+    expected_version: int = Field(ge=1)
+    revision_id: str
+    artifact_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    post_url: str = Field(min_length=12, max_length=1000)
+    published_at: datetime | None = None
+
+
+class PublicationMetricRequest(ApiModel):
+    request_id: str = Field(min_length=8, max_length=64)
+    views: int | None = Field(default=None, ge=0)
+    likes: int | None = Field(default=None, ge=0)
+    favorites: int | None = Field(default=None, ge=0)
+    comments: int | None = Field(default=None, ge=0)
+    shares: int | None = Field(default=None, ge=0)
 
 
 class PreviewTopicView(ApiModel):

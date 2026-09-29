@@ -14,6 +14,8 @@ from creatoros.storage import (
     ContentRunStatus,
     Creator,
     Database,
+    ManualPublication,
+    PublicationMetric,
     PendingOperation,
     PendingOperationStatus,
     Series,
@@ -31,6 +33,8 @@ from .schemas import (
     RevisionView,
     RunDetail,
     RunSummary,
+    ManualPublicationView,
+    PublicationMetricView,
     SeriesView,
     TopicView,
 )
@@ -256,6 +260,19 @@ class StudioQueryService:
                 ],
                 events_url=f"/api/runs/{run_id}/events",
             )
+            publication = session.scalar(select(ManualPublication).where(ManualPublication.content_run_id == run_id))
+            if publication is not None:
+                metrics = list(session.scalars(select(PublicationMetric).where(
+                    PublicationMetric.publication_id == publication.id
+                ).order_by(PublicationMetric.measured_at, PublicationMetric.id)))
+                detail.publication = ManualPublicationView(
+                    id=publication.id, platform=publication.platform, post_url=publication.post_url,
+                    published_at=_timestamp(publication.published_at), recorded_at=_timestamp(publication.recorded_at),
+                    metrics=[PublicationMetricView(
+                        id=item.id, views=item.views, likes=item.likes, favorites=item.favorites,
+                        comments=item.comments, shares=item.shares, measured_at=_timestamp(item.measured_at),
+                    ) for item in metrics],
+                )
         if self.artifacts is not None:
             for revision in detail.revisions:
                 if revision.artifact_available or revision.artifact_digest:
