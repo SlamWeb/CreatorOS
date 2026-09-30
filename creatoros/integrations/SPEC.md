@@ -1,12 +1,17 @@
 # External Integrations SPEC
 
-## 消息队列新版真实生产（2026-10-01，执行中）
+## 消息队列新版真实生产（2026-10-01，未完成：账号额度限制）
 
 - 用户明确要求重新生成：受众为完全零基础，范围为从零基础到能够应付 AI Agent 岗位消息队列面试。新建独立选题/Run，沿用“小白带你学AI”的本地 mind + 小白制作组合，不复用旧 Run 的 Skill 快照，也不覆盖旧批准产物。
 - 通过既有 ContentRepository / ContentRunService / CodexSdkProducer 执行，使用 gpt-6-luna/xhigh 与原登录态；不限制页数，不自动批准或发布。完成后验证逐页 PageSpec/Prompt/参考资产/图片对应、产物摘要与内容递进，记录实际结果。
 - 首次真实调用发现 Windows 权限接线遗漏：TemporaryDirectory 的私有 ACL 随重命名留在冻结目录，宿主能读，但 Codex 沙箱账号被拒绝。发布新副本后重置为目标父目录的继承权限，仅作用于新副本；不改变源文件、模型权限或整个仓库 ACL。补回归与真实读取验证后继续同一生产任务。
 - 已验证：真实 gpt-6-luna/xhigh SDK 在只读沙箱下读取两份冻结 Skill 返回 `SKILL_READ_OK`；pair/producers/Codex/Run Service 四项 smoke 通过，pair smoke 增加 Windows ACL 继承断言。未降低生产沙箱权限。
 - 新 Run：`eb90cfb9-8329-47a1-96d2-599ecf579d60`。Revision 1 因文件读取被拒，最终回执缺有效角色参考，落为 `invalid_production_receipt`，没有通过验收的图片。修复后通过既有返工机制创建 Revision 2，续接同一线程继续；旧已批准 Run 不变。
+- Revision 2 / Attempt 1 实际生成 9 张图片后触及默认 30 分钟超时；Attempt 2 在同线程恢复，单次时限延长至 60 分钟并要求复用已有图片，恢复逐页证据时触及 `codex_usage_limit`。服务提示 3:09 后重试；没有更换账号/模型/API，也不自动等待或重试。
+- 当前数据库状态 `failed`、`retryable=False`、version 11；SDK thread 为 `01a0f33b-f1b1-7691-9d67-a6ddec6d0f07`。执行所有权 journal 已释放，旧 Run `4d4f6bc6-22ab-401a-86f5-7644c9b457bb` 仍为 `approved`。
+- 已有 9 张原生 PNG 按线程中记录的页序复制到新 Run 的 `partial-review/01.png` 至 `09.png`，逐一 SHA256 比对通过。仅为未完成预览，不生成伪造 Manifest，不进入批准/发布。完整 PageSpec 和实际 Prompt 仍在该 SDK 线程的本地 session ledger 中；10 页完整回执与末页尚未完成。
+- 额度恢复且用户确认继续后，通过既有返工机制创建下一 Revision，再执行同 Run、同线程、同冻结 Skill；说明只补第 10 页、复用现有 9 页并重建完整回执。当前错误不是 retryable，不能直接宣称普通 resume 一定可执行。没有修改默认超时或错误分类。
+- 本轮暴露的真实痛点：图片生成已完成不等于 CreatorOS 已获得可验收产物；最终回执前中断需要从线程记录恢复证据。本次不宣称逐页 checkpoint 已实现，也不宣称质量验收或端到端生产通过。
 
 ## 可编辑本地 Skill（2026-10-01，完成）
 
