@@ -1,5 +1,7 @@
 """Isolated P4 contract/fault tests; no paid generation or production database writes."""
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -46,6 +48,15 @@ class ControlledPair(CodexSdkProducer):
         assert "首次尽量" not in prompt and "6–12" not in prompt
         self.seen.append(thread_id)
         self.seen_contents.append(skill_refs[0][1].read_text(encoding="utf-8"))
+        if os.name == "nt":
+            shell_env = dict(os.environ)
+            shell_env.pop("PSModulePath", None)  # PS7's inherited modules break Windows PowerShell 5.1.
+            for _, path in skill_refs:
+                escaped = str(path.parent).replace("'", "''")
+                acl = subprocess.run([shutil.which("pwsh") or "powershell", "-NoProfile", "-Command",
+                                      f"(Get-Acl -LiteralPath '{escaped}').AreAccessRulesProtected"],
+                                     check=True, capture_output=True, text=True, env=shell_env)
+                assert acl.stdout.strip() == "False", "Frozen Skill copy retained tempfile's private ACL"
         thread = thread_id or "pair-thread"
         on_thread_started(thread)
         if self.interrupt_next:

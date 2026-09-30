@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from .codex import ProductionModel, ProductionReceipt
-from .producer_skills import ProducerSkillCatalog, _digest, freeze_skill
+from .producer_skills import ProducerSkillCatalog, _digest, freeze_skill, inherit_copy_permissions
 
 EVIDENCE_FILE = "production_evidence.json"
 
@@ -136,6 +136,7 @@ def prepare_run_pair(catalog: ProducerSkillCatalog, pair: SkillPair, run_root: P
                              staging / "skills" / role, version.digest)
         (staging / "pair.json").write_text(pair.model_dump_json(indent=2), encoding="utf-8")
         staging.rename(target)
+        inherit_copy_permissions(target)
     return pair
 
 

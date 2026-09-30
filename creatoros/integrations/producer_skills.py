@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -56,6 +57,13 @@ def _digest(directory: Path) -> str:
     return digest.hexdigest()
 
 
+def inherit_copy_permissions(directory: Path) -> None:
+    """A published copy inherits its destination ACL, not tempfile's private ACL."""
+    if os.name == "nt":
+        subprocess.run(["icacls", str(directory), "/reset", "/T", "/Q"],
+                       check=True, capture_output=True, timeout=30)
+
+
 def freeze_skill(source: Path, target: Path, expected_digest: str) -> None:
     """Publish a complete copy, rejecting edits that race the copy operation."""
     source, target = Path(source), Path(target)
@@ -74,6 +82,8 @@ def freeze_skill(source: Path, target: Path, expected_digest: str) -> None:
                 raise
             if not target.is_dir() or target.is_symlink() or _digest(target) != expected_digest:
                 raise ValueError("已有 Skill 快照与本次输入不一致。")
+        else:
+            inherit_copy_permissions(target)
 
 
 class InstallReceipt(BaseModel):

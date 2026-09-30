@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 消息队列新版真实生产（2026-10-01，执行中）
+
+- 用户明确要求重新生成：受众为完全零基础，范围为从零基础到能够应付 AI Agent 岗位消息队列面试。新建独立选题/Run，沿用“小白带你学AI”的本地 mind + 小白制作组合，不复用旧 Run 的 Skill 快照，也不覆盖旧批准产物。
+- 通过既有 ContentRepository / ContentRunService / CodexSdkProducer 执行，使用 gpt-6-luna/xhigh 与原登录态；不限制页数，不自动批准或发布。完成后验证逐页 PageSpec/Prompt/参考资产/图片对应、产物摘要与内容递进，记录实际结果。
+- 首次真实调用发现 Windows 权限接线遗漏：TemporaryDirectory 的私有 ACL 随重命名留在冻结目录，宿主能读，但 Codex 沙箱账号被拒绝。发布新副本后重置为目标父目录的继承权限，仅作用于新副本；不改变源文件、模型权限或整个仓库 ACL。补回归与真实读取验证后继续同一生产任务。
+- 已验证：真实 gpt-6-luna/xhigh SDK 在只读沙箱下读取两份冻结 Skill 返回 `SKILL_READ_OK`；pair/producers/Codex/Run Service 四项 smoke 通过，pair smoke 增加 Windows ACL 继承断言。未降低生产沙箱权限。
+- 新 Run：`eb90cfb9-8329-47a1-96d2-599ecf579d60`。Revision 1 因文件读取被拒，最终回执缺有效角色参考，落为 `invalid_production_receipt`，没有通过验收的图片。修复后通过既有返工机制创建 Revision 2，续接同一线程继续；旧已批准 Run 不变。
+
 ## 可编辑本地 Skill（2026-10-01，完成）
 
 - GitHub 仅为导入来源；`versions` 保留导入原件，`working/<目录条目>` 是实际调用的可编辑本地目录。现有目录 ID 作为路径别名兼容 Web/Agent，已登记的 working 绝对路径也可绑定。修改正文/描述后无需重新安装或改绑。
