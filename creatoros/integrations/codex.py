@@ -212,6 +212,8 @@ class CodexProducer:
         series_description: str = "",
         audience: str = "",
         skill_name: str | None = "knowledge-to-carousel",
+        skill_directory: Path | None = None,
+        skill_digest: str | None = None,
         composition=None,
         skills_root: Path | None = None,
         thread_id: str | None = None,
@@ -231,7 +233,9 @@ class CodexProducer:
             if not self.native_skill_inputs:
                 raise CodexProducerError("双 Skill 生产需要 SDK Producer。", error_type="unsupported_skill_pair")
             skill_refs = freeze_pair(ProducerSkillCatalog(
-                skills_root or self.project_root / "data" / "producer-skills", self.project_root), composition, directory)
+                skills_root or self.project_root / "data" / "producer-skills", self.project_root), composition, directory,
+                source_root=(directory.parent.parent / "skill-snapshot")
+                if (directory.parent.parent / "skill-snapshot").is_dir() else None)
             self.receipt_model = PairReceipt
             skill_dir = skill_refs[1][1].parent
             skill_name = composition.production.id
@@ -244,7 +248,14 @@ class CodexProducer:
             (directory / "production_request.txt").write_text(prompt, encoding="utf-8")
         else:
             self.receipt_model = ProductionReceipt
-            skill_dir = self._resolve_skill_dir(skill_name, skills_root)
+            if skill_directory is not None:
+                from .producer_skills import freeze_skill
+                if not skill_digest:
+                    raise ValueError("单 Skill 冻结副本缺少 digest。")
+                skill_dir = directory / "skills" / "single"
+                freeze_skill(skill_directory, skill_dir, skill_digest)
+            else:
+                skill_dir = self._resolve_skill_dir(skill_name, skills_root)
             prompt = self._build_prompt(
                 creator_id,
                 series_id,

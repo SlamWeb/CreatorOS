@@ -1,5 +1,12 @@
 # Codex 安装与栏目 Skill 绑定
 
+## 本地工作副本（2026-10-01，当前行为）
+
+- 下方版本锁定/篡改拒绝为历史行为。现在 `versions/<id>` 保留 Git 导入原件，`working/<id>` 是可编辑调用目录；`work/` 仍是安装任务临时工作区，不要混淆。
+- `list_producer_skills` 返回当前名称/描述、`local_path`、当前 `digest` 与导入 `source_digest`。栏目可传目录条目或该本地路径；数据库保留稳定别名，编辑本地文件无需重新安装、改绑或 push。
+- 首次执行时冻结，之后恢复/返工不读取新工作副本；历史 Run 优先沿用旧 Attempt 的实际文件。导入重放不覆盖已编辑副本。单/双 Skill 路径绑定、当前内容读取、恢复和旧 JSON 兼容均已回归；详见 integrations/runs SPEC。
+- 可编辑不等于免校验：frontmatter、角色、当前生产契约、路径和资源依然检查。只是正文/描述修改不再要求等于导入 digest。不开放任意未登记路径，也不安装到全局 Codex 目录。
+
 ## 当前行为与接入验收（2026-09-11）
 
 - 下文 2026-09-08 的 Codex 安装描述为历史方案。当前 `GitSkillInstaller` 直接下载 GitHub 文件并检查 `creatoros-output: social-content-pack.image-carousel` 声明；安装不调用模型，不消耗 Codex 额度。内容生产使用 Python SDK，选题调研仍使用 CLI。

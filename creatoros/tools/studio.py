@@ -86,16 +86,16 @@ class ComposeSeriesArgs(BaseModel):
     description: str = Field(default="", max_length=10_000, description="栏目定位。")
     audience: str = Field(default="", max_length=4_000, description="目标受众。")
     creator_id: str | None = Field(default=None, description="归属账号 ID；省略则暂不分配，生产前必须分配。")
-    skill_name: str | None = Field(default=None, description="legacy 单 Skill 绑定，如 knowledge-to-carousel；与组合二选一。")
-    mind_skill_id: str | None = Field(default=None, description="组合的内容 Skill ID；必须与 production_skill_id 同时提供。")
-    production_skill_id: str | None = Field(default=None, description="组合的制作 Skill ID；必须与 mind_skill_id 同时提供。")
+    skill_name: str | None = Field(default=None, description="单 Skill 目录条目或已安装 local_path，如 knowledge-to-carousel；与组合二选一。")
+    mind_skill_id: str | None = Field(default=None, description="内容 Skill 的目录条目或已安装 local_path；必须与 production_skill_id 同时提供。")
+    production_skill_id: str | None = Field(default=None, description="制作 Skill 的目录条目或已安装 local_path；必须与 mind_skill_id 同时提供。")
 
 
 class UpdateCompositionArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     series_id: str = Field(min_length=1, description="目标栏目 ID。")
-    mind_skill_id: str = Field(min_length=1, description="新的内容 Skill ID。")
-    production_skill_id: str = Field(min_length=1, description="新的制作 Skill ID。")
+    mind_skill_id: str = Field(min_length=1, description="内容 Skill 目录条目或 list_producer_skills 返回的 local_path。")
+    production_skill_id: str = Field(min_length=1, description="制作 Skill 目录条目或 list_producer_skills 返回的 local_path。")
     expected_revision: int = Field(ge=1, description="当前栏目的 revision；先从 list_creator_series 查询取得，过期会被拒绝。")
 
 

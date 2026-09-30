@@ -1,5 +1,4 @@
 """Isolated catalog, binding and production-input regression; no model calls."""
-import json
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
@@ -42,6 +41,16 @@ def main():
         producer = CodexProducer.from_defaults()
         prompt = producer._build_prompt("creator", "series", "topic", "test", skill_name=skill_id, skills_root=catalog.root)
         assert "SPECIAL_SKILL_MARKER" in prompt and str(catalog.resolve(skill_id)) in prompt
+        skill_file = catalog.resolve(skill_id) / "SKILL.md"
+        original = skill_file.read_text(encoding="utf-8")
+        skill_file.write_text(original.replace("Test image carousel", "Edited local description")
+                              + "LOCAL_EDIT_MARKER\n", encoding="utf-8")
+        current = catalog.describe(str(skill_file.parent))
+        assert current["id"] == skill_id and current["description"] == "Edited local description"
+        assert current["digest"] != current["source_digest"]
+        assert "LOCAL_EDIT_MARKER" in producer._build_prompt(
+            "creator", "series", "topic", "test", skill_name=skill_id, skills_root=catalog.root)
+        assert "LOCAL_EDIT_MARKER" not in (catalog.root / "versions" / skill_id / "SKILL.md").read_text()
         for bad in ["../../.env", "https://evil.test/x/y", "https://github.com/x/y?token=secret"]:
             try:
                 github_url(bad)
@@ -58,19 +67,44 @@ def main():
                 session.add(Topic(id="after", series_id=series["id"], title="after", source=TopicSource.MANUAL, position=2))
             old = runs.create("before")
             endpoint = f"/api/series/{series['id']}/skill"
-            body = {"skill_id": skill_id, "expected_skill_name": "knowledge-to-carousel"}
+            body = {"skill_id": current["local_path"], "expected_skill_name": "knowledge-to-carousel"}
             assert client.post(endpoint, json=body).status_code == 200
             assert client.post(endpoint, json=body).status_code == 409
             new = runs.create("after")
             assert old.input_snapshot_json["skill_name"] == "knowledge-to-carousel"
             assert new.input_snapshot_json["skill_name"] == skill_id
             assert client.get(f"/api/series/{series['id']}").json()["skill_name"] == skill_id
+            class InspectAndInterrupt:
+                seen = []
+                def produce_to(self, **request):
+                    self.seen.append((request["skill_directory"] / "SKILL.md").read_text(encoding="utf-8"))
+                    raise KeyboardInterrupt
+            inspector = InspectAndInterrupt()
+            runs.producer_factory = lambda: inspector
+            skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nBEFORE_SINGLE_START", encoding="utf-8")
+            for edit in (False, True):
+                if edit:
+                    skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nAFTER_SINGLE_START", encoding="utf-8")
+                try:
+                    runs.execute(new.id)
+                except KeyboardInterrupt:
+                    pass
+            assert len(inspector.seen) == 2
+            assert all("BEFORE_SINGLE_START" in text and "AFTER_SINGLE_START" not in text for text in inspector.seen)
+            with db.session() as session:
+                session.add(Topic(id="fresh", series_id=series["id"], title="fresh", source=TopicSource.MANUAL, position=3))
+            fresh = runs.create("fresh")
+            try:
+                runs.execute(fresh.id)
+            except KeyboardInterrupt:
+                pass
+            assert "AFTER_SINGLE_START" in inspector.seen[-1]
             assert client.post(endpoint, json={**body, "skill_id": "../../secret"}).status_code == 422
             assert len(client.get("/api/producer-skills").json()["items"]) == 2
-            registered = catalog.root / "registry" / f"{skill_id}.json"
-            registered.write_text(json.dumps({**record, "carousel_compatible": False}), encoding="utf-8")
+            edited = skill_file.read_text(encoding="utf-8")
+            skill_file.write_text(edited.replace("creatoros-output: social-content-pack.image-carousel\n", ""), encoding="utf-8")
             assert client.post(endpoint, json={**body, "expected_skill_name": skill_id}).status_code == 422
-            registered.write_text(json.dumps(record), encoding="utf-8")
+            skill_file.write_text(edited, encoding="utf-8")
             (catalog.resolve(skill_id) / "SKILL.md").write_text("tampered", encoding="utf-8")
             assert client.post(endpoint, json={**body, "expected_skill_name": skill_id}).status_code == 422
         db.close()
@@ -100,7 +134,7 @@ def main():
         assert broken.get(failed["id"])["status"] == "failed"
         service.shutdown()
         broken.shutdown()
-    print("producer_skills_smoke=passed binding=cas snapshot=stable prompt=dynamic tamper=blocked")
+    print("producer_skills_smoke=passed binding=cas local_edit=visible path_alias=passed original=preserved invalid=blocked")
 
 
 if __name__ == "__main__":

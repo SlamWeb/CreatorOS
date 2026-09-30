@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 本地 Skill 目录接入（2026-10-01）
+
+- Skill 列表提供当前文件元数据与 `local_path`。组合创建/改绑及单 Skill 绑定接受已登记路径，规范化为原目录 ID，保留 Web/Agent 与旧数据库兼容。
+- 本地路径只在 Skill 配置元数据明确提供；Run/产物/会话投影及错误路径屏蔽仍照旧。本轮不改前端，不开放任意文件读取。
+- 隔离 HTTP 验证单/双 Skill 路径绑定、CAS、旧快照与产物接口通过；详见 integrations/runs SPEC。
+
 ## 人工发布与反馈 API（2026-09-30）
 
 - 复用 Run Inspector：POST `/api/runs/{id}/publication` 登记批准后的人工笔记链接，POST `/api/runs/{id}/publication/metrics` 追加手填指标，GET `/api/runs/{id}/download` 下载经摘要重验的图片/文案 ZIP；RunDetail 加 publication 投影。平台发布与指标查询仍完全由用户手工完成。

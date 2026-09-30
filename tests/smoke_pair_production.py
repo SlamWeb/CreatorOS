@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from creatoros.integrations.codex import CodexSdkProducer, CodexRun, CodexUsage, CODEX_MODEL, CODEX_EFFORT
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, InstallReceipt, skills_root_for
-from creatoros.integrations.skill_pair import PairReceipt, snapshot_pair, EVIDENCE_FILE
+from creatoros.integrations.skill_pair import PairReceipt, snapshot_pair, prepare_run_pair, EVIDENCE_FILE
 from creatoros.runs import ContentRunService, ContentRunRepository, ContentRunError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.runs.models import ContentRunInput
@@ -35,6 +35,7 @@ def install_fixture(catalog, root, name, repo, role):
 class ControlledPair(CodexSdkProducer):
     interrupt_next = True
     seen = []
+    seen_contents = []
 
     def _execute(self, prompt, working_directory, *, thread_id=None, skill_refs=None, on_thread_started=None, **kwargs):
         assert self.receipt_model is PairReceipt
@@ -42,7 +43,9 @@ class ControlledPair(CodexSdkProducer):
         assert "真正提交工具" in prompt and "不要发布" in prompt
         assert "PageSpec" in prompt and "消息队列" in prompt
         assert "transparent_background=false" in prompt
+        assert "首次尽量" not in prompt and "6–12" not in prompt
         self.seen.append(thread_id)
+        self.seen_contents.append(skill_refs[0][1].read_text(encoding="utf-8"))
         thread = thread_id or "pair-thread"
         on_thread_started(thread)
         if self.interrupt_next:
@@ -100,6 +103,8 @@ def main():
         run = service.get(run_id)
         frozen = ContentRunInput.model_validate(run.input_snapshot_json)
         assert frozen.composition == pair and frozen.creator_name == "Test"
+        mind_file = catalog.locate(mind["id"]) / "SKILL.md"
+        mind_file.write_text(mind_file.read_text(encoding="utf-8") + "\nBEFORE_START", encoding="utf-8")
         with db.session() as session:
             s = session.get(Series, "series")
             s.description = "future configuration"
@@ -111,8 +116,13 @@ def main():
             pass
         else:
             raise AssertionError("first attempt must interrupt")
+        started = ContentRunInput.model_validate(service.get(run_id).input_snapshot_json)
+        pair = started.composition
+        assert pair.mind.digest != frozen.composition.mind.digest
+        mind_file.write_text(mind_file.read_text(encoding="utf-8") + "\nAFTER_START", encoding="utf-8")
         result = service.execute(run_id)
         assert result.status == "awaiting_approval" and producer.seen == [None, "pair-thread"]
+        assert all("BEFORE_START" in text and "AFTER_START" not in text for text in producer.seen_contents)
         repository = ContentRunRepository(db)
         revision = repository.get_revision(result.revision_id)
         directory = Path(revision.artifact_directory)
@@ -166,12 +176,25 @@ def main():
                 path.write_bytes(raw)
         approved = service.approve(run_id, revision_id=revision.id, artifact_digest=baseline, expected_version=service.get(run_id).version)
         assert approved.status.value == "approved"
-        # Existing snapshot cannot silently switch to modified installed resources.
+        # A new invocation reads the edited path while a historical Run can recover its original files.
+        current = snapshot_pair(catalog, str(mind_file.parent), visual["local_path"])
+        assert current.mind.digest != pair.mind.digest
+        historical = pair.model_copy(update={role: getattr(pair, role).model_copy(update={"local_path": None})
+                                             for role in ("mind", "production")})
+        recovered = prepare_run_pair(catalog, historical, root / "historical-run", [directory], first_start=False)
+        assert recovered == historical
+        assert "AFTER_START" not in (root / "historical-run/skill-snapshot/skills/mind/SKILL.md").read_text()
+        with TestClient(create_app(database=db, run_service=service)) as client:
+            composed = client.post("/api/series", json={"name": "Local paths", "mind_skill_id": current.mind.local_path,
+                                  "production_skill_id": current.production.local_path, "request_id": "local-path-binding"})
+            assert composed.status_code in (200, 201), composed.text
+            assert composed.json()["series"]["mind_skill_id"] == mind["id"]
+        # Invalid local frontmatter still cannot be used.
         skill = catalog.locate(mind["id"]) / "SKILL.md"
         skill.write_text("modified", encoding="utf-8")
         rejects(lambda: snapshot_pair(catalog, mind["id"], visual["id"]))
         db.close()
-    print("pair_production_smoke=passed snapshot resume receipt evidence digest http legacy_separate")
+    print("pair_production_smoke=passed local_path latest_at_start resume_frozen historical receipt digest http")
 
 
 if __name__ == "__main__":

@@ -1,14 +1,16 @@
-"""Codex fetches a Skill; the host verifies and stores an immutable production version."""
+"""Import GitHub originals and invoke editable local Skill directories."""
 from __future__ import annotations
 
 import hashlib
 import io
 import json
 import re
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
 from threading import Event, RLock, Thread
+from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,6 +54,26 @@ def _digest(directory: Path) -> str:
             digest.update(b"\0")
             digest.update(hashlib.sha256(path.read_bytes()).digest())
     return digest.hexdigest()
+
+
+def freeze_skill(source: Path, target: Path, expected_digest: str) -> None:
+    """Publish a complete copy, rejecting edits that race the copy operation."""
+    source, target = Path(source), Path(target)
+    if not source.is_dir() or source.is_symlink() or _digest(source) != expected_digest:
+        raise ValueError("Skill 文件与本次快照不一致。")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".skill-copy-", dir=target.parent) as temporary:
+        staging = Path(temporary) / "copy"
+        shutil.copytree(source, staging)
+        if _digest(staging) != expected_digest or _digest(source) != expected_digest:
+            raise ValueError("复制期间 Skill 已变化，请重新开始本次调用。")
+        try:
+            staging.rename(target)
+        except OSError:
+            if not target.exists():
+                raise
+            if not target.is_dir() or target.is_symlink() or _digest(target) != expected_digest:
+                raise ValueError("已有 Skill 快照与本次输入不一致。")
 
 
 class InstallReceipt(BaseModel):
@@ -153,46 +175,84 @@ class ProducerSkillCatalog:
         # 当前执行/验收器只支持图片轮播；新制作 Skill 未接入适配前不可生产。
         return bool(data["carousel_compatible"]) and cls._role(data) in cls.PRODUCIBLE_ROLES
 
-    @classmethod
-    def _public(cls, data: dict) -> dict:
-        role = cls._role(data)
-        return {**data, "role": role, "producible": cls._producible(data)}
+    def describe(self, reference: str) -> dict:
+        """A catalog ID is an alias for the same editable local path."""
+        data = self._record(reference)
+        directory = self._working_directory(data)
+        skill = next((s for s in SkillLoader([directory]).discover()
+                      if s.path == directory / "SKILL.md"), None)
+        if skill is None:
+            raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
+        receipt = _inspect_checkout(directory, ".")
+        current = {**data, "name": skill.name, "description": skill.description,
+                   "source_digest": data["digest"], "digest": _digest(directory),
+                   "local_path": str(directory), "role": self._role(data),
+                   "carousel_compatible": receipt.carousel_compatible,
+                   "compatibility_note": receipt.compatibility_note}
+        return {**current, "producible": self._producible(current)}
 
     def list(self):
         builtin = {"id": self.BUILTIN_ID, "name": self.BUILTIN_ID,
                    "description": "把知识点转成图片轮播", "carousel_compatible": True,
                    "compatibility_note": "内置生产技能", "commit": None, "github_url": None,
-                   "role": "legacy_end_to_end", "producible": True}
-        return [builtin] + [self._public(json.loads(p.read_text(encoding="utf-8")))
-                            for p in sorted((self.root / "registry").glob("*.json"))]
+                   "role": "legacy_end_to_end", "producible": True,
+                   "local_path": str(self.project_root / "creatoros" / "skills" / self.BUILTIN_ID)}
+        items = [builtin]
+        for path in sorted((self.root / "registry").glob("*.json")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                items.append(self.describe(data["id"]))
+            except (ValueError, OSError) as error:
+                items.append({**data, "role": self._role(data), "producible": False,
+                              "local_path": str(self.root / "working" / data["id"]),
+                              "local_error": str(error)})
+        return items
 
     def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
-            raise ValueError("未知生产 Skill ID。")
+            directory = Path(skill_id)
+            if (not directory.is_absolute() or directory.is_symlink()
+                    or directory.resolve().parent != self.root / "working"):
+                raise ValueError("请提供已安装 Skill 的目录条目或 working 本地路径。")
+            skill_id = directory.name
+            if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
+                raise ValueError("未知本地 Skill 路径。")
         record = self.root / "registry" / f"{skill_id}.json"
         if not record.is_file():
             raise ValueError("生产 Skill 未安装。")
         return json.loads(record.read_text(encoding="utf-8"))
 
-    def _verified_directory(self, skill_id: str, data: dict) -> Path:
-        directory = self.root / "versions" / skill_id
+    def original(self, reference: str, expected_digest: str) -> Path:
+        data = self._record(reference)
+        directory = self.root / "versions" / data["id"]
         if directory.is_symlink() or not directory.resolve().is_relative_to(self.root):
             raise ValueError("Skill 目录不在受管理的安装范围内。")
-        if _digest(directory) != data["digest"]:
-            raise ValueError("已安装 Skill 文件发生变化，拒绝静默使用被修改的版本。")
+        if not directory.is_dir() or _digest(directory) != expected_digest:
+            raise ValueError("原 Run 的 Skill 快照缺失，导入原件也不匹配。")
+        return directory
+
+    def _working_directory(self, data: dict) -> Path:
+        directory = self.root / "working" / data["id"]
+        if directory.is_symlink() or not directory.resolve().is_relative_to(self.root / "working"):
+            raise ValueError("本地 Skill 路径越界。")
+        if not directory.exists():
+            freeze_skill(self.original(data["id"], data["digest"]), directory, data["digest"])
+        if not directory.is_dir():
+            raise ValueError("本地 Skill 目录不存在。")
+        _digest(directory)  # retain file/path checks; content is intentionally editable
         return directory
 
     def locate(self, skill_id: str) -> Path:
-        """完整性校验后的目录读取，不做生产能力门禁（供调研等只读上下文使用）。"""
+        """Read the editable local directory; no import-digest content lock."""
         if skill_id == self.BUILTIN_ID:
             return self.project_root / "creatoros" / "skills" / skill_id
-        return self._verified_directory(skill_id, self._record(skill_id))
+        return Path(self.describe(skill_id)["local_path"])
 
     def resolve(self, skill_id: str) -> Path:
         """生产门禁：只有声明为可生产角色且满足当前轮播产物契约的 Skill 可绑定/生产。"""
         if skill_id == self.BUILTIN_ID:
             return self.project_root / "creatoros" / "skills" / skill_id
-        data = self._record(skill_id)
+        data = self.describe(skill_id)
         role = self._role(data)
         if role is None:
             raise ValueError("该 Skill 尚未声明内容/制作角色，先完成配置再绑定生产。")
@@ -200,7 +260,7 @@ class ProducerSkillCatalog:
             raise ValueError("该 Skill 是内容 Skill（mind），不能单独承担图片轮播生产。")
         if not data["carousel_compatible"]:
             raise ValueError("该 Skill 不是图片轮播生产技能，请先改造产物契约再绑定。")
-        return self._verified_directory(skill_id, data)
+        return Path(data["local_path"])
 
     def register(self, workspace: Path, url: str, receipt: InstallReceipt, role: str | None = None) -> dict:
         if role is not None and role not in self.ROLES:
@@ -272,7 +332,7 @@ class ProducerSkillCatalog:
         record_path = self.root / "registry" / f"{skill_id}.json"
         if not record_path.exists():
             _write(record_path, record)
-        return json.loads(record_path.read_text(encoding="utf-8"))
+        return self.describe(skill_id)
 
 
 class SkillInstallService:

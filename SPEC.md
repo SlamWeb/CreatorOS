@@ -1,5 +1,10 @@
 # CreatorOS Runtime SPEC
 
+## 可编辑本地 Skill（2026-10-01）
+
+- GitHub 只作来源，调用 `data/producer-skills/working` 内当前文件；目录 ID 兼容旧 Web/Agent，已登记本地路径可直接绑定。首次执行冻结到 Run，恢复/返工复用该 Run 快照，旧图片和正式数据库不变。
+- 本地 knowledge-to-storyboard-deep 已精简，移除宿主的首次6页/6–12页限制。生命周期及验证见 `creatoros/integrations/SPEC.md`、`creatoros/runs/SPEC.md`；新版内容质量待用户真实生产验收。
+
 ## 当前业务闭环切片（2026-09-30）
 
 - 在已有真实 6 图生产与人工批准之上，新增人工发布凭证及分次手填数据；批准≠发布。正式消息队列 Run 仍待用户审核，未替用户发帖。实施/测试见 `creatoros/publication/SPEC.md`；下一步是用户真实发布并回填第一组真实数据，之后再评估自动化与反馈选题。

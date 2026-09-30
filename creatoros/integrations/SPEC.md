@@ -1,5 +1,15 @@
 # External Integrations SPEC
 
+## 可编辑本地 Skill（2026-10-01，完成）
+
+- GitHub 仅为导入来源；`versions` 保留导入原件，`working/<目录条目>` 是实际调用的可编辑本地目录。现有目录 ID 作为路径别名兼容 Web/Agent，已登记的 working 绝对路径也可绑定。修改正文/描述后无需重新安装或改绑。
+- 首次执行 Run 时读取当时的工作副本并冻结到 Run 的 `skill-snapshot`；后续 Attempt/Revision 使用同一快照。历史 Run 优先沿用已有 Attempt 的冻结文件，缺失时只允许使用匹配原 digest 的导入原件。
+- 当前本地 knowledge-to-storyboard-deep 改为简短教学指导：受众/范围由输入决定，真实问题推动循序渐进的讲述，页数自适应，交付逐页定稿与来源。宿主移除 6–12/首次6页/自行缩题要求。
+- 验证：`smoke_producer_skills`、`smoke_pair_production` 通过隔离 Git/SQLite/HTTP 检查本地编辑、路径绑定、首次执行读最新、恢复保留旧版及历史快照。`smoke_codex_producer` 检查单 Skill 原生输入指向 Attempt 冻结副本；受控 Producer 只用于故障与接线验证，不冒充真实生图。
+- 关联回归：`smoke_content_run_service`、`smoke_series_guards`、`smoke_studio_composition_tools`、`smoke_studio_executor`、`smoke_topic_research`、`smoke_studio_artifacts`、`smoke_studio_run_api`、`smoke_studio_api` 通过，合计 11 项。旧 JSON 无新字段仍可读取；Python compileall 与 git diff --check 通过。
+- 只读重验正式消息队列 Run `4d4f6bc6-22ab-401a-86f5-7644c9b457bb` 的 Revision 2：产物摘要仍匹配数据库；原 evidence、原 Mind Skill 与导入原件 SHA256 和改动前相同。不重写历史快照。
+- 本机工作副本 `data/producer-skills/working/knowledge-to-storyboard-deep--039c5af915d13784/SKILL.md` 已精简，Skill 格式验证通过；工作副本属于忽略的本地数据，不推送到上游仓库。本轮不调用模型、生图或发布，不变更正式运营数据库。
+
 ## P4 接线与 GPT-6 Luna（2026-09-26）
 
 - 双 Skill 图片轮播适配契约、回执与验收见 `docs/studio/composition/SPEC.md` P4；保持单 Skill 路径不变。

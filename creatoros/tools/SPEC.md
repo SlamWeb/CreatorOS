@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 可编辑本地 Skill（2026-10-01）
+
+- `list_producer_skills` 返回当前工作副本元数据及 `local_path`；`compose_series`/`update_series_composition` 可使用此路径或兼容目录 ID，经同一 API 规范化保存。
+- 没有增加编辑工具或放开 Web `read_file`；本地文件由用户编辑，Codex 生产读取首次执行冻结的目录。隔离共用接口/工具回归通过。
+
 ## 栏目组合 Tool（2026-09-23，P2）
 
 - 新增 compose_series / update_series_composition / assign_series / queue_topics 四个写工具，全部经同一 Studio API（StudioClient 带 x-creatoros-origin 头），与 Web 表单同一服务、同一幂等与 revision CAS。

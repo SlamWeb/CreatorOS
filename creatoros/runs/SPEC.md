@@ -1,5 +1,12 @@
 # ContentRun SPEC
 
+## 本地 Skill 执行快照（2026-10-01，完成）
+
+- 排队时记录本地绑定；首次执行冻结当前 Skill。恢复/返工继续使用该 Run 的文件快照，本地后续修改影响新的 Run。
+- 双 Skill 与已安装单 Skill 都复用同一 Run/Attempt 机制。历史记录按原 digest 复用旧冻结文件或导入原件，不静默切换到已编辑的工作副本。
+- 无数据库迁移；新增 JSON 可选字段兼容旧输入。隔离测试覆盖 queued 后编辑、生产中编辑、恢复及新 Run 读取新内容。
+- `smoke_producer_skills`、`smoke_pair_production`、`smoke_series_guards` 与旧 Run/Executor/Artifact/API 回归通过。双 Skill 历史恢复使用原 Attempt 文件；原图片、原 `production_evidence.json` 与导入原件未修改。验证具体清单见 `creatoros/integrations/SPEC.md`。
+
 ## P4 接线（2026-09-26）
 
 - 可选 composition 输入快照承载双 Skill，旧快照仍可读取；复用已有 Run/Revision/Attempt/显式恢复，不另建执行器。

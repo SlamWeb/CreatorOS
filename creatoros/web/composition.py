@@ -46,6 +46,7 @@ class SeriesCompositionService:
         """返回 (series_id, deduplicated)。"""
 
         def write(session) -> Series:
+            mind_binding, production_binding = mind_skill_id, production_skill_id
             if creator_id is not None:
                 creator = session.get(Creator, creator_id)
                 if creator is None:
@@ -54,18 +55,18 @@ class SeriesCompositionService:
                     raise CompositionError("账号已停用，无法归属栏目。", status_code=409, code="creator_inactive")
             if skill_name is not None:
                 # legacy 绑定沿用生产门禁：必须可解析且满足当前产物契约。
-                self._resolve_legacy(skill_name)
+                legacy_binding = self._resolve_legacy(skill_name)
             else:
-                self._check_pair(mind_skill_id, production_skill_id)
+                mind_binding, production_binding = self._check_pair(mind_skill_id, production_skill_id)
             series = Series(
                 id=f"series-{uuid4().hex[:20]}",
                 creator_id=creator_id,
                 name=name,
                 description=description,
                 audience=audience,
-                skill_name=skill_name,
-                mind_skill_id=mind_skill_id,
-                production_skill_id=production_skill_id,
+                skill_name=legacy_binding if skill_name is not None else None,
+                mind_skill_id=mind_binding,
+                production_skill_id=production_binding,
                 selection_policy=OperationPolicy.APPROVAL,
                 publish_policy=OperationPolicy.APPROVAL,
                 replenish_threshold=5,
@@ -94,9 +95,7 @@ class SeriesCompositionService:
                     status_code=409, code="legacy_series",
                 )
             self._check_revision(series, expected_revision)
-            self._check_pair(mind_skill_id, production_skill_id)
-            series.mind_skill_id = mind_skill_id
-            series.production_skill_id = production_skill_id
+            series.mind_skill_id, series.production_skill_id = self._check_pair(mind_skill_id, production_skill_id)
             session.flush()
             return series
 
@@ -172,15 +171,17 @@ class SeriesCompositionService:
                 status_code=409, code="revision_conflict",
             )
 
-    def _resolve_legacy(self, skill_name: str) -> None:
+    def _resolve_legacy(self, skill_name: str) -> str:
         try:
             self.catalog.resolve(skill_name)
+            return skill_name if skill_name == self.catalog.BUILTIN_ID else self.catalog.describe(skill_name)["id"]
         except ValueError as error:
             raise CompositionError(str(error)) from error
 
-    def _check_pair(self, mind_skill_id: str | None, production_skill_id: str | None) -> None:
+    def _check_pair(self, mind_skill_id: str | None, production_skill_id: str | None) -> tuple[str, str]:
         if not mind_skill_id or not production_skill_id:
             raise CompositionError("组合栏目必须同时选择内容 Skill 与制作 Skill。")
+        bindings = []
         for skill_id, expected_role, label in (
             (mind_skill_id, "mind", "内容 Skill"),
             (production_skill_id, "production", "制作 Skill"),
@@ -188,15 +189,13 @@ class SeriesCompositionService:
             record = self._catalog_record(skill_id, label)
             if record["role"] != expected_role:
                 raise CompositionError(f"{label} 的角色是 {record['role'] or '未分类'}，不能放在该槽位。")
+            bindings.append(record["id"])
+        return bindings[0], bindings[1]
 
     def _catalog_record(self, skill_id: str, label: str) -> dict:
         if skill_id == ProducerSkillCatalog.BUILTIN_ID:
             raise CompositionError(f"内置端到端 Skill 不能作为{label}参与组合。")
         try:
-            self.catalog.locate(skill_id)
+            return self.catalog.describe(skill_id)
         except ValueError as error:
             raise CompositionError(f"{label}不可用：{error}") from error
-        for item in self.catalog.list():
-            if item["id"] == skill_id:
-                return item
-        raise CompositionError(f"{label}未安装。")

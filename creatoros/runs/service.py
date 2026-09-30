@@ -11,8 +11,8 @@ from uuid import uuid4
 from sqlalchemy import update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
-from creatoros.integrations.skill_pair import snapshot_pair
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill
+from creatoros.integrations.skill_pair import snapshot_pair, prepare_run_pair
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -117,10 +117,16 @@ class ContentRunService:
                     pair = snapshot_pair(ProducerSkillCatalog(skills_root_for(self.database)),
                                          series.mind_skill_id, series.production_skill_id)
                 except ValueError as error:
-                    raise ContentRunError(str(error), code="unsupported_skill_pair") from error
+                    raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
                 pair_fields = dict(composition=pair, creator_name=creator.display_name,
                                    creator_platform=creator.platform.value,
                                    series_revision=series.revision, topic_source=topic.source.value)
+            else:
+                try:
+                    directory = ProducerSkillCatalog(skills_root_for(self.database)).resolve(series.skill_name)
+                    pair_fields = dict(skill_path=str(directory), skill_digest=_digest(directory))
+                except (ValueError, OSError) as error:
+                    raise ContentRunError(str(error), code="invalid_skill") from error
             snapshot = ContentRunInput(
                 **pair_fields,
                 creator_id=series.creator_id,
@@ -226,6 +232,9 @@ class ContentRunService:
                 audience=prepared["input"].audience,
                 skill_name=prepared["input"].skill_name,
                 **({"composition": prepared["input"].composition} if prepared["input"].composition else {}),
+                **({"skill_directory": prepared["directory"].parent.parent / "skill-snapshot" / "skills" / "single",
+                    "skill_digest": prepared["input"].skill_digest}
+                   if prepared["input"].skill_name and prepared["input"].skill_digest else {}),
                 skills_root=skills_root_for(self.database),
                 thread_id=prepared["thread_id"],
                 revision_instruction=prepared["instruction"],
@@ -476,11 +485,44 @@ class ContentRunService:
             number = repository.next_attempt_number(revision.id)
             attempt_id = str(uuid4())
             input_data = ContentRunInput.model_validate(revision.production_input_json)
+            run_root = self.output_root / input_data.creator_id / input_data.series_id / run_id
+            previous_directories = [Path(attempt.output_directory)
+                                    for rev in repository.list_revisions(run_id)
+                                    for attempt in repository.list_attempts(rev.id)
+                                    if attempt.output_directory]
+            try:
+                catalog = ProducerSkillCatalog(skills_root_for(self.database))
+                if input_data.composition is not None:
+                    pair = prepare_run_pair(catalog, input_data.composition, run_root,
+                                            previous_directories, first_start=not previous_directories)
+                    updates = {"composition": pair}
+                else:
+                    target = run_root / "skill-snapshot" / "skills" / "single"
+                    if target.is_dir():
+                        digest = input_data.skill_digest if previous_directories else _digest(target)
+                        if not digest or target.is_symlink() or _digest(target) != digest:
+                            raise ValueError("Run 的冻结 Skill 文件已变化。")
+                        source = input_data.skill_path
+                    else:
+                        if input_data.skill_path and not previous_directories:
+                            source = catalog.resolve(input_data.skill_name)
+                        elif input_data.skill_name == catalog.BUILTIN_ID:
+                            source = catalog.resolve(input_data.skill_name)
+                        else:
+                            record = catalog._record(input_data.skill_name)
+                            source = catalog.original(input_data.skill_name, input_data.skill_digest or record["digest"])
+                        digest = _digest(Path(source))
+                        freeze_skill(Path(source), target, digest)
+                    updates = {"skill_path": str(source), "skill_digest": digest}
+                input_data = input_data.model_copy(update=updates)
+                revision.production_input_json = input_data.model_dump(mode="json", exclude_unset=True)
+                content_run.input_snapshot_json = ContentRunInput.model_validate(
+                    content_run.input_snapshot_json
+                ).model_copy(update=updates).model_dump(mode="json", exclude_unset=True)
+            except (ValueError, OSError) as error:
+                raise ContentRunError(str(error), code="invalid_skill_snapshot") from error
             directory = (
-                self.output_root
-                / input_data.creator_id
-                / input_data.series_id
-                / run_id
+                run_root
                 / f"revision-{revision.revision_number:03d}"
                 / f"attempt-{number:03d}"
             )

@@ -332,9 +332,9 @@ class SeriesComposeRequest(WriteRequest):
     description: str = Field(default="", max_length=10_000)
     audience: str = Field(default="", max_length=4_000)
     creator_id: str | None = Field(default=None, min_length=1, max_length=80)
-    skill_name: str | None = Field(default=None, min_length=1, max_length=120)
-    mind_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
-    production_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    skill_name: str | None = Field(default=None, min_length=1, max_length=4096)
+    mind_skill_id: str | None = Field(default=None, min_length=1, max_length=4096)
+    production_skill_id: str | None = Field(default=None, min_length=1, max_length=4096)
     request_id: str = Field(min_length=8, max_length=64)
 
     @model_validator(mode="after")
@@ -349,8 +349,8 @@ class SeriesComposeRequest(WriteRequest):
 
 
 class CompositionUpdateRequest(WriteRequest):
-    mind_skill_id: str = Field(min_length=1, max_length=120)
-    production_skill_id: str = Field(min_length=1, max_length=120)
+    mind_skill_id: str = Field(min_length=1, max_length=4096)
+    production_skill_id: str = Field(min_length=1, max_length=4096)
     expected_revision: int = Field(ge=1)
     request_id: str = Field(min_length=8, max_length=64)
 

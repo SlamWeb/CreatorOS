@@ -15,7 +15,7 @@ class InstallSkillRequest(WriteRequest):
 
 
 class BindSkillRequest(WriteRequest):
-    skill_id: str = Field(min_length=1, max_length=120)
+    skill_id: str = Field(min_length=1, max_length=4096)
     expected_skill_name: str = Field(min_length=1, max_length=120)
 
 
@@ -37,13 +37,15 @@ def skill_routes(database, service):
     @router.post("/series/{series_id}/skill")
     def bind_skill(series_id: str, request: BindSkillRequest):
         service.catalog.resolve(request.skill_id)
+        binding = (request.skill_id if request.skill_id == service.catalog.BUILTIN_ID
+                   else service.catalog.describe(request.skill_id)["id"])
         with database.session() as session:
             result = session.execute(update(Series).where(
                 Series.id == series_id, Series.skill_name == request.expected_skill_name,
-            ).values(skill_name=request.skill_id))
+            ).values(skill_name=binding))
             if result.rowcount != 1:
                 raise HTTPException(409, "栏目不存在或绑定已经改变，请刷新并重新确认。")
-        return {"series_id": series_id, "skill_name": request.skill_id,
+        return {"series_id": series_id, "skill_name": binding,
                 "message": "已绑定；只影响新建 Run，已有任务保留原 Skill。"}
 
     return router

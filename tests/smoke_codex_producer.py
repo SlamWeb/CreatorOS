@@ -17,6 +17,7 @@ from creatoros.integrations.codex import (
     parse_codex_jsonl,
 )
 from creatoros.content import SocialContentPack
+from creatoros.integrations.producer_skills import _digest, freeze_skill
 from creatoros.tools.definitions import tool_registry
 from creatoros.tools.execution import execute_tool_call
 
@@ -143,6 +144,26 @@ def main() -> None:
         assert payload["card_count"] == 1
         assert pack.cards[0].image_path == "images/01-cover.png"
         assert (Path(payload["output_directory"]) / "production_session.json").is_file()
+
+        # Native SkillInput must point at the Attempt's frozen files, not today's live files.
+        class InspectNative(FakeCodexProducer):
+            native_skill_inputs = True
+
+            def _execute(self, prompt, working_directory, **controls):
+                expected = working_directory / "skills" / "single" / "SKILL.md"
+                assert controls["skill_path"] == expected
+                assert "FROZEN_SINGLE_MARKER" in expected.read_text(encoding="utf-8")
+                assert str(expected) in prompt and "SkillInput" in prompt
+                return super()._execute(prompt, working_directory, **controls)
+
+        frozen = root / "frozen-single"
+        freeze_skill(source_skill, frozen, _digest(source_skill))
+        frozen_file = frozen / "SKILL.md"
+        frozen_file.write_text(frozen_file.read_text(encoding="utf-8") + "\nFROZEN_SINGLE_MARKER", encoding="utf-8")
+        native = InspectNative(project_root=root, generated_images_root=generated_root, run=parsed)
+        native.produce_to(directory=root / "native-attempt", pack_id="native",
+                          creator_id="creatoros-lab", series_id="python-basics", topic_id="native",
+                          topic_title="native", skill_directory=frozen, skill_digest=_digest(frozen))
 
         outside = root / "outside.png"
         outside.write_bytes(b"not this thread")

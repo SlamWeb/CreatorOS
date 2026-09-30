@@ -16,6 +16,7 @@ from creatoros.operations.executor import OperationExecutor
 from creatoros.operations.models import OperationPlan
 from creatoros.operations.parser import validate_scope
 from creatoros.runs import ContentRunError, ContentRunService
+from creatoros.runs.models import ContentRunInput
 from creatoros.storage import (
     ContentRepository,
     Creator,
@@ -66,12 +67,17 @@ def main() -> None:
                                   source=TopicSource.MANUAL, position=1))
 
         runs = ContentRunService(database, output_root=root / "outputs")
-        # 旧栏目：正常创建，输入快照键与 0005 之前完全一致（无组合字段）。
+        # 旧单 Skill 栏目仍可创建；新增可选快照字段，历史 JSON 不要求迁移。
         run = runs.create("topic-1")
-        assert set(run.input_snapshot_json) == {
+        legacy_input = {key: value for key, value in run.input_snapshot_json.items()
+                        if key not in {"skill_path", "skill_digest"}}
+        assert set(legacy_input) == {
             "creator_id", "series_id", "series_name", "series_description", "audience",
             "skill_name", "topic_id", "topic_title", "topic_brief",
         }, f"旧 Run 输入快照键漂移：{sorted(run.input_snapshot_json)}"
+        parsed_legacy = ContentRunInput.model_validate(legacy_input)
+        assert parsed_legacy.skill_path is None and parsed_legacy.skill_digest is None
+        assert run.input_snapshot_json["skill_path"] and run.input_snapshot_json["skill_digest"]
         assert run.input_snapshot_json["skill_name"] == "knowledge-to-carousel"
 
         # 未分配栏目：明确拒绝生产，不是 AttributeError 或校验崩溃。

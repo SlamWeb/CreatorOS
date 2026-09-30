@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from pydantic import Field, model_validator
 
 from .codex import ProductionModel, ProductionReceipt
-from .producer_skills import ProducerSkillCatalog, _digest
+from .producer_skills import ProducerSkillCatalog, _digest, freeze_skill
 
 EVIDENCE_FILE = "production_evidence.json"
 
@@ -20,6 +20,7 @@ class SkillVersion(ProductionModel):
     github_url: str
     commit: str
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    local_path: str | None = None
 
 
 class SkillPair(ProductionModel):
@@ -61,10 +62,7 @@ class PairEvidence(ProductionModel):
 
 
 def snapshot_pair(catalog: ProducerSkillCatalog, mind_id: str, production_id: str) -> SkillPair:
-    records = {item["id"]: item for item in catalog.list()}
-    mind, production = records.get(mind_id), records.get(production_id)
-    if not mind or not production:
-        raise ValueError("双 Skill 未安装或记录缺失。")
+    mind, production = catalog.describe(mind_id), catalog.describe(production_id)
     if mind["role"] != "mind" or production["role"] != "production":
         raise ValueError("双 Skill 的内容/制作角色不匹配。")
     # Only audited source families have an adapter. Arbitrary pairs remain installable.
@@ -79,23 +77,66 @@ def snapshot_pair(catalog: ProducerSkillCatalog, mind_id: str, production_id: st
         catalog.locate(record["id"])
     if not (catalog.locate(production_id) / "assets" / "character.png").is_file():
         raise ValueError("小白角色参考图缺失。")
-    return SkillPair(**{role: SkillVersion(**{key: record[key] for key in SkillVersion.model_fields})
+    return SkillPair(**{role: SkillVersion(**{key: record.get(key) for key in SkillVersion.model_fields})
                         for role, record in (("mind", mind), ("production", production))})
 
 
-def freeze_pair(catalog: ProducerSkillCatalog, pair: SkillPair, directory: Path) -> list[tuple[str, Path]]:
-    current = snapshot_pair(catalog, pair.mind.id, pair.production.id)
-    if current != pair:
-        raise ValueError("双 Skill 注册版本与 Run 输入快照不一致，拒绝静默升级。")
+def freeze_pair(catalog: ProducerSkillCatalog, pair: SkillPair, directory: Path,
+                *, source_root: Path | None = None) -> list[tuple[str, Path]]:
+    if source_root is None and snapshot_pair(catalog, pair.mind.id, pair.production.id) != pair:
+        raise ValueError("本地 Skill 已变化，请重新取得本次调用快照。")
     refs = []
     for role in ("mind", "production"):
         version = getattr(pair, role)
         target = directory / "skills" / role
-        shutil.copytree(catalog.locate(version.id), target)
-        if _digest(target) != version.digest:
-            raise ValueError("冻结 Skill 时文件发生变化。")
+        source = source_root / "skills" / role if source_root else catalog.locate(version.id)
+        freeze_skill(source, target, version.digest)
         refs.append((version.name, target / "SKILL.md"))
     return refs
+
+
+def prepare_run_pair(catalog: ProducerSkillCatalog, pair: SkillPair, run_root: Path,
+                     previous_directories: list[Path], *, first_start: bool) -> SkillPair:
+    """Freeze current local files once, then resume only from that Run's files."""
+    target = run_root / "skill-snapshot"
+    metadata = target / "pair.json"
+    if target.exists():
+        frozen = SkillPair.model_validate_json(metadata.read_text(encoding="utf-8"))
+        if (frozen.mind.id, frozen.production.id) != (pair.mind.id, pair.production.id):
+            raise ValueError("Run 的本地 Skill 绑定与冻结文件不一致。")
+        if not first_start and frozen != pair:
+            raise ValueError("Run 的 Skill 快照记录已变化。")
+        for role in ("mind", "production"):
+            folder = target / "skills" / role
+            if folder.is_symlink() or _digest(folder) != getattr(frozen, role).digest:
+                raise ValueError("Run 的冻结 Skill 文件已变化。")
+        return frozen
+
+    source_root = None
+    if first_start and pair.mind.local_path and pair.production.local_path:
+        pair = snapshot_pair(catalog, pair.mind.local_path, pair.production.local_path)
+    else:
+        # Historical attempts already contain the actual Skill bytes used by Codex.
+        for previous in previous_directories:
+            if all((previous / "skills" / role).is_dir()
+                   and _digest(previous / "skills" / role) == getattr(pair, role).digest
+                   for role in ("mind", "production")):
+                source_root = previous
+                break
+    run_root.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".run-skills-", dir=run_root) as temporary:
+        staging = Path(temporary) / "snapshot"
+        staging.mkdir()
+        if source_root is not None or (first_start and pair.mind.local_path and pair.production.local_path):
+            freeze_pair(catalog, pair, staging, source_root=source_root)
+        else:
+            for role in ("mind", "production"):
+                version = getattr(pair, role)
+                freeze_skill(catalog.original(version.id, version.digest),
+                             staging / "skills" / role, version.digest)
+        (staging / "pair.json").write_text(pair.model_dump_json(indent=2), encoding="utf-8")
+        staging.rename(target)
+    return pair
 
 
 def pair_prompt(pair: SkillPair, refs: list[tuple[str, Path]]) -> str:
@@ -108,8 +149,8 @@ def pair_prompt(pair: SkillPair, refs: list[tuple[str, Path]]) -> str:
         "每页分别生图，把 skills/production/assets/character.png 实际作为参考图片输入。"
         "先查看参考图；不能只在 Prompt 中写路径却不传参考图。禁止用代码/HTML截图冒充生图。\n"
         "图片使用不透明白色/暖白背景，调用生图工具时显式设置 transparent_background=false；不是透明贴纸。\n"
-        "默认 6–12 页，首次尽量 6 页；选题过宽时聚焦受众必需的核心机制与工程边界，"
-        "不要为了少字丢失事实条件。页数在内容阶段确定，制作阶段不随意增删。\n"
+        "受众、范围与重点沿用本次输入；按内容需要自适应决定页数，兑现题目承诺。"
+        "页数在内容阶段确定，制作阶段不随意增删。\n"
         "receipt.pages 逐页保留原 PageSpec、真正提交工具的 image_prompt、实际参考资源相对路径。"
         "这些字段必须来自生产过程，不能在生图后编造。如果工具内部重写 Prompt，不猜测重写内容。\n"
         "保留 Research Brief 与因果学习链。只有全部图片完成后才返回最终 JSON；"
