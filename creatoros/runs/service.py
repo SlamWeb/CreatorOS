@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -236,7 +237,9 @@ class ContentRunService:
                     "skill_digest": prepared["input"].skill_digest}
                    if prepared["input"].skill_name and prepared["input"].skill_digest else {}),
                 skills_root=skills_root_for(self.database),
-                thread_id=prepared["thread_id"],
+                thread_id=None if getattr(producer, "fresh_sessions", False) else prepared["thread_id"],
+                **({"previous_pages": prepared["previous_pages"]}
+                   if getattr(producer, "fresh_sessions", False) else {}),
                 revision_instruction=prepared["instruction"],
                 on_thread_started=lambda thread_id: self._attach_thread(
                     run_id, prepared["attempt_id"], thread_id, owner
@@ -490,6 +493,21 @@ class ContentRunService:
                                     for rev in repository.list_revisions(run_id)
                                     for attempt in repository.list_attempts(rev.id)
                                     if attempt.output_directory]
+            previous_pages = None
+            if revision.instruction:
+                for previous_dir in reversed(previous_directories):
+                    for filename in ("storyboard.json", "production_evidence.json"):
+                        candidate = previous_dir / filename
+                        if (candidate.is_file() and not candidate.is_symlink()
+                                and candidate.resolve().is_relative_to(run_root.resolve())):
+                            value = json.loads(candidate.read_text(encoding="utf-8"))
+                            previous_pages = json.dumps({
+                                "research_brief": value["research_brief"], "causal_chain": value["causal_chain"],
+                                "pages": [{"order": p["order"], "page_spec": p["page_spec"]} for p in value["pages"]],
+                            }, ensure_ascii=False)
+                            break
+                    if previous_pages:
+                        break
             try:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
                 if input_data.composition is not None:
@@ -569,6 +587,7 @@ class ContentRunService:
                 "input": input_data,
                 "instruction": revision.instruction,
                 "thread_id": content_run.producer_thread_id,
+                "previous_pages": previous_pages,
                 "directory": directory,
                 "owner_id": owner_id,
             }
@@ -583,8 +602,8 @@ class ContentRunService:
                 raise ContentRunError("ContentAttempt 不存在。")
             self._assert_lease(content_run, owner_id)
             self._assert_attempt(repository, content_run, attempt)
-            if content_run.producer_thread_id and content_run.producer_thread_id != thread_id:
-                raise ContentRunError("同一 ContentRun 收到了不同的 Codex thread_id。")
+            if attempt.producer_thread_id and attempt.producer_thread_id != thread_id:
+                raise ContentRunError("同一 ContentAttempt 收到了不同的 Codex thread_id。")
             content_run.producer_thread_id = thread_id
             attempt.producer_thread_id = thread_id
             content_run.heartbeat_at = datetime.now(timezone.utc)

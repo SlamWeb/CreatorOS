@@ -1,5 +1,21 @@
 # External Integrations SPEC
 
+## 独立生产 session 与双 Skill 分阶段（2026-10-01，完成）
+
+- 用户确认：Mind 只调研并交付内容 pages；视觉 Skill 只负责 IP/视觉化。SDK 默认生产不再一个 turn 同时注入两个 Skill。
+- 每次 SDK 生产 Attempt 均新建 session；双 Skill 是两个新 session：内容阶段仅 Mind，视觉阶段仅制作 Skill 与完整内容文件。不 resume/fork 旧 thread，不继承运营对话。
+- SDK 子进程配置关闭 `memories.use_memories` 和 `memories.generate_memories`，不改变全局设置/登录态。每阶段最小规则禁止读取其他任务/全局记忆；这不等于 OS 级完全隔离文件系统。
+- 同时关闭项目开发 AGENTS 自动注入（`project_doc_max_bytes=0`）。保留原生 SkillInput，并明确给出本阶段冻结的 SKILL.md 路径；真实验证发现未登记的原生 Skill 引用不一定展开为模型可读路径，不能只传名字让模型去全局搜索。
+- 内容 JSON / 可读 Markdown 在生图前保存；视觉请求为“@制作Skill 用这个视觉 Skill 把下面整套 pages 可视化”，并保留实际参考图/Prompt/图片回执。连续叙事不与单页工具调用混淆。不把历史 Prompt 中“不依赖前后页”复制进新任务。
+- 重试/返工重新执行当前输入与明确返工要求，不依赖旧 session 隐式上下文；需要前版内容的返工只显式带本 Run 已保存的内容文件，不跨 Run 检索。历史图片/证据不覆盖。
+- ContentRun 的 thread ID 表示当前 Attempt 视觉 session，阶段 Trace 另保存内容 session；新 Attempt 可绑定新 ID，同 Attempt 拒绝意外换 ID。冻结 Skill/digest/审批/原有单 Skill回执保持兼容。
+- 验收：隔离测试阶段 Skill/输入边界、不同 Attempt/阶段不同 thread、故障前保存内容、回执改写/缺页拒绝、取消/超时；真实 SDK 无生图验证不同 thread、禁用记忆配置和内容阶段 handoff。完整真实生图暂不启动，不修改正式运营数据。
+- 官方配置与 thread API： https://learn.chatgpt.com/docs/config-file/config-reference 、 https://learn.chatgpt.com/docs/app-server 。
+- 隔离验收通过：`smoke_production_sessions`、`smoke_pair_production`、`smoke_codex_producer`、`smoke_content_run_service`、`smoke_studio_executor`、`smoke_studio_artifacts`、`smoke_studio_run_api`、`smoke_producer_skills`、`smoke_series_guards` 共 9 项。覆盖阶段输入、全新 ID、返工显式前稿、同 Attempt ID 冲突、取消/超时、失败后内容保存、视觉改稿拒绝，以及 handoff 文件与审批摘要一致性。传输 Mock 仅用于故障注入和本地边界，SQLite/HTTP 使用隔离夹具。
+- 真实 `gpt-6-luna/xhigh` 无生图探针通过：Mind `01a0f6a8-490d-7363-bd1e-ad9c4b081ece`，Visual `01a0f6a9-d344-7290-a3c1-498f3956372b`。会话记录无注入 memory summary；两阶段实际读取各自冻结 Skill，内容交付两页“消息队列是什么 → 生产者与消费者交接”，视觉仅确认收到整套 pages。证据：`tmp/sdk-session-probe-9e4f0220f4d2`（忽略、本地保留）。这只验证接口与边界，不代表整套面试内容质量或最终图片已验收。
+- 前两次探针虽返回结构合法 JSON，实际是“找不到 Skill”的占位页，判定失败；最终加入明确 Skill 路径后重跑成功，探针增加实际 Skill 读取与非占位页数断言。不能把 schema 合法等同内容完成。
+- 下方早期“同 Run 同线程恢复/只补最后一页”的建议已被本节替代；SDK 重试与返工均重开，不隐式复用旧图或会话。旧 CLI resume 仍兼容保留；历史快照、原 Prompt 和正式运营数据未修改。
+
 ## 消息队列新版真实生产（2026-10-01，未完成：账号额度限制）
 
 - 用户明确要求重新生成：受众为完全零基础，范围为从零基础到能够应付 AI Agent 岗位消息队列面试。新建独立选题/Run，沿用“小白带你学AI”的本地 mind + 小白制作组合，不复用旧 Run 的 Skill 快照，也不覆盖旧批准产物。

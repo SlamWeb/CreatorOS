@@ -1,5 +1,11 @@
 # 创作空间：Web / Agent 共用业务能力
 
+## 双 Skill 生产边界更新（2026-10-01）
+
+- Web/Agent 仍进入同一个 ContentRun 服务，不新建前端执行器。SDK 生产改为新 Mind session 调研并定稿 pages → 内容文件落盘 → 新 Visual session 以 `@xiaobai` 和整套 pages 可视化。
+- 每次 Attempt/返工均新建阶段会话、禁用生产端长期记忆注入；不继续原来的“一条 SDK thread 完成所有阶段”。原 Skill 冻结与审批规则不变，历史产物不修改。
+- 不要求单页画面脱离前后页，视觉阶段读取整套内容，保持页序及连续性。本轮没有改 UI 或调用生图；详细边界与真实 SDK/隔离测试见 integrations / runs SPEC。
+
 ## 本地 Skill 调用补充（2026-10-01）
 
 - 当前组合绑定为可编辑本地工作副本；目录 ID 是路径别名，Web/Agent 的创建与改绑也接受已登记 `local_path` 并规范化保存 ID。读取当前内容，不因正常本地编辑要求重装。

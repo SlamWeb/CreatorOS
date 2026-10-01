@@ -36,6 +36,23 @@ class PageEvidence(ProductionModel):
     reference_assets: list[str] = Field(min_length=1, description="制作 Skill 内实际使用的相对资源路径，例如 assets/character.png")
 
 
+class ContentPage(ProductionModel):
+    order: int = Field(ge=1)
+    page_spec: str = Field(min_length=1, description="本页定稿内容，包含实际读者能看到的文案和来源")
+
+
+class StoryboardReceipt(ProductionModel):
+    research_brief: str = Field(min_length=1)
+    causal_chain: str = Field(min_length=1)
+    pages: list[ContentPage] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if [p.order for p in self.pages] != list(range(1, len(self.pages) + 1)):
+            raise ValueError("内容 pages 必须从 1 连续编号。")
+        return self
+
+
 class PairReceipt(ProductionReceipt):
     research_brief: str = Field(min_length=1)
     causal_chain: str = Field(min_length=1)
@@ -140,23 +157,24 @@ def prepare_run_pair(catalog: ProducerSkillCatalog, pair: SkillPair, run_root: P
     return pair
 
 
-def pair_prompt(pair: SkillPair, refs: list[tuple[str, Path]]) -> str:
+def mind_prompt(name: str, request: str) -> str:
     return (
-        "你处于 CreatorOS 双 Skill receipt mode。本次为一篇完整图片轮播，不是安装/修改 Skill。\n"
-        f"1. 使用 ${pair.mind.name}（{refs[0][1]}），先研究权威来源，设计完整逐页 PageSpec。\n"
-        f"2. 使用 ${pair.production.name}（{refs[1][1]}），将既定 PageSpec 转成逐页生图 Prompt。\n"
-        "必须读取两个完整 SKILL.md，依阶段遵守各自约束，相对路径分别基于对应 Skill 目录。\n"
-        "3. 下游 Skill 的终点是 Prompt，但本次任务还有显式第三步：真实调用图像生成工具，"
-        "每页分别生图，把 skills/production/assets/character.png 实际作为参考图片输入。"
-        "先查看参考图；不能只在 Prompt 中写路径却不传参考图。禁止用代码/HTML截图冒充生图。\n"
-        "图片使用不透明白色/暖白背景，调用生图工具时显式设置 transparent_background=false；不是透明贴纸。\n"
-        "受众、范围与重点沿用本次输入；按内容需要自适应决定页数，兑现题目承诺。"
-        "页数在内容阶段确定，制作阶段不随意增删。\n"
-        "receipt.pages 逐页保留原 PageSpec、真正提交工具的 image_prompt、实际参考资源相对路径。"
-        "这些字段必须来自生产过程，不能在生图后编造。如果工具内部重写 Prompt，不猜测重写内容。\n"
-        "保留 Research Brief 与因果学习链。只有全部图片完成后才返回最终 JSON；"
-        "cards.source_image_path 必须是本次 thread 图片工具返回的真实绝对路径。"
-        "不要返回制作中或占位图片；不要发布。只读工作区，不写最终 Manifest，宿主会保存回执和产物。\n"
+        f"@{name} 请调研并生成本次主题的完整内容 pages，读取并使用这个内容 Skill。\n"
+        "本次选题说明的受众与范围优先于栏目默认值。页数按内容需要决定，保持整篇递进连贯。"
+        "只交付内容，不设计 IP、画风或生图 Prompt，不调用生图。返回约定 JSON。\n"
+        + request
+    )
+
+
+def visual_prompt(name: str, storyboard: StoryboardReceipt) -> str:
+    return (
+        f"@{name} 用这个视觉 Skill 把下面整套 pages 可视化，读取并使用这个 Skill。\n"
+        "保持内容、页序和跨页连续性，不重新调研或改写教学逻辑。"
+        "实际查看并传入 assets/character.png 作为每页生图参考，transparent_background=false。\n"
+        "真实调用生图工具完成全部图片；回执逐页保留原 page_spec、真正提交工具的 image_prompt、"
+        "相对 reference_assets 和工具返回的 source_image_path。不要发布，不写最终 Manifest。"
+        "只有全部图片完成才返回约定 JSON；不能用占位图、代码绘图或 HTML 截图代替生图。\n"
+        + storyboard.model_dump_json(indent=2)
     )
 
 
@@ -190,6 +208,15 @@ def evidence_files(root: Path, pair: SkillPair, orders: list[int]) -> list[Path]
     if [p.order for p in pages] != orders:
         raise ValueError("生产证据与图片页数/顺序不一致。")
     paths = [root / EVIDENCE_FILE]
+    if (root / "storyboard.json").exists() or (root / "storyboard.md").exists():
+        storyboard = StoryboardReceipt.model_validate_json(safe(root / "storyboard.json").read_text(encoding="utf-8"))
+        if ([(p.order, p.page_spec) for p in storyboard.pages] != [(p.order, p.page_spec) for p in pages]
+                or storyboard.research_brief != evidence.research_brief or storyboard.causal_chain != evidence.causal_chain):
+            raise ValueError("内容阶段 handoff 与最终生产证据不一致。")
+        markdown = safe(root / "storyboard.md")
+        if markdown.read_text(encoding="utf-8") != "\n\n---\n\n".join(p.page_spec for p in storyboard.pages):
+            raise ValueError("可读内容稿与 handoff 不一致。")
+        paths.extend([root / "storyboard.json", markdown])
     for role in ("mind", "production"):
         folder = safe(root / "skills" / role)
         if _digest(folder) != getattr(pair, role).digest:

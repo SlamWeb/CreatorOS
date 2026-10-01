@@ -1,5 +1,13 @@
 # ContentRun SPEC
 
+## SDK 生产全新 session（2026-10-01，完成）
+
+- SDK 每个 Attempt 新建会话，双 Skill 是 Mind / Visual 两个独立会话；旧 CLI resume 行为保持兼容。下方旧 SDK 同 thread 恢复约定由本节替代。
+- 当前 Run 的 `producer_thread_id` 保存最新 Attempt 的视觉会话；每个 Attempt 保留自己的 ID，同 Attempt 不允许意外改绑。内容会话 ID 在该 Attempt 的阶段 Trace 中记录。无数据库迁移。
+- 返工仅显式带入本 Run 最新已保存的内容 pages；不带旧生图 Prompt、旧会话或其他任务记忆。技术重试重新生产，不把旧图片自动复用。
+- `storyboard.json` 与 `storyboard.md` 先于视觉阶段落盘；视觉失败时保留内容，成功时检查逐页内容一致并将两个文件纳入审批摘要。缺少 storyboard 的历史产物仍兼容，不补写原件。
+- SDK 阶段隔离、技术重试/新 Revision 新 ID、同 Attempt 冲突拒绝、内容文件篡改/缺失拒绝，与既有 Run/Executor/API/Artifacts 回归通过。真实无生图探针结果见 integrations SPEC；本轮不重画消息队列图片、不批准或发布。
+
 ## 本地 Skill 执行快照（2026-10-01，完成）
 
 - 排队时记录本地绑定；首次执行冻结当前 Skill。恢复/返工继续使用该 Run 的文件快照，本地后续修改影响新的 Run。

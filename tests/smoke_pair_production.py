@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from creatoros.integrations.codex import CodexSdkProducer, CodexRun, CodexUsage, CODEX_MODEL, CODEX_EFFORT
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, InstallReceipt, skills_root_for
-from creatoros.integrations.skill_pair import PairReceipt, snapshot_pair, prepare_run_pair, EVIDENCE_FILE
+from creatoros.integrations.skill_pair import PairReceipt, StoryboardReceipt, snapshot_pair, prepare_run_pair, EVIDENCE_FILE
 from creatoros.runs import ContentRunService, ContentRunRepository, ContentRunError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.runs.models import ContentRunInput
@@ -42,9 +42,7 @@ class ControlledPair(CodexSdkProducer):
     def _execute(self, prompt, working_directory, *, thread_id=None, skill_refs=None, on_thread_started=None, **kwargs):
         assert self.receipt_model is PairReceipt
         assert len(skill_refs) == 2 and all(path.is_file() for _, path in skill_refs)
-        assert "真正提交工具" in prompt and "不要发布" in prompt
-        assert "PageSpec" in prompt and "消息队列" in prompt
-        assert "transparent_background=false" in prompt
+        assert json.loads(prompt)["topic_title"] == "消息队列"
         assert "首次尽量" not in prompt and "6–12" not in prompt
         self.seen.append(thread_id)
         self.seen_contents.append(skill_refs[0][1].read_text(encoding="utf-8"))
@@ -57,8 +55,13 @@ class ControlledPair(CodexSdkProducer):
                                       f"(Get-Acl -LiteralPath '{escaped}').AreAccessRulesProtected"],
                                      check=True, capture_output=True, text=True, env=shell_env)
                 assert acl.stdout.strip() == "False", "Frozen Skill copy retained tempfile's private ACL"
-        thread = thread_id or "pair-thread"
+        thread = thread_id or f"pair-thread-{len(self.seen)}"
         on_thread_started(thread)
+        rejects(lambda: on_thread_started(thread + "-unexpected"), (ContentRunError,))
+        if len(self.seen) > 2:
+            prior = json.loads(json.loads(prompt)["previous_pages"])
+            assert prior["pages"][0]["page_spec"].startswith("PageSpec")
+            assert "image_prompt" not in prior["pages"][0]
         if self.interrupt_next:
             self.interrupt_next = False
             raise KeyboardInterrupt
@@ -75,6 +78,12 @@ class ControlledPair(CodexSdkProducer):
         value = dict(content_summary="MQ", cards=cards, publish_copy=dict(title="MQ", body="body", hashtags=[]), sources=[],
                      research_brief="official docs", causal_chain="任务耗时 -> 解耦", pages=pages)
         self.receipt = PairReceipt.model_validate(value)
+        storyboard = StoryboardReceipt.model_validate({
+            "research_brief": self.receipt.research_brief, "causal_chain": self.receipt.causal_chain,
+            "pages": [dict(order=p.order, page_spec=p.page_spec) for p in self.receipt.pages],
+        })
+        (working_directory / "storyboard.json").write_text(storyboard.model_dump_json(indent=2), encoding="utf-8")
+        (working_directory / "storyboard.md").write_text("\n\n---\n\n".join(p.page_spec for p in storyboard.pages), encoding="utf-8")
         return CodexRun(thread, self.receipt, CodexUsage())
 
 
@@ -132,7 +141,7 @@ def main():
         assert pair.mind.digest != frozen.composition.mind.digest
         mind_file.write_text(mind_file.read_text(encoding="utf-8") + "\nAFTER_START", encoding="utf-8")
         result = service.execute(run_id)
-        assert result.status == "awaiting_approval" and producer.seen == [None, "pair-thread"]
+        assert result.status == "awaiting_approval" and producer.seen == [None, None]
         assert all("BEFORE_START" in text and "AFTER_START" not in text for text in producer.seen_contents)
         repository = ContentRunRepository(db)
         revision = repository.get_revision(result.revision_id)
@@ -140,6 +149,7 @@ def main():
         baseline = validate_artifact(directory, composition=pair).artifact_digest
         assert baseline == revision.artifact_digest
         assert len(repository.list_attempts(revision.id)) == 2
+        assert len({a.producer_thread_id for a in repository.list_attempts(revision.id)}) == 2
 
         # Wrong count, empty prompt, absent reference and duplicate generated image fail the receipt.
         for change in (lambda v: v["pages"].pop(),
@@ -150,7 +160,7 @@ def main():
             change(value)
             rejects(lambda: PairReceipt.model_validate(value), (ValidationError,))
         # Missing/changed intermediate artifact or reference cannot be approved.
-        for file in (directory / EVIDENCE_FILE, directory / "pages/01/prompt.txt",
+        for file in (directory / EVIDENCE_FILE, directory / "storyboard.json", directory / "storyboard.md", directory / "pages/01/prompt.txt",
                      directory / "skills/production/assets/character.png"):
             raw = file.read_bytes()
             file.write_bytes(b"tampered")
@@ -166,8 +176,15 @@ def main():
         value = json.loads(raw)
         value["research_brief"] = "changed research"
         path.write_text(json.dumps(value), encoding="utf-8")
+        rejects(lambda: validate_artifact(directory, composition=pair))  # final evidence cannot diverge from Mind
+        storyboard_path = directory / "storyboard.json"
+        original_storyboard = storyboard_path.read_bytes()
+        changed_storyboard = json.loads(original_storyboard)
+        changed_storyboard["research_brief"] = value["research_brief"]
+        storyboard_path.write_text(json.dumps(changed_storyboard), encoding="utf-8")
         assert validate_artifact(directory, composition=pair).artifact_digest != baseline
         path.write_bytes(raw)
+        storyboard_path.write_bytes(original_storyboard)
         with TestClient(create_app(database=db, run_service=service)) as client:
             details = client.get(f"/api/runs/{run_id}").json()
             assert details["revisions"][0]["artifact_available"] is True
@@ -185,7 +202,13 @@ def main():
                 broken = response.json()["revisions"][0]
                 assert not broken["artifact_available"] and broken["artifact_error"]
                 path.write_bytes(raw)
-        approved = service.approve(run_id, revision_id=revision.id, artifact_digest=baseline, expected_version=service.get(run_id).version)
+        # Revision gets explicit prior pages, not old chat or image prompts, and a new thread.
+        service.request_revision(run_id, "调整第二页解释", expected_version=service.get(run_id).version)
+        revised = service.execute(run_id)
+        assert producer.seen == [None, None, None]
+        assert revised.producer_thread_id not in {a.producer_thread_id for a in repository.list_attempts(revision.id)}
+        approved = service.approve(run_id, revision_id=revised.revision_id, artifact_digest=revised.artifact_digest,
+                                   expected_version=service.get(run_id).version)
         assert approved.status.value == "approved"
         # A new invocation reads the edited path while a historical Run can recover its original files.
         current = snapshot_pair(catalog, str(mind_file.parent), visual["local_path"])
