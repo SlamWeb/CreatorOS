@@ -49,7 +49,7 @@ def install_fixture(catalog, root: Path, name: str, repo: str, role: str):
 
 
 def page_spec(order: int) -> str:
-    semantics = "Visual Semantics：沿调用流程" if order == 1 else f"Visual Semantics：第 {order} 页" 
+    semantics = "Visual Semantics：沿调用流程" if order == 1 else f"Visual Semantics：第 {order} 页"
     return f"PageSpec {order}\n核心问题：第 {order} 页的具体问题？\n实际上屏文字：真实屏幕文案 {order}\n{semantics}"
 
 

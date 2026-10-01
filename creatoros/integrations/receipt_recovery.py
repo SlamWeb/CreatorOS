@@ -155,7 +155,8 @@ def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> Verif
     expected_dir = (output_root / input_data.creator_id / input_data.series_id / run_id
                     / f"revision-{revision.revision_number:03d}"
                     / f"attempt-{attempt.attempt_number:03d}").resolve()
-    if attempt_path.is_symlink() or attempt_path.resolve() != expected_dir:
+    if (attempt_path.is_symlink() or attempt_path.resolve() != expected_dir
+            or not expected_dir.is_relative_to(output_root)):
         raise ValueError("source Attempt 路径越出 CreatorOS 输出目录。")
     attempt_dir = expected_dir
     run_root = attempt_dir.parent.parent
@@ -175,7 +176,7 @@ def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> Verif
         raise ValueError("source Attempt 的 storyboard.md 与 JSON 不一致。")
 
     thread_id = run.producer_thread_id
-    receipt_text, legacy = read_ledger_receipt(ledger.resolve(), thread_id)
+    receipt_text, legacy = read_ledger_receipt(ledger, thread_id)
     receipt_hash = hashlib.sha256(receipt_text.encode("utf-8")).hexdigest()
     differences = _check_echo(storyboard, legacy)
     visual = _visual_from_legacy(legacy)

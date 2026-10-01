@@ -7,6 +7,7 @@
 - 正式数据库主题 Run `5d51415b-ce24-4a98-83a1-09e61bee7ab4` 已恢复 Revision 2 / Attempt 1，11 张原图通过验收，状态 awaiting_approval（version 9）。Revision 1 保持 failed，无模型/生图调用、批准或发布；导入 Attempt usage=0 仅表示导入成本，不是原生成成本。
 - 正式恢复前已备份 `tmp/creatoros-before-receipt-recovery-20261001.db`，原始回执与来源保存在新 Attempt 的 receipt_recovery.json；原冻结 Skill / storyboard 和生成目录不覆盖。
 - 隔离 `smoke_receipt_recovery` 通过；正式 HTTP 11 个图片 URL 均 200。其他 Run 未变化，导入图片逐张与生成源 SHA256 一致，最终证据保留原 11 页内容原文。
+- 收尾复核补严格 resolve 后目录边界及 ledger 符号链接拒绝；恢复 smoke 重跑通过，原正式产物不再改写。
 
 ## SDK 生产全新 session（2026-10-01，完成）
 
