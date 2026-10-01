@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from PIL import Image
 
-from creatoros.config import DATABASE_URL, PROJECT_ROOT
+from creatoros.config import DATABASE_URL
 from creatoros.integrations.codex import (
     CodexRun,
     CodexSdkProducer,
@@ -30,6 +30,7 @@ from creatoros.integrations.skill_pair import (
     VisualReceipt,
     join_visual,
 )
+from creatoros.integrations.visual_production import build_receipt, normalize_refs
 from creatoros.runs import ContentRunError, ContentRunService
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.runs.models import ContentRunInput
@@ -53,7 +54,7 @@ class VerifiedSource:
     receipt_text: str
     legacy_receipt: dict
     storyboard: StoryboardReceipt
-    visual: VisualReceipt
+    visual: VisualReceipt | None
     joined: ProductionReceipt
     metadata_differences: tuple[str, ...]
     input: ContentRunInput
@@ -63,8 +64,8 @@ def read_ledger_receipt(ledger: Path, thread_id: str) -> tuple[str, dict]:
     """Read the final assistant output from the Codex session ledger for this thread."""
     if ledger.is_symlink() or not ledger.is_file():
         raise ValueError("Codex ledger 缺失或为符号链接。")
-    candidates: list[tuple[str, dict]] = []
     saw_thread = False
+    final_text: str | None = None
     with ledger.open("r", encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, 1):
             try:
@@ -80,18 +81,39 @@ def read_ledger_receipt(ledger: Path, thread_id: str) -> tuple[str, dict]:
             for part in payload.get("content", []):
                 if part.get("type") != "output_text" or not isinstance(part.get("text"), str):
                     continue
-                raw = part["text"]
-                try:
-                    value = json.loads(raw)
-                    _visual_from_legacy(value)
-                except Exception:
-                    continue
-                candidates.append((raw, value))
+                final_text = part["text"]
     if not saw_thread:
         raise ValueError("指定 ledger 中没有数据库记录的 source thread ID。")
-    if not candidates:
+    if final_text is None:
         raise ValueError("ledger 中没有可验证的完整视觉回执。")
-    return candidates[-1]
+    try:
+        value = json.loads(final_text)
+        _classify_response(value)
+    except Exception as error:
+        raise ValueError("ledger 最后一条 assistant response 不是受支持的完整视觉回执。") from error
+    return final_text, value
+
+
+def _classify_response(value: dict) -> str:
+    """Recognize only either the historical echoed receipt or known visual output."""
+    if not isinstance(value, dict) or not isinstance(value.get("pages"), list):
+        raise ValueError("ledger response lacks pages")
+    allowed_top = {"content_summary", "cards", "publish_copy", "sources", "research_brief",
+                   "causal_chain", "pages"}
+    if set(value) - allowed_top:
+        raise ValueError("unknown top-level receipt fields")
+    if value["pages"] and all(isinstance(page, dict) and "page_spec" in page for page in value["pages"]):
+        _visual_from_legacy(value)
+        return "legacy_echo"
+    plan_page_fields = {"order", "image_prompt", "reference_assets"}
+    rendered_page_fields = plan_page_fields | {"source_image_path", "warnings"}
+    if (not value["pages"] or any(not isinstance(page, dict)
+            or set(page) not in (plan_page_fields, rendered_page_fields) for page in value["pages"])
+            or len({tuple(sorted(page)) for page in value["pages"]}) != 1):
+        raise ValueError("unrecognized visual page schema")
+    if not {"cards", "publish_copy"}.issubset(value):
+        raise ValueError("missing legacy metadata fields needed to prove the known repair")
+    return "rendered_pages"
 
 
 def _visual_from_legacy(value: dict) -> VisualReceipt:
@@ -102,6 +124,78 @@ def _visual_from_legacy(value: dict) -> VisualReceipt:
         for page in value["pages"]
     ]
     return VisualReceipt.model_validate(payload)
+
+
+def _build_repaired_receipt(value: dict, storyboard: StoryboardReceipt, input_data: ContentRunInput,
+                            attempt_dir: Path) -> tuple[ProductionReceipt, tuple[str, ...]]:
+    """Repair only the documented blank display fields and known resource base."""
+    if _classify_response(value) != "rendered_pages":
+        raise ValueError("response is not the recognized rendered-pages shape")
+    if (set(value) - {"content_summary", "cards", "publish_copy", "sources", "research_brief",
+                      "causal_chain", "pages"}):
+        raise ValueError("视觉回执含未知字段，拒绝自动修复。")
+    orders = list(range(1, len(storyboard.pages) + 1))
+    pages = value["pages"]
+    cards = value["cards"]
+    publish = value["publish_copy"]
+    if len(pages) != len(orders) or len(cards) != len(orders):
+        raise ValueError("视觉回执页数、卡片数与原 storyboard 不一致。")
+    if [page.get("order") for page in pages] != orders or [card.get("order") for card in cards] != orders:
+        raise ValueError("视觉回执页序或卡片顺序与原 storyboard 不一致。")
+    if not isinstance(publish, dict) or not isinstance(publish.get("title"), str) \
+            or publish["title"].strip() or not isinstance(publish.get("body"), str) or publish["body"].strip():
+        raise ValueError("只有已知的空白发布 title/body 才允许从原内容生成草稿。")
+    if any(not isinstance(card.get("headline"), str) or card["headline"].strip() for card in cards):
+        raise ValueError("卡片 headline 并非已知的空白故障，拒绝覆盖。")
+    card_fields = {"order", "kind", "section", "headline", "body", "highlights", "visual_brief",
+                   "source_image_path"}
+    for card, page, content in zip(cards, pages, storyboard.pages):
+        if set(card) != card_fields or card["kind"] not in {"cover", "content", "summary", "sources", "cta"}:
+            raise ValueError(f"第 {page['order']} 页卡片结构超出已知故障范围。")
+        if card["body"] not in (None, "") or card["highlights"] != []:
+            raise ValueError(f"第 {page['order']} 页包含不应从视觉阶段导入的新增文字。")
+        if card["section"] not in (None, "") or card["visual_brief"] not in (None, ""):
+            raise ValueError(f"第 {page['order']} 页包含未核验的卡片元数据。")
+        source_image_path = page.get("source_image_path", card["source_image_path"])
+        if card["source_image_path"] != source_image_path:
+            raise ValueError(f"第 {page['order']} 页卡片图片与 rendered page 不一致。")
+        if page["image_prompt"] == "" or not isinstance(page["image_prompt"], str):
+            raise ValueError(f"第 {page['order']} 页实际生图 Prompt 缺失。")
+        if page.get("warnings", []) != []:
+            raise ValueError(f"第 {page['order']} 页包含未审阅 warnings，拒绝自动导入。")
+        if not isinstance(page["reference_assets"], list) or not page["reference_assets"]:
+            raise ValueError(f"第 {page['order']} 页参考资源缺失。")
+    if set(publish) != {"title", "body", "hashtags"} or publish["hashtags"] != []:
+        raise ValueError("发布文案含有未核验的额外字段，拒绝自动重建。")
+    if not isinstance(value.get("content_summary"), str) or value.get("sources") != []:
+        raise ValueError("视觉回执的摘要/来源结构超出已知旧 schema。")
+    # If the failed schema echoed research metadata, it must still exactly match Mind's source.
+    for key, expected in (("research_brief", storyboard.research_brief), ("causal_chain", storyboard.causal_chain)):
+        if key in value and value[key] != expected:
+            raise ValueError(f"视觉回执的 {key} 与原 storyboard 不一致。")
+
+    skill_root = attempt_dir / "skills" / "production"
+    rendered = []
+    differences = ["rebuilt blank card headlines and publish title/body as drafts from the frozen storyboard",
+                   "replaced visual-stage content summary with the frozen Mind research brief"]
+    for page, card in zip(pages, cards):
+        if page.get("warnings", []) != []:
+            raise ValueError(f"第 {page['order']} 页包含未审阅 warnings，拒绝自动导入。")
+        source_image_path = page.get("source_image_path", card["source_image_path"])
+        refs = page["reference_assets"]
+        if (not isinstance(refs, list) or len(refs) != 1
+                or any(ref not in {"assets/character.png", "skills/production/assets/character.png"}
+                       for ref in refs)):
+            raise ValueError(f"第 {page['order']} 页参考资源不是已知的角色路径。")
+        normalized = normalize_refs(refs, skill_root)
+        if normalized != refs:
+            differences.append(f"page {page['order']}: normalized the known skills/production asset prefix")
+        rendered.append({"order": page["order"], "image_prompt": page["image_prompt"],
+                         "reference_assets": page["reference_assets"],
+                         "source_image_path": source_image_path, "warnings": []})
+        rendered[-1]["reference_assets"] = normalized
+    receipt = build_receipt(storyboard, rendered, input_data.topic_title)
+    return receipt, tuple(dict.fromkeys(differences))
 
 
 def _check_echo(storyboard: StoryboardReceipt, legacy: dict) -> tuple[str, ...]:
@@ -134,6 +228,9 @@ def _check_echo(storyboard: StoryboardReceipt, legacy: dict) -> tuple[str, ...]:
 
 
 def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> VerifiedSource:
+    ledger = Path(ledger)
+    if ledger.is_symlink():
+        raise ValueError("Codex ledger 缺失或为符号链接。")
     run = service.get(run_id)
     if run.status is not ContentRunStatus.FAILED or run.error_type != "invalid_production_receipt":
         raise ValueError("仅允许恢复 invalid_production_receipt 的 failed Run。")
@@ -178,12 +275,17 @@ def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> Verif
     thread_id = run.producer_thread_id
     receipt_text, legacy = read_ledger_receipt(ledger, thread_id)
     receipt_hash = hashlib.sha256(receipt_text.encode("utf-8")).hexdigest()
-    differences = _check_echo(storyboard, legacy)
-    visual = _visual_from_legacy(legacy)
-    joined = join_visual(storyboard, visual)
+    response_kind = _classify_response(legacy)
+    if response_kind == "legacy_echo":
+        differences = _check_echo(storyboard, legacy)
+        visual = _visual_from_legacy(legacy)
+        joined = join_visual(storyboard, visual)
+    else:
+        visual = None
+        joined, differences = _build_repaired_receipt(legacy, storyboard, input_data, attempt_dir)
     if len(joined.cards) != len(storyboard.pages):
         raise ValueError("图片卡片数与 storyboard 页数不一致。")
-    _validate_refs(pair, joined, attempt_dir)
+    _validate_refs(joined, attempt_dir)
     return VerifiedSource(
         run_id=run_id, run_version=run.version, revision_number=revision.revision_number,
         attempt_id=attempt.id, attempt_directory=attempt_dir, run_root=run_root,
@@ -193,7 +295,7 @@ def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> Verif
     )
 
 
-def _validate_refs(pair, receipt: ProductionReceipt, attempt_dir: Path) -> None:
+def _validate_refs(receipt: ProductionReceipt, attempt_dir: Path) -> None:
     from creatoros.integrations.skill_pair import PairReceipt
 
     if not isinstance(receipt, PairReceipt):

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -110,6 +109,23 @@ def ledger_file(path: Path, receipt: dict) -> None:
     path.write_text(json.dumps(meta) + "\n" + json.dumps(response, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def current_visual_receipt(receipt: dict) -> dict:
+    value = dict(receipt)
+    pages = []
+    cards = []
+    for old_page, old_card in zip(receipt["pages"], receipt["cards"]):
+        pages.append({"order": old_page["order"], "image_prompt": old_page["image_prompt"],
+                      "reference_assets": ["skills/production/assets/character.png"]})
+        cards.append({"order": old_card["order"], "kind": old_card["kind"], "section": None,
+                      "headline": " ", "body": "", "highlights": [], "visual_brief": None,
+                      "source_image_path": old_card["source_image_path"]})
+    value["pages"] = pages
+    value["cards"] = cards
+    value["publish_copy"] = {"title": " ", "body": " ", "hashtags": []}
+    value["content_summary"] = "官方来源"
+    return value
+
+
 def main():
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -159,6 +175,39 @@ def main():
         inspected = inspect_recovery(service, run.id, ledger, producer)
         assert len(inspected.joined.cards) == 11
         assert inspected.metadata_differences == ("page 1: approved Visual Semantics echo wording only",)
+
+        current = current_visual_receipt(initial)
+        current_ledger = root / "current-visual.jsonl"
+        ledger_file(current_ledger, current)
+        imported = inspect_recovery(service, run.id, current_ledger, producer)
+        assert len(imported.joined.cards) == 11
+        assert imported.visual is None
+        assert imported.joined.cards[0].headline == "第 1 页"
+        assert imported.joined.publish_copy.title == "数据库知识"
+        assert imported.joined.publish_copy.body == "发布文案草稿（待人工编辑）\n" + storyboard.research_brief
+        assert imported.joined.pages[0].reference_assets == ["assets/character.png"]
+        assert any("normalized the known" in item for item in imported.metadata_differences)
+        for mutate in (
+            lambda value: value["cards"][0].update(headline="未知新标题"),
+            lambda value: value["cards"][0].update(body="改写教学内容"),
+            lambda value: value["pages"][0].update(reference_assets=["skills/production/elsewhere.png"]),
+            lambda value: value["pages"][0].update(warnings=["quality warning"]),
+            lambda value: value["cards"][0].update(source_image_path="other.png"),
+        ):
+            broken = json.loads(json.dumps(current))
+            mutate(broken)
+            bad = root / "bad-current.jsonl"
+            ledger_file(bad, broken)
+            rejects(lambda: inspect_recovery(service, run.id, bad, producer))
+            assert len(service.repository.list_revisions(run.id)) == 1
+        stale = root / "stale-then-invalid.jsonl"
+        ledger_file(stale, current)
+        with stale.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "response_item", "payload": {
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "已完成。"}]}}) + "\n")
+        rejects(lambda: inspect_recovery(service, run.id, stale, producer))
+        assert len(service.repository.list_revisions(run.id)) == 1
         rejects(lambda: recover_existing_receipt(
             service, run.id, ledger, expected_version=failed.version,
             accept_receipt_sha256="0" * 64, producer=producer))
