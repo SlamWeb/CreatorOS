@@ -1,5 +1,13 @@
 # ContentRun SPEC
 
+## 已完成图片的显式回执恢复（2026-10-01）
+
+- 恢复不是重新调用模型或恢复旧 thread 推理：人工核对原 ledger 最终 JSON、原 storyboard、冻结 Skill 和实际图片后，通过既有 guard / request_revision / claim / execute_claimed 导入新 Revision。旧失败 Attempt 保持原样，仍需人工批准。
+- 专用维护入口 `python -m creatoros.integrations.receipt_recovery --run-id ... --ledger ...` 默认 dryrun；`--apply` 必须提供所见 version 和接受的 receipt SHA256。只支持 invalid_production_receipt 的失败双 Skill Run，拒绝改动教学/屏幕文字、缺页/坏图/越界路径/错误资源。
+- 正式数据库主题 Run `5d51415b-ce24-4a98-83a1-09e61bee7ab4` 已恢复 Revision 2 / Attempt 1，11 张原图通过验收，状态 awaiting_approval（version 9）。Revision 1 保持 failed，无模型/生图调用、批准或发布；导入 Attempt usage=0 仅表示导入成本，不是原生成成本。
+- 正式恢复前已备份 `tmp/creatoros-before-receipt-recovery-20261001.db`，原始回执与来源保存在新 Attempt 的 receipt_recovery.json；原冻结 Skill / storyboard 和生成目录不覆盖。
+- 隔离 `smoke_receipt_recovery` 通过；正式 HTTP 11 个图片 URL 均 200。其他 Run 未变化，导入图片逐张与生成源 SHA256 一致，最终证据保留原 11 页内容原文。
+
 ## SDK 生产全新 session（2026-10-01，完成）
 
 - SDK 每个 Attempt 新建会话，双 Skill 是 Mind / Visual 两个独立会话；旧 CLI resume 行为保持兼容。下方旧 SDK 同 thread 恢复约定由本节替代。

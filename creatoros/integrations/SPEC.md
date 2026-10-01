@@ -8,6 +8,7 @@
 - 后续独立步骤：逐页回执 checkpoint 与缺页恢复、并发 2 的渲染调度。此处尚未实现，不把指示模型并行等同宿主有可靠并发；本轮恢复原图不调用生图或批准/发布。
 - 既有原图恢复采用显式人工核对的回执、原冻结 Skill 和原内容，通过现有 Run guard/Revision/验收服务写新版本；原失败 Attempt 不覆盖。恢复是否实际执行与结果单独补录。
 - 第一步验证：`smoke_production_sessions`、`smoke_pair_production`、`smoke_codex_producer` 通过；覆盖内容原件 join、额外改稿字段拒绝、缺页拒绝、最终回执保存与既有审批摘要。故障注入无费用，不冒充真实新生图。
+- 原图恢复已完成：维护工具 `receipt_recovery` dryrun + 显式 version/hash 接受后，现有数据库主题 11 张原图进入新 Revision 2 待人工批准。原失败记录保留，原内容不改，11 个 HTTP 图片 URL 返回 200；隔离恢复负例、原图字节和其他 Run 审计通过。没有重新生成或自动批准；详情见 runs SPEC。
 
 ## 独立生产 session 与双 Skill 分阶段（2026-10-01，完成）
 
