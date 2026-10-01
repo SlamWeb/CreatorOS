@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
+from creatoros.integrations.production_progress import ProductionProgress
 
 from creatoros.storage import (
     ContentAttempt,
@@ -259,6 +260,7 @@ class StudioQueryService:
                     for revision in revisions
                 ],
                 events_url=f"/api/runs/{run_id}/events",
+                production_progress=self._production_progress(run, revisions, attempts),
             )
             publication = session.scalar(select(ManualPublication).where(ManualPublication.content_run_id == run_id))
             if publication is not None:
@@ -279,6 +281,32 @@ class StudioQueryService:
                     for key, value in self.artifacts.projection(run_id, revision.id).items():
                         setattr(revision, key, value)
         return detail
+
+    def _production_progress(self, run, revisions, attempts) -> ProductionProgress | None:
+        if self.artifacts is None:
+            return None
+        revision = next((r for r in revisions if r.revision_number == run.active_revision_number), None)
+        current = [a for a in attempts if revision and a.revision_id == revision.id]
+        if not current:
+            return None
+        attempt = max(current, key=lambda a: a.attempt_number)
+        if not attempt.output_directory:
+            return None
+        base = self.artifacts.output_root
+        data = run.input_snapshot_json
+        expected = (base / data.get("creator_id", "") / data.get("series_id", "") / run.id
+                    / f"revision-{revision.revision_number:03d}" / f"attempt-{attempt.attempt_number:03d}")
+        root = Path(attempt.output_directory)
+        path = root / "production_progress.json"
+        try:
+            if (root.is_symlink() or root.resolve() != expected.resolve()
+                    or not path.resolve().is_relative_to(base)
+                    or path.is_symlink() or path.stat().st_size > 16_384):
+                return None
+            return ProductionProgress.model_validate_json(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            # Legacy/malformed telemetry must never prevent access to the actual Run.
+            return None
 
     def list_operations(self, *, offset: int, limit: int) -> PageResponse[PendingOperationView]:
         with self.database.session() as session:

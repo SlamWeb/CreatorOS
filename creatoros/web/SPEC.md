@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 生产阶段进度投影（2026-10-01）
+
+- RunDetail 增加可选 production_progress：阶段、阶段状态、开始/最近活动时间、安全事件/活动分类、已完成工具调用数及已知内容页数。由活跃 Revision 最新 Attempt 的 sidecar 提供；不是 workflow 真相，不改变 version/lease，不消费模型原文。
+- 只从服务 output_root 中该 Run/Revision/Attempt 的明确目录读有限大小 JSON；缺失、损坏、越界、符号链接或旧版没有字段时返回 null，不因此阻断 Run 访问。新 Revision 未执行时不串用旧版进度。
+- 沿用前端活跃 Run 的两秒查询刷新和状态 SSE；不新增 event enum 或数据库迁移。SSE 连接状态只表示观察连接，不代表生产活跃。
+- 隔离 `smoke_studio_production_progress` 通过 HTTP/SQLite，覆盖旧数据、正常投影、秘密不泄漏、坏 JSON/路径拒绝、换版不串用及读取无写入；原 studio_api/run_api/executor/artifacts 回归通过。
+
 ## 本地 Skill 目录接入（2026-10-01）
 
 - Skill 列表提供当前文件元数据与 `local_path`。组合创建/改绑及单 Skill 绑定接受已登记路径，规范化为原目录 ID，保留 Web/Agent 与旧数据库兼容。

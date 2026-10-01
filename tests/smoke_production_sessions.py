@@ -1,11 +1,13 @@
 """Transport/fault tests for production boundaries; real SDK probe is separate."""
 import asyncio
 import json
-from threading import Event
+from threading import Event, Timer
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest.mock import patch
+
+from openai_codex.generated import v2_all as sdk_types
+from openai_codex.models import Notification
 
 from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError, PRODUCTION_CONFIG
 from creatoros.integrations.skill_pair import StoryboardReceipt, VisualReceipt, join_visual, mind_prompt, visual_prompt
@@ -22,6 +24,7 @@ class Transport:
     fail_visual = False
     change_page = False
     slow = False
+    interrupted = []
 
     def __init__(self, config):
         assert config.config_overrides == PRODUCTION_CONFIG
@@ -48,9 +51,11 @@ class Transport:
                 Transport.calls.append((inner.id, inputs, controls))
                 name = inputs[1].name
                 class Turn:
+                    id = "turn"
+
                     async def interrupt(self):
-                        pass
-                    async def run(self):
+                        Transport.interrupted.append(self)
+                    async def stream(self):
                         if Transport.slow:
                             await asyncio.sleep(0.1)
                         if name == "mind":
@@ -68,16 +73,41 @@ class Transport:
                                                      reference_assets=["assets/character.png"]) for p in STORY.pages])
                             if Transport.change_page:
                                 value["pages"][0]["page_spec"] = "rewritten content"
-                        return SimpleNamespace(final_response=json.dumps(value, ensure_ascii=False),
-                                               usage=None, id="turn", status="completed")
+                        final_text = json.dumps(value, ensure_ascii=False)
+                        usage = sdk_types.ThreadTokenUsageUpdatedNotification.model_validate({
+                            "threadId": inner.id, "turnId": "turn",
+                            "tokenUsage": {
+                                "last": {"inputTokens": 4, "cachedInputTokens": 0,
+                                         "outputTokens": 2, "reasoningOutputTokens": 0, "totalTokens": 6},
+                                "total": {"inputTokens": 4, "cachedInputTokens": 0,
+                                          "outputTokens": 2, "reasoningOutputTokens": 0, "totalTokens": 6},
+                            },
+                        })
+                        yield Notification("item/agentMessage/delta", sdk_types.AgentMessageDeltaNotification(
+                            threadId=inner.id, turnId="turn", itemId="assistant-final", delta=final_text))
+                        yield Notification("item/completed", sdk_types.ItemCompletedNotification.model_validate({
+                            "threadId": inner.id, "turnId": "turn", "completedAtMs": 1,
+                            "item": {"type": "agentMessage", "id": "assistant-final",
+                                     "phase": "final_answer", "text": final_text},
+                        }))
+                        yield Notification("item/commandExecution/outputDelta",
+                                           sdk_types.CommandExecutionOutputDeltaNotification.model_validate({
+                                               "threadId": inner.id, "turnId": "turn",
+                                               "itemId": "tool-1", "delta": "PRIVATE_TOOL_OUTPUT",
+                                           }))
+                        yield Notification("thread/tokenUsage/updated", usage)
+                        yield Notification("turn/completed", sdk_types.TurnCompletedNotification.model_validate({
+                            "threadId": inner.id,
+                            "turn": {"id": "turn", "status": "completed", "items": []},
+                        }))
                 return Turn()
         return Thread()
 
 
-def execute(producer, directory, refs):
+def execute(producer, directory, refs, *, cancel_event=None):
     directory.mkdir()
     return producer._execute(json.dumps({"topic_title": "消息队列", "topic_brief": "零基础到面试"}), directory,
-                             thread_id="OLD_TASK_DO_NOT_RESUME", skill_refs=refs)
+                             thread_id="OLD_TASK_DO_NOT_RESUME", skill_refs=refs, cancel_event=cancel_event)
 
 
 def main():
@@ -113,8 +143,11 @@ def main():
             except CodexProducerError:
                 assert StoryboardReceipt.model_validate_json((root / "failed/storyboard.json").read_text()) == STORY
                 assert (root / "failed/storyboard.md").read_text(encoding="utf-8").startswith("Page 1")
+                assert json.loads((root / "failed/production_progress.json").read_text())["status"] == "failed"
                 events = [json.loads(line) for line in (root / "failed/codex_trace.jsonl").read_text().splitlines()]
                 assert events[-1]["type"] == "stage.failed" and events[-1]["stage"] == "visual"
+                failed_metadata = (root / "failed/production_progress.json").read_text() + (root / "failed/codex_trace.jsonl").read_text()
+                assert "Injected visual failure" not in failed_metadata and "PRIVATE_TOOL_OUTPUT" not in failed_metadata
             Transport.fail_visual = False
             Transport.change_page = True
             try:
@@ -141,6 +174,18 @@ def main():
             except CodexProducerError as error:
                 assert error.error_type == "codex_interrupted" and len(Transport.calls) == before
             Transport.slow = True
+            producer.timeout_seconds = 10
+            active_cancel = Event()
+            timer = Timer(0.02, active_cancel.set)
+            timer.start()
+            try:
+                execute(producer, root / "active-cancel", refs, cancel_event=active_cancel)
+                raise AssertionError("Active cancellation must stop the production stage")
+            except CodexProducerError as error:
+                assert error.error_type == "codex_interrupted"
+                assert json.loads((root / "active-cancel/production_progress.json").read_text())["status"] == "interrupted"
+            finally:
+                timer.cancel()
             producer.timeout_seconds = 0
             try:
                 execute(producer, root / "timeout", refs)
@@ -148,7 +193,9 @@ def main():
             except CodexProducerError as error:
                 assert error.error_type == "codex_timeout"
                 assert not (root / "timeout/visual_request.txt").exists()
-    print("production_sessions_smoke=passed fresh_threads isolated_skills handoff failures timeout unchanged_pages")
+                assert Transport.interrupted
+                assert json.loads((root / "timeout/production_progress.json").read_text())["status"] == "failed"
+    print("production_sessions_smoke=passed fresh_threads isolated_skills handoff failures cancel timeout unchanged_pages")
 
 
 if __name__ == "__main__":

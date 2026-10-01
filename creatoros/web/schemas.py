@@ -6,6 +6,7 @@ from typing import Any, Generic, TypeVar, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.operations.models import OperationPlan
+from creatoros.integrations.production_progress import ProductionProgress
 
 
 class ApiModel(BaseModel):
@@ -187,6 +188,7 @@ class RunDetail(RunSummary):
     revisions: list[RevisionView]
     events_url: str
     publication: ManualPublicationView | None = None
+    production_progress: ProductionProgress | None = None
 
 
 class ManualPublicationRequest(ApiModel):

@@ -143,7 +143,19 @@ export interface RunDetail extends RunSummary {
   producer_thread_id: string | null;
   revisions: RevisionView[];
   events_url: string;
+  production_progress?: ProductionProgressView | null;
   publication: ManualPublicationView | null;
+}
+
+export interface ProductionProgressView {
+  stage: "mind" | "visual" | "production";
+  status: "running" | "completed" | "failed" | "interrupted";
+  started_at: string;
+  last_activity_at: string;
+  last_event: string;
+  activity: "thinking" | "reading" | "searching" | "tool_running" | "responding" | "waiting" | "completed" | "failed";
+  completed_tool_calls: number;
+  total_pages: number | null;
 }
 
 export interface ManualPublicationView {

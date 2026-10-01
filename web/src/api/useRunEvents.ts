@@ -6,13 +6,13 @@ import type { RunEventView } from "./types";
 export function useRunEvents(runId: string) {
   const queryClient = useQueryClient();
   const [events, setEvents] = useState<RunEventView[]>([]);
-  const [connection, setConnection] = useState("正在连接进度…");
+  const [connection, setConnection] = useState("状态连接中…");
   useEffect(() => {
     let disposed = false;
     let cursor = 0;
     let polling = false;
     setEvents([]);
-    setConnection("正在连接进度…");
+    setConnection("状态连接中…");
     const merge = (items: RunEventView[]) => {
       if (disposed || !items.length) return;
       cursor = Math.max(cursor, ...items.map((item) => item.id));
@@ -41,7 +41,7 @@ export function useRunEvents(runId: string) {
     void poll();
     const source = new EventSource(apiUrl(`/api/runs/${encodeURIComponent(runId)}/events/stream`));
     source.addEventListener("snapshot", () => {
-      if (!disposed) { setConnection("进度已连接"); refresh(); }
+      if (!disposed) { setConnection("状态连接正常"); refresh(); }
     });
     source.addEventListener("run_event", (message) => {
       if (disposed) return;
@@ -52,7 +52,7 @@ export function useRunEvents(runId: string) {
         refresh();
       } catch { void poll(); }
     });
-    source.onerror = () => { if (!disposed) setConnection("进度重连中 · 轮询仍在更新"); };
+    source.onerror = () => { if (!disposed) setConnection("状态重连中"); };
     const timer = window.setInterval(() => { if (document.visibilityState === "visible") void poll(); }, 10_000);
     return () => { disposed = true; source.close(); window.clearInterval(timer); };
   }, [queryClient, runId]);

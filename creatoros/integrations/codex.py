@@ -649,6 +649,7 @@ class CodexSdkProducer(CodexProducer):
                 visual_prompt(visual[0], storyboard), working_directory,
                 skill_name=visual[0], skill_path=visual[1], receipt_model=VisualReceipt,
                 stage="visual", on_thread_started=on_thread_started, cancel_event=cancel_event,
+                total_pages=len(storyboard.pages),
             )
             try:
                 receipt = join_visual(storyboard, rendered.receipt)
@@ -667,6 +668,7 @@ class CodexSdkProducer(CodexProducer):
         self, prompt: str, working_directory: Path, *, skill_name: str, skill_path: Path | None,
         receipt_model: type[ProductionModel], stage: str,
         on_thread_started: Callable[[str], None] | None, cancel_event: threading.Event | None,
+        total_pages: int | None = None,
     ) -> CodexRun:
         try:
             from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox, SkillInput, TextInput
@@ -685,9 +687,11 @@ class CodexSdkProducer(CodexProducer):
                    "相对资源路径基于它所在的目录，不要去全局目录寻找同名 Skill。")
         (working_directory / f"{stage}_request.txt").write_text(prompt, encoding="utf-8")
         inputs = [TextInput(text=prompt), SkillInput(name=skill_name, path=str(skill_path.resolve()))]
+        from .production_progress import ProgressWriter, collect_observed_turn
+        progress = ProgressWriter(working_directory, stage, total_pages)
         def trace(event: dict) -> None:
             with (working_directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"stage": stage, **event}, ensure_ascii=False) + "\n")
+                stream.write(json.dumps({"stage": stage, "at": datetime.now().astimezone().isoformat(), **event}, ensure_ascii=False) + "\n")
         try:
             async with AsyncCodex(CodexConfig(config_overrides=PRODUCTION_CONFIG)) as codex:
                 thread = await codex.thread_start(
@@ -709,7 +713,7 @@ class CodexSdkProducer(CodexProducer):
                     output_schema=receipt_model.model_json_schema(),
                     sandbox=Sandbox.read_only,
                 )
-                task = asyncio.create_task(turn.run())
+                task = asyncio.create_task(collect_observed_turn(turn, progress))
                 started = monotonic()
                 interruption: str | None = None
                 while not task.done():
@@ -731,9 +735,11 @@ class CodexSdkProducer(CodexProducer):
                     raise CodexProducerError(message, error_type=interruption)
                 result = await task
         except CodexProducerError as error:
+            progress.finish("interrupted" if error.error_type == "codex_interrupted" else "failed")
             trace({"type": "stage.failed", "error_type": error.error_type})
             raise
         except Exception as error:
+            progress.finish("failed")
             message = str(error) or error.__class__.__name__
             error_type = "codex_usage_limit" if "usage limit" in message.lower() else "codex_sdk_failed"
             trace({"type": "stage.failed", "error_type": error_type})
@@ -749,14 +755,17 @@ class CodexSdkProducer(CodexProducer):
         # Preserve the actual final answer even if schema/host validation fails.
         (working_directory / f"{stage}_response.txt").write_text(final_text, encoding="utf-8")
         if not final_text:
+            progress.finish("failed")
             raise CodexProducerError("Codex SDK 未返回最终生产回执。", error_type="codex_protocol_error")
         try:
             receipt = receipt_model.model_validate_json(final_text)
         except Exception as error:
+            progress.finish("failed")
             raise CodexProducerError(
                 f"Codex SDK 生产回执不符合约定：{error}",
                 error_type="invalid_production_receipt",
             ) from error
+        progress.finish("completed")
         return CodexRun(thread.id, receipt, usage)
 
     @staticmethod
