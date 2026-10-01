@@ -1,5 +1,14 @@
 # External Integrations SPEC
 
+## 生产可观测与已完成回执恢复（2026-10-01）
+
+- 已确认故障：数据库主题 Run `5d51415b-ce24-4a98-83a1-09e61bee7ab4` 实际完成 11 张图片，但视觉阶段重复抄写 PageSpec 时把“沿调用流程”写为“按调用流程”，整组被逐字比对拒绝。不是生图仍在运行。
+- 第一步：视觉输出改为 VisualReceipt，仅拥有页码、实际 Prompt、参考资源和图片；宿主用原 Storyboard 按序 join 成兼容 PairReceipt。缺页、乱序、重复图片、缺参考仍拒绝，原内容稿/审批摘要不放松。每阶段最终原始回复先保存 response.txt，即使后续 schema 失败也保留。
+- 第二步（实施中）：单消费者 SDK stream 记录安全事件元数据，并投影当前阶段/最近活动到 Run 页面；执行 heartbeat 与观察连接不冒充实际生产进度。不输出模型内部思考、原始工具正文或敏感参数，不造百分比。
+- 后续独立步骤：逐页回执 checkpoint 与缺页恢复、并发 2 的渲染调度。此处尚未实现，不把指示模型并行等同宿主有可靠并发；本轮恢复原图不调用生图或批准/发布。
+- 既有原图恢复采用显式人工核对的回执、原冻结 Skill 和原内容，通过现有 Run guard/Revision/验收服务写新版本；原失败 Attempt 不覆盖。恢复是否实际执行与结果单独补录。
+- 第一步验证：`smoke_production_sessions`、`smoke_pair_production`、`smoke_codex_producer` 通过；覆盖内容原件 join、额外改稿字段拒绝、缺页拒绝、最终回执保存与既有审批摘要。故障注入无费用，不冒充真实新生图。
+
 ## 独立生产 session 与双 Skill 分阶段（2026-10-01，完成）
 
 - 用户确认：Mind 只调研并交付内容 pages；视觉 Skill 只负责 IP/视觉化。SDK 默认生产不再一个 turn 同时注入两个 Skill。

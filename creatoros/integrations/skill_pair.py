@@ -70,6 +70,28 @@ class PairReceipt(ProductionReceipt):
         return self
 
 
+class VisualPage(ProductionModel):
+    order: int = Field(ge=1)
+    image_prompt: str = Field(min_length=1)
+    reference_assets: list[str] = Field(min_length=1)
+
+
+class VisualReceipt(ProductionReceipt):
+    """Visual output owns presentation evidence, never a second copy of content."""
+    pages: list[VisualPage] = Field(min_length=1)
+
+
+def join_visual(storyboard: StoryboardReceipt, visual: VisualReceipt) -> PairReceipt:
+    if [p.order for p in visual.pages] != [p.order for p in storyboard.pages]:
+        raise ValueError("视觉回执与内容 pages 的页数/顺序不一致。")
+    return PairReceipt.model_validate({
+        **visual.model_dump(), "research_brief": storyboard.research_brief,
+        "causal_chain": storyboard.causal_chain,
+        "pages": [{**v.model_dump(), "page_spec": p.page_spec}
+                  for p, v in zip(storyboard.pages, visual.pages)],
+    })
+
+
 class PairEvidence(ProductionModel):
     composition: SkillPair
     prompt_provenance: Literal["producer_reported_not_image_service_verified"]
@@ -171,8 +193,9 @@ def visual_prompt(name: str, storyboard: StoryboardReceipt) -> str:
         f"@{name} 用这个视觉 Skill 把下面整套 pages 可视化，读取并使用这个 Skill。\n"
         "保持内容、页序和跨页连续性，不重新调研或改写教学逻辑。"
         "实际查看并传入 assets/character.png 作为每页生图参考，transparent_background=false。\n"
-        "真实调用生图工具完成全部图片；回执逐页保留原 page_spec、真正提交工具的 image_prompt、"
+        "真实调用生图工具完成全部图片；回执只返回页码、真正提交工具的 image_prompt、"
         "相对 reference_assets 和工具返回的 source_image_path。不要发布，不写最终 Manifest。"
+        "不要重复抄写 page_spec、research_brief 或 causal_chain，系统会保留内容原件并按页码关联。"
         "只有全部图片完成才返回约定 JSON；不能用占位图、代码绘图或 HTML 截图代替生图。\n"
         + storyboard.model_dump_json(indent=2)
     )

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError, PRODUCTION_CONFIG
-from creatoros.integrations.skill_pair import StoryboardReceipt, mind_prompt, visual_prompt
+from creatoros.integrations.skill_pair import StoryboardReceipt, VisualReceipt, join_visual, mind_prompt, visual_prompt
 
 STORY = StoryboardReceipt.model_validate({
     "research_brief": "official sources", "causal_chain": "消息是什么 → 怎样交接 → 为什么会重复",
@@ -64,8 +64,7 @@ class Transport:
                                           source_image_path=f"C:/unused/{p.order}.png") for p in STORY.pages]
                             value = dict(content_summary="summary", cards=cards,
                                          publish_copy=dict(title="MQ", body="body", hashtags=[]), sources=[],
-                                         research_brief=STORY.research_brief, causal_chain=STORY.causal_chain,
-                                         pages=[dict(order=p.order, page_spec=p.page_spec, image_prompt=f"prompt {p.order}",
+                                         pages=[dict(order=p.order, image_prompt=f"prompt {p.order}",
                                                      reference_assets=["assets/character.png"]) for p in STORY.pages])
                             if Transport.change_page:
                                 value["pages"][0]["page_spec"] = "rewritten content"
@@ -99,6 +98,8 @@ def main():
             for index in (1, 2):
                 run = execute(producer, root / f"attempt-{index}", refs)
                 assert run.thread_id == f"fresh-{index * 2}"
+                assert [p.page_spec for p in run.receipt.pages] == [p.page_spec for p in STORY.pages]
+                assert (root / f"attempt-{index}/visual_response.txt").is_file()
             assert [c[1][1].name for c in Transport.calls] == ["mind", "xiaobai", "mind", "xiaobai"]
             assert len({c[0] for c in Transport.calls}) == 4
             for _, inputs, _ in Transport.calls:
@@ -122,6 +123,13 @@ def main():
             except CodexProducerError as error:
                 assert error.error_type == "invalid_production_receipt"
             Transport.change_page = False
+            value = json.loads((root / "attempt-1/visual_response.txt").read_text(encoding="utf-8"))
+            value["pages"].pop()
+            try:
+                join_visual(STORY, VisualReceipt.model_validate(value))
+                raise AssertionError("Missing visual page must be rejected before materialization")
+            except ValueError:
+                pass
             stopped = Event()
             stopped.set()
             cancelled = root / "cancelled"

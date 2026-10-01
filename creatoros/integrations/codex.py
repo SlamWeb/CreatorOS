@@ -634,7 +634,7 @@ class CodexSdkProducer(CodexProducer):
         # Session IDs are audit handles, never implicit production inputs.
         del thread_id
         if skill_refs:
-            from .skill_pair import PairReceipt, StoryboardReceipt, mind_prompt, visual_prompt
+            from .skill_pair import StoryboardReceipt, VisualReceipt, join_visual, mind_prompt, visual_prompt
             mind, visual = skill_refs
             content = await self._execute_stage_async(
                 mind_prompt(mind[0], prompt), working_directory,
@@ -647,15 +647,13 @@ class CodexSdkProducer(CodexProducer):
                 "\n\n---\n\n".join(p.page_spec for p in storyboard.pages), encoding="utf-8")
             rendered = await self._execute_stage_async(
                 visual_prompt(visual[0], storyboard), working_directory,
-                skill_name=visual[0], skill_path=visual[1], receipt_model=PairReceipt,
+                skill_name=visual[0], skill_path=visual[1], receipt_model=VisualReceipt,
                 stage="visual", on_thread_started=on_thread_started, cancel_event=cancel_event,
             )
-            if ([(p.order, p.page_spec) for p in rendered.receipt.pages]
-                    != [(p.order, p.page_spec) for p in storyboard.pages]):
-                raise CodexProducerError("视觉阶段改变了内容 pages。", error_type="invalid_production_receipt")
-            receipt = PairReceipt.model_validate({**rendered.receipt.model_dump(),
-                                                 "research_brief": storyboard.research_brief,
-                                                 "causal_chain": storyboard.causal_chain})
+            try:
+                receipt = join_visual(storyboard, rendered.receipt)
+            except ValueError as error:
+                raise CodexProducerError(str(error), error_type="invalid_production_receipt") from error
             usage = CodexUsage(**{k: getattr(content.usage, k) + getattr(rendered.usage, k)
                                   for k in CodexUsage.model_fields})
             return CodexRun(rendered.thread_id, receipt, usage)
@@ -748,6 +746,8 @@ class CodexSdkProducer(CodexProducer):
         })
 
         final_text = result.final_response or ""
+        # Preserve the actual final answer even if schema/host validation fails.
+        (working_directory / f"{stage}_response.txt").write_text(final_text, encoding="utf-8")
         if not final_text:
             raise CodexProducerError("Codex SDK 未返回最终生产回执。", error_type="codex_protocol_error")
         try:
