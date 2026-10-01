@@ -144,7 +144,14 @@ export interface RunDetail extends RunSummary {
   revisions: RevisionView[];
   events_url: string;
   production_progress?: ProductionProgressView | null;
+  partial_cards?: PartialCardView[];
   publication: ManualPublicationView | null;
+}
+
+export interface PartialCardView {
+  order: number;
+  image_url: string;
+  warnings: string[];
 }
 
 export interface ProductionProgressView {
@@ -156,6 +163,10 @@ export interface ProductionProgressView {
   activity: "thinking" | "reading" | "searching" | "tool_running" | "responding" | "waiting" | "completed" | "failed";
   completed_tool_calls: number;
   total_pages: number | null;
+  phase: "planning" | "rendering" | "assembling" | null;
+  current_page: number | null;
+  completed_pages: number;
+  page_attempt: number;
 }
 
 export interface ManualPublicationView {

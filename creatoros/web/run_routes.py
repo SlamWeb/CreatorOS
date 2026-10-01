@@ -28,6 +28,12 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
         raw, mime = artifacts.image(run_id, revision_id, order, digest=digest, checksum=checksum)
         return Response(raw, media_type=mime, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
+    @router.get("/{run_id}/partial-cards/{order}")
+    def partial_image(run_id: str, order: Annotated[int, Path(ge=1)],
+                      checksum: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")]):
+        raw, mime = artifacts.partial_image(run_id, order, checksum=checksum)
+        return Response(raw, media_type=mime, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
     @router.post("/{run_id}/approve", response_model=RunDetail)
     def approve(run_id: str, payload: RunApproveRequest):
         try:

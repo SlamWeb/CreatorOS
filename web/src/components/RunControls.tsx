@@ -8,6 +8,7 @@ const activityLabels = {
   thinking: "思考中", reading: "阅读资料", searching: "搜索中", tool_running: "工具执行中",
   responding: "正在整理回复", waiting: "等待中", completed: "已完成", failed: "失败",
 } as const;
+const phaseLabels = { planning: "准备内容", rendering: "逐页制图", assembling: "整理产物" } as const;
 
 export function RunControls({ run }: { run: RunDetail }) {
   const queryClient = useQueryClient();
@@ -33,6 +34,7 @@ export function RunControls({ run }: { run: RunDetail }) {
     {progress ? <div className="muted" aria-label="生产阶段进度">
       <p>{stageLabels[progress.stage]} · {collectingReceipt ? "正在整理回执/验收" : ({ running: "进行中", completed: "阶段已完成", failed: "阶段失败", interrupted: "阶段中断" } as const)[progress.status]}</p>
       <p>{collectingReceipt ? "回执/验收整理中" : activityLabels[progress.activity]} · 最近活动 {noRecentActivity ? `暂无新活动 · ${new Date(lastActivity).toLocaleString("zh-CN")}` : Number.isFinite(lastActivity) ? new Date(lastActivity).toLocaleString("zh-CN") : "时间未记录"}</p>
+      {progress.phase ? <p>{phaseLabels[progress.phase]}{progress.current_page !== null ? ` · 第 ${progress.current_page} 页` : ""}{progress.page_attempt > 0 ? ` · 第 ${progress.page_attempt} 次尝试` : ""} · 已完成 {progress.completed_pages} 页</p> : progress.completed_pages > 0 ? <p>已完成 {progress.completed_pages} 页</p> : null}
       {progress.total_pages !== null ? <p>共 {progress.total_pages} 页</p> : null}
       <p>已完成工具调用 {progress.completed_tool_calls} 次</p>
     </div> : hasProductionHistory ? <p className="muted">未记录阶段进度</p> : null}

@@ -280,6 +280,7 @@ class StudioQueryService:
                 if revision.artifact_available or revision.artifact_digest:
                     for key, value in self.artifacts.projection(run_id, revision.id).items():
                         setattr(revision, key, value)
+            detail.partial_cards = self.artifacts.partial_cards(run_id)
         return detail
 
     def _production_progress(self, run, revisions, attempts) -> ProductionProgress | None:

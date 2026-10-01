@@ -327,6 +327,14 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: var(--rin
 .carousel-thumbnails span { font-size: 12px; display: block; margin-top: 5px; }
 .file-check { margin: 10px 0; color: var(--success); font-size: 14px; line-height: 1.8; }
 .file-check span { color: var(--muted); display: block; }
+.visual-section-title { margin: 0 0 12px; font-size: 16px; font-weight: 550; }
+.partial-previews { margin-top: 20px; }
+.partial-previews > h2 { margin: 0 0 12px; font-size: 16px; font-weight: 550; }
+.partial-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; }
+.partial-preview-card { min-width: 0; margin: 0; padding: 12px; border-radius: var(--radius-lg); background: var(--surface); }
+.partial-preview-card figcaption { margin-bottom: 10px; color: var(--muted); font-size: 13px; }
+.partial-preview-card img { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); }
+.partial-preview-card ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .content-summary { margin: 0 0 20px; font-size: 14px; color: var(--muted); line-height: 1.8; }
 .publication { padding: 22px; border: 0; background: var(--surface); border-radius: var(--radius-lg); }
 .publication-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }

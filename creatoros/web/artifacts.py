@@ -15,7 +15,7 @@ from creatoros.runs.models import ContentRunInput
 from creatoros.storage import ContentAttempt, ContentRevision, ContentRun
 from sqlalchemy import select
 
-from .schemas import CardView, PublishCopyView, SourceView
+from .schemas import CardView, PartialCardView, PublishCopyView, SourceView
 
 
 class StudioArtifacts:
@@ -116,6 +116,105 @@ class StudioArtifacts:
             raise
         except (OSError, ValueError, Image.DecompressionBombError) as error:
             raise ContentRunError("图片不可读取，请检查文件或提出返工。", code="artifact_unavailable") from error
+
+    def partial_cards(self, run_id: str) -> list[PartialCardView]:
+        """Project only checksummed pages from the active Revision's latest Attempt."""
+        try:
+            found = self._partial_checkpoint(run_id)
+            if found is None:
+                return []
+            directory, checkpoint = found
+            return [PartialCardView(
+                order=page.order,
+                image_url=f"/api/runs/{run_id}/partial-cards/{page.order}?checksum={page.sha256}",
+                warnings=page.warnings,
+            ) for page in checkpoint.pages]
+        except (OSError, ValueError, Image.DecompressionBombError):
+            # An invalid sidecar never affects access to the Run itself.
+            return []
+
+    def partial_image(self, run_id: str, order: int, *, checksum: str):
+        from creatoros.integrations.visual_production import verified_pages
+
+        try:
+            found = self._partial_checkpoint(run_id)
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            raise ContentRunError("逐页预览不存在或已失效。", status_code=404, code="not_found") from error
+        if found is None:
+            raise ContentRunError("逐页预览不存在。", status_code=404, code="not_found")
+        directory, checkpoint = found
+        page = next((item for item in checkpoint.pages if item.order == order), None)
+        if page is None:
+            raise ContentRunError("逐页预览不存在。", status_code=404, code="not_found")
+        if checksum != page.sha256:
+            raise ContentRunError("预览校验和与当前页面不匹配。", code="artifact_changed")
+        try:
+            verified_pages(directory, checkpoint)
+            path = Path(page.image_path)
+            raw = path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != checksum:
+                raise ValueError("预览图片已变化。")
+            with Image.open(BytesIO(raw)) as image:
+                mime = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}.get(image.format)
+                image.verify()
+            if mime is None:
+                raise ValueError("不支持的图片格式。")
+            return raw, mime
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            raise ContentRunError("逐页预览缺失、损坏或已变化。", code="artifact_changed") from error
+
+    def _partial_checkpoint(self, run_id: str):
+        from creatoros.integrations.skill_pair import SkillPair
+        from creatoros.integrations.visual_production import input_digest, load_checkpoint
+
+        with self.database.session() as session:
+            run = session.get(ContentRun, run_id)
+            if run is None:
+                raise ContentRunError("Run 不存在。", status_code=404, code="not_found")
+            revision = session.scalar(select(ContentRevision).where(
+                ContentRevision.content_run_id == run.id,
+                ContentRevision.revision_number == run.active_revision_number,
+            ))
+            if revision is None or not revision.production_input_json:
+                return None
+            data = ContentRunInput.model_validate(revision.production_input_json)
+            if data.composition is None:
+                return None
+            attempts = list(session.scalars(select(ContentAttempt).where(
+                ContentAttempt.revision_id == revision.id,
+            ).order_by(ContentAttempt.attempt_number.desc())))
+            if not attempts or not attempts[0].output_directory:
+                return None
+            attempt = attempts[0]
+            directory = Path(attempt.output_directory)
+            expected = (self.output_root / data.creator_id / data.series_id / run.id
+                        / f"revision-{revision.revision_number:03d}" / f"attempt-{attempt.attempt_number:03d}")
+
+        # Do not trust a DB path or follow a symlink while resolving the run-owned attempt.
+        if (not expected.resolve().is_relative_to(self.output_root.resolve())
+                or directory.is_symlink() or directory.resolve() != expected.resolve() or not directory.is_dir()):
+            raise ValueError("Attempt 目录与 Run 投影不匹配。")
+        cursor = expected.absolute()
+        while cursor != self.output_root.absolute():
+            if cursor.is_symlink():
+                raise ValueError("Attempt 路径包含符号链接。")
+            cursor = cursor.parent
+        partial_root = directory / "partial-images"
+        if partial_root.is_symlink():
+            raise ValueError("逐页图片目录为符号链接。")
+        prompt_path = directory / "production_request.txt"
+        if prompt_path.is_symlink() or not prompt_path.is_file() or prompt_path.stat().st_size > 1_000_000:
+            return None
+        pair = SkillPair.model_validate(data.composition)
+        skill_refs = [(pair.mind.name, directory / "skills" / "mind" / "SKILL.md"),
+                      (pair.production.name, directory / "skills" / "production" / "SKILL.md")]
+        if any(path.is_symlink() or not path.is_file() for _, path in skill_refs):
+            return None
+        digest = input_digest(prompt_path.read_text(encoding="utf-8"), skill_refs)
+        checkpoint = load_checkpoint(directory, digest)
+        if checkpoint is None:
+            return None
+        return directory, checkpoint
 
 
 def _safe_url(value: str | None) -> str | None:

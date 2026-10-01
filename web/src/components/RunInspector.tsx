@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import { useRunEvents } from "../api/useRunEvents";
-import type { CardView, RevisionView, RunDetail } from "../api/types";
+import type { CardView, PartialCardView, RevisionView, RunDetail } from "../api/types";
 import { RunControls } from "./RunControls";
 import { StatusPill, formatDate } from "./StatusPill";
 
@@ -12,6 +12,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const { events, connection } = useRunEvents(run.id);
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);
   const old = revision?.revision_number !== run.active_revision_number;
+  const partialCards = !old && !revision?.cards.length ? [...(run.partial_cards ?? [])].sort((a, b) => a.order - b.order) : [];
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <>
     <Link className="back-link" to={`/series/${run.series_id}`}>← 返回栏目</Link>
@@ -20,8 +21,9 @@ export function RunInspector({ run }: { run: RunDetail }) {
     {old ? <div className="review-warning">正在查看历史版本，仅供对照，不能批准或修改。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本 →</button></div> : null}
     <div className="inspector-grid">
       <section className="inspector-visual" aria-label="产物图片">
-        {revision?.cards.length ? <Carousel key={revision.id} cards={revision.cards} /> : <div className="artifact-empty"><span className="artifact-empty-icon">▧</span><h2>{revision?.artifact_error ? "产物需要检查" : "图片尚未就绪"}</h2><p>{revision?.artifact_error ?? (run.status === "producing" ? "Codex 正在制作。你可以离开此页，稍后回来验收。" : "开始生产后，真实图片会出现在这里。")}</p></div>}
+        {revision?.cards.length ? <><h2 className="visual-section-title">最终产物</h2><Carousel key={revision.id} cards={revision.cards} /></> : partialCards.length ? null : <div className="artifact-empty"><span className="artifact-empty-icon">▧</span><h2>{revision?.artifact_error ? "产物需要检查" : "图片尚未就绪"}</h2><p>{revision?.artifact_error ?? (run.status === "producing" ? "Codex 正在制作。你可以离开此页，稍后回来验收。" : "开始生产后，真实图片会出现在这里。")}</p></div>}
         {revision?.cards.length ? <p className="file-check">✓ 文件检查通过 · {revision.cards.length} 张图片可读取 <span>内容正确性请逐张验收</span></p> : null}
+        {partialCards.length ? <PartialPreviews pages={partialCards} /> : null}
       </section>
       <aside className="inspector-copy">
         {revision?.content_summary ? <p className="content-summary">{revision.content_summary}</p> : null}
@@ -37,6 +39,22 @@ export function RunInspector({ run }: { run: RunDetail }) {
         <section><h3>第 {revision?.revision_number} 版 · 执行尝试</h3>{revision?.attempts.map((attempt) => <div className="attempt-detail" key={attempt.id}><div><b>尝试 {attempt.attempt_number}</b><StatusPill status={attempt.status} /></div><p>{formatDate(attempt.started_at)} · {attempt.duration_ms !== null ? `${Math.round(attempt.duration_ms / 1000)} 秒` : "耗时未记录"}</p><p>{attempt.error_message}</p><dl><dt>Token 用量</dt><dd>{attempt.usage ? JSON.stringify(attempt.usage) : "未记录"}</dd><dt>生产日志</dt><dd>{attempt.trace_available ? "已保存" : "未记录"}</dd></dl></div>)}<dl className="technical-ids"><dt>Run</dt><dd>{run.id}</dd><dt>Thread</dt><dd>{run.producer_thread_id ?? "未记录"}</dd><dt>产物摘要</dt><dd>{revision?.artifact_digest ?? "未记录"}</dd></dl></section></div>
     </details>
   </>;
+}
+
+function PartialPreviews({ pages }: { pages: PartialCardView[] }) {
+  return <section className="partial-previews" aria-label="未验收阶段预览">
+    <h2>制作中预览 · 尚未验收</h2>
+    <div className="partial-preview-grid">{pages.map((page) => <PartialPreview key={page.order} page={page} />)}</div>
+  </section>;
+}
+
+function PartialPreview({ page }: { page: PartialCardView }) {
+  const [failed, setFailed] = useState(false);
+  return <figure className="partial-preview-card">
+    <figcaption>第 {page.order} 页 · 尚未验收</figcaption>
+    {failed ? <p role="alert">图片暂时无法读取，请刷新运行详情重新检查。</p> : <img src={apiUrl(page.image_url)} alt={`第 ${page.order} 页制作中预览，尚未验收`} onError={() => setFailed(true)} />}
+    {page.warnings.length ? <ul aria-label={`第 ${page.order} 页提示`}>{page.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}</ul> : null}
+  </figure>;
 }
 
 function ManualPublicationPanel({ run, revision }: { run: RunDetail; revision: RevisionView }) {

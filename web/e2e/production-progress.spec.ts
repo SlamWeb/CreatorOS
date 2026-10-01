@@ -76,17 +76,25 @@ function progress(stage: "mind" | "visual" | "production", activity: string, age
     activity,
     completed_tool_calls: 3,
     total_pages: stage === "visual" ? 11 : null,
+    phase: stage === "visual" ? "rendering" : null,
+    current_page: stage === "visual" ? 2 : null,
+    completed_pages: stage === "visual" ? 1 : 0,
+    page_attempt: stage === "visual" ? 2 : 0,
   };
 }
 
 async function openProjection(page: Page, projection: ReturnType<typeof runProjection>) {
   let getCount = 0;
   let postCount = 0;
+  const imageRequests: string[] = [];
   await page.route(`**/api/runs/${runId}**`, async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (request.method() !== "GET") postCount += 1;
-    if (pathname.endsWith("/events/stream")) {
+    if (pathname.includes("/partial-cards/") || pathname.includes("/cards/")) {
+      imageRequests.push(request.url());
+      await route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pC8AAAAASUVORK5CYII=", "base64") });
+    } else if (pathname.endsWith("/events/stream")) {
       await route.fulfill({
         status: 200,
         contentType: "text/event-stream",
@@ -106,6 +114,7 @@ async function openProjection(page: Page, projection: ReturnType<typeof runProje
   return {
     reads: () => getCount,
     writes: () => postCount,
+    imageRequests: () => imageRequests,
   };
 }
 
@@ -138,7 +147,57 @@ test("shows visual production without inventing page counts", async ({ page }, t
   await expect(page.getByText("图片制作 · 进行中")).toBeVisible();
   await expect(page.getByText(/工具执行中 · 最近活动/)).toBeVisible();
   await expect(page.getByText("共 11 页")).toBeVisible();
+  await expect(page.getByText("逐页制图 · 第 2 页 · 第 2 次尝试 · 已完成 1 页")).toBeVisible();
   await verifyDesktopAndMobile(page, testInfo, "visual-progress");
+});
+
+test("shows checksum-served partial pages without enabling approval", async ({ page }, testInfo) => {
+  const checksum1 = "a".repeat(64);
+  const checksum2 = "b".repeat(64);
+  const projection = runProjection(progress("visual", "tool_running"), {
+    partial_cards: [
+      { order: 2, image_url: `/api/runs/${runId}/partial-cards/2?checksum=${checksum2}`, warnings: ["小字对比度需要人工检查"] },
+      { order: 1, image_url: `/api/runs/${runId}/partial-cards/1?checksum=${checksum1}`, warnings: [] },
+    ],
+    revisions: [{
+      id: "revision-e2e", revision_number: 1, instruction: null, artifact_available: false,
+      artifact_digest: null, validation: null, validated_at: null, approved_at: null,
+      attempts: [{ id: "attempt-e2e", attempt_number: 1, status: "running", producer_thread_id: "thread-e2e",
+        has_output: false, usage: null, trace_available: false, error_type: null, error_message: null,
+        started_at: new Date(now - 180_000).toISOString(), heartbeat_at: new Date(now).toISOString(),
+        completed_at: null, duration_ms: null }],
+      artifact_error: null, content_summary: null, review_digest: null,
+      cards: [],
+      publish_copy: null, sources: [],
+    }],
+  });
+  const requests = await openProjection(page, projection);
+  await expect(page.getByText("最终产物", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "第 1 页制作中预览，尚未验收" })).toBeVisible();
+  await expect(page.getByText("小字对比度需要人工检查")).toBeVisible();
+  await expect(page.locator(".partial-preview-card figcaption")).toHaveText(["第 1 页 · 尚未验收", "第 2 页 · 尚未验收"]);
+  await expect(page.getByRole("button", { name: /批准/ })).toHaveCount(0);
+  await expect.poll(() => requests.imageRequests().filter((url) => url.includes("/partial-cards/")).length).toBe(2);
+  expect(requests.imageRequests().filter((url) => url.includes("/partial-cards/")).every((url) => new URL(url).searchParams.has("checksum"))).toBe(true);
+  await page.reload();
+  await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toBeVisible();
+  expect(requests.writes()).toBe(0);
+  await verifyDesktopAndMobile(page, testInfo, "partial-pages");
+});
+
+test("final verified cards replace the unreviewed preview instead of duplicating it", async ({ page }) => {
+  const checksum = "c".repeat(64);
+  const base = runProjection(progress("visual", "completed"));
+  await openProjection(page, runProjection(progress("visual", "completed"), {
+    status: "awaiting_approval",
+    partial_cards: [{ order: 1, image_url: `/api/runs/${runId}/partial-cards/1?checksum=${checksum}`, warnings: [] }],
+    revisions: [{ ...base.revisions[0],
+      cards: [{ order: 1, headline: "最终卡片样例", url: `/api/runs/${runId}/cards/1?checksum=${checksum}`,
+        width: 1, height: 1, page_spec: null, image_prompt: null }] }],
+  }));
+  await expect(page.getByText("最终产物", { exact: true })).toBeVisible();
+  await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toHaveCount(0);
 });
 
 test("stale stage activity is described as quiet, not as a failure", async ({ page }, testInfo) => {

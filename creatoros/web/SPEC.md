@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 逐页制作预览接口（2026-10-01）
+
+- RunDetail 通过 `partial_cards` 投影活跃 Revision/Attempt 中经过 `visual_checkpoint.json` 校验的已完成页面；DTO 仅含 `order`、checksum URL 和 `warnings`，不提供本机路径、审批或验收标记。
+- 只接受 schema v1、匹配当前生产输入摘要且与 storyboard/visual plan 一致的 checkpoint。图片必须位于 attempt 的 `partial-images` 内、路径无符号链接逃逸、SHA-256 一致并可解码为受支持栅格图；否则不投影。旧 Run/缺失 checkpoint 返回空列表，不阻塞详情查询。
+- 独立 `GET /api/runs/{run_id}/partial-cards/{order}?checksum=<sha256>` 每次重新校验 checkpoint 与图片摘要；不复用最终卡片/批准路径，缺失/无效 checkpoint 返回 404，checksum 冲突返回 409，响应 `no-store`/`nosniff`。
+- 隔离 `smoke_studio_partial_cards` 通过：真实 HTTP/临时 SQLite 覆盖投影无路径泄露、受校验图片读取、错误 checksum、路径逃逸拒绝、Run version 不变及旧接口兼容；没有启动正式服务或生图。
+
 ## 生产阶段进度投影（2026-10-01）
 
 - RunDetail 增加可选 production_progress：阶段、阶段状态、开始/最近活动时间、安全事件/活动分类、已完成工具调用数及已知内容页数。由活跃 Revision 最新 Attempt 的 sidecar 提供；不是 workflow 真相，不改变 version/lease，不消费模型原文。

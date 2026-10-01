@@ -182,6 +182,12 @@ class ManualPublicationView(ApiModel):
     metrics: list[PublicationMetricView]
 
 
+class PartialCardView(ApiModel):
+    order: int = Field(ge=1)
+    image_url: str
+    warnings: list[str]
+
+
 class RunDetail(RunSummary):
     input_snapshot: dict[str, Any]
     producer_thread_id: str | None = None
@@ -189,6 +195,7 @@ class RunDetail(RunSummary):
     events_url: str
     publication: ManualPublicationView | None = None
     production_progress: ProductionProgress | None = None
+    partial_cards: list[PartialCardView] = Field(default_factory=list)
 
 
 class ManualPublicationRequest(ApiModel):

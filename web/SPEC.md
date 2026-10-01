@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## 逐页生产进度与未验收预览（2026-10-01）
+
+- RunControls 显示真实 phase/current_page/completed_pages/page_attempt，沿用“共 N 页”仅在后端已知页数时出现；不将工具调用数当图片数或生成百分比。RunInspector 将活跃版本的部分页图片单独标为“制作中预览 · 尚未验收”，按页序展示提示，不把它们加入最终 Carousel、验收文件检查或批准流程；查看历史 Revision 时隐藏当前 Attempt 的预览。
+- 部分页图片使用独立 checksum URL 和后端逐次重验；RunDetail 旧记录缺少 `partial_cards` 时正常显示既有产物/空态。
+- 最终已验收文件的 Carousel 就绪后隐藏制作中预览，避免同组图片重复展示及错误标为“制作中”；失败/中断阶段仍可看已保存的未验收页面。
+- 验收：隔离 `smoke_studio_partial_cards` 通过投影/checksum/路径边界/只读断言；Playwright `e2e/production-progress.spec.ts` 最终 8/8 通过，包含部分页提示/无批准/刷新零 POST、最终产物不重复显示预览，以及 390px/1440px 截图；TypeScript build 通过。截图使用 1×1 受控 PNG，只验证布局与交互，不代表图片内容质量。保留既有大于500kB包警告。
+- 正式旧 Run 的既有7张图恢复后浏览器真实验证：第2版待批准、1/7→2/7翻页、内容稿/Prompt展开通过。7个受控图片URL均HTTP 200；没有点击批准或发布。代码新增恢复行为以隔离测试和真实文本SDK验证为准，未启动新版整组生图。
+
 ## 真实生产阶段进度（2026-10-01）
 
 - RunControls 接 RunDetail.production_progress，显示内容调研/图片制作及最近实际活动、已完成工具调用和已知总页数；不显示伪百分比或把调用数当成生成图片数。超过 120 秒没有事件仅显示暂无新活动，不直接判失败。
