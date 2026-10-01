@@ -22,6 +22,10 @@ class ProductionProgress(BaseModel):
     activity: Literal["thinking", "reading", "searching", "tool_running", "responding", "waiting", "completed", "failed"]
     completed_tool_calls: int = Field(ge=0)
     total_pages: int | None = Field(default=None, ge=1)
+    phase: Literal["planning", "rendering", "assembling"] | None = None
+    current_page: int | None = Field(default=None, ge=1)
+    completed_pages: int = Field(default=0, ge=0)
+    page_attempt: int = Field(default=0, ge=0, le=2)
 
 
 TOOLS = {"commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration", "collabAgentToolCall"}
@@ -90,6 +94,14 @@ class ProgressWriter:
         self.state.last_activity_at = datetime.now(timezone.utc)
         self.save()
 
+    def page(self, phase: str, order: int | None, completed: int, attempt: int = 0):
+        self.state.phase = phase
+        self.state.current_page = order
+        self.state.completed_pages = completed
+        self.state.page_attempt = attempt
+        self.state.status = "running"
+        self.save()
+
 
 async def collect_observed_turn(turn, progress: ProgressWriter):
     # SDK 0.157.1 is pinned. Its private collector is the sole compatibility seam;
@@ -99,6 +111,13 @@ async def collect_observed_turn(turn, progress: ProgressWriter):
     stream = turn.stream()
     async def observed():
         async for event in stream:
+            if event.method == "thread/tokenUsage/updated":
+                total = getattr(getattr(event.payload, "token_usage", None), "total", None)
+                if total is not None:
+                    usage = {key: getattr(total, key, 0) for key in (
+                        "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")}
+                    path = progress.directory / f"{progress.state.stage}_usage.json"
+                    path.write_text(json.dumps(usage), encoding="utf-8")
             # Do not serialize large outputs/reasoning only to throw them away.
             item = getattr(event.payload, "item", None)
             item = getattr(item, "root", item)

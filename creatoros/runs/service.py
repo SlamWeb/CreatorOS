@@ -495,7 +495,29 @@ class ContentRunService:
                                     if attempt.output_directory]
             previous_pages = None
             if revision.instruction:
-                for previous_dir in reversed(previous_directories):
+                # A technical retry keeps the Revision's original explicit input.
+                # Its newly produced storyboard is output, not a replacement input.
+                frozen_previous = False
+                for prior in repository.list_attempts(revision.id):
+                    if not prior.output_directory:
+                        continue
+                    request = Path(prior.output_directory) / "production_request.txt"
+                    if not request.exists():
+                        continue  # Legacy producers did not save this JSON request.
+                    if (request.is_symlink() or not request.resolve().is_relative_to(run_root.resolve())
+                            or request.stat().st_size > 1_000_000):
+                        raise ContentRunError("原生产请求缺失或越界。", code="invalid_skill_snapshot")
+                    try:
+                        value = json.loads(request.read_text(encoding="utf-8"))
+                        if isinstance(value, dict) and "previous_pages" in value:
+                            previous_pages = value["previous_pages"]
+                            if previous_pages is not None and not isinstance(previous_pages, str):
+                                raise ValueError("invalid previous_pages")
+                            frozen_previous = True
+                            break
+                    except (ValueError, OSError) as error:
+                        raise ContentRunError("原生产请求无效。", code="invalid_skill_snapshot") from error
+                for previous_dir in ([] if frozen_previous else reversed(previous_directories)):
                     for filename in ("storyboard.json", "production_evidence.json"):
                         candidate = previous_dir / filename
                         if (candidate.is_file() and not candidate.is_symlink()
@@ -721,6 +743,7 @@ class ContentRunService:
             "codex_timeout",
             "codex_exec_failed",
             "codex_turn_failed",
+            "visual_delivery_failed",
         }
         self._finish_error(
             run_id,
@@ -779,6 +802,19 @@ class ContentRunService:
             content_run.lease_expires_at = None
             trace = Path(attempt.output_directory) / "codex_trace.jsonl" if attempt.output_directory else None
             attempt.trace_ref = str(trace) if trace is not None and trace.is_file() else None
+            if attempt.output_directory:
+                from ..integrations.codex import CodexUsage
+                directory = Path(attempt.output_directory)
+                costs = []
+                for name in ("mind_usage.json", "visual_usage.json", "production_usage.json"):
+                    path = directory / name
+                    if path.is_file() and not path.is_symlink() and path.stat().st_size < 4096:
+                        try:
+                            costs.append(CodexUsage.model_validate_json(path.read_text(encoding="utf-8")))
+                        except ValueError:
+                            pass
+                if costs:
+                    attempt.usage_json = {key: sum(getattr(cost, key) for cost in costs) for key in CodexUsage.model_fields}
             topic = session.get(Topic, content_run.topic_id)
             if topic is not None:
                 topic.status = (

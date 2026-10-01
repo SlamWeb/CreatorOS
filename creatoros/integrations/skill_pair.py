@@ -193,8 +193,10 @@ def visual_prompt(name: str, storyboard: StoryboardReceipt) -> str:
         f"@{name} 用这个视觉 Skill 把下面整套 pages 可视化，读取并使用这个 Skill。\n"
         "保持内容、页序和跨页连续性，不重新调研或改写教学逻辑。"
         "实际查看并传入 assets/character.png 作为每页生图参考，transparent_background=false。\n"
-        "真实调用生图工具完成全部图片；回执只返回页码、真正提交工具的 image_prompt、"
-        "相对 reference_assets 和工具返回的 source_image_path。不要发布，不写最终 Manifest。"
+        "真实调用生图工具完成全部图片；图片证据返回页码、真正提交工具的 image_prompt、"
+        "以制作 Skill 为基准的相对 reference_assets（assets/character.png）和 source_image_path。"
+        "兼容整组回执还要求卡片 headline、content_summary 和 publish_copy 的非空标题/正文，"
+        "这些展示字段从原内容提取，不能填空格，不改变原内容。不要发布，不写最终 Manifest。"
         "不要重复抄写 page_spec、research_brief 或 causal_chain，系统会保留内容原件并按页码关联。"
         "只有全部图片完成才返回约定 JSON；不能用占位图、代码绘图或 HTML 截图代替生图。\n"
         + storyboard.model_dump_json(indent=2)
@@ -212,7 +214,7 @@ def write_evidence(directory: Path, pair: SkillPair, receipt: PairReceipt) -> No
     (directory / EVIDENCE_FILE).write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
     for page in receipt.pages:
         folder = directory / "pages" / f"{page.order:02d}"
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         (folder / "content.md").write_text(page.page_spec, encoding="utf-8")
         (folder / "prompt.txt").write_text(page.image_prompt, encoding="utf-8")
 
@@ -231,6 +233,17 @@ def evidence_files(root: Path, pair: SkillPair, orders: list[int]) -> list[Path]
     if [p.order for p in pages] != orders:
         raise ValueError("生产证据与图片页数/顺序不一致。")
     paths = [root / EVIDENCE_FILE]
+    if (root / "visual_checkpoint.json").exists():
+        from .visual_production import input_digest, load_checkpoint
+        request = safe(root / "production_request.txt")
+        checkpoint = load_checkpoint(root, input_digest(request.read_text(encoding="utf-8"), [
+            ("mind", root / "skills/mind/SKILL.md"), ("production", root / "skills/production/SKILL.md")]))
+        if checkpoint is None or [p.order for p in checkpoint.pages] != orders:
+            raise ValueError("逐页 checkpoint 与产物页码不一致。")
+        if any(saved.image_prompt != page.image_prompt or saved.reference_assets != page.reference_assets
+               for saved, page in zip(checkpoint.pages, pages)):
+            raise ValueError("逐页 checkpoint 与最终 Prompt/引用不一致。")
+        paths.extend([root / "visual_checkpoint.json", root / "visual_plan.json", request])
     if (root / "storyboard.json").exists() or (root / "storyboard.md").exists():
         storyboard = StoryboardReceipt.model_validate_json(safe(root / "storyboard.json").read_text(encoding="utf-8"))
         if ([(p.order, p.page_spec) for p in storyboard.pages] != [(p.order, p.page_spec) for p in pages]

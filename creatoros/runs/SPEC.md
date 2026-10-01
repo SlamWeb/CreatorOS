@@ -1,5 +1,13 @@
 # ContentRun SPEC
 
+## 单视觉逐页保存与显式恢复（2026-10-01）
+
+- 双 Skill 单视觉会话按页交付，技术失败后通过既有 execute 新建同 Revision Attempt；仅复用输入及冻结 Skill digest、原内容、视觉计划、图像 SHA256 全部一致的前 Attempt checkpoint。人工返工新 Revision 不复用旧图。本节取代下方历史的“技术重试整套重新生产”描述。
+- 有效 checkpoint 后的交付失败为 visual_delivery_failed，可由用户点恢复；中断沿用原状态机。无 checkpoint 的 schema 错误仍不盲重试，额度错误不自动恢复。
+- 失败也保存已观察的内容/视觉 usage，避免成本只在成功时可见；恢复的新 Attempt usage 与历史 Attempt 分开保存，不把历史调用记为免费。
+- 内容、计划、逐页 Prompt/参考资产、checkpoint 与最终证据一致才验收。没有增加另一套状态机或数据库迁移。
+- 隔离 SQLite/transport 注入晚页失败后，仅缺页执行通过；真实 SDK 同会话多 turn 文本探针通过。生产整组图片质量验收尚待下一次用户生产。
+
 ## 已完成图片的显式回执恢复（2026-10-01）
 
 - 恢复不是重新调用模型或恢复旧 thread 推理：人工核对原 ledger 最终 JSON、原 storyboard、冻结 Skill 和实际图片后，通过既有 guard / request_revision / claim / execute_claimed 导入新 Revision。旧失败 Attempt 保持原样，仍需人工批准。
@@ -8,6 +16,7 @@
 - 正式恢复前已备份 `tmp/creatoros-before-receipt-recovery-20261001.db`，原始回执与来源保存在新 Attempt 的 receipt_recovery.json；原冻结 Skill / storyboard 和生成目录不覆盖。
 - 隔离 `smoke_receipt_recovery` 通过；正式 HTTP 11 个图片 URL 均 200。其他 Run 未变化，导入图片逐张与生成源 SHA256 一致，最终证据保留原 11 页内容原文。
 - 收尾复核补严格 resolve 后目录边界及 ledger 符号链接拒绝；恢复 smoke 重跑通过，原正式产物不再改写。
+- 新的 Claude Code Run `76fbc0f9-2952-4a84-aa10-219fcf23320d` 已恢复：7 页、回执 SHA256 `1d2c5bbfd4798769d048e02b3d9616ad0ad116e1d71d3d53eed54728634891d7`，预检通过后用户授权停止服务，导入 Revision 2 / Attempt 1，状态 awaiting_approval。此前正式库备份在 tmp/pre-receipt-recovery-20261002/，原失败记录保留。新版无 PageSpec 的视觉回执只接受精确的空白标题/发布字段、匹配页序与图片路径、无 warnings；资源前缀仅按已存在的冻结 Skill 文件校验后归一化。产物展示文案从原 Storyboard 生成草稿，原回复与修复记录保留，不能声称为原模型文案。真实网页显示 7 张图片，翻页与内容/Prompt 展开已操作验证，未调用生图、批准或发布。
 
 ## SDK 生产全新 session（2026-10-01，完成）
 

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import threading
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -111,6 +112,37 @@ class CodexProducerError(RuntimeError):
     def __init__(self, message: str, *, error_type: str = "codex_producer_error"):
         super().__init__(message)
         self.error_type = error_type
+
+
+async def _bounded_sdk(operation, deadline: float, cancel_event=None):
+    """Bound SDK startup RPCs too, not only the completed turn's stream."""
+    task = asyncio.ensure_future(operation)
+    try:
+        while not task.done():
+            if cancel_event is not None and cancel_event.is_set():
+                raise CodexProducerError("本地执行器已停止生产。", error_type="codex_interrupted")
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise CodexProducerError("Codex SDK 请求超时。", error_type="codex_timeout")
+            await asyncio.wait({task}, timeout=min(0.1, remaining))
+        return await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+@asynccontextmanager
+async def _production_client(deadline: float, cancel_event=None):
+    from openai_codex import AsyncCodex, CodexConfig
+    client = AsyncCodex(CodexConfig(config_overrides=PRODUCTION_CONFIG))
+    try:
+        await _bounded_sdk(client.__aenter__(), deadline, cancel_event)
+        yield client
+    finally:
+        # Failed __aenter__ would not trigger a normal async-with __aexit__.
+        # Close explicitly so the SDK wakes its synchronous RPC waiters.
+        await asyncio.wait_for(client.__aexit__(None, None, None), timeout=5)
 
 
 def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "", receipt_model=ProductionReceipt) -> CodexRun:
@@ -526,13 +558,21 @@ class CodexProducer:
         cards = []
         for card in run.receipt.cards:
             source = Path(card.source_image_path).resolve()
-            try:
-                source.relative_to(allowed_root)
-            except ValueError as error:
+            checkpoint_owned = False
+            if not source.is_relative_to(allowed_root) and (directory / "visual_checkpoint.json").is_file():
+                from .visual_production import input_digest, load_checkpoint
+                checkpoint = load_checkpoint(directory, input_digest(
+                    (directory / "production_request.txt").read_text(encoding="utf-8"), [
+                        ("mind", directory / "skills/mind/SKILL.md"),
+                        ("production", directory / "skills/production/SKILL.md")]))
+                checkpoint_owned = bool(checkpoint and checkpoint.visual_thread_id == run.thread_id and any(
+                    p.order == card.order and Path(p.image_path).resolve() == source
+                    for p in checkpoint.pages))
+            if not source.is_relative_to(allowed_root) and not checkpoint_owned:
                 raise CodexProducerError(
                     "Codex 返回了当前 thread 之外的图片路径。",
                     error_type="unsafe_generated_image_path",
-                ) from error
+                )
             if not source.is_file() or source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
                 raise CodexProducerError(
                     f"生成图片不存在或格式不支持：{source.name}",
@@ -634,30 +674,31 @@ class CodexSdkProducer(CodexProducer):
         # Session IDs are audit handles, never implicit production inputs.
         del thread_id
         if skill_refs:
-            from .skill_pair import StoryboardReceipt, VisualReceipt, join_visual, mind_prompt, visual_prompt
+            from .skill_pair import StoryboardReceipt, mind_prompt
+            from .visual_production import input_digest, recover_checkpoint
             mind, visual = skill_refs
-            content = await self._execute_stage_async(
-                mind_prompt(mind[0], prompt), working_directory,
-                skill_name=mind[0], skill_path=mind[1], receipt_model=StoryboardReceipt,
-                stage="mind", on_thread_started=None, cancel_event=cancel_event,
-            )
-            storyboard = content.receipt
+            digest = input_digest(prompt, skill_refs)
+            recovered = recover_checkpoint(working_directory, digest)
+            if recovered is None:
+                content = await self._execute_stage_async(
+                    mind_prompt(mind[0], prompt), working_directory,
+                    skill_name=mind[0], skill_path=mind[1], receipt_model=StoryboardReceipt,
+                    stage="mind", on_thread_started=None, cancel_event=cancel_event,
+                )
+                storyboard, content_usage = content.receipt, content.usage
+            else:
+                storyboard, content_usage = recovered.storyboard, CodexUsage()
             (working_directory / "storyboard.json").write_text(storyboard.model_dump_json(indent=2), encoding="utf-8")
             (working_directory / "storyboard.md").write_text(
                 "\n\n---\n\n".join(p.page_spec for p in storyboard.pages), encoding="utf-8")
-            rendered = await self._execute_stage_async(
-                visual_prompt(visual[0], storyboard), working_directory,
-                skill_name=visual[0], skill_path=visual[1], receipt_model=VisualReceipt,
-                stage="visual", on_thread_started=on_thread_started, cancel_event=cancel_event,
-                total_pages=len(storyboard.pages),
+            rendered = await self._execute_visual_async(
+                working_directory, storyboard, visual, digest, recovered,
+                topic_title=json.loads(prompt).get("topic_title", "内容草稿"),
+                on_thread_started=on_thread_started, cancel_event=cancel_event,
             )
-            try:
-                receipt = join_visual(storyboard, rendered.receipt)
-            except ValueError as error:
-                raise CodexProducerError(str(error), error_type="invalid_production_receipt") from error
-            usage = CodexUsage(**{k: getattr(content.usage, k) + getattr(rendered.usage, k)
+            usage = CodexUsage(**{k: getattr(content_usage, k) + getattr(rendered.usage, k)
                                   for k in CodexUsage.model_fields})
-            return CodexRun(rendered.thread_id, receipt, usage)
+            return CodexRun(rendered.thread_id, rendered.receipt, usage)
         return await self._execute_stage_async(
             prompt, working_directory, skill_name=skill_name, skill_path=skill_path,
             receipt_model=self.receipt_model, stage="production",
@@ -669,9 +710,11 @@ class CodexSdkProducer(CodexProducer):
         receipt_model: type[ProductionModel], stage: str,
         on_thread_started: Callable[[str], None] | None, cancel_event: threading.Event | None,
         total_pages: int | None = None,
+        thread=None, progress=None, response_name: str | None = None,
+        deadline: float | None = None, finish_stage: bool = True,
     ) -> CodexRun:
         try:
-            from openai_codex import ApprovalMode, AsyncCodex, CodexConfig, Sandbox, SkillInput, TextInput
+            from openai_codex import ApprovalMode, Sandbox, SkillInput, TextInput
         except ImportError as error:
             raise CodexProducerError(
                 "未安装 openai-codex；请在当前 Python 环境执行 pip install openai-codex。",
@@ -683,29 +726,39 @@ class CodexSdkProducer(CodexProducer):
 
         if cancel_event is not None and cancel_event.is_set():
             raise CodexProducerError("本地执行器已停止生产。", error_type="codex_interrupted")
+        if deadline is not None and monotonic() >= deadline:
+            raise CodexProducerError("Codex 内容生产超时。", error_type="codex_timeout")
         prompt += (f"\n本阶段 Skill 文件：{skill_path.resolve()}。请先完整读取此文件；"
                    "相对资源路径基于它所在的目录，不要去全局目录寻找同名 Skill。")
-        (working_directory / f"{stage}_request.txt").write_text(prompt, encoding="utf-8")
+        deadline = deadline if deadline is not None else monotonic() + self.timeout_seconds
+        name = response_name or stage
+        (working_directory / f"{name}_request.txt").write_text(prompt, encoding="utf-8")
         inputs = [TextInput(text=prompt), SkillInput(name=skill_name, path=str(skill_path.resolve()))]
         from .production_progress import ProgressWriter, collect_observed_turn
-        progress = ProgressWriter(working_directory, stage, total_pages)
+        progress = progress or ProgressWriter(working_directory, stage, total_pages)
         def trace(event: dict) -> None:
             with (working_directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps({"stage": stage, "at": datetime.now().astimezone().isoformat(), **event}, ensure_ascii=False) + "\n")
         try:
-            async with AsyncCodex(CodexConfig(config_overrides=PRODUCTION_CONFIG)) as codex:
-                thread = await codex.thread_start(
-                    approval_mode=ApprovalMode.deny_all, cwd=str(working_directory),
-                    model=CODEX_MODEL, sandbox=Sandbox.read_only,
-                    developer_instructions=PRODUCTION_RULES,
-                )
-                trace({"type": "thread.started", "thread_id": thread.id,
-                       "backend": "python-codex-sdk", "model": CODEX_MODEL,
-                       "reasoning_effort": CODEX_EFFORT, "memory_enabled": False})
-                if on_thread_started is not None:
-                    on_thread_started(thread.id)
+            async with AsyncExitStack() as stack:
+                if thread is None:
+                    codex = await stack.enter_async_context(_production_client(deadline, cancel_event))
+                    thread = await _bounded_sdk(codex.thread_start(
+                        approval_mode=ApprovalMode.deny_all, cwd=str(working_directory),
+                        model=CODEX_MODEL, sandbox=Sandbox.read_only,
+                        developer_instructions=PRODUCTION_RULES,
+                    ), deadline, cancel_event)
+                    trace({"type": "thread.started", "thread_id": thread.id,
+                           "backend": "python-codex-sdk", "model": CODEX_MODEL,
+                           "reasoning_effort": CODEX_EFFORT, "memory_enabled": False})
+                    if on_thread_started is not None:
+                        on_thread_started(thread.id)
 
-                turn = await thread.turn(
+                if cancel_event is not None and cancel_event.is_set():
+                    raise CodexProducerError("本地执行器已停止生产。", error_type="codex_interrupted")
+                if deadline is not None and monotonic() >= deadline:
+                    raise CodexProducerError("Codex 内容生产超时。", error_type="codex_timeout")
+                turn_request = thread.turn(
                     inputs,
                     cwd=str(working_directory),
                     effort=CODEX_EFFORT,
@@ -713,23 +766,33 @@ class CodexSdkProducer(CodexProducer):
                     output_schema=receipt_model.model_json_schema(),
                     sandbox=Sandbox.read_only,
                 )
+                try:
+                    turn = await _bounded_sdk(turn_request, deadline, cancel_event)
+                except asyncio.TimeoutError as error:
+                    raise CodexProducerError("Codex 启动本轮执行超时。", error_type="codex_timeout") from error
                 task = asyncio.create_task(collect_observed_turn(turn, progress))
                 started = monotonic()
                 interruption: str | None = None
                 while not task.done():
                     if cancel_event is not None and cancel_event.is_set():
                         interruption = "codex_interrupted"
-                        await turn.interrupt()
+                        try:
+                            await asyncio.wait_for(turn.interrupt(), timeout=5)
+                        except Exception:
+                            task.cancel()
                         break
-                    if monotonic() - started >= self.timeout_seconds:
+                    if monotonic() >= (deadline if deadline is not None else started + self.timeout_seconds):
                         interruption = "codex_timeout"
-                        await turn.interrupt()
+                        try:
+                            await asyncio.wait_for(turn.interrupt(), timeout=5)
+                        except Exception:
+                            task.cancel()
                         break
                     await asyncio.sleep(0.1)
                 if interruption is not None:
                     try:
-                        await task
-                    except Exception:
+                        await asyncio.wait_for(task, timeout=5)
+                    except (Exception, asyncio.CancelledError):
                         pass
                     message = "本地执行器已停止生产。" if interruption == "codex_interrupted" else "Codex 内容生产超时。"
                     raise CodexProducerError(message, error_type=interruption)
@@ -750,10 +813,11 @@ class CodexSdkProducer(CodexProducer):
             "type": "turn.completed", "thread_id": thread.id,
             "turn_id": result.id, "status": str(result.status), "usage": usage.model_dump(),
         })
+        (working_directory / f"{stage}_usage.json").write_text(usage.model_dump_json(), encoding="utf-8")
 
         final_text = result.final_response or ""
         # Preserve the actual final answer even if schema/host validation fails.
-        (working_directory / f"{stage}_response.txt").write_text(final_text, encoding="utf-8")
+        (working_directory / f"{name}_response.txt").write_text(final_text, encoding="utf-8")
         if not final_text:
             progress.finish("failed")
             raise CodexProducerError("Codex SDK 未返回最终生产回执。", error_type="codex_protocol_error")
@@ -765,8 +829,100 @@ class CodexSdkProducer(CodexProducer):
                 f"Codex SDK 生产回执不符合约定：{error}",
                 error_type="invalid_production_receipt",
             ) from error
-        progress.finish("completed")
+        if finish_stage:
+            progress.finish("completed")
         return CodexRun(thread.id, receipt, usage)
+
+    async def _execute_visual_async(self, directory, storyboard, skill, digest, recovered, *,
+                                    topic_title, on_thread_started, cancel_event):
+        from openai_codex import ApprovalMode, Sandbox
+        from .production_progress import ProgressWriter
+        from .visual_production import (RenderedPage, VisualCheckpoint, VisualPlan, atomic_json, build_receipt,
+                                        plan_prompt, render_prompt, save_page, validate_plan, verified_pages)
+        progress = ProgressWriter(directory, "visual", len(storyboard.pages))
+        deadline = monotonic() + self.timeout_seconds
+        usage = CodexUsage()
+        name, path = skill
+        try:
+            async with _production_client(deadline, cancel_event) as codex:
+                thread = await _bounded_sdk(codex.thread_start(approval_mode=ApprovalMode.deny_all, cwd=str(directory),
+                                                 model=CODEX_MODEL, sandbox=Sandbox.read_only,
+                                                 developer_instructions=PRODUCTION_RULES), deadline, cancel_event)
+                if on_thread_started:
+                    on_thread_started(thread.id)
+                with (directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps({"stage": "visual", "type": "thread.started", "thread_id": thread.id,
+                                             "model": CODEX_MODEL, "reasoning_effort": CODEX_EFFORT}) + "\n")
+                async def run(prompt, model, receipt_name):
+                    return await self._execute_stage_async(
+                        prompt, directory, skill_name=name, skill_path=path, receipt_model=model,
+                        stage="visual", thread=thread, progress=progress, response_name=receipt_name,
+                        deadline=deadline, finish_stage=False, on_thread_started=None, cancel_event=cancel_event)
+                if recovered is None:
+                    progress.page("planning", None, 0)
+                    planned = await run(plan_prompt(name, storyboard), VisualPlan, "visual_plan")
+                    plan = validate_plan(planned.receipt, storyboard, path.parent)
+                    usage = planned.usage
+                    checkpoint = VisualCheckpoint(input_digest=digest, storyboard=storyboard, plan=plan,
+                                                  visual_thread_id=thread.id, pages=[])
+                else:
+                    checkpoint = recovered.model_copy(update={"visual_thread_id": thread.id})
+                    plan = validate_plan(checkpoint.plan, storyboard, path.parent)
+                atomic_json(directory / "visual_checkpoint.json", checkpoint)
+                atomic_json(directory / "visual_plan.json", checkpoint.plan)
+                for page in plan.pages:
+                    if page.order in {p.order for p in checkpoint.pages}:
+                        continue
+                    progress.page("rendering", page.order, len(checkpoint.pages), 1)
+                    context = ("恢复本次任务：以下是本篇原内容与完整视觉计划，已完成页不要重新生成。\n"
+                               + storyboard.model_dump_json() + "\n" + plan.model_dump_json() + "\n"
+                               if recovered is not None else "")
+                    receipt_name = f"visual_page_{page.order:02d}"
+                    try:
+                        rendered = await run(context + render_prompt(page, len(plan.pages)), RenderedPage, receipt_name)
+                        if rendered.receipt.order != page.order:
+                            raise ValueError("本次 turn 返回了其他页。")
+                        save_page(directory, checkpoint, rendered.receipt, self.generated_images_root, path.parent, 1)
+                    except (ValueError, CodexProducerError) as error:
+                        if isinstance(error, CodexProducerError) and error.error_type != "invalid_production_receipt":
+                            raise
+                        # One text-only repair, never restart a paid render automatically.
+                        raw = directory / f"{receipt_name}_response.txt"
+                        if not raw.is_file():
+                            raise
+                        progress.page("rendering", page.order, len(checkpoint.pages), 2)
+                        rendered = await run(
+                            f"第 {page.order} 页回执字段无效。仅重新提交这个页面的 JSON，严禁重新生图、编辑图片或改其他页。"
+                            "保留刚才真实工具返回的路径、实际 Prompt 和参考资源；无真实图片则不要编造。原回执：\n"
+                            + raw.read_text(encoding="utf-8"), RenderedPage, receipt_name + "_repair")
+                        if rendered.receipt.order != page.order:
+                            raise ValueError("回执修复仍返回其他页。")
+                        save_page(directory, checkpoint, rendered.receipt, self.generated_images_root, path.parent, 2)
+                    usage = rendered.usage  # SDK reports cumulative usage for THIS visual thread.
+                    progress.page("rendering", page.order, len(checkpoint.pages))
+                progress.page("assembling", None, len(checkpoint.pages))
+                verified_pages(directory, checkpoint)
+                receipt = build_receipt(storyboard, [dict(order=p.order, source_image_path=p.image_path,
+                                                       image_prompt=p.image_prompt, reference_assets=p.reference_assets)
+                                                   for p in checkpoint.pages], topic_title)
+                (directory / "visual_response.txt").write_text(receipt.model_dump_json(indent=2), encoding="utf-8")
+                progress.finish("completed")
+                return CodexRun(thread.id, receipt, usage)
+        except Exception as error:
+            progress.finish("interrupted" if getattr(error, "error_type", "") == "codex_interrupted" else "failed")
+            # Enable explicit same-Revision recovery only after durable plan/image checks.
+            if (directory / "visual_checkpoint.json").is_file() and getattr(error, "error_type", "") != "codex_interrupted":
+                from .visual_production import load_checkpoint
+                try:
+                    load_checkpoint(directory, digest)
+                except (ValueError, OSError):
+                    pass
+                else:
+                    raise CodexProducerError(f"逐页交付中断，已保存图片保留：{error}",
+                                             error_type="visual_delivery_failed") from error
+            if isinstance(error, CodexProducerError):
+                raise
+            raise CodexProducerError(f"逐页生产交付失败：{error}", error_type="invalid_production_receipt") from error
 
     @staticmethod
     def _sdk_usage(value) -> CodexUsage:

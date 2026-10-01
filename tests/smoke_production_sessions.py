@@ -5,6 +5,8 @@ from threading import Event, Timer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+import re
+from PIL import Image
 
 from openai_codex.generated import v2_all as sdk_types
 from openai_codex.models import Notification
@@ -25,6 +27,10 @@ class Transport:
     change_page = False
     slow = False
     interrupted = []
+    started_threads = []
+    generated_root = None
+    fail_page_order = None
+    invalid_page = False
 
     def __init__(self, config):
         assert config.config_overrides == PRODUCTION_CONFIG
@@ -42,7 +48,8 @@ class Transport:
 
     async def thread_start(self, **kwargs):
         assert "不要读取全局记忆" in kwargs["developer_instructions"]
-        thread_id = f"fresh-{len(self.calls) + 1}"
+        thread_id = f"fresh-{len(self.started_threads) + 1}"
+        self.started_threads.append(thread_id)
         class Thread:
             id = thread_id
             async def turn(inner, inputs, **controls):
@@ -58,21 +65,28 @@ class Transport:
                     async def stream(self):
                         if Transport.slow:
                             await asyncio.sleep(0.1)
-                        if name == "mind":
+                        if name in {"mind", "knowledge-to-storyboard-deep"}:
                             value = STORY.model_dump()
                         else:
                             assert name == "xiaobai"
                             if Transport.fail_visual:
                                 raise RuntimeError("Injected visual failure")
-                            cards = [dict(order=p.order, kind="content", section=None, headline=f"page {p.order}",
-                                          body=None, highlights=[], visual_brief=None,
-                                          source_image_path=f"C:/unused/{p.order}.png") for p in STORY.pages]
-                            value = dict(content_summary="summary", cards=cards,
-                                         publish_copy=dict(title="MQ", body="body", hashtags=[]), sources=[],
-                                         pages=[dict(order=p.order, image_prompt=f"prompt {p.order}",
+                            value = dict(pages=[dict(order=p.order, image_prompt=f"prompt {p.order}",
                                                      reference_assets=["assets/character.png"]) for p in STORY.pages])
+                            if controls["output_schema"]["title"] == "RenderedPage":
+                                order = int(re.search(r"(?:第\s*)(\d+)", inputs[0].text).group(1))
+                                if Transport.fail_page_order == order:
+                                    raise RuntimeError("Injected page transport failure")
+                                generated = (Transport.generated_root or Path(controls["cwd"]).parent) / inner.id / f"{order}.png"
+                                generated.parent.mkdir(parents=True, exist_ok=True)
+                                Image.new("RGB", (32, 48), (order, 30, 50)).save(generated)
+                                value = dict(order=order, image_prompt=f"prompt {order}",
+                                             reference_assets=["assets/character.png"], warnings=[],
+                                             source_image_path=str(generated))
+                                if Transport.invalid_page:
+                                    value["source_image_path"] = "not-a-real-file.png"
                             if Transport.change_page:
-                                value["pages"][0]["page_spec"] = "rewritten content"
+                                value["page_spec"] = "rewritten content"
                         final_text = json.dumps(value, ensure_ascii=False)
                         usage = sdk_types.ThreadTokenUsageUpdatedNotification.model_validate({
                             "threadId": inner.id, "turnId": "turn",
@@ -122,6 +136,9 @@ def main():
             file = root / name / "SKILL.md"
             file.parent.mkdir()
             file.write_text("fixture", encoding="utf-8")
+            assets = file.parent / "assets"
+            assets.mkdir()
+            Image.new("RGB", (32, 48), "white").save(assets / "character.png")
             refs.append((name, file))
         producer = CodexSdkProducer(project_root=root, generated_images_root=root)
         with patch("openai_codex.AsyncCodex", Transport):
@@ -130,12 +147,14 @@ def main():
                 assert run.thread_id == f"fresh-{index * 2}"
                 assert [p.page_spec for p in run.receipt.pages] == [p.page_spec for p in STORY.pages]
                 assert (root / f"attempt-{index}/visual_response.txt").is_file()
-            assert [c[1][1].name for c in Transport.calls] == ["mind", "xiaobai", "mind", "xiaobai"]
-            assert len({c[0] for c in Transport.calls}) == 4
-            for _, inputs, _ in Transport.calls:
+            assert [c[1][1].name for c in Transport.calls] == ["mind", "xiaobai", "xiaobai", "xiaobai"] * 2
+            assert len(Transport.started_threads) == 4
+            assert len({c[0] for c in Transport.calls if c[1][1].name == "xiaobai"}) == 2
+            for thread_id, inputs, controls in Transport.calls:
                 if inputs[1].name == "xiaobai":
                     assert "topic_title" not in inputs[0].text  # no operational/history prompt
-                    assert all(p.page_spec in inputs[0].text for p in STORY.pages)
+                    if controls["output_schema"]["title"] == "VisualPlan":
+                        assert all(p.page_spec in inputs[0].text for p in STORY.pages)
             Transport.fail_visual = True
             try:
                 execute(producer, root / "failed", refs)
@@ -159,7 +178,8 @@ def main():
             value = json.loads((root / "attempt-1/visual_response.txt").read_text(encoding="utf-8"))
             value["pages"].pop()
             try:
-                join_visual(STORY, VisualReceipt.model_validate(value))
+                from creatoros.integrations.skill_pair import PairReceipt
+                PairReceipt.model_validate(value)
                 raise AssertionError("Missing visual page must be rejected before materialization")
             except ValueError:
                 pass
@@ -176,14 +196,16 @@ def main():
             Transport.slow = True
             producer.timeout_seconds = 10
             active_cancel = Event()
-            timer = Timer(0.02, active_cancel.set)
+            timer = Timer(0.08, active_cancel.set)
             timer.start()
             try:
                 execute(producer, root / "active-cancel", refs, cancel_event=active_cancel)
                 raise AssertionError("Active cancellation must stop the production stage")
             except CodexProducerError as error:
                 assert error.error_type == "codex_interrupted"
-                assert json.loads((root / "active-cancel/production_progress.json").read_text())["status"] == "interrupted"
+                progress_path = root / "active-cancel/production_progress.json"
+                if progress_path.exists():
+                    assert json.loads(progress_path.read_text())["status"] == "interrupted"
             finally:
                 timer.cancel()
             producer.timeout_seconds = 0

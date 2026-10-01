@@ -1,5 +1,23 @@
 # External Integrations SPEC
 
+## 单视觉 thread 的逐页交付（2026-10-01，完成实现与分层验证）
+
+- 实际故障：Claude Code 主题 Run `76fbc0f9-2952-4a84-aa10-219fcf23320d` 生图与 SDK turn 均完成，7 个 headline、发布 title/body 是空格；旧 visual_prompt 禁止交付这些字段，VisualReceipt 却强制要求，导致整组拒绝。另有资源路径以 Attempt 为基准而不是制作 Skill 为基准。不是超时。
+- 维持一篇一个新 Mind thread、一个新 Visual thread。Visual thread 内先定稿整套 Prompt，再按页执行多个 turn；不是每页新建会话。每页成功立即由宿主核验图片、保存 Prompt/来源/字节摘要和 checkpoint；缺少最终整组 JSON 不再丢失全部图片。
+- 图片交付与展示文案解耦：逐页只交付 order / source_image_path / image_prompt / reference_assets / warnings，宿主从原内容生成展示标题与草稿发布文案，不要求视觉模型再抄写内容。资源只归一化确实存在于冻结制作 Skill 的路径。
+- 技术恢复只选同 Run、同 Revision 的上个 Attempt；输入与两份冻结 Skill 的 digest 一致才导入其 storyboard/已核验 checkpoint。新 Attempt 仍用新会话，显式给它本次内容与已完成页；人工新 Revision 默认不复用旧图。
+- 逐页 turn 不自动审美重画；宿主最多一次无生图回执修复，阶段总超时保持有限，技术中断保留已核验页。提示词禁重复生图是软约束，不宣称能拦截 Codex 内部所有 imagegen 调用。宿主不自动重试付费生图。
+- UI 只显示 checkpoint 核验过的部分图片，明确未验收；显示 current_page / completed_pages / phase，服务 heartbeat 和 SSE 连接不冒充生产进展。中断或失败不自动批准/发布。
+- 验收：隔离 transport 故障注入覆盖晚页失败、同线程多 turn、跨 Attempt 缺页恢复、篡改/路径越界/乱页拒绝、仅一次 JSON 修复和时间/取消边界；真实 SDK 文本多 turn 验证与既有真实图片只读复用检查。此轮不重画整套内容、不写正式账号资料。
+- 本节取代下方历史“技术恢复重新生成整套”约定；每个新 Attempt 仍新建会话，恢复用明确、校验过的内容/图片文件，不依赖旧 thread 记忆。额度耗尽发生在有效 checkpoint 后时，允许用户恢复；没有自动重试或绕过配额。
+- 复核补两项边界：返工 Revision 的技术恢复沿用第一次 Attempt 保存的 previous_pages 输入，不把新产出当输入造成 digest 漂移；SDK initialize/thread-start/turn-start 都受阶段总期限和取消信号保护，enter 失败也显式 close 以释放 RPC 等待者，close/interrupt 有 5 秒有限等待。故障注入覆盖初始化卡住与启动取消。
+- 回归通过：smoke_visual_checkpoint、smoke_production_sessions、smoke_production_progress、smoke_content_run_service、smoke_studio_executor、smoke_codex_producer、smoke_pair_production、smoke_studio_partial_cards、smoke_receipt_recovery；篡改图片/内容/输入与错误 Prompt/引用被拒绝，已完成页可在失败后复用，最多一次回执修复。
+- 真实无生图探针 live_visual_thread_protocol 通过：同一新视觉 thread 两 turn 记住随机标记，gpt-6-luna/xhigh，input 67,932 / cached 48,384 / output 470 / reasoning 154；证据 tmp/visual-thread-probe-1sjxq0l3。不等于新版整套生图质量已验收。
+- 启动限时改动后再次真实文本验证通过：thread 01a0f81d-f97d-7461-b311-595b6ccee2df，两 turn，input 67,901 / cached 48,384 / output 498 / reasoning 220；证据 tmp/visual-thread-probe-qklo24c1。同样未生图、未联网调研或改正式库。
+- 正式 Claude Code Run 的 7 张原图经维护导入进入新 Revision 2 待批准；原失败记录保留，未重新生图/批准/发布。代码新生产行为只做隔离故障测试、真实 SDK 文本与已生成图片验证，本轮没有重画新完整图组。
+- 测试记录：最初并行大量 smoke 时 0.6秒 lease 夹具的 heartbeat 版本断言一次失败，独立及后续顺序重跑通过；未据此修改生产 lease。恢复测试草稿文案断言已更新为明确草稿标签后通过。首次 npx E2E 用系统 Python 缺 rich，指定 CREATOROS_PYTHON=deepcode 后通过；不计作产品链路成功。
+- 说明及架构图：docs/production/production-chain.md。画图调用内置 imagegen，不能指定或确认“2.5”模型标签。
+
 ## 生产可观测与已完成回执恢复（2026-10-01）
 
 - 已确认故障：数据库主题 Run `5d51415b-ce24-4a98-83a1-09e61bee7ab4` 实际完成 11 张图片，但视觉阶段重复抄写 PageSpec 时把“沿调用流程”写为“按调用流程”，整组被逐字比对拒绝。不是生图仍在运行。
