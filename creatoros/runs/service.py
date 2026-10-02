@@ -64,6 +64,36 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def _is_preimage_skill_clarification(previous_revision, repository, run_root: Path) -> bool:
+    """Accept missing prior content only for a verified conflict checkpoint with no delivery."""
+    if (previous_revision is None or previous_revision.artifact_directory
+            or previous_revision.artifact_digest):
+        return False
+    attempts = repository.list_attempts(previous_revision.id)
+    attempt = next((item for item in reversed(attempts)
+                    if item.error_type == "skill_composition_needs_input"), None)
+    if (attempt is None or attempt.status is not ContentAttemptStatus.FAILED
+            or not attempt.output_directory):
+        return False
+    directory = Path(attempt.output_directory)
+    try:
+        if (directory.is_symlink() or not directory.is_dir()
+                or not directory.resolve().is_relative_to(run_root.resolve())):
+            return False
+        from creatoros.integrations.native_production import load_checkpoint
+
+        checkpoint = load_checkpoint(directory)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise ContentRunError("前一版本 Skill 组合澄清记录无效。",
+                              code="invalid_revision_context") from error
+    review = checkpoint.composition_review if checkpoint is not None else None
+    return bool(
+        review is not None and review.status == "needs_input"
+        and not checkpoint.pages and not checkpoint.delivery.artifacts
+        and not checkpoint.delivery.complete and not checkpoint.turn_completed
+    )
+
+
 class ContentRunService:
     def __init__(
         self,
@@ -507,6 +537,7 @@ class ContentRunService:
                                     for attempt in repository.list_attempts(rev.id)
                                     if attempt.output_directory]
             previous_pages = None
+            clarification_only_previous = False
             if revision.instruction:
                 prior_attempts = repository.list_attempts(revision.id)
                 if input_data.production_protocol == "native-v1":
@@ -529,64 +560,78 @@ class ContentRunService:
                                 raise ContentRunError("原生产请求无效。", code="invalid_skill_snapshot") from error
                     if not frozen_request and revision.revision_number > 1:
                         previous_revision = repository.get_revision_number(run_id, revision.revision_number - 1)
-                        if (previous_revision is None or not previous_revision.artifact_directory
-                                or not previous_revision.artifact_digest):
+                        if previous_revision is None:
                             raise ContentRunError(
                                 "前一版本没有已验收的原生交付，不能构造返工上下文。",
                                 code="invalid_revision_context",
                             )
-                        previous_input = ContentRunInput.model_validate(previous_revision.production_input_json)
-                        if previous_input.production_protocol != "native-v1":
-                            raise ContentRunError("前一版本不是原生协议，不能作为返工上下文。",
-                                                  code="invalid_revision_context")
-                        previous_directory = Path(previous_revision.artifact_directory)
-                        if (previous_directory.is_symlink()
-                                or not previous_directory.resolve().is_relative_to(run_root.resolve())):
-                            raise ContentRunError("前一版本产物目录越界。", code="invalid_revision_context")
-                        try:
-                            checked = validate_artifact(
-                                previous_directory,
-                                composition=previous_input.composition,
-                                production_protocol="native-v1",
-                            )
-                        except (ValueError, OSError) as error:
-                            raise ContentRunError("前一版本原生交付未通过当前文件验收。",
-                                                  code="invalid_revision_context") from error
-                        if checked.artifact_digest != previous_revision.artifact_digest:
-                            raise ContentRunError("前一版本原生产物已变化，不能作为返工上下文。",
-                                                  code="invalid_revision_context")
-                        from creatoros.integrations.native_production import load_checkpoint
+                        if not previous_revision.artifact_directory or not previous_revision.artifact_digest:
+                            # A composition clarification deliberately stops before delivery.
+                            # Other missing artifacts stay a hard error.
+                            if not _is_preimage_skill_clarification(previous_revision, repository, run_root):
+                                raise ContentRunError(
+                                    "前一版本没有已验收的原生交付，不能构造返工上下文。",
+                                    code="invalid_revision_context",
+                                )
+                            clarification_only_previous = True
+                        else:
+                            previous_input = ContentRunInput.model_validate(previous_revision.production_input_json)
+                            if previous_input.production_protocol != "native-v1":
+                                raise ContentRunError("前一版本不是原生协议，不能作为返工上下文。",
+                                                      code="invalid_revision_context")
+                            previous_directory = Path(previous_revision.artifact_directory)
+                            if (previous_directory.is_symlink()
+                                    or not previous_directory.resolve().is_relative_to(run_root.resolve())):
+                                raise ContentRunError("前一版本产物目录越界。", code="invalid_revision_context")
+                            try:
+                                checked = validate_artifact(
+                                    previous_directory,
+                                    composition=previous_input.composition,
+                                    production_protocol="native-v1",
+                                )
+                            except (ValueError, OSError) as error:
+                                raise ContentRunError("前一版本原生交付未通过当前文件验收。",
+                                                      code="invalid_revision_context") from error
+                            if checked.artifact_digest != previous_revision.artifact_digest:
+                                raise ContentRunError("前一版本原生产物已变化，不能作为返工上下文。",
+                                                      code="invalid_revision_context")
+                            from creatoros.integrations.native_production import load_checkpoint
 
-                        checkpoint = load_checkpoint(previous_directory)
-                        if (checkpoint is None or not checkpoint.turn_completed
-                                or not checkpoint.delivery.complete):
-                            raise ContentRunError("前一版本原生交付 checkpoint 不完整。",
-                                                  code="invalid_revision_context")
-                        previous_pages = json.dumps({
-                            "delivery": {
-                                "title": checkpoint.delivery.title,
-                                "text": checkpoint.delivery.text,
-                                "hashtags": checkpoint.delivery.hashtags,
-                            },
-                            "pages": [{
-                                "order": page.order,
-                                "content": page.content,
-                                "image_prompt": page.image_prompt,
-                            } for page in checkpoint.pages],
-                        }, ensure_ascii=False)
-                        try:
-                            checked_again = validate_artifact(
-                                previous_directory,
-                                composition=previous_input.composition,
-                                production_protocol="native-v1",
-                            )
-                        except (ValueError, OSError) as error:
-                            raise ContentRunError("构造返工上下文期间前一版本产物失效。",
-                                                  code="invalid_revision_context") from error
-                        if checked_again.artifact_digest != previous_revision.artifact_digest:
-                            raise ContentRunError("构造返工上下文期间前一版本产物发生变化。",
-                                                  code="invalid_revision_context")
-                    if revision.revision_number > 1 and (
+                            checkpoint = load_checkpoint(previous_directory)
+                            if (checkpoint is None or not checkpoint.turn_completed
+                                    or not checkpoint.delivery.complete):
+                                raise ContentRunError("前一版本原生交付 checkpoint 不完整。",
+                                                      code="invalid_revision_context")
+                            previous_pages = json.dumps({
+                                "delivery": {
+                                    "title": checkpoint.delivery.title,
+                                    "text": checkpoint.delivery.text,
+                                    "hashtags": checkpoint.delivery.hashtags,
+                                },
+                                "pages": [{
+                                    "order": page.order,
+                                    "content": page.content,
+                                    "image_prompt": page.image_prompt,
+                                } for page in checkpoint.pages],
+                            }, ensure_ascii=False)
+                            try:
+                                checked_again = validate_artifact(
+                                    previous_directory,
+                                    composition=previous_input.composition,
+                                    production_protocol="native-v1",
+                                )
+                            except (ValueError, OSError) as error:
+                                raise ContentRunError("构造返工上下文期间前一版本产物失效。",
+                                                      code="invalid_revision_context") from error
+                            if checked_again.artifact_digest != previous_revision.artifact_digest:
+                                raise ContentRunError("构造返工上下文期间前一版本产物发生变化。",
+                                                      code="invalid_revision_context")
+                    if revision.revision_number > 1 and previous_pages is None and not clarification_only_previous:
+                        previous_revision = repository.get_revision_number(run_id, revision.revision_number - 1)
+                        clarification_only_previous = _is_preimage_skill_clarification(
+                            previous_revision, repository, run_root
+                        )
+                    if revision.revision_number > 1 and not clarification_only_previous and (
                             not isinstance(previous_pages, str) or not previous_pages.strip()):
                         raise ContentRunError(
                             "原生产请求没有冻结前一版本内容，不能用空上下文重试返工。",
@@ -843,6 +888,7 @@ class ContentRunService:
             "codex_timeout",
             "codex_exec_failed",
             "codex_turn_failed",
+            "skill_composition_invalid",
             "visual_delivery_failed",
             "native_delivery_failed",
         }

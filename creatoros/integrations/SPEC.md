@@ -1,5 +1,11 @@
 # External Integrations SPEC
 
+## 双 Skill 的轻量组合检查（2026-10-02）
+
+- native-v1 双 Skill 先在生产 thread 做只读文本检查，再由同一 thread 产出；Mind 的内容需求、制作 Skill 的视觉规则与跨两者的分页/分格分开处理。单 Skill 不增加这一轮。
+- 默认偏好自动适配；互斥硬要求保存为 needs_input 并抛出 `skill_composition_needs_input`，停止后续生产，不走图片索引修复。沿用已有返工入口接收澄清。短结论保存在 checkpoint 和可读文件，技术恢复复用，旧 checkpoint 兼容。
+- 完整范围、软/硬约束边界和真实 gpt-6-luna/xhigh 文本验证见 `docs/single-thread-production/SPEC.md`；本轮未生图或改正式数据。
+
 ## 单 thread 原生文件生产（2026-10-02）
 
 - 新 Run 保存 native-v1 协议：同一个 SDK thread 显式加载选中的一份或两份本地 Skill；不再强制 PageSpec 或按 Skill 名称/GitHub 仓库白名单接线。详细边界、验收与真实试产在 `docs/single-thread-production/SPEC.md`。

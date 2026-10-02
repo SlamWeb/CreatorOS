@@ -2,6 +2,30 @@
 
 状态：2026-10-02 已实现并完成真实一图试产；最后回归结果见下。
 
+## 双 Skill 组合协调（2026-10-02）
+
+- 保留两份独立 Skill，不生成第三份合并 Skill，不增加 PageSpec 协议。栏目约定沿用 series_description，本次要求沿用 topic_brief / revision_instruction。
+- 双 Skill 在同一个 thread 先完成一个只读、无调研/生图的短文本 turn：区分 Mind 的内容与教学关系、制作 Skill 的 IP/视觉，以及需要综合适配的分页/分格。只返回 ready/needs_input 和一段简短说明。
+- 用户明确要求及最新返工说明优先于 Skill 默认偏好；默认版式可调整，必要内容与明确要求不得静默舍弃。无法同时满足的硬要求需提问，不把缺省配置或可调整偏好一律视为冲突。
+- 宿主保存结论到 checkpoint 和可读记录；ready 后在同一 thread 进入原有生产。needs_input 以明确错误码 skill_composition_needs_input 停止，不触发生图阶段、不运行交付索引修复；沿用既有失败展示及“修改要求/返工”进入新 Revision，不重复原请求。
+- 技术恢复复用已保存结论；历史已产出页面但缺少组合记录的 native Run 保持恢复兼容。单 Skill 不增加检查 turn。上下文/usage/取消/总超时沿用现有机制，检查的 token 纳入本次用量。
+- 文本检查禁生图仍是工具指令约束，不宣称 SDK 的 read_only 沙箱可关闭所有图像能力；宿主只保证未通过检查不启动后续生产 turn。
+- 验收：正常组合、可适配偏好、硬冲突；同 thread、无错误交付修复、恢复不重复检查、取消/超时、旧证据兼容及隔离服务错误/返工；真实 gpt-6-luna/xhigh 文本探针，不生图、不发布、不改正式运营数据。结果见下。
+
+### 组合协调验证记录
+
+- 新增 `Checkpoint.composition_review`（可选以兼容旧证据），只包含 `status` 与短 `note`。宿主保存 composition_request.txt / composition_response.txt / composition_review.md，Trace 记录 composition.reviewed；不把模型内部推理当作适配说明。
+- `smoke_native_production` 通过：两份 Skill 在同一 thread 的检查/生产两 turn；累计 usage 不重复相加；硬冲突和坏检查 JSON 不进入生产或索引修复；同 Revision 恢复不重复检查；单 Skill 不增加调用；旧图片 checkpoint 仍可恢复；取消、超时继续生效。
+- `smoke_native_run_wiring`、`smoke_native_artifact_web`、`smoke_production_progress`、`smoke_production_sessions` 通过；没有改前端 DTO、全局 Skill、账号/栏目或生产数据库。
+- 真实文本探针三项通过：`tmp/skill-composition-probe-ok5yo_bd/report.json`。正常职责衔接（含 PageSpec / 仅负责 Prompt）→ ready；八词与默认六格 → ready，保留全部内容与双语；八词各独立格、一张图、固定六格 → needs_input，明确让用户选放宽图片数或格数。
+- 追加真实澄清测试通过：`tmp/skill-composition-probe-w0b7htxy/report.json`；最新返工允许两张图后 → ready，保留八词及双语、每图六格。四项均为 gpt-6-luna / xhigh，事件未出现 imageGeneration/webSearch/collabAgentToolCall；不是生图质量或普适冲突识别准确率评估。
+- 首批探针没有计为成功：mkdtemp 根目录在 Windows 下仅授予 owner 访问，子目录 ACL 重置不足，模型读取两份 Skill 被拒并报 needs_input；修复测试根目录 ACL 后重跑。首个报告脚本误把 dict 传给仅接收 Pydantic model 的 atomic_json，也已修正。原证据保留在 tmp/skill-composition-probe-q80bqcup 与 tmp/skill-composition-probe-lluaprov，不掩盖消耗。
+- 隔离 HTTP 测试发现并修复原生返工无条件要求上版完整图片的问题：生图前的 needs_input 有有效空交付 checkpoint 时，允许澄清进入新 Revision，冻结 previous_pages=null；同 Revision 技术重试保留这个输入，并重验上版澄清证据。缺失 checkpoint、普通缺失/损坏的既有产物仍拒绝，不放宽验收。
+- `smoke_composition_run_flow` 通过：冲突不可原样重试；保存澄清不执行，显式开始才把澄清交给 Producer；澄清后 timeout 可以恢复。坏格式 `skill_composition_invalid` 属于可显式重试的技术故障，不是需要用户选择的冲突；`smoke_native_production` 另验证坏格式后同 thread 重新检查并继续。服务测试使用故障注入以避免重复生图费用，真实文本结果与服务状态接线分开验收。
+- 收尾回归 `smoke_content_run_service`、`smoke_studio_executor` 通过；既存 Starlette/httpx 弃用警告未改依赖处理。本轮没有新增 UI 状态或浏览器交互，冲突暂通过现有失败详情和“提出返工”入口展示，不冒充新的对话式澄清界面。
+
+无生图续跑命令：`python -m tests.live_skill_composition --case all`；也可指定 `--case adaptable conflict`，每项新建隔离 thread，使用已有登录态与额度，证据仅写 tmp。
+
 ## 范围与原因
 
 - 一份或一组本地 Skill 由同一个 Codex thread 完成；内容/呈现分工是任务说明，不再由两个 thread 和强制 PageSpec JSON 交接。

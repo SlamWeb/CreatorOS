@@ -34,6 +34,7 @@ class NativeTransport:
     mode = "success"
     generated_root: Path | None = None
     calls: list = []
+    reviews: list = []
     starts: list[str] = []
     resumes: list[str] = []
     generated: dict[tuple[str, int], int] = {}
@@ -45,6 +46,7 @@ class NativeTransport:
         cls.mode = mode
         cls.generated_root = generated_root
         cls.calls, cls.starts, cls.resumes, cls.generated, cls.interrupted, cls.turn_numbers = [], [], [], {}, [], {}
+        cls.reviews = []
 
     def __init__(self, config):
         assert "memories.use_memories=false" in config.config_overrides
@@ -72,10 +74,19 @@ class NativeTransport:
             id = thread_id
 
             async def turn(inner, inputs, **controls):
-                assert len(inputs) == 3, "native pair must be sent as one text input plus two SkillInputs"
-                assert [item.name for item in inputs[1:]] == ["local-mind", "local-maker"]
+                assert len(inputs) in {2, 3}
+                assert [item.name for item in inputs[1:]] == (
+                    ["local-mind", "local-maker"] if len(inputs) == 3 else ["local-maker"])
                 assert all(Path(item.path).is_file() for item in inputs[1:])
                 assert controls["cwd"].endswith("\\work") or controls["cwd"].endswith("/work")
+                if "output_schema" in controls:
+                    NativeTransport.reviews.append((thread_id, inputs, controls))
+                    mode = NativeTransport.mode
+                    response = {"status": "needs_input" if mode == "composition-conflict" else "ready",
+                                "note": "8 个词各占一格，与仅一张六格硬要求冲突。允许两张图还是放宽六格？"
+                                        if mode == "composition-conflict" else "保留全部内容，六格是默认，可按可读性拆图。"}
+                    text = "not valid json" if mode == "composition-invalid" else json.dumps(response, ensure_ascii=False)
+                    return Turn(thread_id, text, (50, 10), is_review=True)
                 turn_no = NativeTransport.turn_numbers.get(thread_id, 0) + 1
                 NativeTransport.turn_numbers[thread_id] = turn_no
                 NativeTransport.calls.append((thread_id, inputs, controls, turn_no))
@@ -151,8 +162,9 @@ class NativeTransport:
 
 
 class Turn:
-    def __init__(self, thread_id, final_text, usage_total=(3, 2)):
+    def __init__(self, thread_id, final_text, usage_total=(3, 2), *, is_review=False):
         self.id, self.final_text, self.usage_total = "turn-1", final_text, usage_total
+        self.is_review = is_review
 
     async def interrupt(self):
         NativeTransport.interrupted.append(self.id)
@@ -172,7 +184,7 @@ class Turn:
                                      "totalTokens": input_tokens + output_tokens}},
         })
         yield Notification("thread/tokenUsage/updated", usage)
-        if NativeTransport.mode == "partial-failure":
+        if NativeTransport.mode == "partial-failure" and not self.is_review:
             raise RuntimeError("injected native transport failure")
         text = self.final_text or "{}"
         yield Notification("item/agentMessage/delta", sdk_types.AgentMessageDeltaNotification(
@@ -257,10 +269,14 @@ def main():
         with patch("openai_codex.AsyncCodex", NativeTransport):
             pack = producer_request(producer, root / "simple" / "revision-001" / "attempt-001", pair, catalog.root)
         assert len(NativeTransport.starts) == 1 and not NativeTransport.resumes
+        assert len(NativeTransport.reviews) == 1
+        assert NativeTransport.reviews[0][0] == NativeTransport.calls[0][0]
         assert len(NativeTransport.calls) == 1 and len(NativeTransport.calls[0][1]) == 3
         simple = Path(pack.directory)
         checkpoint = load_checkpoint(simple)
         assert checkpoint and checkpoint.turn_completed and checkpoint.delivery.complete
+        assert checkpoint.composition_review.status == "ready"
+        assert (simple / "composition_review.md").is_file()
         assert checkpoint.usage.model_dump() == {
             "input_tokens": 150, "cached_input_tokens": 0,
             "output_tokens": 35, "reasoning_output_tokens": 0,
@@ -275,6 +291,7 @@ def main():
         existing_calls = len(NativeTransport.calls)
         offline_pack = producer_request(producer, simple.parent / "attempt-002", pair, catalog.root)
         assert len(NativeTransport.calls) == existing_calls
+        assert len(NativeTransport.reviews) == 1
         assert offline_pack.session.usage.model_dump() == {
             "input_tokens": 0, "cached_input_tokens": 0,
             "output_tokens": 0, "reasoning_output_tokens": 0,
@@ -400,6 +417,7 @@ def main():
             recovered_pack = producer_request(producer, revision_root / "attempt-002", pair, catalog.root)
         assert NativeTransport.starts == ["native-thread-1"]
         assert NativeTransport.resumes == ["native-thread-1"]
+        assert len(NativeTransport.reviews) == 1, "technical recovery must reuse the existing composition decision"
         assert NativeTransport.generated[("native-thread-1", 1)] == 1
         assert NativeTransport.generated[("native-thread-1", 2)] == 1
         recovered_dir = Path(recovered_pack.directory)
@@ -438,6 +456,49 @@ def main():
                 assert error.error_type == "native_delivery_failed"
         assert len(NativeTransport.calls) == 2 and NativeTransport.generated == {("native-thread-1", 1): 1}
 
+        # A semantic conflict ends before production, not as a broken image index.
+        NativeTransport.reset(generated_root, "composition-conflict")
+        conflict_dir = root / "conflict" / "revision-001" / "attempt-001"
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            try:
+                producer_request(producer, conflict_dir, pair, catalog.root)
+                raise AssertionError("a composition conflict must stop production")
+            except CodexProducerError as error:
+                assert error.error_type == "skill_composition_needs_input"
+                assert "8 个词" in str(error) and "提出返工" in str(error)
+        assert len(NativeTransport.reviews) == 1 and not NativeTransport.calls and not NativeTransport.generated
+        conflict_cp = load_checkpoint(conflict_dir)
+        assert conflict_cp.composition_review.status == "needs_input" and not conflict_cp.repair_attempted
+        assert not (conflict_dir / "production_repair_response.txt").exists()
+        assert (conflict_dir / "composition_response.txt").is_file()
+        # Even bypassing the service retry guard must not spend tokens on the same conflict.
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            try:
+                producer_request(producer, conflict_dir.parent / "attempt-002", pair, catalog.root)
+                raise AssertionError("a saved conflict needs a new requirement, not a technical retry")
+            except CodexProducerError as error:
+                assert error.error_type == "skill_composition_needs_input"
+        assert len(NativeTransport.reviews) == 1 and len(NativeTransport.starts) == 1 and not NativeTransport.resumes
+
+        # Invalid review output is preserved and cannot fall into image-index repair.
+        NativeTransport.reset(generated_root, "composition-invalid")
+        invalid_dir = root / "invalid-review" / "revision-001" / "attempt-001"
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            try:
+                producer_request(producer, invalid_dir, pair, catalog.root)
+                raise AssertionError("invalid review output must stop production")
+            except CodexProducerError as error:
+                assert error.error_type == "skill_composition_invalid"
+        assert not NativeTransport.calls and not NativeTransport.generated
+        assert (invalid_dir / "composition_response.txt").read_text() == "not valid json"
+        # A malformed response is a technical failure, not a frozen semantic decision.
+        NativeTransport.mode = "success"
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            valid_after_retry = producer_request(producer, invalid_dir.parent / "attempt-002", pair, catalog.root)
+        assert len(NativeTransport.reviews) == 2 and len(NativeTransport.calls) == 1
+        assert NativeTransport.starts == ["native-thread-1"] and NativeTransport.resumes == ["native-thread-1"]
+        assert load_checkpoint(Path(valid_after_retry.directory)).composition_review.status == "ready"
+
         # Active cancellation interrupts the real turn collector and records interrupted state.
         NativeTransport.reset(generated_root, "cancel")
         cancel = Event()
@@ -468,6 +529,18 @@ def main():
                 assert error.error_type == "codex_timeout"
         assert NativeTransport.interrupted
         assert json.loads((timeout_dir / "production_progress.json").read_text())['status'] == "failed"
+
+        # A single mature Skill retains its one-turn path without a composition review.
+        NativeTransport.reset(generated_root, "success")
+        maker = catalog.locate(pair.production.id)
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            single = producer.produce_to(
+                directory=root / "single" / "revision-001" / "attempt-001", pack_id="single-r001",
+                creator_id="creator-test", series_id="series-test", topic_id="topic-test",
+                topic_title="Single Skill", skill_directory=maker, skill_digest=_digest(maker),
+                skill_name=pair.production.id, production_protocol="native-v1")
+        assert not NativeTransport.reviews and len(NativeTransport.calls) == 1
+        assert load_checkpoint(Path(single.directory)).composition_review is None
 
     print("native_production_smoke=passed ingest=verified boundary=blocked recovery=same-revision usage=cumulative-checkpoint-attempt-delta offline-recovery=zero multi-skill=one-thread repair=once-no-regeneration cancel=interrupted")
 

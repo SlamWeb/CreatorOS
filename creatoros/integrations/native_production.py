@@ -27,6 +27,21 @@ from .visual_production import atomic_json, input_digest
 
 CHECKPOINT = "native_checkpoint.json"
 
+COMPOSITION_RULES = (
+    "Mind 负责内容范围、事实、解释与必须保留的教学关系；制作 Skill 负责 IP、画风与呈现方法。"
+    "内容单元不等于图片页数。分页、分格和文字密度综合内容、视觉与栏目约定决定。"
+    "当前请求和最新返工的明确要求优先于 Skill 默认偏好；默认六格等可适配，"
+    "不能为了版式静默删内容、改变含义或丢掉双语等明确要求。"
+    "不要把所有 Skill 条款降格为偏好；两个未获用户覆盖的硬要求确实互斥时才提问。"
+    "职责边界不等于全流程禁令：Mind 自选 PageSpec 合法，宿主只是不强制；"
+    "制作 Skill 若只负责 Prompt，可由当前生产任务接着生图，除非用户或 Skill 明确禁止本次生图。"
+)
+
+
+class CompositionReview(ProductionModel):
+    status: Literal["ready", "needs_input"]
+    note: str = Field(min_length=1, max_length=3000)
+
 
 class Artifact(ProductionModel):
     order: int = Field(ge=1)
@@ -61,6 +76,7 @@ class Checkpoint(ProductionModel):
     turn_completed: bool = False
     repair_attempted: bool = False
     usage: CodexUsage = Field(default_factory=CodexUsage)
+    composition_review: CompositionReview | None = None
     prompt_provenance: Literal["producer_reported_not_image_service_verified"] = "producer_reported_not_image_service_verified"
 
 
@@ -101,6 +117,8 @@ def request_digest(directory: Path) -> str:
 
 
 def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifact]:
+    if checkpoint.composition_review and checkpoint.composition_review.status != "ready" and checkpoint.pages:
+        raise ValueError("Skill 组合尚待澄清，不能接受图片交付。")
     orders = [p.order for p in checkpoint.pages]
     if orders != list(range(1, len(orders) + 1)) or len({p.sha256 for p in checkpoint.pages}) != len(orders):
         raise ValueError("图片顺序或重复内容无效。")
@@ -229,8 +247,11 @@ def evidence_files(directory: Path, composition=None) -> list[Path]:
 def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str, checkpoint=None) -> str:
     return (PRODUCTION_RULES + "\n同一会话完成本次内容与呈现，不拆子会话，不主动调用其他 Skill。\n"
             + "\n".join(f"@{name}：先完整读取 {path.resolve()}；资源相对该文件目录。" for name, path in refs)
-            + "\n内容与视觉可在本会话内衔接，不要求固定 PageSpec；只有最终交付需要文件索引。"
-            "把内容稿和来源写到当前 work 目录；不要写工作目录以外的项目文件。"
+            + "\n内容与视觉可在本会话内衔接，宿主不强制 PageSpec，所选 Skill 可以自行采用；最终交付需要文件索引。"
+            + (COMPOSITION_RULES if len(refs) > 1 else "")
+            + (f"\n已确认的组合适配：{checkpoint.composition_review.note}\n"
+               if checkpoint and checkpoint.composition_review else "")
+            + "把内容稿和来源写到当前 work 目录；不要写工作目录以外的项目文件。"
             "必须用原生生图工具生成实际图片，不用代码绘图或占位图。不要自动审美重画。"
             "每完成一张图片就更新 work/delivery.json（相对于当前 cwd 是 delivery.json），先写临时文件再替换。"
             "保留全部已完成项，order 从 1 开始。每项提供实际工具返回的图片绝对路径、真正使用的完整 Prompt。"
@@ -246,11 +267,67 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
                if checkpoint else "新生产任务，不引用任何其他生产任务的旧内容。"))
 
 
+def composition_prompt(refs: list[tuple[str, Path]], request: str) -> str:
+    return ("现在只检查这两份 Skill 如何配合，不执行其中的内容生产步骤。先完整读取下列本地文件。"
+            "仅返回约定 JSON；禁止联网调研、生图、修改文件、另开 thread 或调用其他 Skill。\n"
+            + "\n".join(f"{path.parent.name} / @{name}: {path.resolve()}" for name, path in refs)
+            + "\n" + COMPOSITION_RULES
+            + "\n没有实质硬冲突则 status=ready，note 用几句话说明保留什么内容、版式如何适配。"
+            "默认值可调整，不必每次询问。不要提前写完整内容稿或承诺未知页数。"
+            "存在实质硬冲突则 status=needs_input，note 指出具体来源条款、冲突与可选解决方式，"
+            "明确问用户愿意放宽哪项。无法读取必要文件也不能猜测后报 ready。\n本次任务：" + request)
+
+
+def require_ready(review: CompositionReview | None) -> None:
+    if review and review.status == "needs_input":
+        raise CodexProducerError(
+            f"Skill 组合需要你确认：{review.note}\n请通过“提出返工”补充选择，保存后再开始生产。",
+            error_type="skill_composition_needs_input")
+
+
+async def review_composition(thread, producer, directory, refs, request, progress, deadline, cancel_event=None):
+    """One text-only turn in the production thread; no separate planning agent."""
+    from openai_codex import Sandbox, SkillInput, TextInput
+
+    prompt = composition_prompt(refs, request)
+    (directory / "composition_request.txt").write_text(prompt, encoding="utf-8")
+    progress.page("planning", None, 0)
+    turn = await _bounded_sdk(thread.turn(
+        [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]],
+        cwd=str(directory / "work"), effort=CODEX_EFFORT, model=CODEX_MODEL,
+        output_schema=CompositionReview.model_json_schema(), sandbox=Sandbox.read_only), deadline, cancel_event)
+    try:
+        result = await _bounded_sdk(collect_observed_turn(turn, progress), deadline, cancel_event)
+    except BaseException:
+        try:
+            await asyncio.wait_for(turn.interrupt(), timeout=5)
+        except Exception:
+            pass
+        raise
+    if result.usage is not None:
+        progress.record_usage(producer._sdk_usage(result.usage).model_dump())
+    text = result.final_response or ""
+    (directory / "composition_response.txt").write_text(text, encoding="utf-8")
+    try:
+        review = CompositionReview.model_validate_json(text)
+    except ValueError as error:
+        raise CodexProducerError("Skill 组合检查未返回有效结论，尚未进入生产。",
+                                 error_type="skill_composition_invalid") from error
+    progress.checkpoint.composition_review = review
+    atomic_json(directory / CHECKPOINT, progress.checkpoint)
+    (directory / "composition_review.md").write_text(f"# {review.status}\n\n{review.note}\n", encoding="utf-8")
+    with (directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps({"stage": "production", "type": "composition.reviewed", "status": review.status,
+                                 "thread_id": thread.id, "at": datetime.now().astimezone().isoformat()}) + "\n")
+    return review
+
+
 async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event):
     from openai_codex import ApprovalMode, Sandbox, SkillInput, TextInput
     progress = NativeProgress(directory, checkpoint)
     deadline = monotonic() + producer.timeout_seconds
     try:
+        require_ready(checkpoint.composition_review if checkpoint else None)
         async with _production_client(deadline, cancel_event) as client:
             options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write, developer_instructions=PRODUCTION_RULES)
@@ -267,7 +344,15 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 stream.write(json.dumps({"type": "thread.resumed" if recovered else "thread.started",
                                          "thread_id": thread.id, "model": CODEX_MODEL,
                                          "reasoning_effort": CODEX_EFFORT}) + "\n")
-            prompt = delivery_prompt(directory, refs, request, recovered)
+            # Existing image-bearing checkpoints predate this check and keep their
+            # original recovery path. Otherwise freeze the decision once per Revision.
+            if len(refs) > 1 and checkpoint.composition_review is None and not checkpoint.pages:
+                require_ready(await review_composition(thread, producer, directory, refs, request,
+                                                       progress, deadline, cancel_event))
+            prompt = delivery_prompt(directory, refs, request, checkpoint if recovered else None)
+            if not recovered and checkpoint.composition_review:
+                prompt += f"\n已确认的组合适配：{checkpoint.composition_review.note}\n"
+            progress.page("planning", None, len(checkpoint.pages))
             (directory / "production_instructions.txt").write_text(prompt, encoding="utf-8")
             for repair in (False, True):
                 if repair:
