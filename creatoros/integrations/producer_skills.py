@@ -344,6 +344,89 @@ class ProducerSkillCatalog:
             _write(record_path, record)
         return self.describe(skill_id)
 
+    def register_local(self, directory: Path, *, role: str, source_note: str | None = None) -> dict:
+        """Register a local Skill folder without downloading it or invoking a model."""
+        if role not in self.ROLES:
+            raise ValueError(f"Skill 角色必须是 {sorted(self.ROLES)} 之一。")
+
+        source = Path(directory)
+        if source.is_symlink() or not source.is_dir():
+            raise ValueError("本地 Skill 必须是普通目录，不能是符号链接。")
+        source = source.resolve(strict=True)
+
+        # Match the existing Git import bounds and reject all linked/escaping entries.
+        entries, total_bytes = 0, 0
+        for path in source.rglob("*"):
+            entries += 1
+            if entries > 2_000:
+                raise ValueError("Skill 文件过多，请拆分目录后再导入。")
+            if path.is_symlink():
+                raise ValueError("Skill 不允许符号链接或越界文件。")
+            resolved = path.resolve(strict=True)
+            if not resolved.is_relative_to(source):
+                raise ValueError("Skill 路径不在本地源目录内。")
+            if path.is_file():
+                total_bytes += path.stat().st_size
+            elif not path.is_dir():
+                raise ValueError("Skill 只允许普通文件和目录。")
+            if total_bytes > 32 * 1024 * 1024:
+                raise ValueError("Skill 超过 32 MiB，请拆分目录后再导入。")
+
+        initial_digest = _digest(source)
+        loader = SkillLoader([source])
+        skill = next((item for item in loader.discover() if item.path == source / "SKILL.md"), None)
+        if skill is None:
+            raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
+        receipt = _inspect_checkout(source, ".")
+        if _digest(source) != initial_digest:
+            raise ValueError("导入期间本地 Skill 已变化，请重新开始。")
+
+        identity = os.path.normcase(str(source))
+        suffix = hashlib.sha256(f"local:{identity}:{initial_digest}".encode("utf-8")).hexdigest()[:16]
+        skill_id = f"{skill.name}--{suffix}"
+        if len(skill_id) > 120:
+            raise ValueError("Skill 名称太长。")
+
+        # Keep one immutable source copy per identity/content pair. freeze_skill
+        # verifies the source before and after copying and never replaces an existing target.
+        versions = self.root / "versions"
+        versions.mkdir(parents=True, exist_ok=True)
+        if versions.is_symlink() or not versions.resolve().is_relative_to(self.root):
+            raise ValueError("版本目录路径越界。")
+        original = versions / skill_id
+        if original.is_symlink():
+            raise ValueError("原始 Skill 目录不能是符号链接。")
+        if original.exists():
+            if not original.is_dir() or _digest(original) != initial_digest:
+                raise ValueError("同版本目录已被修改；不会覆盖。")
+        else:
+            freeze_skill(source, original, initial_digest)
+
+        record = {"id": skill_id, "name": skill.name, "description": skill.description,
+                  "github_url": None, "commit": None, "skill_path": ".",
+                  "digest": initial_digest, "carousel_compatible": receipt.carousel_compatible,
+                  "compatibility_note": receipt.compatibility_note, "role": role,
+                  "source_kind": "local"}
+        if source_note is not None:
+            record["source_note"] = source_note
+
+        registry = self.root / "registry"
+        registry.mkdir(parents=True, exist_ok=True)
+        if registry.is_symlink() or not registry.resolve().is_relative_to(self.root):
+            raise ValueError("注册表目录路径越界。")
+        record_path = registry / f"{skill_id}.json"
+        if record_path.is_symlink():
+            raise ValueError("Skill 注册记录不能是符号链接。")
+        if record_path.exists():
+            existing = json.loads(record_path.read_text(encoding="utf-8"))
+            if (existing.get("id") != skill_id or existing.get("source_kind") != "local"
+                    or existing.get("digest") != initial_digest or existing.get("github_url") is not None
+                    or existing.get("commit") is not None):
+                raise ValueError("本地 Skill ID 与已有注册记录冲突。")
+        else:
+            _write(record_path, record)
+        return self.describe(skill_id)
+
 
 class SkillInstallService:
     """One bounded local job, persisted receipt; no autonomous retry or production."""
