@@ -45,6 +45,13 @@ def main() -> None:
     exposed = {item["function"]["name"] for item in tools}
     for name in ("compose_series", "update_series_composition", "assign_series", "queue_topics"):
         assert name in exposed, f"工具未注册：{name}"
+    descriptions = {item["function"]["name"]: item["function"]["description"] for item in tools}
+    install_description = descriptions["install_producer_skill"]
+    assert "Git" in install_description and "不调用模型" in install_description
+    assert "不安装到 Codex 全局目录" in install_description
+    assert "委托 Codex" not in install_description
+    assert "compose_series/update_series_composition" in descriptions["get_skill_install"]
+    assert "本地工作副本" in descriptions["list_producer_skills"]
 
     with TemporaryDirectory() as temporary:
         root = Path(temporary)

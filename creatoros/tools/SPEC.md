@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## 安装工具描述与实际实现对齐（2026-10-02）
+
+- 将 install_producer_skill 的旧“委托 Codex 下载”描述改为 CreatorOS 使用 Git 下载核验到本地生产 Skill 库；明确不调用模型、不安装到 Codex 全局目录。安装流程与参数不变。
+- 同步 get_skill_install / list_producer_skills：登记不等于绑定或生产兼容；明确现有组合工具入口与当前本地工作副本，去掉仅网页可绑定的旧限制描述。
+- 验收：`python -m tests.smoke_studio_composition_tools` 通过，包含模型可见 schema 描述回归及真实本地 HTTP/隔离数据库跨入口检查；未调用模型或启动真实调研、生图、安装，未修改正式运营数据。安装器使用现有隔离 Git 文件夹夹具，本轮只验证描述与接线，不冒充真实下载验收。
+
 ## 可编辑本地 Skill（2026-10-01）
 
 - `list_producer_skills` 返回当前工作副本元数据及 `local_path`；`compose_series`/`update_series_composition` 可使用此路径或兼容目录 ID，经同一 API 规范化保存。
