@@ -7,6 +7,7 @@ from pathlib import Path
 from functools import wraps
 from threading import Event, RLock, Thread
 from time import monotonic
+from typing import Literal
 from uuid import uuid4
 
 from sqlalchemy import update
@@ -71,12 +72,14 @@ class ContentRunService:
         producer_factory: Callable[[], CodexProducer] = CodexSdkProducer.from_defaults,
         output_root: Path | None = None,
         lease_seconds: float = 30.0,
+        production_protocol: Literal["legacy", "native-v1"] = "native-v1",
     ):
         from creatoros.config import PROJECT_ROOT
 
         self.database = database
         self.repository = ContentRunRepository(database)
         self.producer_factory = producer_factory
+        self.production_protocol = production_protocol
         self.output_root = (output_root or PROJECT_ROOT / "outputs").resolve()
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须大于 0。")
@@ -115,8 +118,12 @@ class ContentRunService:
             pair_fields = {}
             if series.skill_name is None:
                 try:
-                    pair = snapshot_pair(ProducerSkillCatalog(skills_root_for(self.database)),
-                                         series.mind_skill_id, series.production_skill_id)
+                    pair = snapshot_pair(
+                        ProducerSkillCatalog(skills_root_for(self.database)),
+                        series.mind_skill_id,
+                        series.production_skill_id,
+                        native=self.production_protocol == "native-v1",
+                    )
                 except ValueError as error:
                     raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
                 pair_fields = dict(composition=pair, creator_name=creator.display_name,
@@ -130,6 +137,7 @@ class ContentRunService:
                     raise ContentRunError(str(error), code="invalid_skill") from error
             snapshot = ContentRunInput(
                 **pair_fields,
+                production_protocol=self.production_protocol,
                 creator_id=series.creator_id,
                 series_id=series.id,
                 series_name=series.name,
@@ -221,6 +229,7 @@ class ContentRunService:
             if cancel_event.is_set():
                 raise ContentRunLeaseError("执行器已停止。")
             producer = self.producer_factory()
+            native = prepared["input"].production_protocol == "native-v1"
             produced = producer.produce_to(
                 directory=prepared["directory"],
                 pack_id=f"{run_id}-r{prepared['revision_number']:03d}",
@@ -237,9 +246,11 @@ class ContentRunService:
                     "skill_digest": prepared["input"].skill_digest}
                    if prepared["input"].skill_name and prepared["input"].skill_digest else {}),
                 skills_root=skills_root_for(self.database),
-                thread_id=None if getattr(producer, "fresh_sessions", False) else prepared["thread_id"],
+                thread_id=(None if native or getattr(producer, "fresh_sessions", False)
+                           else prepared["thread_id"]),
                 **({"previous_pages": prepared["previous_pages"]}
-                   if getattr(producer, "fresh_sessions", False) else {}),
+                   if native or getattr(producer, "fresh_sessions", False) else {}),
+                **({"production_protocol": "native-v1"} if native else {}),
                 revision_instruction=prepared["instruction"],
                 on_thread_started=lambda thread_id: self._attach_thread(
                     run_id, prepared["attempt_id"], thread_id, owner
@@ -312,8 +323,10 @@ class ContentRunService:
             revision = repository.get_revision_number(run_id, content_run.active_revision_number)
             if revision is None or revision.id != revision_id or not revision.artifact_directory:
                 raise ContentRunError("批准的 Revision 不是当前待验收版本。")
+            revision_input = ContentRunInput.model_validate(revision.production_input_json)
             current = validate_artifact(revision.artifact_directory,
-                                        composition=ContentRunInput.model_validate(revision.production_input_json).composition)
+                                        composition=revision_input.composition,
+                                        production_protocol=revision_input.production_protocol)
             if current.artifact_digest != artifact_digest or current.artifact_digest != revision.artifact_digest:
                 raise ContentRunError("产物已变化，旧 digest 不能批准，请重新验收。")
             previous = content_run.status
@@ -495,41 +508,126 @@ class ContentRunService:
                                     if attempt.output_directory]
             previous_pages = None
             if revision.instruction:
-                # A technical retry keeps the Revision's original explicit input.
-                # Its newly produced storyboard is output, not a replacement input.
-                frozen_previous = False
-                for prior in repository.list_attempts(revision.id):
-                    if not prior.output_directory:
-                        continue
-                    request = Path(prior.output_directory) / "production_request.txt"
-                    if not request.exists():
-                        continue  # Legacy producers did not save this JSON request.
-                    if (request.is_symlink() or not request.resolve().is_relative_to(run_root.resolve())
-                            or request.stat().st_size > 1_000_000):
-                        raise ContentRunError("原生产请求缺失或越界。", code="invalid_skill_snapshot")
-                    try:
-                        value = json.loads(request.read_text(encoding="utf-8"))
-                        if isinstance(value, dict) and "previous_pages" in value:
-                            previous_pages = value["previous_pages"]
-                            if previous_pages is not None and not isinstance(previous_pages, str):
-                                raise ValueError("invalid previous_pages")
-                            frozen_previous = True
+                prior_attempts = repository.list_attempts(revision.id)
+                if input_data.production_protocol == "native-v1":
+                    # A same-Revision retry must reuse the first Attempt's exact
+                    # prior-content input; do not rebuild it from mutable files.
+                    frozen_request = False
+                    if prior_attempts and prior_attempts[0].output_directory:
+                        request = Path(prior_attempts[0].output_directory) / "production_request.txt"
+                        if request.exists() or request.is_symlink():
+                            if (request.is_symlink() or not request.resolve().is_relative_to(run_root.resolve())
+                                    or request.stat().st_size > 1_000_000):
+                                raise ContentRunError("原生产请求缺失或越界。", code="invalid_skill_snapshot")
+                            try:
+                                value = json.loads(request.read_text(encoding="utf-8"))
+                                previous_pages = value["previous_pages"]
+                                if previous_pages is not None and not isinstance(previous_pages, str):
+                                    raise ValueError("invalid previous_pages")
+                                frozen_request = True
+                            except (KeyError, ValueError, OSError) as error:
+                                raise ContentRunError("原生产请求无效。", code="invalid_skill_snapshot") from error
+                    if not frozen_request and revision.revision_number > 1:
+                        previous_revision = repository.get_revision_number(run_id, revision.revision_number - 1)
+                        if (previous_revision is None or not previous_revision.artifact_directory
+                                or not previous_revision.artifact_digest):
+                            raise ContentRunError(
+                                "前一版本没有已验收的原生交付，不能构造返工上下文。",
+                                code="invalid_revision_context",
+                            )
+                        previous_input = ContentRunInput.model_validate(previous_revision.production_input_json)
+                        if previous_input.production_protocol != "native-v1":
+                            raise ContentRunError("前一版本不是原生协议，不能作为返工上下文。",
+                                                  code="invalid_revision_context")
+                        previous_directory = Path(previous_revision.artifact_directory)
+                        if (previous_directory.is_symlink()
+                                or not previous_directory.resolve().is_relative_to(run_root.resolve())):
+                            raise ContentRunError("前一版本产物目录越界。", code="invalid_revision_context")
+                        try:
+                            checked = validate_artifact(
+                                previous_directory,
+                                composition=previous_input.composition,
+                                production_protocol="native-v1",
+                            )
+                        except (ValueError, OSError) as error:
+                            raise ContentRunError("前一版本原生交付未通过当前文件验收。",
+                                                  code="invalid_revision_context") from error
+                        if checked.artifact_digest != previous_revision.artifact_digest:
+                            raise ContentRunError("前一版本原生产物已变化，不能作为返工上下文。",
+                                                  code="invalid_revision_context")
+                        from creatoros.integrations.native_production import load_checkpoint
+
+                        checkpoint = load_checkpoint(previous_directory)
+                        if (checkpoint is None or not checkpoint.turn_completed
+                                or not checkpoint.delivery.complete):
+                            raise ContentRunError("前一版本原生交付 checkpoint 不完整。",
+                                                  code="invalid_revision_context")
+                        previous_pages = json.dumps({
+                            "delivery": {
+                                "title": checkpoint.delivery.title,
+                                "text": checkpoint.delivery.text,
+                                "hashtags": checkpoint.delivery.hashtags,
+                            },
+                            "pages": [{
+                                "order": page.order,
+                                "content": page.content,
+                                "image_prompt": page.image_prompt,
+                            } for page in checkpoint.pages],
+                        }, ensure_ascii=False)
+                        try:
+                            checked_again = validate_artifact(
+                                previous_directory,
+                                composition=previous_input.composition,
+                                production_protocol="native-v1",
+                            )
+                        except (ValueError, OSError) as error:
+                            raise ContentRunError("构造返工上下文期间前一版本产物失效。",
+                                                  code="invalid_revision_context") from error
+                        if checked_again.artifact_digest != previous_revision.artifact_digest:
+                            raise ContentRunError("构造返工上下文期间前一版本产物发生变化。",
+                                                  code="invalid_revision_context")
+                    if revision.revision_number > 1 and (
+                            not isinstance(previous_pages, str) or not previous_pages.strip()):
+                        raise ContentRunError(
+                            "原生产请求没有冻结前一版本内容，不能用空上下文重试返工。",
+                            code="invalid_revision_context",
+                        )
+                else:
+                    # A technical retry keeps the Revision's original explicit input.
+                    # Its newly produced storyboard is output, not a replacement input.
+                    frozen_previous = False
+                    for prior in prior_attempts:
+                        if not prior.output_directory:
+                            continue
+                        request = Path(prior.output_directory) / "production_request.txt"
+                        if not request.exists():
+                            continue  # Legacy producers did not save this JSON request.
+                        if (request.is_symlink() or not request.resolve().is_relative_to(run_root.resolve())
+                                or request.stat().st_size > 1_000_000):
+                            raise ContentRunError("原生产请求缺失或越界。", code="invalid_skill_snapshot")
+                        try:
+                            value = json.loads(request.read_text(encoding="utf-8"))
+                            if isinstance(value, dict) and "previous_pages" in value:
+                                previous_pages = value["previous_pages"]
+                                if previous_pages is not None and not isinstance(previous_pages, str):
+                                    raise ValueError("invalid previous_pages")
+                                frozen_previous = True
+                                break
+                        except (ValueError, OSError) as error:
+                            raise ContentRunError("原生产请求无效。", code="invalid_skill_snapshot") from error
+                    for previous_dir in ([] if frozen_previous else reversed(previous_directories)):
+                        for filename in ("storyboard.json", "production_evidence.json"):
+                            candidate = previous_dir / filename
+                            if (candidate.is_file() and not candidate.is_symlink()
+                                    and candidate.resolve().is_relative_to(run_root.resolve())):
+                                value = json.loads(candidate.read_text(encoding="utf-8"))
+                                previous_pages = json.dumps({
+                                    "research_brief": value["research_brief"], "causal_chain": value["causal_chain"],
+                                    "pages": [{"order": p["order"], "page_spec": p["page_spec"]} for p in value["pages"]],
+                                }, ensure_ascii=False)
+                                break
+                        if previous_pages:
                             break
-                    except (ValueError, OSError) as error:
-                        raise ContentRunError("原生产请求无效。", code="invalid_skill_snapshot") from error
-                for previous_dir in ([] if frozen_previous else reversed(previous_directories)):
-                    for filename in ("storyboard.json", "production_evidence.json"):
-                        candidate = previous_dir / filename
-                        if (candidate.is_file() and not candidate.is_symlink()
-                                and candidate.resolve().is_relative_to(run_root.resolve())):
-                            value = json.loads(candidate.read_text(encoding="utf-8"))
-                            previous_pages = json.dumps({
-                                "research_brief": value["research_brief"], "causal_chain": value["causal_chain"],
-                                "pages": [{"order": p["order"], "page_spec": p["page_spec"]} for p in value["pages"]],
-                            }, ensure_ascii=False)
-                            break
-                    if previous_pages:
-                        break
             try:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
                 if input_data.composition is not None:
@@ -679,8 +777,10 @@ class ContentRunService:
         revision = self.repository.get_revision_number(run_id, content_run.active_revision_number)
         if revision is None or not revision.artifact_directory:
             raise ContentRunError("当前 Revision 没有可验收的产物目录。")
+        revision_input = ContentRunInput.model_validate(revision.production_input_json)
         validation = validate_artifact(revision.artifact_directory,
-                                       composition=ContentRunInput.model_validate(revision.production_input_json).composition)
+                                       composition=revision_input.composition,
+                                       production_protocol=revision_input.production_protocol)
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
@@ -744,6 +844,7 @@ class ContentRunService:
             "codex_exec_failed",
             "codex_turn_failed",
             "visual_delivery_failed",
+            "native_delivery_failed",
         }
         self._finish_error(
             run_id,

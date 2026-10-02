@@ -17,14 +17,14 @@ EVIDENCE_FILE = "production_evidence.json"
 class SkillVersion(ProductionModel):
     id: str
     name: str
-    github_url: str
-    commit: str
+    github_url: str | None = None
+    commit: str | None = None
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     local_path: str | None = None
 
 
 class SkillPair(ProductionModel):
-    adapter: Literal["pagespec-xiaobai-carousel-v1"] = "pagespec-xiaobai-carousel-v1"
+    adapter: Literal["pagespec-xiaobai-carousel-v1", "native-carousel-v1"] = "pagespec-xiaobai-carousel-v1"
     mind: SkillVersion
     production: SkillVersion
 
@@ -100,29 +100,43 @@ class PairEvidence(ProductionModel):
     pages: list[PageEvidence] = Field(min_length=1)
 
 
-def snapshot_pair(catalog: ProducerSkillCatalog, mind_id: str, production_id: str) -> SkillPair:
+def snapshot_pair(
+    catalog: ProducerSkillCatalog,
+    mind_id: str,
+    production_id: str,
+    *,
+    native: bool = False,
+) -> SkillPair:
     mind, production = catalog.describe(mind_id), catalog.describe(production_id)
     if mind["role"] != "mind" or production["role"] != "production":
         raise ValueError("双 Skill 的内容/制作角色不匹配。")
-    # Only audited source families have an adapter. Arbitrary pairs remain installable.
-    if (mind["name"] not in {"knowledge-to-storyboard", "knowledge-to-storyboard-deep"}
-            or production["name"] != "xiaobai"
-            or "/".join(mind["github_url"].split("/")[:5]).removesuffix(".git").lower()
-            != "https://github.com/slamweb/knowledge-to-storyboard"
-            or "/".join(production["github_url"].split("/")[:5]).removesuffix(".git").lower()
-            != "https://github.com/slamweb/creatoros-ip-skills"):
-        raise ValueError("此双 Skill 组合尚无生产适配器；当前支持 knowledge-to-storyboard + xiaobai。")
     for record in (mind, production):
         catalog.locate(record["id"])
-    if not (catalog.locate(production_id) / "assets" / "character.png").is_file():
-        raise ValueError("小白角色参考图缺失。")
-    return SkillPair(**{role: SkillVersion(**{key: record.get(key) for key in SkillVersion.model_fields})
-                        for role, record in (("mind", mind), ("production", production))})
+    if native:
+        adapter = "native-carousel-v1"
+    else:
+        # The legacy handoff has a fixed, audited pair and character asset contract.
+        if (mind["name"] not in {"knowledge-to-storyboard", "knowledge-to-storyboard-deep"}
+                or production["name"] != "xiaobai"
+                or "/".join((mind.get("github_url") or "").split("/")[:5]).removesuffix(".git").lower()
+                != "https://github.com/slamweb/knowledge-to-storyboard"
+                or "/".join((production.get("github_url") or "").split("/")[:5]).removesuffix(".git").lower()
+                != "https://github.com/slamweb/creatoros-ip-skills"):
+            raise ValueError("此双 Skill 组合尚无生产适配器；当前支持 knowledge-to-storyboard + xiaobai。")
+        if not (catalog.locate(production_id) / "assets" / "character.png").is_file():
+            raise ValueError("小白角色参考图缺失。")
+        adapter = "pagespec-xiaobai-carousel-v1"
+    return SkillPair(**{
+        "adapter": adapter,
+        **{role: SkillVersion(**{key: record.get(key) for key in SkillVersion.model_fields})
+           for role, record in (("mind", mind), ("production", production))},
+    })
 
 
 def freeze_pair(catalog: ProducerSkillCatalog, pair: SkillPair, directory: Path,
                 *, source_root: Path | None = None) -> list[tuple[str, Path]]:
-    if source_root is None and snapshot_pair(catalog, pair.mind.id, pair.production.id) != pair:
+    native = pair.adapter == "native-carousel-v1"
+    if source_root is None and snapshot_pair(catalog, pair.mind.id, pair.production.id, native=native) != pair:
         raise ValueError("本地 Skill 已变化，请重新取得本次调用快照。")
     refs = []
     for role in ("mind", "production"):
@@ -153,7 +167,12 @@ def prepare_run_pair(catalog: ProducerSkillCatalog, pair: SkillPair, run_root: P
 
     source_root = None
     if first_start and pair.mind.local_path and pair.production.local_path:
-        pair = snapshot_pair(catalog, pair.mind.local_path, pair.production.local_path)
+        pair = snapshot_pair(
+            catalog,
+            pair.mind.local_path,
+            pair.production.local_path,
+            native=pair.adapter == "native-carousel-v1",
+        )
     else:
         # Historical attempts already contain the actual Skill bytes used by Codex.
         for previous in previous_directories:

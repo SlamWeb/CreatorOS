@@ -102,6 +102,10 @@ class ProgressWriter:
         self.state.status = "running"
         self.save()
 
+    def record_usage(self, usage: dict):
+        path = self.directory / f"{self.state.stage}_usage.json"
+        path.write_text(json.dumps(usage), encoding="utf-8")
+
 
 async def collect_observed_turn(turn, progress: ProgressWriter):
     # SDK 0.157.1 is pinned. Its private collector is the sole compatibility seam;
@@ -116,8 +120,7 @@ async def collect_observed_turn(turn, progress: ProgressWriter):
                 if total is not None:
                     usage = {key: getattr(total, key, 0) for key in (
                         "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")}
-                    path = progress.directory / f"{progress.state.stage}_usage.json"
-                    path.write_text(json.dumps(usage), encoding="utf-8")
+                    progress.record_usage(usage)
             # Do not serialize large outputs/reasoning only to throw them away.
             item = getattr(event.payload, "item", None)
             item = getattr(item, "root", item)

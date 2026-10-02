@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.integrations.skill_pair import SkillPair
@@ -10,6 +12,7 @@ class RunModel(BaseModel):
 
 
 class ContentRunInput(RunModel):
+    production_protocol: Literal["legacy", "native-v1"] = "legacy"
     creator_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_name: str = Field(min_length=1)

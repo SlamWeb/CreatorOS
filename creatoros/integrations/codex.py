@@ -264,7 +264,16 @@ class CodexProducer:
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
         on_process_stopped: Callable[[], None] | None = None,
+        production_protocol: Literal["legacy", "native-v1"] = "legacy",
     ) -> ProducedPack:
+        if production_protocol == "native-v1":
+            from .native_production import produce_native
+            return produce_native(self, directory=directory, pack_id=pack_id,
+                creator_id=creator_id, series_id=series_id, topic_id=topic_id, topic_title=topic_title,
+                topic_brief=topic_brief, series_description=series_description, audience=audience,
+                skill_name=skill_name, skill_directory=skill_directory, skill_digest=skill_digest,
+                composition=composition, skills_root=skills_root, revision_instruction=revision_instruction,
+                previous_pages=previous_pages, on_thread_started=on_thread_started, cancel_event=cancel_event)
         now = datetime.now().astimezone()
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=False)

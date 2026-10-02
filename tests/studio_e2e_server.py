@@ -43,7 +43,8 @@ root.mkdir(parents=True, exist_ok=True)
 database_url = f"sqlite:///{(root / 'studio.db').as_posix()}"
 upgrade_database(database_url)
 database = Database(database_url)
-runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs")
+runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs",
+                         production_protocol="legacy")
 app = create_app(database=database, run_service=runs)
 
 # Only this isolated test executable exposes fixture creation, never the production app.

@@ -77,7 +77,8 @@ def _run_case(case: dict, root: Path) -> dict:
         PendingOperationService(db, parser=None).persist_proposal("把待确认的选题入队", result, scope_series_id="series-a")
     producer = ReviewProducer(count=1)
     app = create_app(database=db,
-                     run_service=ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs"))
+                     run_service=ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs",
+                                                   production_protocol="legacy"))
     session_file = root / "session.json"
     save_messages([{"role": "system", "content": WEB_INSTRUCTIONS}], session_file)
     provider = DeepSeekProvider(api_key=os.environ["DEEPSEEK_API_KEY"], timeout_seconds=45, max_retries=0)

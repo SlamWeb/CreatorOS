@@ -112,7 +112,8 @@ def main():
                                skill_name=None, mind_skill_id=mind["id"], production_skill_id=visual["id"]))
             session.add(Topic(id="topic", series_id="series", title="消息队列", brief="source + angle", source=TopicSource.MANUAL, position=1))
         producer = ControlledPair(project_root=Path(__file__).parents[1], generated_images_root=root / "generated")
-        service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs")
+        service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs",
+                                    production_protocol="legacy")
         app = create_app(database=db, run_service=service)
         # HTTP create shares exactly the same frozen input/idempotency path as Agent tools.
         with TestClient(app) as client:

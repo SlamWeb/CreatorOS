@@ -61,7 +61,8 @@ def main():
                 session.add(Topic(id="topic", series_id="series", title="消息队列", source=TopicSource.MANUAL, position=1))
             producer = CodexSdkProducer(project_root=root, generated_images_root=root / "generated")
             Transport.generated_root = producer.generated_images_root
-            service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs")
+            service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs",
+                                        production_protocol="legacy")
             run = service.create("topic")
             Transport.fail_page_order = 2
             with patch("openai_codex.AsyncCodex", Transport):

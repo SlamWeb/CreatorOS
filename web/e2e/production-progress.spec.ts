@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import path from "node:path";
 
 const runId = "production-progress-e2e";
 const now = Date.now();
@@ -198,6 +200,51 @@ test("final verified cards replace the unreviewed preview instead of duplicating
   }));
   await expect(page.getByText("最终产物", { exact: true })).toBeVisible();
   await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toHaveCount(0);
+});
+
+test("final card content and prompt evidence render independently", async ({ page }) => {
+  const projection = runProjection(null, {
+    status: "awaiting_approval",
+    allowed_actions: ["approve", "revise", "cancel"],
+    revisions: [{
+      id: "revision-e2e", revision_number: 1, instruction: null, artifact_available: true,
+      artifact_digest: "d".repeat(64), validation: null, validated_at: null, approved_at: null,
+      attempts: [], artifact_error: null, content_summary: "隔离证据显示回归", review_digest: "e".repeat(64),
+      cards: [
+        { order: 1, headline: "只有内容稿", url: `/api/runs/${runId}/cards/1?checksum=${"a".repeat(64)}`,
+          width: 1, height: 1, page_spec: "仅内容稿可见", image_prompt: null },
+        { order: 2, headline: "只有 Prompt", url: `/api/runs/${runId}/cards/2?checksum=${"b".repeat(64)}`,
+          width: 1, height: 1, page_spec: null, image_prompt: "仅 Prompt 可见" },
+        { order: 3, headline: "两者均空", url: `/api/runs/${runId}/cards/3?checksum=${"c".repeat(64)}`,
+          width: 1, height: 1, page_spec: null, image_prompt: null },
+      ],
+      publish_copy: null, sources: [],
+    }],
+  });
+  await openProjection(page, projection);
+
+  const evidence = page.locator(".page-evidence");
+  await expect(evidence).toHaveCount(1);
+  await evidence.getByText("本页内容与生图 Prompt").click();
+  await expect(evidence.getByRole("heading", { name: "内容稿" })).toBeVisible();
+  await expect(evidence.getByText("仅内容稿可见")).toBeVisible();
+  await expect(evidence.getByRole("heading", { name: "生图 Prompt" })).toHaveCount(0);
+  const screenshotDir = path.resolve(import.meta.dirname, "../../tmp/testresults");
+  mkdirSync(screenshotDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  await page.screenshot({ path: path.join(screenshotDir, `run-inspector-evidence-${stamp}-content.png`), fullPage: true });
+
+  await page.getByRole("button", { name: "查看第 2 张" }).click();
+  await expect(evidence).toHaveCount(1);
+  await evidence.getByText("本页内容与生图 Prompt").click();
+  await expect(evidence.getByRole("heading", { name: "内容稿" })).toHaveCount(0);
+  await expect(evidence.getByRole("heading", { name: "生图 Prompt" })).toBeVisible();
+  await expect(evidence.getByText("仅 Prompt 可见")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: path.join(screenshotDir, `run-inspector-evidence-${stamp}-prompt-mobile.png`), fullPage: true });
+
+  await page.getByRole("button", { name: "查看第 3 张" }).click();
+  await expect(evidence).toHaveCount(0);
 });
 
 test("stale stage activity is described as quiet, not as a failure", async ({ page }, testInfo) => {

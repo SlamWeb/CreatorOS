@@ -13,7 +13,7 @@ from creatoros.content.models import MANIFEST_FILENAME
 from .models import ArtifactValidation, ValidatedImage
 
 
-def validate_artifact(directory: str | Path, *, composition=None) -> ArtifactValidation:
+def validate_artifact(directory: str | Path, *, composition=None, production_protocol="legacy") -> ArtifactValidation:
     root = Path(directory).resolve()
     if not (root / MANIFEST_FILENAME).resolve().is_relative_to(root):
         raise ValueError("Manifest 路径越过产物目录。")
@@ -53,15 +53,23 @@ def validate_artifact(directory: str | Path, *, composition=None) -> ArtifactVal
                 sha256=hashlib.sha256(image_bytes).hexdigest(),
             )
         )
-    if composition is not None:
+    evidence = []
+    if production_protocol == "native-v1":
+        from creatoros.integrations.native_production import evidence_files, load_checkpoint
+        evidence = evidence_files(root, composition)
+        saved = load_checkpoint(root)
+        if [(p.order, p.sha256) for p in saved.pages] != [(p.order, p.sha256) for p in images]:
+            raise ValueError("最终图片与已验收 checkpoint 不一致。")
+    elif composition is not None:
         from creatoros.integrations.skill_pair import evidence_files
-        for path in evidence_files(root, composition, [card.order for card in pack.cards]):
-            relative = path.relative_to(root).as_posix().encode("utf-8")
-            raw = path.read_bytes()
-            digest.update(len(relative).to_bytes(4, "big"))
-            digest.update(relative)
-            digest.update(len(raw).to_bytes(8, "big"))
-            digest.update(raw)
+        evidence = evidence_files(root, composition, [card.order for card in pack.cards])
+    for path in evidence:
+        relative = path.relative_to(root).as_posix().encode("utf-8")
+        raw = path.read_bytes()
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
     return ArtifactValidation(
         artifact_digest=digest.hexdigest(),
         card_count=len(pack.cards),

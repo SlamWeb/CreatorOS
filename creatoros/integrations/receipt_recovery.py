@@ -236,6 +236,8 @@ def _read_source(service: ContentRunService, run_id: str, ledger: Path) -> Verif
         raise ValueError("仅允许恢复 invalid_production_receipt 的 failed Run。")
     revision = service.get_active_revision(run_id)
     input_data = ContentRunInput.model_validate(revision.production_input_json)
+    if input_data.production_protocol != "legacy":
+        raise ValueError("此旧回执导入器只用于 legacy Run；新协议请从本次 checkpoint 恢复。")
     if input_data.composition is None:
         raise ValueError("此恢复工具只支持冻结双 Skill 的 Run。")
     attempts = service.repository.list_attempts(revision.id)

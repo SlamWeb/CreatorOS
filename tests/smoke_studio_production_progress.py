@@ -31,7 +31,8 @@ def main():
             session.add(Topic(id="topic", series_id="series", title="消息队列", source=TopicSource.MANUAL, position=1))
         producer = ControlledPair(project_root=Path(__file__).parents[1], generated_images_root=root / "generated")
         producer.interrupt_next = False
-        service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs")
+        service = ContentRunService(db, producer_factory=lambda: producer, output_root=root / "outputs",
+                                    production_protocol="legacy")
         run = service.create("topic")
         app = create_app(database=db, run_service=service)
         with TestClient(app) as client:

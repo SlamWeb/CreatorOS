@@ -58,12 +58,24 @@ class StudioArtifacts:
             if digest is None:
                 return dict(artifact_available=False, artifact_error=None, review_digest=None)
             pack = self.pack(root, data)
-            checked = validate_artifact(root, composition=data.composition)
+            production_protocol = getattr(data, "production_protocol", "legacy")
+            checked = validate_artifact(root, composition=data.composition,
+                                        production_protocol=production_protocol)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
             prefix = f"/api/runs/{run_id}/revisions/{revision_id}/cards"
             pages = {}
-            if data.composition is not None:
+            if production_protocol == "native-v1":
+                from creatoros.integrations.native_production import load_checkpoint, verified_pages
+
+                checkpoint = load_checkpoint(root)
+                if checkpoint is None:
+                    raise ValueError("Native checkpoint 不存在。")
+                native_pages = verified_pages(root, checkpoint)
+                if [page.order for page in native_pages] != [card.order for card in pack.cards]:
+                    raise ValueError("Native checkpoint 页面与最终图片顺序不一致。")
+                pages = {page.order: page for page in native_pages}
+            elif data.composition is not None:
                 from creatoros.integrations.skill_pair import EVIDENCE_FILE
                 evidence = json.loads((root / EVIDENCE_FILE).read_text(encoding="utf-8"))
                 pages = {page["order"]: page for page in evidence["pages"]}
@@ -72,8 +84,10 @@ class StudioArtifacts:
                 content_summary=pack.content_summary,
                 cards=[CardView(order=card.order, headline=card.headline, width=info.width, height=info.height,
                                 url=f"{prefix}/{card.order}?digest={digest}&checksum={info.sha256}",
-                                page_spec=pages.get(card.order, {}).get("page_spec"),
-                                image_prompt=pages.get(card.order, {}).get("image_prompt"))
+                                page_spec=(pages[card.order].content if production_protocol == "native-v1"
+                                           else pages.get(card.order, {}).get("page_spec")),
+                                image_prompt=(pages[card.order].image_prompt if production_protocol == "native-v1"
+                                              else pages.get(card.order, {}).get("image_prompt")))
                        for card, info in zip(pack.cards, checked.images)],
                 publish_copy=PublishCopyView(**pack.publish_copy.model_dump()),
                 sources=[SourceView(title=source.title, url=_safe_url(source.url)) for source in pack.sources],
@@ -94,7 +108,11 @@ class StudioArtifacts:
             expected_checksum = saved_image.get("sha256")
             if expected_checksum is None:
                 # Older validation JSON has no per-image hashes; verify its unchanged whole pack.
-                checked = validate_artifact(root, composition=data.composition)
+                checked = validate_artifact(
+                    root,
+                    composition=data.composition,
+                    production_protocol=getattr(data, "production_protocol", "legacy"),
+                )
                 if checked.artifact_digest != recorded_digest:
                     raise ContentRunError("产物已变化，请重新检查。", code="artifact_changed")
                 expected_checksum = checked.images[order - 1].sha256
@@ -123,7 +141,7 @@ class StudioArtifacts:
             found = self._partial_checkpoint(run_id)
             if found is None:
                 return []
-            directory, checkpoint = found
+            directory, checkpoint, _production_protocol = found
             return [PartialCardView(
                 order=page.order,
                 image_url=f"/api/runs/{run_id}/partial-cards/{page.order}?checksum={page.sha256}",
@@ -134,22 +152,20 @@ class StudioArtifacts:
             return []
 
     def partial_image(self, run_id: str, order: int, *, checksum: str):
-        from creatoros.integrations.visual_production import verified_pages
-
         try:
             found = self._partial_checkpoint(run_id)
         except (OSError, ValueError, Image.DecompressionBombError) as error:
             raise ContentRunError("逐页预览不存在或已失效。", status_code=404, code="not_found") from error
         if found is None:
             raise ContentRunError("逐页预览不存在。", status_code=404, code="not_found")
-        directory, checkpoint = found
+        directory, checkpoint, production_protocol = found
         page = next((item for item in checkpoint.pages if item.order == order), None)
         if page is None:
             raise ContentRunError("逐页预览不存在。", status_code=404, code="not_found")
         if checksum != page.sha256:
             raise ContentRunError("预览校验和与当前页面不匹配。", code="artifact_changed")
         try:
-            verified_pages(directory, checkpoint)
+            self._verified_partial_pages(directory, checkpoint, production_protocol)
             path = Path(page.image_path)
             raw = path.read_bytes()
             if hashlib.sha256(raw).hexdigest() != checksum:
@@ -163,10 +179,15 @@ class StudioArtifacts:
         except (OSError, ValueError, Image.DecompressionBombError) as error:
             raise ContentRunError("逐页预览缺失、损坏或已变化。", code="artifact_changed") from error
 
-    def _partial_checkpoint(self, run_id: str):
-        from creatoros.integrations.skill_pair import SkillPair
-        from creatoros.integrations.visual_production import input_digest, load_checkpoint
+    @staticmethod
+    def _verified_partial_pages(directory: Path, checkpoint, production_protocol: str):
+        if production_protocol == "native-v1":
+            from creatoros.integrations.native_production import verified_pages
+        else:
+            from creatoros.integrations.visual_production import verified_pages
+        return verified_pages(directory, checkpoint)
 
+    def _partial_checkpoint(self, run_id: str):
         with self.database.session() as session:
             run = session.get(ContentRun, run_id)
             if run is None:
@@ -178,7 +199,8 @@ class StudioArtifacts:
             if revision is None or not revision.production_input_json:
                 return None
             data = ContentRunInput.model_validate(revision.production_input_json)
-            if data.composition is None:
+            production_protocol = getattr(data, "production_protocol", "legacy")
+            if production_protocol != "native-v1" and data.composition is None:
                 return None
             attempts = list(session.scalars(select(ContentAttempt).where(
                 ContentAttempt.revision_id == revision.id,
@@ -203,18 +225,29 @@ class StudioArtifacts:
         if partial_root.is_symlink():
             raise ValueError("逐页图片目录为符号链接。")
         prompt_path = directory / "production_request.txt"
-        if prompt_path.is_symlink() or not prompt_path.is_file() or prompt_path.stat().st_size > 1_000_000:
+        prompt_limit = 2_000_000 if production_protocol == "native-v1" else 1_000_000
+        if prompt_path.is_symlink() or not prompt_path.is_file() or prompt_path.stat().st_size > prompt_limit:
             return None
-        pair = SkillPair.model_validate(data.composition)
-        skill_refs = [(pair.mind.name, directory / "skills" / "mind" / "SKILL.md"),
-                      (pair.production.name, directory / "skills" / "production" / "SKILL.md")]
-        if any(path.is_symlink() or not path.is_file() for _, path in skill_refs):
-            return None
-        digest = input_digest(prompt_path.read_text(encoding="utf-8"), skill_refs)
-        checkpoint = load_checkpoint(directory, digest)
+        if production_protocol == "native-v1":
+            from creatoros.integrations.native_production import load_checkpoint
+
+            checkpoint = load_checkpoint(directory)
+        else:
+            from creatoros.integrations.skill_pair import SkillPair
+            from creatoros.integrations.visual_production import input_digest, load_checkpoint
+
+            pair = SkillPair.model_validate(data.composition)
+            skill_refs = [(pair.mind.name, directory / "skills" / "mind" / "SKILL.md"),
+                          (pair.production.name, directory / "skills" / "production" / "SKILL.md")]
+            if any(path.is_symlink() or not path.is_file() for _, path in skill_refs):
+                return None
+            digest = input_digest(prompt_path.read_text(encoding="utf-8"), skill_refs)
+            checkpoint = load_checkpoint(directory, digest)
         if checkpoint is None:
             return None
-        return directory, checkpoint
+        if production_protocol == "native-v1":
+            self._verified_partial_pages(directory, checkpoint, production_protocol)
+        return directory, checkpoint, production_protocol
 
 
 def _safe_url(value: str | None) -> str | None:

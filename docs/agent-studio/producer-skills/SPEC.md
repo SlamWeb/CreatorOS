@@ -6,7 +6,8 @@
 - ID 根据规范化源目录身份和初始目录 digest 稳定派生；登记时把初始字节保存到 `versions/<id>`，沿用同一 registry/working 结构。重复登记同一源版本不会替换已编辑的 `working/<id>`；源文件有变化时生成另一个版本 ID。
 - 元数据记录 `source_kind=local`、`github_url=null`、`commit=null` 和必填角色；可选记录 `source_note`。仍通过 `SkillLoader` 校验名称/描述，通过 `_inspect_checkout` 识别图片轮播声明。符号链接、越界路径、非普通目录/文件、超过 32 MiB 或 2000 项的输入拒绝。
 - 本地登记不改变 GitHub `register()` / `SkillInstallService` 行为，不安装全局 Codex Skill；working 目录仍通过现有 catalog 读取与编辑。
-- 验收：`smoke_local_producer_skills` 与 `py_compile` 通过，覆盖普通制作 Skill、mind Skill、源内容变更产生新 ID、原件/working 分离、重放不覆盖、坏 frontmatter 和符号链接资源拒绝；测试无模型调用。`smoke_producer_skills` 在当前 Python 环境导入阶段因缺少 `rich` 失败，未进入既有 GitHub 安装断言；另一个已检查的本机 Conda 环境同样缺少 `rich`，本轮未改动环境依赖。
+- 验收：`smoke_local_producer_skills` 与 `py_compile` 通过，覆盖普通制作 Skill、mind Skill、源内容变更产生新 ID、原件/working 分离、重放不覆盖、坏 frontmatter 和符号链接资源拒绝；测试无模型调用。最初默认 Python 缺少 `rich`，随后使用项目 deepcode Python，`smoke_producer_skills` 既有 GitHub 安装/working 编辑/冻结回归通过，没有改环境依赖。
+- 已按用户授权把 `english-word-scenes--bd89b5d9cb32a407` 登记到正式本地库的 working 目录；没有改现有栏目绑定，也没有写用户全局 Codex Skills。测试账号/选题/产物在 `tmp/native-production-trial-20261002-b` 隔离库。
 
 ## 本地工作副本（2026-10-01，当前行为）
 

@@ -1,5 +1,19 @@
 # CreatorOS Web API SPEC
 
+## Native-v1 只读产物投影（2026-10-02）
+
+- 根据冻结输入中的 `production_protocol` 选择 legacy 或 native-v1 产物校验；缺省历史数据仍走 legacy。最终卡片把 native checkpoint 的 `content` 投影到既有 `page_spec`，并提供相同页的 `image_prompt`，不要求双 Skill composition。
+- 活跃 Revision/Attempt 的 native 部分预览从 `native_checkpoint.json` 读取；通过 native loader 校验本次输入与 Skill 文件，并重新验证页面图片。仍只返回既有部分卡片字段，不泄露文件路径；legacy storyboard/visual checkpoint 检查保持原样。
+- 下载校验也按冻结协议验证完整产物摘要，避免 native checkpoint/Skill 证据被误当成 legacy 证据。
+- 隔离 `smoke_native_artifact_web` 通过：真实 HTTP + 临时 SQLite/文件系统覆盖单 Skill 原生页内容与 Prompt 投影、部分图片/错误 checksum、已批准 ZIP 下载、Skill 篡改后拒绝投影，以及查询不改 Run version；没有生产调用或正式数据写入。
+
+### 最终卡片证据字段独立显示（2026-10-02）
+
+- 复现：当某页只有内容稿或只有生图 Prompt 时，Run Inspector 原来要求两者同时非空，导致已投影的单字段证据被整块隐藏。
+- 最终卡片的内容稿与 Prompt 现按字段独立展示；两者都空或空白时隐藏证据区。双字段投影与现有只读/审批边界不变。制作中 partial 卡片仍只显示图片，不扩展 DTO。
+- 受控 Playwright 回归覆盖“仅内容稿”“仅 Prompt”“两者为空”三个状态；图片由 HTTP fixture 提供，不调用真实生产。截图保存到忽略目录 `tmp/testresults/`。
+- 完整关联回归：production-progress + studio-workflow 10/10 通过（34.8 秒），含真实点击/刷新/返工/审批受控流程。另用隔离 8876 对真实英语图走过展开证据/放大/返回/刷新，保持同一 Run 待批准；未点击真实试产的批准或发布。
+
 ## 逐页制作预览接口（2026-10-01）
 
 - RunDetail 通过 `partial_cards` 投影活跃 Revision/Attempt 中经过 `visual_checkpoint.json` 校验的已完成页面；DTO 仅含 `order`、checksum URL 和 `warnings`，不提供本机路径、审批或验收标记。

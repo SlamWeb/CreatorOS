@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## 单 thread 原生生产切片（2026-10-02）
+
+- 新建 ContentRun 用 native-v1：把选中本地 Skill 的路径交给同一个 Codex thread，内容稿格式自由；宿主只验收最终图片索引与证据。历史 Run 保持 legacy，不迁移旧产物。
+- 新增本地 Skill 登记并加入 english-word-scenes；生产库不加入 Codex 全局 Skills。使用一张六格英语图完成真实 SDK 试产，已进入隔离库的待验收状态，未发布；单/双 Skill、恢复和网页验收结果见 `docs/single-thread-production/SPEC.md`。
+- 后续优先用户真实验收内容质量与一次人工发布/反馈，不把此例当成单 thread 比双 thread 更优的对照实验。不在本轮新增“上传任意产物自动转 Skill”Web 工具或并发生图。
+
 ## 生产回执与可观测性切片（2026-10-01）
 
 - 内容阶段保存原 storyboard；视觉回执不再重复抄写内容，宿主按页码关联原文。修复一个字的回执差异导致整组已生成图片无法验收的真实故障。

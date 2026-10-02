@@ -66,11 +66,11 @@ def main() -> None:
                 session.add(Topic(id=f"topic-{index}", series_id=series_id, title=f"选题{index}",
                                   source=TopicSource.MANUAL, position=1))
 
-        runs = ContentRunService(database, output_root=root / "outputs")
+        runs = ContentRunService(database, output_root=root / "outputs", production_protocol="legacy")
         # 旧单 Skill 栏目仍可创建；新增可选快照字段，历史 JSON 不要求迁移。
         run = runs.create("topic-1")
         legacy_input = {key: value for key, value in run.input_snapshot_json.items()
-                        if key not in {"skill_path", "skill_digest"}}
+                        if key not in {"skill_path", "skill_digest", "production_protocol"}}
         assert set(legacy_input) == {
             "creator_id", "series_id", "series_name", "series_description", "audience",
             "skill_name", "topic_id", "topic_title", "topic_brief",

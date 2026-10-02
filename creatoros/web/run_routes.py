@@ -74,7 +74,8 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
             if recorded != digest:
                 raise ValueError("批准摘要与产物版本不一致。")
             pack = artifacts.pack(root, data)
-            checked = validate_artifact(root, composition=data.composition)
+            checked = validate_artifact(root, composition=data.composition,
+                                        production_protocol=data.production_protocol)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
             buffer = BytesIO()

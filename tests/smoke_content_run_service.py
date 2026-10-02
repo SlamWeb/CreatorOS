@@ -103,6 +103,7 @@ with TemporaryDirectory() as temporary:
         database,
         producer_factory=lambda: producer,
         output_root=root / "outputs",
+        production_protocol="legacy",
     )
     created = service.create("topic-1", idempotency_key="daily:topic-1")
     assert service.create("topic-1", idempotency_key="daily:topic-1").id == created.id

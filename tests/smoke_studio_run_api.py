@@ -57,7 +57,8 @@ with TemporaryDirectory() as temporary:
     content.add_topic(topic_id="topic-1", series_id="series-1", title="Topic 1", source=TopicSource.MANUAL)
     content.add_topic(topic_id="topic-2", series_id="series-1", title="Topic 2", source=TopicSource.MANUAL)
     producer = ApiProducer()
-    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs")
+    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
+                                production_protocol="legacy")
     executor = ManagedRunExecutor(service)
     app = create_app(database=database, run_service=service, run_executor=executor)
     with TestClient(app) as client:

@@ -56,5 +56,6 @@ def make_fixture(root: Path, *, source: Path | None = None):
     for number in (1, 2):
         content.add_topic(topic_id=f"review-{number}", series_id="agent-notes", title="Agent State、Context 和 Messages" if number == 1 else "从失败里恢复一次生产", source=TopicSource.MANUAL)
     producer = ReviewProducer(source=source)
-    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs")
+    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
+                                production_protocol="legacy")
     return database, service, producer, create_app(database=database, run_service=service)

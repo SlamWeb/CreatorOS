@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 单 thread 原生文件生产（2026-10-02）
+
+- 新 Run 保存 native-v1 协议：同一个 SDK thread 显式加载选中的一份或两份本地 Skill；不再强制 PageSpec 或按 Skill 名称/GitHub 仓库白名单接线。详细边界、验收与真实试产在 `docs/single-thread-production/SPEC.md`。
+- 中间内容可以自由组织，只要求 `work/delivery.json` 描述最终真实图文件与生产器报告的 Prompt。宿主核验本 thread 图片、冻结 Skill、内容证据并保存 checkpoint，继续交付 SocialContentPack。
+- 同 Revision 技术恢复 resume 原 thread 并核验旧文件；新 Run/新 Revision fresh thread。至多一次无生图的索引修复；宿主不自动重试图像生成。提示词禁重画是软约束，不冒充 SDK 硬性工具预算。
+- 下列历史双阶段/逐页协议仍服务缺少 production_protocol 的旧 Run，不覆盖旧证据，也不自动把旧任务迁移成新流程。旧 receipt_recovery 明确拒绝 native-v1。
+
 ## 单视觉 thread 的逐页交付（2026-10-01，完成实现与分层验证）
 
 - 实际故障：Claude Code 主题 Run `76fbc0f9-2952-4a84-aa10-219fcf23320d` 生图与 SDK turn 均完成，7 个 headline、发布 title/body 是空格；旧 visual_prompt 禁止交付这些字段，VisualReceipt 却强制要求，导致整组拒绝。另有资源路径以 Attempt 为基准而不是制作 Skill 为基准。不是超时。

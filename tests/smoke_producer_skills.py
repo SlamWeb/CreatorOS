@@ -57,7 +57,7 @@ def main():
                 raise AssertionError("bad URL accepted")
             except ValueError:
                 pass
-        runs = ContentRunService(db, output_root=root / "outputs")
+        runs = ContentRunService(db, output_root=root / "outputs", production_protocol="legacy")
         app = create_app(database=db, run_service=runs)
         with TestClient(app) as client:
             creator = client.post("/api/creators", json={"display_name": "隔离测试"}).json()

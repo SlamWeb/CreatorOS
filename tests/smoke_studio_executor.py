@@ -116,7 +116,8 @@ with TemporaryDirectory() as temporary:
     root = Path(temporary)
     url, database = create_fixture(root)
     producer = ControlledProducer(block_first=True)
-    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs", lease_seconds=0.6)
+    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
+                                lease_seconds=0.6, production_protocol="legacy")
     with ThreadPoolExecutor(max_workers=4) as clients:
         ids = list(clients.map(lambda _: service.create("topic-1").id, range(4)))
     assert len(set(ids)) == 1
@@ -136,7 +137,7 @@ with TemporaryDirectory() as temporary:
     assert after.heartbeat_at > before.heartbeat_at
     assert len(service.repository.list_events(first.id)) == event_count
     assert StudioQueryService(database).overview().counts.producing_count == 1
-    rival = ContentRunService(database)
+    rival = ContentRunService(database, production_protocol="legacy")
     for action in (ManagedRunExecutor(rival).start, rival.recover_inflight):
         try:
             action()
@@ -157,7 +158,8 @@ with TemporaryDirectory() as temporary:
 
     url, database = create_fixture(root, topic_count=1, name="late")
     late_producer = ControlledProducer(block_first=True)
-    late_service = ContentRunService(database, producer_factory=lambda: late_producer, output_root=root / "late-outputs")
+    late_service = ContentRunService(database, producer_factory=lambda: late_producer, output_root=root / "late-outputs",
+                                     production_protocol="legacy")
     late_run = late_service.create("topic-1")
     late_executor = ManagedRunExecutor(late_service)
     late_executor.submit(late_run.id, expected_version=late_run.version)
@@ -178,7 +180,8 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="recovery")
-    recovery_service = ContentRunService(database, output_root=root / "recovery-outputs")
+    recovery_service = ContentRunService(database, output_root=root / "recovery-outputs",
+                                         production_protocol="legacy")
     recovery_run = recovery_service.create("topic-1")
     recovery_service._begin_attempt(recovery_run.id, owner_id="dead-owner")
     expect_error("conflict", lambda: recovery_service.heartbeat(recovery_run.id, owner_id="wrong-owner"))
@@ -197,7 +200,8 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="init-failure")
-    failed_service = ContentRunService(database, producer_factory=FailingProducer, output_root=root / "init-failure-outputs")
+    failed_service = ContentRunService(database, producer_factory=FailingProducer,
+                                       output_root=root / "init-failure-outputs", production_protocol="legacy")
     failed_run = failed_service.create("topic-1")
     failed_executor = ManagedRunExecutor(failed_service)
     failed_executor.submit(failed_run.id, expected_version=failed_run.version)
@@ -209,7 +213,7 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="schedule-failure")
-    service = ContentRunService(database)
+    service = ContentRunService(database, production_protocol="legacy")
     run = service.create("topic-1")
     executor = ManagedRunExecutor(service)
     executor.start()
@@ -226,7 +230,7 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="validation-restart")
-    service = ContentRunService(database, output_root=root / "validation-outputs")
+    service = ContentRunService(database, output_root=root / "validation-outputs", production_protocol="legacy")
     run = service.create("topic-1")
     prepared = service._begin_attempt(run.id, owner_id="old-owner")
     producer = ControlledProducer()
@@ -235,7 +239,7 @@ with TemporaryDirectory() as temporary:
     service._mark_produced(run.id, prepared["attempt_id"], produced, 0, owner_id="old-owner")
     database.close()
     database = Database(url)
-    service = ContentRunService(database, producer_factory=FailingProducer)
+    service = ContentRunService(database, producer_factory=FailingProducer, production_protocol="legacy")
     assert service.recover_inflight() == (0, 1, 0)
     assert service.get(run.id).status is ContentRunStatus.AWAITING_APPROVAL
     assert len(service.repository.list_attempts(prepared["revision_id"])) == 1

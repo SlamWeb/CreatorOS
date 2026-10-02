@@ -153,7 +153,8 @@ def main():
         failed_producer = FailedReceiptProducer(
             receipt=initial, storyboard=storyboard, project_root=Path(__file__).parents[1],
             generated_images_root=root / "generated")
-        service = ContentRunService(database, producer_factory=lambda: failed_producer, output_root=root / "outputs")
+        service = ContentRunService(database, producer_factory=lambda: failed_producer, output_root=root / "outputs",
+                                    production_protocol="legacy")
         run = service.create("topic")
         try:
             service.execute(run.id)

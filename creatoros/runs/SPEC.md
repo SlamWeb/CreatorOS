@@ -1,5 +1,15 @@
 # ContentRun SPEC
 
+## Native 单 thread 协议接线（2026-10-02）
+
+- 新 `ContentRunService` 默认将 `production_protocol=native-v1` 固化进 Run/Revision 输入；调用方可显式传 `legacy`。未含协议字段的历史 JSON 仍解析为 `legacy`，返工沿用原输入快照。
+- 原生双 Skill 组合标记为 `native-carousel-v1`，要求 mind/production 角色和有效 Skill 文件，但不再按 Skill 名称、GitHub 来源或角色图资源白名单筛选；旧 `pagespec-xiaobai-carousel-v1` 门禁保持不变。本地 Skill 的 `github_url`、`commit` 可为空。
+- 服务仅对 native-v1 producer 传协议标记和当前 Revision 明确冻结的 `previous_pages`，不给它注入 Run 上记录的旧 thread 或隐式历史内容；同 Revision Attempt 的交付 checkpoint 恢复由原生产模块负责。旧协议 producer 参数保持原状。
+- Native 新 Revision 仅从同一 Run 前一 Revision 已验收的 native checkpoint 读取 delivery 文案和每页 content/image_prompt，不复用图片路径；同 Revision 重试读取首个 Attempt 冻结的 `previous_pages`。前一版本摘要变化或缺少有效交付时拒绝空上下文返工。
+- 服务在产物验收与批准时都从 Revision 的不可变输入读取协议。`native_delivery_failed` 作为生产阶段可显式技术恢复的错误类型记录。
+- 验收方式：隔离 SQLite、本地任意名称且无 GitHub/character.png 的双 Skill、受控 Producer；不调用真实生产 API、不写正式数据库。
+- 最近验证：`smoke_native_run_wiring` 通过，覆盖任意本地双 Skill 冻结、legacy 白名单拒绝、native 前稿提取及 retry 输入冻结、历史输入默认值、native 参数隔离与 `native_delivery_failed` 可恢复；`smoke_native_artifact_web` 通过。Legacy 回归 `smoke_content_run_service`、`smoke_pair_production`、`smoke_producer_skills`、`smoke_series_guards`、`smoke_receipt_recovery`、`smoke_studio_executor`、`smoke_studio_partial_cards`、`smoke_studio_production_progress`、`smoke_studio_run_api`、`smoke_visual_checkpoint` 均通过；默认 native 创建回归 `smoke_studio_api`、`smoke_topic_crud` 通过。以上均使用隔离目录和本地受控依赖，没有真实生产 API 或正式数据库写入；`py_compile` 与 `git diff --check` 通过。
+
 ## 单视觉逐页保存与显式恢复（2026-10-01）
 
 - 双 Skill 单视觉会话按页交付，技术失败后通过既有 execute 新建同 Revision Attempt；仅复用输入及冻结 Skill digest、原内容、视觉计划、图像 SHA256 全部一致的前 Attempt checkpoint。人工返工新 Revision 不复用旧图。本节取代下方历史的“技术重试整套重新生产”描述。
