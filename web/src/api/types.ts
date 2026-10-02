@@ -290,6 +290,41 @@ export interface ProducerSkillItem {
   github_url: string | null;
   role: SkillRole;
   producible: boolean;
+  local_path?: string | null;
+}
+
+export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
+export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";
+
+export interface SkillExtractionUpload {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface ExtractedSkillDraft {
+  name: string;
+  role: "mind" | "production" | "legacy_end_to_end";
+  skill_md: string;
+}
+
+export interface SkillExtractionJob {
+  id: string;
+  request_id: string;
+  mode: SkillExtractionMode;
+  instruction: string;
+  status: SkillExtractionStatus;
+  cancel_requested?: boolean;
+  created_at: string;
+  updated_at: string;
+  uploads: SkillExtractionUpload[];
+  thread_id: string | null;
+  error: string | null;
+  note: string | null;
+  skills: ExtractedSkillDraft[];
+  digest: string | null;
+  saved_skills: ProducerSkillItem[];
+  progress: ProductionProgressView | null;
 }
 
 export interface SeriesComposeInput {

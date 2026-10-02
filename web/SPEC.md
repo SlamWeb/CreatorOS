@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## 作品提炼 Skill 面板（2026-10-02）
+
+- Skill 库增加“从作品提炼”面板：上传 1–6 张 PNG/JPEG/WebP（每张最多 4 MiB），选择 pair（默认）、mind、visual、single 模式并填写可选要求；依次上传后提交唯一 request_id，POST 不自动重试。
+- URL 保留 extraction ID；任务列表和详情从服务端恢复，running 时轮询，刷新只读既有任务，不重新上传或提交。一次表单尝试固定 request_id，并缓存成功上传的 ID；服务端接受但响应丢失后重试沿用同一输入/键，防止重复启动。提交期间锁定输入，编辑任一输入会开始新尝试。状态与角色用短中文名称；任务切换清除旧保存/取消错误。ready 草稿按 role 只读预览，保存携带 expected_digest；成功后失效 producer-skills 查询。saved 展示 local_path 为本地编辑位置，不渲染假文件链接。取消请求接受后若仍 running 且 cancel_requested，则提示“正在取消任务”。
+- 新增 `e2e/skill-extraction.spec.ts`。受控 API 测试覆盖图片上传与请求字段、响应丢失后以相同 request_id 和上传 ID 重试、刷新零重提、摘要确认/Skill catalog 缓存刷新、服务端失败、显式取消，以及 1440×900/390×844 截图和横向溢出断言。它验证 UI 状态与交互，不证明 Codex 提炼质量或真实 API 可用。
+- 该面板是新入口，没有既有面板可供改前基线比较；此轮已查看改后 desktop/mobile 截图，没有建立截图差异基线或使用 CUA 探索工具。
+- 验证：`npm run typecheck`、`npm run build` 通过；定向 Playwright 4/4 通过（约 2 分钟）。开发构建保留既有 >500 kB chunk 提示。截图输出在 Playwright 忽略目录中；未改正式 Skill 库、未调用模型。
+
 ## 逐页生产进度与未验收预览（2026-10-01）
 
 - RunControls 显示真实 phase/current_page/completed_pages/page_attempt，沿用“共 N 页”仅在后端已知页数时出现；不将工具调用数当图片数或生成百分比。RunInspector 将活跃版本的部分页图片单独标为“制作中预览 · 尚未验收”，按页序展示提示，不把它们加入最终 Carousel、验收文件检查或批准流程；查看历史 Revision 时隐藏当前 Attempt 的预览。

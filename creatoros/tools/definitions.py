@@ -34,6 +34,12 @@ from .studio import (
     ComposeSeriesArgs, UpdateCompositionArgs, AssignSeriesArgs, QueueTopicsArgs,
     compose_series, update_series_composition, assign_series, queue_topics,
 )
+from .skill_extraction import (
+    ExtractSkillsFromArtifactArgs, GetSkillExtractionArgs,
+    SaveExtractedSkillsArgs, CancelSkillExtractionArgs,
+    extract_skills_from_artifact, get_skill_extraction,
+    save_extracted_skills, cancel_skill_extraction,
+)
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -179,6 +185,14 @@ tool_registry = {
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),
+        Tool(name="extract_skills_from_artifact", description="用户明确要求从参考作品提炼 Skill 时，读取用户明确给出的项目内图片并提交提炼任务；返回任务句柄供查询。不会自动保存、绑定栏目或生产；结果不确定时复用同一 request_id。",
+             execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),
+        Tool(name="get_skill_extraction", description="查询提炼任务或列出历史任务；ready 只表示草稿可预览。先展示 Skill 草稿并等待用户明确确认，不能把提炼结果当作已入库。",
+             execute=get_skill_extraction, args_model=GetSkillExtractionArgs),
+        Tool(name="save_extracted_skills", description="仅在用户查看草稿后明确确认加入 Skill 库时调用；把查询结果中的 digest 原样作为 expected_digest 传入。此操作只登记 Skill，不绑定栏目、不生产、不发布。",
+             execute=save_extracted_skills, args_model=SaveExtractedSkillsArgs),
+        Tool(name="cancel_skill_extraction", description="按用户要求取消指定提炼任务；不会影响其他提炼或生产任务。",
+             execute=cancel_skill_extraction, args_model=CancelSkillExtractionArgs),
         Tool(
             name="route_hotspots",
             description="获取知乎热榜并按作者 domain prototype 生成每位作者的 Top-N 热点候选队列。",

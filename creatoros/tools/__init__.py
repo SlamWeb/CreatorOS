@@ -22,6 +22,16 @@ from .models import (
     ZhihuSearchArgs,
 )
 from .content import produce_content_pack
+from .skill_extraction import (
+    ExtractSkillsFromArtifactArgs,
+    GetSkillExtractionArgs,
+    SaveExtractedSkillsArgs,
+    CancelSkillExtractionArgs,
+    extract_skills_from_artifact,
+    get_skill_extraction,
+    save_extracted_skills,
+    cancel_skill_extraction,
+)
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .results import ToolResult
@@ -39,6 +49,10 @@ __all__ = [
     "RouteHotspotsArgs",
     "Tool",
     "ToolResult",
+    "ExtractSkillsFromArtifactArgs",
+    "GetSkillExtractionArgs",
+    "SaveExtractedSkillsArgs",
+    "CancelSkillExtractionArgs",
     "WriteFileArgs",
     "ZhihuHotListArgs",
     "ZhihuSearchArgs",
@@ -53,6 +67,10 @@ __all__ = [
     "wait_author_job",
     "route_hotspots",
     "produce_content_pack",
+    "extract_skills_from_artifact",
+    "get_skill_extraction",
+    "save_extracted_skills",
+    "cancel_skill_extraction",
     "ask_author",
     "read_file",
     "read_tool_result",

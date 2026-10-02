@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## Artifact → Skill Agent tools (2026-10-02)
+
+- Web 与 CLI 共用 extract/get/save/cancel 四个 Studio 工具。提炼支持用户明确提供的本地 `image_paths` 或已有 `upload_ids` 二选一；CLI 本地读取复用 `read_file` 的项目根目录与敏感路径规则，且在有界读取前检查大小。Web 的 `archive_only_reads` 宿主只接受 Skill 页已上传的 `upload_ids`。图片限 1–6 张 JPEG/PNG/WebP、单张最多 4 MiB。
+- `request_id` 必填并透传服务端幂等协议；上传与提交不自动重试，结果不确定时调用方查询/复用同一 ID。无 `job_id` 的 get 查询历史任务。
+- 草稿查询和保存分开；保存描述要求先展示草稿并获得用户明确确认，传回 `expected_digest`。工具不自动保存、绑定栏目、生产或发布。
+- 验收：`python -m tests.smoke_skill_extraction_tools` 使用 StudioClient 传输桩验证 schema/请求与路径安全，不触发真实 Codex 图像提炼或 Skill 库写入。
+
 ## 安装工具描述与实际实现对齐（2026-10-02）
 
 - 将 install_producer_skill 的旧“委托 Codex 下载”描述改为 CreatorOS 使用 Git 下载核验到本地生产 Skill 库；明确不调用模型、不安装到 Codex 全局目录。安装流程与参数不变。

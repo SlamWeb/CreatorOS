@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 产物提炼 Skill 接口（2026-10-02）
+
+- `/api/skill-extractions` 共用持久化提炼服务，上传/提炼/查询/取消/确认入库拆开。图片限制为静态 PNG/JPEG/WebP，每张 4 MiB、最多 6 张；不接任意路径或远端下载 URL。
+- 复用本地 JSON 写入门禁和 Skill catalog；输入幂等与草稿摘要检查，刷新不重提，确认不绑定栏目。Agent 调相同 API。
+- 隔离 HTTP/SQLite 覆盖四模式、坏图/重复图/缺图、幂等冲突、失败取消、重启、篡改拒绝、部分登记后重试不重复。真实 Codex 图像输入在独立 catalog 验证，不改正式库；细节见 `docs/artifact-to-skill/SPEC.md`。
+
 ## Native-v1 只读产物投影（2026-10-02）
 
 - 根据冻结输入中的 `production_protocol` 选择 legacy 或 native-v1 产物校验；缺省历史数据仍走 legacy。最终卡片把 native checkpoint 的 `content` 投影到既有 `page_spec`，并提供相同页的 `image_prompt`，不要求双 Skill composition。

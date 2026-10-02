@@ -1,5 +1,11 @@
 # External Integrations SPEC
 
+## 产物提炼 Skill（2026-10-02）
+
+- `SkillExtractionService` 接收参考图，fresh SDK thread 使用 gpt-6-luna/xhigh 与真实 LocalImageInput，输出 pair/mind/visual/single 草稿；host 保存 SKILL.md 与原图 assets，显式确认才复用 register_local 入库，不改全局 Codex Skill 或栏目。
+- 请求幂等、180 秒期限、取消/重启中断、原始回复与安全进度记录沿用本地持久化风格；不自动重试模型或生图。制作类 Skill 的图片产物能力声明由宿主补齐以兼容既有栏目绑定，不增加 PageSpec/格数约束。
+- 完整接口、隔离测试与真实图片输入证据见 `docs/artifact-to-skill/SPEC.md`。
+
 ## 双 Skill 的轻量组合检查（2026-10-02）
 
 - native-v1 双 Skill 先在生产 thread 做只读文本检查，再由同一 thread 产出；Mind 的内容需求、制作 Skill 的视觉规则与跨两者的分页/分格分开处理。单 Skill 不增加这一轮。

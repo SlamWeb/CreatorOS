@@ -5,6 +5,7 @@ import { studioApi, request } from "../api/client";
 import { useCreators } from "../api/hooks";
 import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
+import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
 import "./studio-space.css";
 
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
@@ -150,6 +151,7 @@ export function SkillsPage() {
 
   return <div className="space-page">
     <header className="space-head"><h1>Skill 库</h1></header>
+    <ArtifactSkillExtraction />
     <div className="space-columns">
       <section className="space-col" aria-label="Mind">
         <div className="space-col-head"><h2>Mind</h2><span>{minds.length || ""}</span></div>

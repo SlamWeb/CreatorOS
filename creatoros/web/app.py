@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 import os
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
@@ -62,6 +62,8 @@ from .static import mount_studio
 from .chat import AgentChatService
 from .chat_routes import chat_routes
 from .skill_routes import skill_routes
+from .extraction_routes import extraction_routes
+from creatoros.integrations.skill_extraction import SkillExtractionService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
@@ -80,6 +82,7 @@ def create_app(
     chat_provider_factory=None,
     skill_install_service=None,
     topic_research_service=None,
+    skill_extraction_service=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -104,6 +107,7 @@ def create_app(
     skill_installs = skill_install_service or SkillInstallService(ProducerSkillCatalog(skills_root_for(db)))
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
+    extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -114,12 +118,13 @@ def create_app(
                 chat.start()
                 skill_installs.start()
                 research.start()
+                extractions.start()
                 yield
             finally:
-                chat.shutdown()
-                research.shutdown()
-                skill_installs.shutdown()
-                executor.shutdown()
+                # One timed-out service must not skip the remaining cleanup.
+                with ExitStack() as cleanup:
+                    for service in (executor, skill_installs, research, extractions, chat):
+                        cleanup.callback(service.shutdown)
         finally:
             if owns_database:
                 db.close()
@@ -138,6 +143,8 @@ def create_app(
     app.state.chat = chat
     app.state.skill_installs = skill_installs
     app.state.topic_research = research
+    app.state.skill_extractions = extractions
+    app.include_router(extraction_routes(extractions))
     app.include_router(research_routes(research, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(chat_routes(chat))
