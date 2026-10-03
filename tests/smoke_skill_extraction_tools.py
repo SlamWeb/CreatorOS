@@ -52,17 +52,25 @@ def _tool(name, args, context):
 
 def main():
     from creatoros.integrations.skill_extraction import EXTRACTION_MODEL, EXTRACTION_EFFORT, MODE_GUIDANCE, extraction_prompt
+    from creatoros.integrations.skill_draft_files import MODE_FOLDERS
     from creatoros.integrations.codex import CODEX_MODEL
     assert EXTRACTION_MODEL == "gpt-6-sol"
     assert EXTRACTION_EFFORT == "high"
     assert CODEX_MODEL == "gpt-6-luna", "Extraction must not change production/research model"
-    for mode in MODE_GUIDANCE:
-        prompt = extraction_prompt(mode, "中英双语", ["assets/reference-1.jpg"])
-        assert MODE_GUIDANCE[mode] in prompt
-        assert "YAML" not in prompt and "中英双语" in prompt
-        assert "assets/reference-1.jpg" in prompt
-        if mode != "single":
+    assert len(MODE_GUIDANCE) == 4
+    with TemporaryDirectory() as prompt_root:
+        output_directory = Path(prompt_root) / "draft"
+        for mode, guidance in MODE_GUIDANCE.items():
+            assert "\n" not in guidance.strip()
+            assert any("中" <= char <= "龥" for char in guidance)
+            prompt = extraction_prompt(mode, "中英双语", ["assets/reference-1.jpg"], output_directory)
+            assert guidance in prompt
+            assert "YAML" not in prompt and "中英双语" in prompt
+            assert "assets/reference-1.jpg" in prompt
+            assert "skill-creator" not in prompt.lower()
             assert "legacy_end_to_end" not in prompt
+            for folder in MODE_FOLDERS[mode]:
+                assert str(output_directory / folder / "SKILL.md") in prompt
     names = {item["function"]["name"] for item in tools}
     expected = {"extract_skills_from_artifact", "get_skill_extraction",
                 "save_extracted_skills", "cancel_skill_extraction", "edit_extracted_skills",

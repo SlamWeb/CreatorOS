@@ -12,7 +12,7 @@ from PIL import Image
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, _write
 from creatoros.integrations.skill_extraction import (
-    MODE_ROLES, DraftSkill, ExtractionResult, SkillExtractionService, extraction_schema,
+    MODE_ROLES, DraftSkill, ExtractionResult, SkillExtractionService,
 )
 from creatoros.runs import ContentRunService
 from creatoros.storage import Database, upgrade_database
@@ -42,17 +42,6 @@ async def controlled(directory, images, mode, instruction, cancel, on_thread):
 
 
 def main():
-    # Strict Codex JSON mode requires defaulted properties too, and each mode
-    # must reject roles outside its selected responsibility.
-    for mode, expected_roles in MODE_ROLES.items():
-        schema = extraction_schema(mode)
-        assert schema["additionalProperties"] is False
-        assert set(schema["required"]) == set(schema["properties"])
-        for definition in schema["$defs"].values():
-            assert definition["additionalProperties"] is False
-            assert set(definition["required"]) == set(definition["properties"])
-        assert schema["$defs"]["DraftSkill"]["properties"]["role"]["enum"] == expected_roles
-
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
         url = f"sqlite:///{(root / 'test.db').as_posix()}"

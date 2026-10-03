@@ -4,6 +4,7 @@ python -m tests.live_skill_extraction --image <local-reference-image>
 """
 import argparse
 import base64
+import hashlib
 import json
 from pathlib import Path
 from tempfile import mkdtemp
@@ -32,6 +33,8 @@ def main():
         job = service.get(job["id"])
         assert job["status"] == "ready", job["error"]
         extraction_thread = job["thread_id"]
+        directory = service.root / "jobs" / job["id"]
+        assert (directory / "draft/skill/SKILL.md").is_file(), "Codex must write the native draft"
         if args.revise:
             original = job["digest"]
             service.revise(job["id"], "live-revise", original, "补充规则：用户可更换词组，解释始终中英双语；保留现有角色和情境表达方法。")
@@ -39,20 +42,27 @@ def main():
             job = service.get(job["id"])
             assert not job["error"] and job["digest"] != original, job
             assert job["revision"] == 2
+            assert list((directory / "revisions").glob("*/draft/skill/SKILL.md"))
         saved = service.save(job["id"], job["digest"])
         assert len(saved["saved_skills"]) == 1
         assert saved["saved_skills"][0]["producible"], "Extracted Skill must remain usable by current binding"
-        directory = service.root / "jobs" / job["id"]
         trace_paths = list(directory.rglob("codex_trace.jsonl"))
         events = [json.loads(line) for trace in trace_paths for line in trace.read_text(encoding="utf-8").splitlines()]
         forbidden = [e for e in events if e.get("item_type") in {"imageGeneration", "webSearch", "collabAgentToolCall"}]
         assert not forbidden, forbidden
-        assert all(list((Path(s["local_path"]) / "assets").glob("reference-*")) for s in saved["saved_skills"])
+        reference_digest = hashlib.sha256(args.image.read_bytes()).hexdigest()
+        for skill in saved["saved_skills"]:
+            assert reference_digest in {hashlib.sha256(p.read_bytes()).hexdigest()
+                                       for p in (Path(skill["local_path"]) / "assets").rglob("*")
+                                       if p.is_file()}, "Actual reference bytes must survive registration"
+        instructions = [p.read_text(encoding="utf-8") for p in directory.rglob("instructions.txt")]
+        assert all("skill-creator" not in p and "legacy_end_to_end" not in p for p in instructions)
         usage = {path.parent.relative_to(directory).as_posix(): json.loads(path.read_text())
                  for path in directory.rglob("production_usage.json")}
         report = {"passed": True, "thread_id": job["thread_id"], "extraction_thread_id": extraction_thread,
                   "skills": [s["name"] for s in saved["saved_skills"]],
                   "model": EXTRACTION_MODEL, "effort": EXTRACTION_EFFORT, "revised": args.revise,
+                  "native_draft_written": True, "reference_bytes_preserved": True,
                   "usage": usage, "no_generation_or_search_observed": not forbidden, "quality_evaluated": False}
         (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(report, ensure_ascii=False), flush=True)

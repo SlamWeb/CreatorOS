@@ -2,9 +2,11 @@
 
 ## 产物提炼 Skill（2026-10-02）
 
+- 2026-10-03 V3：按用户四段短 Prompt，让 Codex 直接写本任务 `draft/skill|mind|visualize/`；不显式绑定 skill-creator，不向模型暴露内部角色，也不要求 JSON 草稿。SDK cwd 仅本次 draft，workspace-write；宿主读取完整目录，沿用版本校验与确认入库。配套文件随编辑、改稿与试产快照保留。此设计替代以下历史 V2 的“JSON 返回、宿主创建文件”接线。
+
 - 2026-10-03 工作台 V2：默认完整 single；图文/纯文案输入、版本化编辑、Codex 改稿、显式草稿试产与入库解耦。试产直接复用 native-v1 Producer，以冻结本地路径/SkillInput 使用未注册草稿，正式数据零写入；Mind 不复制视觉示例，完整/呈现 Skill 保留原图 assets。文件浏览/试产记录与 Agent 工具共用 extraction API。暂不换 IP、不自动生图/入库、文字制作尚无试产适配器。范围及分层验证见最近业务 SPEC。
 
-- `SkillExtractionService` 接收参考图，fresh SDK thread 按用户要求改用 gpt-6-sol/high（gpt-6.1-sol 在本机 ChatGPT SDK 调用返回模型不支持），使用 LocalImageInput 与显式 skill-creator SkillInput，输出 pair/mind/visual/single 草稿；host 保存 SKILL.md 与原图 assets，显式确认才复用 register_local 入库，不改全局 Codex Skill 或栏目。
+- `SkillExtractionService` 接收参考图，fresh SDK thread 按用户要求使用 gpt-6-sol/high（gpt-6.1-sol 在本机 ChatGPT SDK 调用返回模型不支持），使用 LocalImageInput 分析作品；四模式直接写文件，host 核验并保存可预览版本，显式确认才复用 register_local 入库，不改全局 Codex Skill 或栏目。
 - 请求幂等、180 秒期限、取消/重启中断、原始回复与安全进度记录沿用本地持久化风格；不自动重试模型或生图。制作类 Skill 的图片产物能力声明由宿主补齐以兼容既有栏目绑定，不增加 PageSpec/格数约束。
 - 完整接口、隔离测试与真实图片输入证据见 `docs/artifact-to-skill/SPEC.md`。
 

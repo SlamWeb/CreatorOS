@@ -86,6 +86,9 @@ def revise(service, job_id, request_id, expected_digest, instruction):
                                             "instruction": instruction, "skills": job["skills"]})
         if job.get("source_text"):
             (directory / "source.txt").write_text(job["source_text"], encoding="utf-8")
+        from .skill_draft_files import seed_file_drafts
+        seed_file_drafts(directory, job["mode"], {s["role"]: service._draft_root(job) / s["role"]
+                                                for s in job["skills"]})
 
         def run():
             try:

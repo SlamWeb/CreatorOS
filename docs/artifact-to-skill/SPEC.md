@@ -1,5 +1,23 @@
 # Artifact → Skill Workbench
 
+## V3 本轮实施：Codex 直接写文件（2026-10-03）
+
+- 四种提炼 Prompt 使用用户给出的四段原文，只追加来源、用户要求与输出路径；不显式调用 skill-creator，不向模型暴露内部 `legacy_end_to_end` 角色，也不要求模型返回整份 JSON Skill。
+- 提炼与改稿使用 `gpt-6-sol/high`、fresh thread、workspace-write，在 CreatorOS 自己的 `catalog.root/extractions/jobs/<id>/draft/` 或本任务 `revisions/<request-hash>/draft/` 直接写文件。single 写 `skill/`，mind 写 `mind/`，visual 写 `visualize/`，pair 写后两者。不写用户全局 Codex skills。
+- 宿主读取这些目录的 SKILL.md 与配套文件，沿用格式/路径/大小校验，生成不可变 `versions/vNNN/<role>/` 供现有网页读取；不再从模型 JSON 重建整个 Skill。assets、references 等配套文件保留到改稿、手动编辑、试产快照和确认入库。
+- 改稿从当前完整文件快照开始，失败不移动当前版本指针；保留原稿与记录。页面/API 的 DTO、digest 确认、显式试产与显式入库不变。文件落在库的草稿区，不代表已经正式登记可组栏目。
+- 验收：四种 Prompt/模式目录、缺文件/非法元数据/越界拒绝、配套文件编辑改稿保留、SDK 写权限且无强制 SkillInput/output_schema；一次真实图片提炼与改稿（不生图）验证实际文件、Trace、原资产与隔离入库。
+
+### V3 验证结果
+
+- `smoke_skill_draft_files` 通过：原生目录与 DTO 映射、缺失/无效 Skill 拒绝、纯文案默认文字目标、链接越界拒绝；配套 references 文件经版本发布、文件 API、手动编辑与确认入库保持不变。受控 SDK 证明只传 TextInput/LocalImageInput、cwd 为本次 draft、workspace-write、无 output_schema，读取实际文件而非解析最终回复。此部分为接线/故障注入测试，不声称模型质量。
+- `smoke_skill_extraction`、`smoke_skill_extraction_tools`、`smoke_skill_workbench`、`smoke_web_agent`、`smoke_native_production`、`smoke_native_run_wiring` 通过；compileall 与 diff-check 通过。网页 DTO/组件未改，复用现有文件树与版本工作台；本轮未重复浏览器视觉验收。
+- 真实 `gpt-6-sol/high` single 提炼、改稿、隔离入库通过，证据 `tmp/skill-extraction-live-b0ppu9ny/`。提炼 thread `01a10242-5a69-7543-aa73-627b06a5becd`，改稿 thread `01a10244-324b-76f2-b477-fcd1f610cdc8`。Codex 实际写 `draft/skill/SKILL.md` 与 assets/reference-01.jpg；普通说明作为最终回复，草稿版本 2，原图摘要与入库文件相同。追加只读证据重验通过，不重复付费请求。
+- 提炼累计 usage input 198,494 / cached 166,272 / output 4,857；改稿 input 242,383 / cached 217,728 / output 4,967。这是各阶段多个内部模型调用的累计量，不是单次上下文长度。没有观察到生图、搜索或委派事件；未评价新题材试产质量，未改正式数据或全局 Codex Skill。
+- 真实提炼约 122 秒、改稿约 113 秒，均在现有 180 秒期限内；不因此承诺所有作品都在此时间完成。不增加隐式重试；失败后的原文件和已有有效版本继续保留。
+
+以下 V2 及更早结果是历史记录；提炼输出协议以 V3 为准。
+
 ## V2 本轮实施范围（2026-10-03）
 
 - 默认 single，保留 pair/mind/visual；支持 1–6 图与/或 source_text（最多 20,000 字符）。完整 Skill/呈现 Skill 保留原图 assets，Mind 不自动复制原图，避免不必要视觉影响。
