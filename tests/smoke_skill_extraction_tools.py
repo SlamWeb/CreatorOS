@@ -52,7 +52,7 @@ def _tool(name, args, context):
 def main():
     from creatoros.integrations.skill_extraction import EXTRACTION_MODEL, MODE_GUIDANCE, extraction_prompt
     from creatoros.integrations.codex import CODEX_MODEL
-    assert EXTRACTION_MODEL == "gpt-6.1-sol"
+    assert EXTRACTION_MODEL == "gpt-6-sol"
     assert CODEX_MODEL == "gpt-6-luna", "Extraction must not change production/research model"
     for mode in MODE_GUIDANCE:
         prompt = extraction_prompt(mode, "中英双语", ["assets/reference-1.jpg"])

@@ -21,7 +21,7 @@ Web 与 Agent 调用同一服务。草稿可预览，明确确认才入 CreatorO
 
 ## Execution and storage
 
-每次提炼 fresh Codex thread，使用现有 gpt-6-luna/xhigh SDK 登录态与独立上下文配置；实际传入 LocalImageInput。只要求文本 Skill 草稿，不联网调研、不生图。180 秒有限等待，允许取消，无隐式重试。
+每次提炼 fresh Codex thread，请求 gpt-6-sol/xhigh SDK 登录态与独立上下文配置；实际传入 LocalImageInput。只要求文本 Skill 草稿，不联网调研、不生图。180 秒有限等待，允许取消，无隐式重试。
 宿主写 SKILL.md 并复制真实参考图到 assets/reference-NN.ext，模型不得决定文件路径；记录原请求、响应、thread、usage、事件与草稿摘要。
 位置：与数据库对应的 producer-skills/extractions/ 下；不引入新数据库模型。启动将遗留 running 标成 interrupted，不伪装仍在执行。一次只运行一个提炼任务。
 通过既有 register_local 入库；默认不存在绑定、生产、发布副作用。pair 按固定目录幂等注册，部分入库失败可再次确认同草稿，不生成新任务。
@@ -41,6 +41,25 @@ Agent 提供 extract_skills_from_artifact、get_skill_extraction、save_extracte
 4. 不改正式数据；更新结果，commit/push。
 
 ## Results
+
+### 2026-10-03 后续设计 Draft：多模态作品 → 可检查草稿 → 确认入库
+
+以下尚未实现；当前仍为图片输入 V1。模型先按用户要求改为 gpt-6-sol/xhigh，生产/调研不动。
+
+本轮模型验证：`tests.smoke_skill_extraction_tools` 通过；真实图片提炼/隔离入库通过，thread `01a101ab-d290-7d02-a57c-748b1ff8db79`，证据 `tmp/skill-extraction-live-8ykbmmox/`。input 54,038 / cached 25,344 / output 3,932（reasoning 2,676）；无生图/搜索事件，未评价迁移生产质量，未改正式数据。
+
+1. 输入：单图、按阅读顺序排列的一组图、粘贴文案，允许图片与文案组合；参考内容与用户提炼要求分开保存。先复用 1–6 图/4MiB 限制，文本建议 20,000 字符，超限显式提示而非截断；不加网页抓取。一个组默认是一件作品，不把相邻页当成多个独立证据。
+2. 四种模式不变：内容方法、呈现方式、两者分别、完整 Skill。呈现方式包括视觉，也包括文字口吻/节奏/组织方式；纯文案不能凭空推断角色画风。缺少视觉证据时列待确认项，不替用户编造风格。
+3. Codex 一次分析并拟草稿，显式使用 skill-creator。先解释值得复用什么、哪些只是样例内容、哪些是推断，再输出可检查的完整 Skill 草稿。无需另建多 Agent 框架或机械要求每份 Skill 有多份参考文件。
+4. 用户查看：每份卡片仅展示名称、用途、将保留的规则、未固定的可变项/待确认推断；可展开完整 SKILL.md 与参考资产。用户可直接编辑草稿或说“不要固定六格、保留双语”请求修改。修改生成新草稿版本，不自动入库。
+5. 唯一正式门槛：“确认生成并加入 Skill 库”。确认绑定用户看到的草稿摘要/版本；正式文件由宿主从确认稿落盘，不能确认后再让 LLM 悄悄改写。复用现有 save、digest、register_local 幂等流程；草稿隔离区不算正式库。未确认的结果不能绑定栏目、生产或发布。
+6. 原图按用户选定的参考用途保留为资产；原文与出处作为追溯材料，不默认要求照抄。不将品牌/角色身份自动当作可任意复用授权。正文精简；真正生图需要的参考资产必须传给图像模型。
+7. 两份 Skill 的分工：内容决定讲什么和教学/叙事关系，呈现决定如何表达；分页/分格仅在内容量与呈现容量间协调，不把示例布局强制成内容数量。用户明确要求优先，无法调和时展示冲突，不默默截内容。
+8. 不统一强塞 PageSpec；输出能力根据提炼目标声明。当前 host 一律补 image-carousel 的逻辑必须改为只对真实图片目标声明。纯文本 Skill 可先保存为不可用于当前图片生产的能力，不能为了绑定成功谎报图片能力；文本生产器另行实施。
+9. Trace 复用原任务：源文件/文本、用户要求、模型、thread、草稿版本、修改、确认摘要、正式 Skill 路径。一次提炼独立上下文；改稿可延续该提炼线程，但完整确认稿须持久化，不依赖线程记忆。
+10. 验收：图/组图/文案/混合四例；未确认库不变；改稿后旧摘要确认 409；重复确认不重复入库；正式文件对应确认稿（宿主能力元数据也需预览）；取消/失败不入库；文字目标不冒充图片目标。提炼质量另用新题材试产验证，不默认耗费生图额度。
+
+参考：Creator Skill Generator 的 analyst→writer 与来源依据（https://github.com/yashwanth-3000/creator-skill-generator）；Design Skill Generator 的可选提炼维度（https://github.com/weareoxd/design-skill-generator）；Visual Style PPT 的风格草案/Style Lock（https://github.com/irenerachel/visual-style-ppt-skill）。借流程，不复制固定文件数、长模板或多 Agent 框架。
 
 ### 2026-10-03 提炼指令精简与模型切换
 

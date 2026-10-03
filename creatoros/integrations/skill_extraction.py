@@ -24,7 +24,7 @@ from .producer_skills import ProducerSkillCatalog, _digest, _write, inherit_copy
 from .production_progress import ProgressWriter, collect_observed_turn
 
 MAX_IMAGE = 4 * 1024 * 1024
-EXTRACTION_MODEL = "gpt-6.1-sol"
+EXTRACTION_MODEL = "gpt-6-sol"
 MODE_GUIDANCE = {
     "pair": "提炼两份 Skill：mind 负责内容方法，production 负责视觉呈现与实际生图；二者能组合，也能换搭档。",
     "mind": "只提炼 mind：内容选择、教学或叙事方法，不绑定角色与画风。",
