@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import Field
 
-from ..integrations.skill_extraction import ExtractionError, MAX_IMAGE
+from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE
 from .schemas import WriteRequest
 
 
@@ -16,13 +16,28 @@ class Upload(WriteRequest):
 
 class Extract(WriteRequest):
     request_id: str = Field(min_length=1, max_length=128)
-    upload_ids: list[str] = Field(min_length=1, max_length=6)
-    mode: Literal["pair", "mind", "visual", "single"] = "pair"
+    upload_ids: list[str] = Field(default_factory=list, max_length=6)
+    source_text: str = Field(default="", max_length=20000)
+    mode: Literal["pair", "mind", "visual", "single"] = "single"
     instruction: str = Field(default="", max_length=4000)
 
 
 class Save(WriteRequest):
     expected_digest: str = Field(min_length=64, max_length=64)
+
+
+class Edit(Save):
+    skills: list[DraftSkill] = Field(min_length=1, max_length=2)
+
+
+class Revise(Save):
+    request_id: str = Field(min_length=1, max_length=128)
+    instruction: str = Field(min_length=1, max_length=4000)
+
+
+class Trial(Save):
+    request_id: str = Field(min_length=1, max_length=128)
+    topic: str = Field(min_length=1, max_length=4000)
 
 
 def extraction_routes(service):
@@ -54,6 +69,28 @@ def extraction_routes(service):
     @router.get("/{job_id}")
     def get(job_id: str):
         return call(lambda: service.get(job_id))
+
+    @router.get("/{job_id}/files")
+    def file(job_id: str, role: str, path: str):
+        return FileResponse(call(lambda: service.file(job_id, role, path)),
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @router.post("/{job_id}/draft")
+    def edit(job_id: str, request: Edit):
+        return call(lambda: service.edit(job_id, request.expected_digest, [s.model_dump() for s in request.skills]))
+
+    @router.post("/{job_id}/revise", status_code=202)
+    def revise(job_id: str, request: Revise):
+        return call(lambda: service.revise(job_id, **request.model_dump()))
+
+    @router.post("/{job_id}/trials", status_code=202)
+    def trial(job_id: str, request: Trial):
+        return call(lambda: service.trial(job_id, **request.model_dump()))
+
+    @router.get("/{job_id}/trials/{trial_id}/cards/{order}")
+    def trial_image(job_id: str, trial_id: str, order: int):
+        return FileResponse(call(lambda: service.trial_image(job_id, trial_id, order)),
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     @router.post("/{job_id}/save")
     def save(job_id: str, request: Save):

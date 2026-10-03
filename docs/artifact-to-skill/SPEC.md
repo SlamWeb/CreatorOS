@@ -1,4 +1,38 @@
-# Artifact → Skill V1
+# Artifact → Skill Workbench
+
+## V2 本轮实施范围（2026-10-03）
+
+- 默认 single，保留 pair/mind/visual；支持 1–6 图与/或 source_text（最多 20,000 字符）。完整 Skill/呈现 Skill 保留原图 assets，Mind 不自动复制原图，避免不必要视觉影响。
+- 工作台：来源上传与缩略图/文案 → 提炼 → 文件导航（SKILL.md、assets）与 Markdown 预览/编辑 → 保存草稿或输入要求由 Codex 改稿 → 预填“沿用参考作品的内容试做，保留内容与呈现特点。”可编辑选题 → 主动试用 → 满意后确认入库。换 IP 本轮不实现。
+- 所有 Skill 均留在 CreatorOS catalog.root/extractions 草稿区，入库为 catalog 本地副本，不写全局 Codex skills；试用时显式 SkillInput 与冻结路径。正式 creator/series/topic/run 表零写入。
+- 编辑 POST /{id}/draft：expected_digest、skills；改稿 POST /{id}/revise：request_id、expected_digest、instruction；试用 POST /{id}/trials：request_id、expected_digest、topic。新增任务操作只串行占本提炼 service 的 worker，取消沿用 /cancel；试用/改稿可见 operation。
+- 文件 GET /{id}/files?role=...&path=...；试用文件 GET /{id}/trials/{trial_id}/cards/{order}。get Job 增加 files（role/path/kind/url）、suggested_topic、revision、operation、trials（id/status/digest/topic/error/cards/progress/thread_id）。旧 Job 可兼容读取。
+- 草稿直接编辑和改稿产生新 digest；保存/试用/入库均校验用户所见版本。运行中禁编辑；改稿失败保留此前有效草稿。旧结果保留、标明其 digest 与当前是否一致；同 request_id 同参数重复调用不重复付费。
+- 文本目标可入库但不冒充图片能力；图片试用仅完整/呈现或双 Skill 图片目标。当前生产仍为 gpt-6-luna/xhigh；提炼/改稿为 gpt-6-sol/high。
+- 复用 native-v1 Producer/Checkpoint/Progress，不自动重画或试用，不自动批准/发布；浏览器返回/刷新查询原任务。仅用户点击试用后调用真实生产。
+- 验收：隔离 HTTP 编辑/改稿/试用/旧摘要/失败/取消/重启/重复请求/文件范围与完整资产；真实无生图 Codex 提炼/改稿；受控浏览器完整操作和桌面/手机视觉检查。用户后续用抖音作品做真实生图质量验收，本轮不擅自消耗完整生图批次。
+
+### 当前存储与操作
+
+`catalog.root/extractions/jobs/<id>/` 保存来源与请求、原始响应、Trace；`versions/vNNN/<role>/` 是每次保存的新草稿，包含 SKILL.md 与 assets。`revisions/<request-hash>/` 是改稿记录；`trials/<request-hash>/skill-snapshot/` 固定本次用的 Skill，`revision-001/attempt-001/` 保存生产进度、checkpoint、Prompt、图片和 SocialContentPack。确认入库才由 catalog 创建正式 working 副本。
+
+Skill 页「从作品提炼」提供文件树、Markdown 预览/编辑、参考图查看、改稿要求与可编辑试产选题；旧试产仍保留，但草稿摘要改变后标为旧稿结果。取消/服务重启不自动重试，也不伪装继续生成。本轮暂不提供试产恢复按钮；中断后保留已落盘图片，用户显式新试产会开启新任务，并可能重新消耗生图额度。
+
+本地未保存编辑按任务 ID 在 sessionStorage 暂存，刷新/侧栏导航后可以恢复；服务器摘要变化时保留编辑并提示冲突，不静默覆盖。保存/明确丢弃/重新载入清理暂存。当前浏览器会话结束不保证暂存仍在，提交服务器草稿才是持久化；存储不可用时提示先保存。未保存编辑时禁止另开提炼，避免已经付费提交却被任务切换保护拦回旧稿。
+
+仅 SKILL.md 直接编辑；assets 可查看，替换 IP 本轮明确不做。Mind-only 和纯文字草稿可提炼/编辑/入库，但当前生产器仅支持图片轮播，因此不能单独试产；Mind 入库后可在栏目组合制作 Skill。试用结果不是提炼质量自动评分，是否满意由用户判断。
+
+### V2 后端及真实接口验证（2026-10-03）
+
+- 隔离 HTTP/SQLite 测试通过：默认 single、图文/纯文案、文件读取与越界拒绝、编辑新版本/旧摘要拒绝、改稿失败保留、试产冻结草稿、重复请求不重复调用、取消与服务重启中断；确认前 catalog 不新增正式 Skill，运营 Creator 数据为零。图片试产使用受控 Producer，未声称真实生图通过。
+- 真 `gpt-6-sol/high` 图片输入提炼 + 改稿 + 隔离入库通过，证据 `tmp/skill-extraction-live-z7djp3r2/`；改稿 thread `01a10204-d1da-7f02-93cc-546168797dd9`，草稿 revision 2，原图复制/格式验证/图片生产能力声明通过。提炼 usage input 54,159 / cached 25,344 / output 2,364；改稿 input 56,233 / cached 45,056 / output 2,220。没有生图/搜索调用，未评估迁移生产质量，不改正式数据。
+- 第一次真实调用被 SDK 拒绝：新增默认字段未包含于严格 schema 的 required；修复为顶层与 DraftSkill 的全部属性必填后重跑成功。业务 HTTP 输入仍保留默认值兼容旧调用。真实测试脚本现分别统计提炼与改稿 usage/trace，不能把前一阶段 usage 当作整轮总量。
+- `smoke_skill_extraction`、`smoke_skill_workbench`、`smoke_skill_extraction_tools`、`smoke_web_agent`、`smoke_native_production`、`smoke_native_run_wiring` 六项通过；compileall/typecheck/build 通过。Vite 的单 bundle 超 500kB 提示非阻断，本轮未做整站分包。
+- 视觉修复：ready 后大上传表单曾把工作台推到首屏之外，现默认折叠为「新作品」；frontmatter 曾被 Markdown 误解析为大标题，现以小号代码区展示。参考图与试产图均应验证 naturalWidth 大于 0，不能仅凭 img 标签存在通过；浏览器的受控图片/提炼不代表真实图片质量。
+- 定向 Playwright 7/7 通过：上传/文件树/实际参考图加载/刷新/入库、编辑后刷新恢复及旧试产版本标记、原文与要求分开提交、Codex 改稿请求、响应丢失复用请求、提炼失败、显式取消。改稿不自动保存或试产；试产图片增加实际加载断言。浏览器 API 与图片为受控夹具，后端 HTTP/SQLite 另有真实服务隔离测试，模型接线由上述真实 Sol 探针证明。
+- 已检查 1440×900 与 390×844 的 ready 和 trial 截图：文件树/正文分层、手机堆叠、按钮与滚动范围无阻断；无横向溢出。证据 `web/test-results/skill-extraction-*/skill-*.png`（忽略目录）。执行命令：`$env:CREATOROS_PYTHON='D:\Anaconda4.7g\envs\deepcode\python.exe'; cd web; npx playwright test skill-extraction.spec.ts --timeout=20000 --max-failures=1`。
+
+以下保留为 V1 历史记录；与 V2 冲突处以以上当前设计为准。
 
 ## Scope (2026-10-02)
 
@@ -42,10 +76,10 @@ Agent 提供 extract_skills_from_artifact、get_skill_extraction、save_extracte
 
 ## Results
 
-### 提炼工作台补充决策（待实现）
+### 提炼工作台补充决策（历史提案，V2 已实施其选定范围）
 
 - 用户要求将提炼独立强度设为 high，生产/调研不变。仅配置与 smoke 验证，本次不重复模型质量测试；此前真实通过的是 xhigh。
-- 草稿需支持查看完整 Skill、编辑、替换 IP 参考资产、用户主动试用。试用在隔离草稿区执行，不先入正式库；满意后用户确认才入库供栏目组合。
+- 草稿需支持查看完整 Skill、编辑、用户主动试用。试用在隔离草稿区执行，不先入正式库；满意后用户确认才入库供栏目组合。后来用户明确暂缓替换 IP。
 - IP 身份、画风、表达形式分别描述，换 IP 不默认改内容方法或版式。每次修改/替换资产产生新摘要，旧试用标记为旧版本，不宣称新稿已验证。
 - 本轮仅向用户展示新提炼 Prompt 提案，尚未替换运行 Prompt 或实现工作台。
 
@@ -85,6 +119,6 @@ Agent 提供 extract_skills_from_artifact、get_skill_extraction、save_extracte
 
 ## 使用与续验
 
-重启 `python -m creatoros.web`，进入「Skill」→「从作品提炼」→ 上传图片/选模式 → 开始提炼 → 查看草稿 → 确认加入 Skill 库。需要调规则时编辑入库后展示的本地目录；不直接改冻结草稿。通过现有入口手动组合/绑定栏目，然后自行选择选题试产。
-真实探针：`python -m tests.live_skill_extraction --image <参考图片绝对路径>`，独立 tmp 目录、不绑定栏目、不生图。
-故障：关闭服务后 unfinished running 会在下次启动标为 interrupted；不自动续跑。详细错误在本任务 error.txt，用户另起任务重试。产出质量、试产评估、网页内编辑 SKILL.md、视频/网页抓取均暂缓。
+重启 `python -m creatoros.web`，进入「Skill」→「从作品提炼」→ 上传图片/粘贴文案、选模式 → 开始提炼 → 在文件树查看 SKILL.md 与 assets → 直接编辑并保存或要求 Codex 改稿 → 修改预填选题后主动试产 → 满意后确认加入 Skill 库。入库之后通过既有界面组合/绑定栏目；此时继续修改正式 Skill 可编辑展示的本地工作副本，不修改历史快照。
+真实无生图探针：`python -m tests.live_skill_extraction --image <参考图片绝对路径> --revise`，独立 tmp 目录、不绑定栏目、不生图；测试提炼、改稿与隔离入库。
+故障：关闭服务后遗留操作下次启动标为 interrupted，不自动续跑。详细错误在本任务/改稿/试产 error.txt；修改要求后用户显式新请求。提炼质量与真实试产需后续用户验收；文字试产、换 IP、视频/网页抓取暂缓。

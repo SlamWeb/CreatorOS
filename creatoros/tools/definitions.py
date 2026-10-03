@@ -39,6 +39,8 @@ from .skill_extraction import (
     SaveExtractedSkillsArgs, CancelSkillExtractionArgs,
     extract_skills_from_artifact, get_skill_extraction,
     save_extracted_skills, cancel_skill_extraction,
+    EditExtractedSkillsArgs, ReviseExtractedSkillsArgs, TrialExtractedSkillsArgs,
+    edit_extracted_skills, revise_extracted_skills, trial_extracted_skills,
 )
 
 
@@ -185,7 +187,7 @@ tool_registry = {
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),
-        Tool(name="extract_skills_from_artifact", description="用户明确要求从参考作品提炼 Skill 时，读取用户明确给出的项目内图片并提交提炼任务；返回任务句柄供查询。不会自动保存、绑定栏目或生产；结果不确定时复用同一 request_id。",
+        Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
              execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),
         Tool(name="get_skill_extraction", description="查询提炼任务或列出历史任务；ready 只表示草稿可预览。先展示 Skill 草稿并等待用户明确确认，不能把提炼结果当作已入库。",
              execute=get_skill_extraction, args_model=GetSkillExtractionArgs),
@@ -193,6 +195,12 @@ tool_registry = {
              execute=save_extracted_skills, args_model=SaveExtractedSkillsArgs),
         Tool(name="cancel_skill_extraction", description="按用户要求取消指定提炼任务；不会影响其他提炼或生产任务。",
              execute=cancel_skill_extraction, args_model=CancelSkillExtractionArgs),
+        Tool(name="edit_extracted_skills", description="保存用户修改的 Skill 草稿，使用查询得到的 expected_digest；不入正式库。",
+             execute=edit_extracted_skills, args_model=EditExtractedSkillsArgs),
+        Tool(name="revise_extracted_skills", description="按用户要求让 Codex 修改当前 Skill 草稿；返回任务供查询，不自动试用或入库。",
+             execute=revise_extracted_skills, args_model=ReviseExtractedSkillsArgs),
+        Tool(name="trial_extracted_skills", description="仅在用户明确要求试生产时，使用当前草稿与用户选题真实生成图片；结果保留草稿区，不创建栏目、不入正式库。",
+             execute=trial_extracted_skills, args_model=TrialExtractedSkillsArgs),
         Tool(
             name="route_hotspots",
             description="获取知乎热榜并按作者 domain prototype 生成每位作者的 Top-N 热点候选队列。",

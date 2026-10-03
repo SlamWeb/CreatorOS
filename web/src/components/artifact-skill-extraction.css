@@ -2,6 +2,10 @@
 .extraction-toggle { min-height: 40px; }
 .extraction-panel { margin-top: 14px; padding: 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); }
 .extraction-panel h2 { margin: 0 0 16px; font-size: 16px; font-weight: 650; }
+.extraction-new-work { margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
+.extraction-new-work > summary { padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 13px; font-weight: 600; }
+.extraction-new-work[open] > summary { border-bottom: 1px solid var(--line); }
+.extraction-new-work > form { padding: 12px; }
 .extraction-panel h3 { margin: 0 0 8px; font-size: 13px; }
 .extraction-panel form { display: grid; gap: 12px; max-width: 720px; }
 .extraction-panel fieldset { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -35,7 +39,55 @@
 .extraction-save p, .extraction-saved p { margin: 0; }
 .extraction-saved { color: var(--success); }
 .extraction-saved code { display: inline-block; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
+.extraction-workbench { display: grid; grid-template-columns: minmax(170px, 230px) minmax(0, 1fr); gap: 12px; min-width: 0; }
+.extraction-file-tree, .extraction-file-viewer { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
+.extraction-file-tree { display: grid; align-content: start; gap: 10px; padding: 10px; }
+.extraction-file-group { display: grid; align-content: start; gap: 3px; min-width: 0; }
+.extraction-file-group > strong { padding: 4px 7px; font-size: 11px; overflow-wrap: anywhere; }
+.extraction-file { min-width: 0; padding: 6px 7px; border: 0; border-radius: var(--radius-sm); color: var(--ink); background: transparent; text-align: left; font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; cursor: pointer; }
+.extraction-file:hover, .extraction-file.selected { background: var(--surface); color: var(--accent); }
+.extraction-file:focus-visible, .extraction-viewer-heading button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.extraction-file-viewer { display: grid; align-content: start; min-height: 260px; overflow: hidden; }
+.extraction-viewer-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 11px; border-bottom: 1px solid var(--line); font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.extraction-viewer-heading > strong { min-width: 0; }
+.extraction-viewer-heading > div { display: flex; flex: none; gap: 5px; }
+.extraction-viewer-heading .button { min-height: 30px; padding: 5px 8px; font-size: 11px; }
+.extraction-skill-fields { display: flex; flex-wrap: wrap; gap: 10px; padding: 11px 12px 0; }
+.extraction-skill-fields label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; }
+.extraction-skill-fields input, .extraction-skill-fields select { max-width: 260px; min-width: 150px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--surface); font: inherit; }
+.extraction-skill-fields p { flex-basis: 100%; }
+.extraction-markdown { max-height: 540px; padding: 4px 14px 14px; overflow: auto; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.extraction-markdown :first-child { margin-top: 8px; }
+.extraction-frontmatter { margin: 8px 0 12px !important; padding: 7px 9px !important; color: var(--muted); font: 10px/1.45 var(--font-mono) !important; }
+.extraction-markdown pre, .extraction-trial pre, .extraction-text-preview { max-width: 100%; overflow: auto; padding: 9px 10px; border-radius: var(--radius-sm); background: var(--surface); font: 11px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.extraction-markdown-editor, .extraction-text-preview { box-sizing: border-box; width: 100%; min-height: 300px; max-height: 540px; padding: 12px 14px; border: 0; color: var(--ink); background: var(--canvas); font: 12px/1.6 var(--font-mono); resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; }
+.extraction-markdown-editor:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.extraction-asset-preview { display: block; max-width: min(100%, 760px); max-height: 620px; margin: 12px auto; object-fit: contain; }
+.extraction-text-preview { margin: 0; }
+.extraction-save { padding-top: 4px; }
+.extraction-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.extraction-draft-actions > span { margin-right: auto; color: var(--muted); }
+.extraction-trial-controls { display: grid; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.extraction-confirm-switch, .extraction-conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); font-size: 12px; }
+.extraction-confirm-switch span, .extraction-conflict { color: var(--muted); }
+.extraction-conflict { color: var(--danger); }
+.extraction-trials { display: grid; gap: 10px; }
+.extraction-trials h3 { margin: 0; }
+.extraction-trial { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
+.extraction-trial-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
+.extraction-trial-cards figure { min-width: 0; margin: 0; overflow: hidden; border-radius: var(--radius-sm); background: var(--surface); }
+.extraction-trial-cards img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: #e9e8e4; }
+.extraction-trial-cards figcaption { padding: 7px; font-size: 11px; }
+.extraction-trial-cards details { margin-top: 5px; }
+.extraction-trial-cards summary { color: var(--accent); cursor: pointer; }
+.extraction-trial-cards pre { max-height: 220px; margin: 6px 0 0; }
+.extraction-old-digest { padding: 2px 6px; border-radius: 999px; color: var(--danger) !important; background: color-mix(in srgb, var(--danger) 10%, transparent); }
 @media (max-width: 700px) {
   .extraction-panel { padding: 14px; }
   .extraction-skill pre { max-height: 320px; }
+  .extraction-workbench { grid-template-columns: minmax(0, 1fr); }
+  .extraction-file-tree { grid-template-columns: minmax(0, 1fr); max-height: 190px; overflow: auto; }
+  .extraction-file-viewer { min-height: 230px; }
+  .extraction-markdown, .extraction-markdown-editor { max-height: 380px; }
+  .extraction-draft-actions > span { flex-basis: 100%; }
 }

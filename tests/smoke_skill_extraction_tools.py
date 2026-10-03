@@ -32,6 +32,7 @@ class FakeStudioClient:
             return {"items": []}
         if method == "POST" and path == "/api/skill-extractions":
             return {"id": "job-1", "request_id": payload["request_id"], "status": "running",
+                    "mode": payload["mode"], "source_text": payload["source_text"],
                     "uploads": [{"id": item} for item in payload["upload_ids"]]}
         if path.endswith("/save"):
             return {"id": "job-1", "status": "saved", "saved_skills": [{"id": "skill-1"}]}
@@ -64,7 +65,8 @@ def main():
             assert "legacy_end_to_end" not in prompt
     names = {item["function"]["name"] for item in tools}
     expected = {"extract_skills_from_artifact", "get_skill_extraction",
-                "save_extracted_skills", "cancel_skill_extraction"}
+                "save_extracted_skills", "cancel_skill_extraction", "edit_extracted_skills",
+                "revise_extracted_skills", "trial_extracted_skills"}
     assert expected <= names
     assert expected <= set(tool_registry)
     assert expected <= STUDIO_TOOLS
@@ -74,10 +76,13 @@ def main():
     assert "查询结果中的 digest 原样作为 expected_digest" in descriptions["save_extracted_skills"]
     from creatoros.web.chat import WEB_INSTRUCTIONS
     assert "Web 会话不能读取本机项目路径" in WEB_INSTRUCTIONS
-    assert "只能使用已上传图片的 upload_ids" in WEB_INSTRUCTIONS
+    assert "图片只能用已有 upload_ids" in WEB_INSTRUCTIONS
+    assert "参考文案可直接传 source_text" in WEB_INSTRUCTIONS
     schema = tool_registry["extract_skills_from_artifact"].to_schema()["function"]["parameters"]
     assert "request_id" in schema["required"]
     assert "image_paths" in schema["properties"] and "upload_ids" in schema["properties"]
+    assert "source_text" in schema["properties"]
+    assert schema["properties"]["mode"]["default"] == "single"
 
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -105,8 +110,17 @@ def main():
             assert "data_base64" in upload[3]
             assert submit[:2] == ("POST", "/api/skill-extractions")
             assert submit[3] == {"request_id": "request-1", "upload_ids": ["upload-1"],
-                                 "mode": "pair", "instruction": "提取留白和标题层级"}
+                                 "mode": "pair", "instruction": "提取留白和标题层级", "source_text": ""}
             assert upload[3]["data_base64"] not in result.content
+
+            # Source text can be submitted without image paths or upload IDs; omitted mode is single.
+            FakeStudioClient.calls = []
+            text_only = _tool("extract_skills_from_artifact", {
+                "request_id": "text-only", "source_text": "A short sample."}, context)
+            assert not text_only.is_error, text_only.content
+            assert FakeStudioClient.calls == [("POST", "/api/skill-extractions", None, {
+                "request_id": "text-only", "upload_ids": [], "mode": "single", "instruction": "",
+                "source_text": "A short sample."})]
 
             # Existing browser upload IDs use the same API and are not uploaded again.
             FakeStudioClient.calls = []
@@ -160,6 +174,19 @@ def main():
             assert FakeStudioClient.calls[-1][3] == {"expected_digest": "digest-1"}
             assert not _tool("cancel_skill_extraction", {"job_id": "job-1"}, context).is_error
             assert json.loads(_tool("get_skill_extraction", {"job_id": "job-1"}, context).content)["status"] == "ready"
+
+            FakeStudioClient.calls = []
+            edited = _tool("edit_extracted_skills", {"job_id": "job-1", "expected_digest": "digest-1",
+                "skills": [{"name": "draft", "role": "legacy_end_to_end", "skill_md": "A full draft." * 4}]}, context)
+            assert not edited.is_error, edited.content
+            assert FakeStudioClient.calls[-1][:2] == ("POST", "/api/skill-extractions/job-1/draft")
+            assert FakeStudioClient.calls[-1][3]["expected_digest"] == "digest-1"
+            assert not _tool("revise_extracted_skills", {"job_id": "job-1", "expected_digest": "digest-1",
+                "request_id": "revise-1", "instruction": "Retain the pacing."}, context).is_error
+            assert FakeStudioClient.calls[-1][:2] == ("POST", "/api/skill-extractions/job-1/revise")
+            assert not _tool("trial_extracted_skills", {"job_id": "job-1", "expected_digest": "digest-1",
+                "request_id": "trial-1", "topic": "Reuse the sample topic."}, context).is_error
+            assert FakeStudioClient.calls[-1][:2] == ("POST", "/api/skill-extractions/job-1/trials")
     print("skill_extraction_tools_smoke=passed")
 
 

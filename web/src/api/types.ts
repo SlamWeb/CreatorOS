@@ -295,6 +295,7 @@ export interface ProducerSkillItem {
 
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
 export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";
+export type SkillExtractionOperation = "extract" | "revise" | "trial" | null;
 
 export interface SkillExtractionUpload {
   id: string;
@@ -306,6 +307,31 @@ export interface ExtractedSkillDraft {
   name: string;
   role: "mind" | "production" | "legacy_end_to_end";
   skill_md: string;
+  output_kind?: "image-carousel" | "text";
+}
+
+export interface SkillExtractionFile {
+  role: "mind" | "production" | "legacy_end_to_end";
+  path: string;
+  kind: "text" | "image";
+  url: string;
+}
+
+export interface SkillExtractionTrialCard {
+  order: number;
+  url: string;
+  image_prompt: string | null;
+}
+
+export interface SkillExtractionTrial {
+  id: string;
+  status: "running" | "completed" | "failed" | "interrupted";
+  digest: string;
+  topic: string;
+  error: string | null;
+  cards: SkillExtractionTrialCard[];
+  progress: ProductionProgressView | null;
+  thread_id: string | null;
 }
 
 export interface SkillExtractionJob {
@@ -313,11 +339,17 @@ export interface SkillExtractionJob {
   request_id: string;
   mode: SkillExtractionMode;
   instruction: string;
+  source_text?: string;
+  suggested_topic?: string | null;
+  revision?: number;
+  operation?: SkillExtractionOperation;
   status: SkillExtractionStatus;
   cancel_requested?: boolean;
   created_at: string;
   updated_at: string;
   uploads: SkillExtractionUpload[];
+  files?: SkillExtractionFile[];
+  trials?: SkillExtractionTrial[];
   thread_id: string | null;
   error: string | null;
   note: string | null;

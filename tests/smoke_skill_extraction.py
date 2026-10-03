@@ -12,7 +12,7 @@ from PIL import Image
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, _write
 from creatoros.integrations.skill_extraction import (
-    MODE_ROLES, DraftSkill, ExtractionResult, SkillExtractionService,
+    MODE_ROLES, DraftSkill, ExtractionResult, SkillExtractionService, extraction_schema,
 )
 from creatoros.runs import ContentRunService
 from creatoros.storage import Database, upgrade_database
@@ -42,6 +42,17 @@ async def controlled(directory, images, mode, instruction, cancel, on_thread):
 
 
 def main():
+    # Strict Codex JSON mode requires defaulted properties too, and each mode
+    # must reject roles outside its selected responsibility.
+    for mode, expected_roles in MODE_ROLES.items():
+        schema = extraction_schema(mode)
+        assert schema["additionalProperties"] is False
+        assert set(schema["required"]) == set(schema["properties"])
+        for definition in schema["$defs"].values():
+            assert definition["additionalProperties"] is False
+            assert set(definition["required"]) == set(definition["properties"])
+        assert schema["$defs"]["DraftSkill"]["properties"]["role"]["enum"] == expected_roles
+
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
         url = f"sqlite:///{(root / 'test.db').as_posix()}"
@@ -89,11 +100,22 @@ def main():
                 assert len(catalog.list()) == initial
                 assert client.post(endpoint, json={"expected_digest": job["digest"]}).json() == result
                 for skill in result["saved_skills"]:
-                    assert (Path(skill["local_path"]) / "assets/reference-01.png").read_bytes() == raw
                     assert root in Path(skill["local_path"]).parents  # local isolated registry only
+                    if skill["role"] == "mind":
+                        assert not (Path(skill["local_path"]) / "assets").exists()
+                    else:
+                        assert (Path(skill["local_path"]) / "assets/reference-01.png").read_bytes() == raw
                     if skill["role"] != "mind":
                         assert skill["producible"]
                         assert catalog.resolve(skill["id"]).is_dir()
+
+            # The service default is one complete Skill; browser/API callers may omit mode.
+            default_job = service.submit("default-mode", [image["id"]])
+            service.worker.join(5)
+            default_job = service.get(default_job["id"])
+            assert default_job["status"] == "ready", default_job
+            assert default_job["mode"] == "single"
+            assert [skill["role"] for skill in default_job["skills"]] == ["legacy_end_to_end"]
 
             for instruction, status in [("fail", "failed"), ("wrong-role", "failed"), ("wait", "interrupted")]:
                 body = {"request_id": instruction, "mode": "pair", "upload_ids": [image["id"]], "instruction": instruction}
@@ -109,9 +131,9 @@ def main():
             # No creator/series/run was created, nor can foreign origins submit paid jobs.
             assert client.get("/api/creators").json()["page"]["total"] == 0
             assert client.post(base, json=body, headers={"Origin": "https://evil.example"}).status_code == 403
-            assert len(client.get(base).json()["items"]) == 7
+            assert len(client.get(base).json()["items"]) == 8
 
-            partial = service.submit("partial-register", [image["id"]])
+            partial = service.submit("partial-register", [image["id"]], mode="pair")
             service.worker.join(5)
             partial = service.get(partial["id"])
             register = catalog.register_local
@@ -131,10 +153,11 @@ def main():
             service.save(partial["id"], partial["digest"])
             assert len(catalog.list()) == initial + 2  # no duplicate first Skill on replay
 
-            job = service.submit("tamper", [image["id"]])
+            job = service.submit("tamper", [image["id"]], mode="pair")
             service.worker.join(5)
             ready = service.get(job["id"])
-            (service.root / "jobs" / job["id"] / "drafts/mind/SKILL.md").write_text("changed", encoding="utf-8")
+            role = ready["skills"][0]["role"]
+            (service._draft_root(ready) / role / "SKILL.md").write_text("changed", encoding="utf-8")
             assert client.post(base + "/" + job["id"] + "/save", json={"expected_digest": ready["digest"]}).status_code == 409
             # Simulate a process death: restart reports interrupted, never starts a model.
             path = service.root / "jobs" / job["id"] / "job.json"
@@ -160,7 +183,7 @@ def main():
                 assert "injected shutdown timeout" in str(error)
             assert research_stop.called and install_stop.called and executor_stop.called
         db.close()
-    print("skill_extraction=passed modes=4 upload/idempotency/save/assets/failure/cancel/restart/tamper/http")
+    print("skill_extraction=passed modes=4 default-single/upload/idempotency/save/assets/failure/cancel/restart/tamper/http")
 
 
 if __name__ == "__main__":

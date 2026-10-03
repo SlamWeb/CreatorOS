@@ -4,6 +4,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from creatoros.integrations.skill_extraction import DraftSkill
 
 from .builtins import _is_sensitive_path, _project_root
 from .results import ToolResult
@@ -28,15 +29,18 @@ class ExtractSkillsFromArtifactArgs(BaseModel):
         description="Studio 图片上传接口返回的 ID；与 image_paths 二选一，适用于浏览器已上传的附件。")
     request_id: str = Field(min_length=1, max_length=128,
         description="本次提炼的幂等 ID；若提交结果不确定，查询状态或用同一 ID 重试，不能另造 ID 重复提交。")
-    mode: str = Field(default="pair", pattern="^(pair|mind|visual|single)$",
-        description="pair 同时生成 Mind 与 Visualize；也可选 mind、visual 或 single。")
-    instruction: str = Field(default="", max_length=3000,
+    mode: str = Field(default="single", pattern="^(pair|mind|visual|single)$",
+        description="默认 single 提炼完整 Skill；可选 mind 内容方法、visual 呈现方法、pair 分别提炼两份。")
+    source_text: str = Field(default="", max_length=20000, description="作为提炼素材的原始文案，与 instruction 用户要求分开。可单独提供，也可与图片组合。")
+    instruction: str = Field(default="", max_length=4000,
         description="可选提炼要求；留空即可。")
 
     @model_validator(mode="after")
     def validate_image_source(self):
-        if (self.image_paths is None) == (self.upload_ids is None):
-            raise ValueError("image_paths 与 upload_ids 必须且只能提供一个。")
+        if self.image_paths is not None and self.upload_ids is not None:
+            raise ValueError("image_paths 与 upload_ids 不能同时提供。")
+        if not (self.image_paths or self.upload_ids or self.source_text.strip()):
+            raise ValueError("请提供参考图片或文案。")
         return self
 
 
@@ -58,6 +62,20 @@ class CancelSkillExtractionArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     job_id: str = Field(min_length=1, description="要取消的提炼任务 ID。")
+
+
+class ReviseExtractedSkillsArgs(SaveExtractedSkillsArgs):
+    request_id: str = Field(min_length=1, max_length=128)
+    instruction: str = Field(min_length=1, max_length=4000, description="用户要求的草稿修改，不会自动试用或入库。")
+
+
+class TrialExtractedSkillsArgs(SaveExtractedSkillsArgs):
+    request_id: str = Field(min_length=1, max_length=128)
+    topic: str = Field(min_length=1, max_length=4000, description="用户明确要试做的选题；会真实生成图片，结果仅在草稿区。")
+
+
+class EditExtractedSkillsArgs(SaveExtractedSkillsArgs):
+    skills: list[DraftSkill] = Field(min_length=1, max_length=2)
 
 
 def _read_reference_images(image_paths, context=None):
@@ -99,18 +117,20 @@ def _read_reference_images(image_paths, context=None):
     return images
 
 
-def extract_skills_from_artifact(image_paths=None, request_id=None, mode="pair", instruction="", context=None,
-                                 upload_ids=None):
+def extract_skills_from_artifact(image_paths=None, request_id=None, mode="single", instruction="", context=None,
+                                 upload_ids=None, source_text=""):
     """Upload only explicitly named local images, then submit the idempotent job."""
-    if (image_paths is None) == (upload_ids is None):
-        return ToolResult("image_paths 与 upload_ids 必须且只能提供一个。", True, "invalid_arguments")
+    if image_paths is not None and upload_ids is not None:
+        return ToolResult("image_paths 与 upload_ids 不能同时提供。", True, "invalid_arguments")
+    if not (image_paths or upload_ids or source_text.strip()):
+        return ToolResult("请提供参考图片或文案。", True, "invalid_arguments")
     local_uploads = []
     if image_paths is not None:
         images = _read_reference_images(image_paths, context)
         if isinstance(images, ToolResult):
             return images
         local_uploads = images
-    elif not 1 <= len(upload_ids) <= MAX_IMAGE_COUNT:
+    elif upload_ids is not None and not 1 <= len(upload_ids) <= MAX_IMAGE_COUNT:
         return ToolResult("参考图数量必须为 1–6 张。", True, "invalid_arguments")
 
     def submit(client):
@@ -126,6 +146,7 @@ def extract_skills_from_artifact(image_paths=None, request_id=None, mode="pair",
             "upload_ids": resolved_upload_ids,
             "mode": mode,
             "instruction": instruction,
+            "source_text": source_text,
         })
 
     return _call(submit, context)
@@ -147,3 +168,18 @@ def save_extracted_skills(job_id, expected_digest, context=None):
 def cancel_skill_extraction(job_id, context=None):
     path = f"/api/skill-extractions/{quote(job_id, safe='')}/cancel"
     return _call(lambda client: client.request("POST", path, payload={}), context)
+
+
+def edit_extracted_skills(job_id, expected_digest, skills, context=None):
+    return _call(lambda client: client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/draft",
+        payload={"expected_digest": expected_digest, "skills": skills}), context)
+
+
+def revise_extracted_skills(job_id, expected_digest, request_id, instruction, context=None):
+    return _call(lambda client: client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/revise",
+        payload={"expected_digest": expected_digest, "request_id": request_id, "instruction": instruction}), context)
+
+
+def trial_extracted_skills(job_id, expected_digest, request_id, topic, context=None):
+    return _call(lambda client: client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/trials",
+        payload={"expected_digest": expected_digest, "request_id": request_id, "topic": topic}), context)

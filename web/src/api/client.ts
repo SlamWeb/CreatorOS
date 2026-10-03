@@ -86,7 +86,19 @@ export const studioApi = {
   skillExtractions: () => request<{ items: SkillExtractionJob[] }>("/api/skill-extractions"),
   skillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}`),
   uploadSkillExtractionImage: (input: { name: string; data_base64: string }) => request<{ id: string; name: string; url: string }>("/api/skill-extractions/uploads", { method: "POST", body: JSON.stringify(input) }),
-  createSkillExtraction: (input: { request_id: string; upload_ids: string[]; mode: SkillExtractionMode; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions", { method: "POST", body: JSON.stringify(input) }),
+  createSkillExtraction: (input: { request_id: string; upload_ids: string[]; source_text: string; mode: SkillExtractionMode; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions", { method: "POST", body: JSON.stringify(input) }),
+  skillExtractionFile: async (id: string, role: string, path: string) => {
+    const query = new URLSearchParams({ role, path });
+    const response = await fetch(`${API_BASE}/api/skill-extractions/${encodeURIComponent(id)}/files?${query}`, { headers: { Accept: "text/plain" } });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      throw new ApiError(body?.error?.message ?? `文件读取失败（${response.status}）。`, response.status);
+    }
+    return response.text();
+  },
+  saveSkillExtractionDraft: (id: string, input: { expected_digest: string; skills: { name: string; role: "mind" | "production" | "legacy_end_to_end"; skill_md: string; output_kind: "image-carousel" | "text" }[] }) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/draft`, { method: "POST", body: JSON.stringify(input) }),
+  reviseSkillExtraction: (id: string, input: { request_id: string; expected_digest: string; instruction: string }) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/revise`, { method: "POST", body: JSON.stringify(input) }),
+  createSkillExtractionTrial: (id: string, input: { request_id: string; expected_digest: string; topic: string }) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/trials`, { method: "POST", body: JSON.stringify(input) }),
   saveSkillExtraction: (id: string, expected_digest: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/save`, { method: "POST", body: JSON.stringify({ expected_digest }) }),
   cancelSkillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
   composeSeries: (input: SeriesComposeInput) => request<SeriesWriteResult>("/api/series", { method: "POST", body: JSON.stringify(input) }),
