@@ -19,12 +19,13 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..skills.loader import SkillLoader
-from .codex import CODEX_EFFORT, CodexSdkProducer, _bounded_sdk, _production_client
+from .codex import CodexSdkProducer, _bounded_sdk, _production_client
 from .producer_skills import ProducerSkillCatalog, _digest, _write, inherit_copy_permissions
 from .production_progress import ProgressWriter, collect_observed_turn
 
 MAX_IMAGE = 4 * 1024 * 1024
 EXTRACTION_MODEL = "gpt-6-sol"
+EXTRACTION_EFFORT = "high"
 MODE_GUIDANCE = {
     "pair": "提炼两份 Skill：mind 负责内容方法，production 负责视觉呈现与实际生图；二者能组合，也能换搭档。",
     "mind": "只提炼 mind：内容选择、教学或叙事方法，不绑定角色与画风。",
@@ -91,7 +92,7 @@ async def sdk_extract(directory, images, mode, instruction, cancel, on_thread):
             turn = await _bounded_sdk(thread.turn(
                 [TextInput(prompt), SkillInput(name="skill-creator", path=str(creator.resolve())),
                  *[LocalImageInput(str(path)) for path in images]],
-                model=EXTRACTION_MODEL, effort=CODEX_EFFORT, sandbox=Sandbox.read_only,
+                model=EXTRACTION_MODEL, effort=EXTRACTION_EFFORT, sandbox=Sandbox.read_only,
                 output_schema=schema), deadline, cancel)
             try:
                 result = await _bounded_sdk(collect_observed_turn(turn, progress), deadline, cancel)

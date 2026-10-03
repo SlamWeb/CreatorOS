@@ -21,7 +21,7 @@ Web 与 Agent 调用同一服务。草稿可预览，明确确认才入 CreatorO
 
 ## Execution and storage
 
-每次提炼 fresh Codex thread，请求 gpt-6-sol/xhigh SDK 登录态与独立上下文配置；实际传入 LocalImageInput。只要求文本 Skill 草稿，不联网调研、不生图。180 秒有限等待，允许取消，无隐式重试。
+每次提炼 fresh Codex thread，请求 gpt-6-sol/high SDK 登录态与独立上下文配置；实际传入 LocalImageInput。只要求文本 Skill 草稿，不联网调研、不生图。180 秒有限等待，允许取消，无隐式重试。
 宿主写 SKILL.md 并复制真实参考图到 assets/reference-NN.ext，模型不得决定文件路径；记录原请求、响应、thread、usage、事件与草稿摘要。
 位置：与数据库对应的 producer-skills/extractions/ 下；不引入新数据库模型。启动将遗留 running 标成 interrupted，不伪装仍在执行。一次只运行一个提炼任务。
 通过既有 register_local 入库；默认不存在绑定、生产、发布副作用。pair 按固定目录幂等注册，部分入库失败可再次确认同草稿，不生成新任务。
@@ -41,6 +41,13 @@ Agent 提供 extract_skills_from_artifact、get_skill_extraction、save_extracte
 4. 不改正式数据；更新结果，commit/push。
 
 ## Results
+
+### 提炼工作台补充决策（待实现）
+
+- 用户要求将提炼独立强度设为 high，生产/调研不变。仅配置与 smoke 验证，本次不重复模型质量测试；此前真实通过的是 xhigh。
+- 草稿需支持查看完整 Skill、编辑、替换 IP 参考资产、用户主动试用。试用在隔离草稿区执行，不先入正式库；满意后用户确认才入库供栏目组合。
+- IP 身份、画风、表达形式分别描述，换 IP 不默认改内容方法或版式。每次修改/替换资产产生新摘要，旧试用标记为旧版本，不宣称新稿已验证。
+- 本轮仅向用户展示新提炼 Prompt 提案，尚未替换运行 Prompt 或实现工作台。
 
 ### 2026-10-03 后续设计 Draft：多模态作品 → 可检查草稿 → 确认入库
 
