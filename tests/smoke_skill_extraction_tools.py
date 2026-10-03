@@ -50,6 +50,17 @@ def _tool(name, args, context):
 
 
 def main():
+    from creatoros.integrations.skill_extraction import EXTRACTION_MODEL, MODE_GUIDANCE, extraction_prompt
+    from creatoros.integrations.codex import CODEX_MODEL
+    assert EXTRACTION_MODEL == "gpt-6.1-sol"
+    assert CODEX_MODEL == "gpt-6-luna", "Extraction must not change production/research model"
+    for mode in MODE_GUIDANCE:
+        prompt = extraction_prompt(mode, "中英双语", ["assets/reference-1.jpg"])
+        assert MODE_GUIDANCE[mode] in prompt
+        assert "YAML" not in prompt and "中英双语" in prompt
+        assert "assets/reference-1.jpg" in prompt
+        if mode != "single":
+            assert "legacy_end_to_end" not in prompt
     names = {item["function"]["name"] for item in tools}
     expected = {"extract_skills_from_artifact", "get_skill_extraction",
                 "save_extracted_skills", "cancel_skill_extraction"}
@@ -62,7 +73,7 @@ def main():
     assert "查询结果中的 digest 原样作为 expected_digest" in descriptions["save_extracted_skills"]
     from creatoros.web.chat import WEB_INSTRUCTIONS
     assert "Web 会话不能读取本机项目路径" in WEB_INSTRUCTIONS
-    assert "使用返回的上传 ID" in WEB_INSTRUCTIONS
+    assert "只能使用已上传图片的 upload_ids" in WEB_INSTRUCTIONS
     schema = tool_registry["extract_skills_from_artifact"].to_schema()["function"]["parameters"]
     assert "request_id" in schema["required"]
     assert "image_paths" in schema["properties"] and "upload_ids" in schema["properties"]

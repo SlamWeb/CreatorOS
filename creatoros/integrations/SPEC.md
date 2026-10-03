@@ -2,7 +2,7 @@
 
 ## 产物提炼 Skill（2026-10-02）
 
-- `SkillExtractionService` 接收参考图，fresh SDK thread 使用 gpt-6-luna/xhigh 与真实 LocalImageInput，输出 pair/mind/visual/single 草稿；host 保存 SKILL.md 与原图 assets，显式确认才复用 register_local 入库，不改全局 Codex Skill 或栏目。
+- `SkillExtractionService` 接收参考图，fresh SDK thread 请求 gpt-6.1-sol/xhigh（2026-10-03 真实 ChatGPT SDK 调用返回模型不支持，当前阻塞，不自动降级），使用 LocalImageInput 与显式 skill-creator SkillInput，输出 pair/mind/visual/single 草稿；host 保存 SKILL.md 与原图 assets，显式确认才复用 register_local 入库，不改全局 Codex Skill 或栏目。
 - 请求幂等、180 秒期限、取消/重启中断、原始回复与安全进度记录沿用本地持久化风格；不自动重试模型或生图。制作类 Skill 的图片产物能力声明由宿主补齐以兼容既有栏目绑定，不增加 PageSpec/格数约束。
 - 完整接口、隔离测试与真实图片输入证据见 `docs/artifact-to-skill/SPEC.md`。
 

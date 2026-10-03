@@ -42,6 +42,13 @@ Agent 提供 extract_skills_from_artifact、get_skill_extraction、save_extracte
 
 ## Results
 
+### 2026-10-03 提炼指令精简与模型切换
+
+- 按用户要求仅提炼改为 `gpt-6.1-sol/xhigh`；生产/调研维持 `gpt-6-luna/xhigh`，不自动 fallback。
+- Prompt 仅注入所选模式的职责，移除 YAML 格式教学；显式传入本机 `skill-creator` SkillInput 与可读取路径，宿主仍负责草稿保存及校验。目标是迁移到新主题的生产能力，不是原图复现。
+- 本地四模式服务 smoke 与定向工具 smoke 通过；新增模式隔离、模型隔离与资源路径检查。修正工具测试中已过期的上传 ID 文案断言。输出 schema 的 role 枚举也仅开放当前模式，双 Skill 请求不再提供单 Skill 选项。
+- 真实图片探针失败：当前 ChatGPT 登录的 SDK 服务端返回 400：`The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.` 证据 `tmp/skill-extraction-live-0l2_ei2h/`。未生成草稿、未生图、未改正式数据；不能宣称 Sol 或 skill-creator 实际提炼成功。待该调用路径支持请求型号后，用文末原命令续验。
+
 - `tests.smoke_skill_extraction` 通过：四模式、真实图片字节保存、显式确认、幂等/冲突、HTTP 门禁、失败/取消/重启、草稿篡改与部分登记重试。SDK 由受控提炼器替换用于故障注入，不消耗模型。
 - `tests.smoke_skill_extraction_tools`、`tests.smoke_web_agent` 通过：工具注册/参数/Studio transport/路径边界，未调用真实 DeepSeek 对话。
 - 两次真实 `gpt-6-luna/xhigh` 图片输入：首次验证 SDK/资产/登记成功，但检查发现新制作 Skill 缺少既有绑定能力声明；补宿主声明后再次通过，包含 producible/resolve 检查。第二次 thread `01a0fd37-5aa6-7fb2-88c1-09cedc16c3c2`，input 20,061 / output 3,081（reasoning 2,248）/ cached 0。没有观察到生图、搜索、委派工具；本轮不评估复现产物质量。
