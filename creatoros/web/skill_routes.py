@@ -1,5 +1,5 @@
 """Skill installation and explicit compare-and-set column binding."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field
 from sqlalchemy import update
 from typing import Literal
@@ -25,6 +25,14 @@ def skill_routes(database, service):
     @router.get("/producer-skills")
     def list_skills():
         return {"items": service.catalog.list()}
+
+    @router.get("/producer-skills/{skill_id}/content")
+    def get_skill_content(skill_id: str, offset: int = Query(default=0, ge=0),
+                          limit: int = Query(default=2000, ge=1, le=4000)):
+        try:
+            return service.catalog.read_skill_page(skill_id, offset=offset, limit=limit)
+        except (ValueError, OSError, UnicodeError, KeyError) as error:
+            raise HTTPException(status_code=404, detail="Skill 正文不可用或未登记。") from error
 
     @router.post("/producer-skills/install", status_code=202)
     def install_skill(request: InstallSkillRequest):

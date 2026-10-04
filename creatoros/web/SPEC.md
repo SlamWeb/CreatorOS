@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 账号上下文树与 Skill 按需正文（2026-10-04）
+
+- AgentChatService 由宿主提供 CreatorContextBuilder 回调；每条账号指令构建当前账号/全部栏目/绑定 Skill 元数据，成功业务写后刷新。总览和 CLI 不自动注入树，没有会话或数据库迁移。
+- GET `/api/producer-skills/{id}/content` 只读受管 Skill 根目录正文，分页最多 4000 字符；账号 guard 放行共享库只读访问，Web read_file 仍仅限当前会话归档。
+- 新建账号 Agent Run 前校验绑定的当前本地 Skill 元数据，不自动恢复缺失文件；已有 Run 仍使用原冻结输入，不因当前工作副本失效而改写旧任务。普通 UI/总览生产路径保持原状。
+- 树进入请求投影及本地 Trace，不进入聊天账本。没有新 Trace 面板或前端样式改动，细节与验收见 `docs/agent-studio/web-chat/SPEC.md` P2。
+
 ## 账号 Agent 会话与作用域（2026-10-04）
 
 - 总览和账号入口复用既有 AgentChatService/Loop；创建会话可指定 creator_id，绑定不可通过聊天或更新接口改变。旧 JSON 无字段仍为总览，不迁移表。

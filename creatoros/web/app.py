@@ -63,6 +63,7 @@ from .static import mount_studio
 from .chat import AgentChatService
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
+from .account_context import CreatorContextBuilder
 from .skill_routes import skill_routes
 from .extraction_routes import extraction_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
@@ -105,9 +106,11 @@ def create_app(
     db_file = db.engine.url.database
     session_root = (Path(db_file).resolve().parent / (Path(db_file).stem + "-agent-sessions")
                     if db_file and db_file != ":memory:" else runs.output_root / ".agent-sessions")
-    chat = AgentChatService(chat_root or session_root, chat_provider_factory,
-                            creator_lookup=ContentRepository(db).get_creator)
     skill_installs = skill_install_service or SkillInstallService(ProducerSkillCatalog(skills_root_for(db)))
+    account_context = CreatorContextBuilder(db, skill_installs.catalog)
+    chat = AgentChatService(chat_root or session_root, chat_provider_factory,
+                            creator_lookup=ContentRepository(db).get_creator,
+                            creator_context_factory=account_context.build)
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
@@ -424,8 +427,13 @@ def create_app(
         return result
 
     @app.post("/api/runs", response_model=RunDetail, status_code=201)
-    def start_run(payload: RunStartRequest, response: Response) -> RunDetail:
+    def start_run(payload: RunStartRequest, response: Response, request: Request) -> RunDetail:
         existing = runs.repository.get_by_idempotency_key(f"content:{payload.topic_id}")
+        session_id = request.headers.get("x-creatoros-agent-session")
+        if existing is None and session_id and chat.get(session_id).get("scope_kind") == "creator":
+            topic = ContentRepository(db).get_topic(payload.topic_id)
+            if topic is not None:
+                account_context.require_series_skills(topic.series_id)
         content_run = runs.create(payload.topic_id)
         response.status_code = 200 if existing is not None else 201
         result = queries.get_run(content_run.id)

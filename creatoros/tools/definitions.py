@@ -28,7 +28,8 @@ from .zhihu import get_zhihu_hot_list, search_zhihu
 from .studio import (
     PageArgs, CreatorArgs, TopicsArgs, StartRunArgs, GetRunArgs,
     list_creators, list_creator_series, list_series_topics, start_content_run, get_content_run,
-    InstallSkillArgs, SkillJobArgs, NoArgs, install_producer_skill, get_skill_install, list_producer_skills,
+    InstallSkillArgs, SkillJobArgs, ProducerSkillArgs, NoArgs, install_producer_skill, get_skill_install,
+    list_producer_skills, get_producer_skill,
     ResearchTopicsArgs, ResearchBatchArgs, SelectResearchArgs,
     research_series_topics, get_topic_research, prepare_topic_selection,
     ComposeSeriesArgs, UpdateCompositionArgs, AssignSeriesArgs, QueueTopicsArgs,
@@ -179,6 +180,8 @@ tool_registry = {
              execute=get_skill_install, args_model=SkillJobArgs),
         Tool(name="list_producer_skills", description="列出已登记生产 Skill 的当前本地工作副本、路径、角色与兼容性；不执行安装或生产。",
              execute=list_producer_skills, args_model=NoArgs),
+        Tool(name="get_producer_skill", description="用户明确询问某个 Skill 的写法或规则时，按字符分页读取目录中已登记 Skill 或固定内置 Skill 的 SKILL.md 正文；先用 Skill ID 定位，最多每页 4000 字符。不能读取任意路径。",
+             execute=get_producer_skill, args_model=ProducerSkillArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",

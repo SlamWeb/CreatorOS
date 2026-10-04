@@ -218,6 +218,54 @@ class ProducerSkillCatalog:
                               "local_error": str(error)})
         return items
 
+    def read_skill_page(self, skill_id: str, *, offset: int = 0, limit: int = 2000) -> dict:
+        """Read one bounded page of a registered Skill's SKILL.md without repairing files."""
+        if offset < 0 or not 1 <= limit <= 4000:
+            raise ValueError("Skill 正文分页参数无效。")
+        if skill_id == self.BUILTIN_ID:
+            directory = self.project_root / "creatoros" / "skills" / skill_id
+            managed_root = self.project_root / "creatoros" / "skills"
+            item = {"id": skill_id, "role": "legacy_end_to_end"}
+        else:
+            if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
+                raise ValueError("请提供目录返回的 Skill ID。")
+            registry_root = self.root / "registry"
+            if (registry_root.is_symlink() or not registry_root.is_dir()
+                    or not registry_root.resolve().is_relative_to(self.root)):
+                raise ValueError("Skill 注册目录路径无效。")
+            record_path = registry_root / f"{skill_id}.json"
+            if record_path.is_symlink() or not record_path.is_file():
+                raise ValueError("生产 Skill 未登记。")
+            data = json.loads(record_path.read_text(encoding="utf-8"))
+            if data.get("id") != skill_id:
+                raise ValueError("Skill 注册记录与 ID 不匹配。")
+            directory = self.root / "working" / skill_id
+            managed_root = self.root / "working"
+            item = {"id": skill_id, "role": self._role(data)}
+
+        project_root = self.project_root.resolve()
+        if ((skill_id == self.BUILTIN_ID and (self.project_root / "creatoros").is_symlink())
+                or managed_root.is_symlink() or not managed_root.is_dir()
+                or not managed_root.resolve().is_relative_to(project_root if skill_id == self.BUILTIN_ID else self.root)):
+            raise ValueError("Skill 受管目录不存在或路径无效。")
+        if (directory.is_symlink() or not directory.is_dir()
+                or not directory.resolve().is_relative_to(managed_root.resolve())):
+            raise ValueError("Skill 工作目录不存在或路径无效。")
+        skill_file = directory / "SKILL.md"
+        if skill_file.is_symlink() or not skill_file.is_file() or skill_file.resolve().parent != directory.resolve():
+            raise ValueError("Skill 正文文件不存在或路径无效。")
+        from creatoros.skills.loader import SkillLoader
+        skill = SkillLoader([directory])._read_metadata(skill_file)
+        if skill is None:
+            raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
+        content = skill_file.read_text(encoding="utf-8")
+        page = content[offset:offset + limit]
+        has_more = offset + len(page) < len(content)
+        return {**item, "name": skill.name, "description": skill.description,
+                "content": page, "page": {"offset": offset, "limit": limit,
+                                             "total_chars": len(content), "has_more": has_more,
+                                             "next_offset": offset + len(page) if has_more else None}}
+
     def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
             directory = Path(skill_id)

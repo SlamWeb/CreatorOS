@@ -6,6 +6,13 @@
 - RuntimeContext 的 creator_id 和 agent_session_id 来自不可改绑的会话，不由模型传参。Studio 工具经现有 Client 携带会话头，API 验证真实资源归属；不复制业务服务，也不增加 Tool Router。
 - 目录只返回本账号，Skill 目录只读共享。CLI 默认全局行为不变。隔离 HTTP 和真实 DeepSeek 证据见 `docs/agent-studio/web-chat/SPEC.md` P1。
 
+## 账号 Agent 按需读取 Skill 正文（2026-10-04）
+
+- 新增只读 `get_producer_skill(skill_id, offset, limit)`；仅在用户明确询问 Skill 写法/规则时调用。可读目录已登记 Skill 和固定内置 `knowledge-to-carousel`，每页最多 4000 字符；返回 name/description、正文和 `page.total_chars/has_more/next_offset`。
+- 通过同一 Studio API `GET /api/producer-skills/{skill_id}/content` 读取；账号会话 guard 只放行该精确 GET 路径。服务端按注册 ID 映射工作目录或内置固定目录，不接收任意路径；校验受管目录与 `SKILL.md` 不为 symlink、正文直接位于 Skill 根目录。
+- 读取不调用 `describe()`，不补建缺失工作副本、不计算全部 assets digest、不写数据库；正文缺失或未登记返回 404。`read_file` 范围不变。
+- 验收：`python -m tests.smoke_producer_skill_read_tool` 覆盖真实隔离 HTTP、账号会话、固定内置/已登记 Skill、分页、超限、任意 ID/路径拒绝、缺失副本不恢复和非法 UTF-8 不写回；不访问正式数据库或外部服务。
+
 ## Artifact → Skill Agent tools (2026-10-02)
 
 - Web 与 CLI 共用 extract/get/save/cancel 四个 Studio 工具。提炼支持用户明确提供的本地 `image_paths` 或已有 `upload_ids` 二选一；CLI 本地读取复用 `read_file` 的项目根目录与敏感路径规则，且在有界读取前检查大小。Web 的 `archive_only_reads` 宿主只接受 Skill 页已上传的 `upload_ids`。图片限 1–6 张 JPEG/PNG/WebP、单张最多 4 MiB。

@@ -1,5 +1,13 @@
 # Context Management：设计、实现与面试复习
 
+## P2 账号树作为动态请求数据（2026-10-04）
+
+- Web 账号宿主可给 Loop 提供 context_factory；build_model_context 在稳定前缀/滚动摘要后插入本次账号目录数据块，不改变 user/assistant/tool 账本、tool-call 批次或 checkpoint 原索引。CLI/总览不提供回调，原行为不变。
+- 每次用户输入刷新；成功业务写工具后的下一 Step 刷新。近期旧工具状态不覆盖“当前事实”，需要时再查实时业务接口；不是持续监控外部 UI 修改。
+- 树完整计入主请求预算。compact_session 的 reserved_input_tokens 仅给历史切分预留动态输入空间；树不参与摘要源，Checkpoint 仍校验原完整账本。硬预算外置重建请求时仍带树；树本身过大沿用阻止，不偷删栏目。
+- Trace 新增互斥 account_context 分项及实际注入树（含 as_of/omissions）。这是此前纯计数 Trace 的明确本机业务数据例外；仍不记录完整 Skill 正文、assets、模型内部思考或凭证。不新增 UI。
+- 测试与本阶段范围见 `docs/agent-studio/web-chat/SPEC.md` P2；已有压缩算法、输出预留和工具归档能力复用，不引入长期记忆或 embedding 历史检索。
+
 ## C4 第一版开发集（已实现，2026-09-13）
 
 - 六类合成运营历史，三组 `full` 完整历史、`recent` 相同切点但无摘要、`compact` 真实累计摘要及原文回读；后两组原始账本不删除。固定模型、工具、数据 ID、当前请求和主调用上限；分组顺序轮换，单次试验不推断缓存/延迟优劣。

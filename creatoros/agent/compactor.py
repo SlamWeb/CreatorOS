@@ -46,6 +46,7 @@ def compact_session(
     custom_instructions: str | None = None,
     trace: ContextTrace | None = None,
     turn_id: str | None = None,
+    reserved_input_tokens: int = 0,
 ) -> CompactionCheckpoint | None:
     raw_messages = deepcopy(list(messages))
     if checkpoint and not checkpoint.matches_session(raw_messages):
@@ -88,9 +89,12 @@ def compact_session(
         live_messages.insert(0, deepcopy(raw_messages[pin_index]))
 
     plan_context = ModelContext.from_messages(live_messages, tools=[])
+    planning_limit = context_budget.input_limit - reserved_input_tokens
+    if planning_limit <= 0:
+        raise ValueError("动态上下文本身已超过输入预算。")
     plan = CompactionPlan.from_context(
         plan_context,
-        input_limit=context_budget.input_limit,
+        input_limit=planning_limit,
         keep_recent_tokens=keep_recent_tokens,
     )
     if not plan.can_compact:

@@ -154,6 +154,14 @@ class SkillJobArgs(BaseModel):
     job_id: str = Field(pattern=r"^[a-f0-9]{64}$", description="安装工具返回的真实任务 ID。")
 
 
+class ProducerSkillArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    skill_id: str = Field(pattern=r"^(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+                          description="从 list_producer_skills 或栏目组合元数据取得的 Skill ID。")
+    offset: int = Field(default=0, ge=0, description="正文字符分页起点；有更多内容时按 page.has_more 继续。")
+    limit: int = Field(default=2000, ge=1, le=4000, description="本页最多字符数，最大 4000。")
+
+
 class NoArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -169,6 +177,11 @@ def get_skill_install(job_id, context=None):
 
 def list_producer_skills(context=None):
     return _call(lambda c: c.request("GET", "/api/producer-skills"), context)
+
+
+def get_producer_skill(skill_id, offset=0, limit=2000, context=None):
+    return _call(lambda c: c.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/content",
+                                     params={"offset": offset, "limit": limit}), context)
 
 
 def _call(action, context=None):

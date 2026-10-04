@@ -1,10 +1,16 @@
 # CreatorOS Runtime SPEC
 
+## 账号上下文树（2026-10-04）
+
+- P2 用户确认账号 → 栏目 → 绑定 Skill 的只读目录进入 ModelContext，Skill 默认仅当前本地 name/description；不注入正文/assets/全量运营历史，不把快照重复写入 Session。
+- 本轮仅 Web 账号模式，沿用同一 Loop、固定工具、预算和滚动压缩。全部栏目暂时展开；文字超长标注省略，规模筛选/分页等真实痛点出现后再做。
+- 用户明确查看 Skill 时可走专用只读工具；Trace 保存本次实际目录与 token 分项，不新增面板。实施、验收与后续见 `docs/agent-studio/web-chat/SPEC.md` P2。
+
 ## 账号 Agent 第一阶段（2026-10-04）
 
 - 开源下载、本机自用：总览 + 绑定 Creator 的 Web 对话复用既有 Runtime。账号/栏目/选题/任务仍 SQLite；会话完整账本、压缩检查点和 Trace 仍 JSON/JSONL，不迁移数据库或保存 Codex 凭证。
 - 绑定创建后不可改：前端按账号查看历史，后端核验资源归属；不是仅在 Prompt 写账号限制，也不是多租户登录系统。旧对话仍总览，生产仍走已有 ContentRun/Codex。
-- 完整范围及验收见 `docs/agent-studio/web-chat/SPEC.md` P1；下一步是当前账号状态 brief，之后再做目标型运营规划。本阶段未实现跨会话记忆/定时运营。
+- 完整范围及验收见 `docs/agent-studio/web-chat/SPEC.md` P1；P2 改为轻量账号能力树，运营现状按需查询，之后再做目标型运营规划。本阶段未实现跨会话记忆/定时运营。
 
 ## 单 thread 原生生产切片（2026-10-02）
 

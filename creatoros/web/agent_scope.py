@@ -24,6 +24,7 @@ _BATCH = re.compile(r"^/api/topic-research/([a-f0-9]{32})$")
 _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)$")
 _RUN = re.compile(r"^/api/runs/([^/]+)$")
 _RUN_EXECUTE = re.compile(r"^/api/runs/([^/]+)/execute$")
+_PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 
 
 class AgentScopeGuard:
@@ -53,6 +54,8 @@ class AgentScopeGuard:
 
         # The shared catalog is read-only and has no account-owned records.
         if method == "GET" and path == "/api/producer-skills":
+            return None
+        if method == "GET" and _PRODUCER_SKILL_CONTENT.fullmatch(path):
             return None
 
         if method == "GET" and path == "/api/creators":

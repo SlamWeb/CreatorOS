@@ -1,4 +1,4 @@
-"""Content-free, append-only diagnostics for one session's model requests."""
+"""Append-only diagnostics; account trees are explicit local business snapshots."""
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
@@ -26,10 +26,12 @@ def _units(value):
     return sum(1 if char.isascii() else 4 for char in text)
 
 
-def breakdown(context, *, kind, skill_text='', summary_text=''):
+def breakdown(context, *, kind, skill_text='', summary_text='', account_text=''):
     """Disjoint payload estimates; framing/rounding remains in overhead."""
     parts = dict.fromkeys(('system', 'tools', 'summary', 'recent_messages',
                           'tool_results', 'skills', 'summary_source'), 0)
+    if account_text:
+        parts['account_context'] = 0
     if context.tools:
         parts['tools'] = _units(list(context.tools)) // 4
     for message in (*context.system_messages, *context.messages):
@@ -39,6 +41,9 @@ def breakdown(context, *, kind, skill_text='', summary_text=''):
                     'tool_results' if role == 'tool' else 'recent_messages')
         copy = dict(message)
         content = copy.get('content')
+        if account_text and role == 'user' and content == account_text:
+            parts['account_context'] += _units(copy) // 4
+            continue
         if isinstance(content, str):
             for text, target in ((skill_text if category == 'system' else '', 'skills'),
                                  (summary_text if role == 'user' else '', 'summary')):
@@ -99,9 +104,9 @@ class TraceRequest:
                            sent=False, usage=None, error_type=None, **metadata)
         self.record['externalized'] = bool(metadata.get('externalized_count', 0))
 
-    def begin(self, context, budget, *, skill_text='', summary_text=''):
+    def begin(self, context, budget, *, skill_text='', summary_text='', account_text=''):
         self.record.update(estimated_parts=breakdown(context, kind=self.record['request_kind'],
-                           skill_text=skill_text, summary_text=summary_text),
+                           skill_text=skill_text, summary_text=summary_text, account_text=account_text),
                            estimated_input_tokens=budget.estimated_input_tokens,
                            input_limit=budget.input_limit, context_window=budget.context_window,
                            reserve_output_tokens=budget.reserve_output_tokens,

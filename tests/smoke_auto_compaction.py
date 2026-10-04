@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 from creatoros.agent import loop as agent_loop
 from creatoros.agent.compactor import compact_session
 from creatoros.ai.types import ModelResponse, StreamEnd, TextDelta
+from creatoros.ai.context import estimate_tokens
 from creatoros.terminal import Console
 from creatoros.context import RuntimeContext
 from creatoros.web.chat import STUDIO_TOOLS
@@ -26,6 +27,10 @@ class RecordingProvider:
     reserve_output_tokens = 500
 
     def __init__(self):
+        # Keep fixed schemas inside the tiny synthetic window as the catalog grows;
+        # the 30k-char old result must still force compaction, not a schema-only block.
+        schemas = [t for t in agent_loop.tools if t["function"]["name"] in STUDIO_TOOLS]
+        self.context_window = max(self.context_window, estimate_tokens({"tools": schemas}) + 1000 + self.reserve_output_tokens)
         self.summary_calls = 0
         self.stream_context = None
 

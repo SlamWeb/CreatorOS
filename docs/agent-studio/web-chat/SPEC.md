@@ -1,5 +1,34 @@
 # Web 宿主复用 Agent Loop
 
+## P2 账号上下文树 · 2026-10-04（完成）
+
+- 用户确认默认上下文层级为账号 → 栏目 → 绑定 Skill，Skill 只展示当前本地文件的 name/description；单 Skill 和 mind+production 组合均支持，共享 Skill 元数据去重。不注入正文、assets、选题队列、生产历史或其他账号。
+- 账号使用已有字段，不新增账号定位/目标/偏好表。栏目定位、受众与 Skill description 有确定性文字上限并标注省略；用户明确暂缓大量栏目筛选/分页，当前展示全部栏目，仍计入既有总预算。
+- 使用简洁账号角色指令替代账号模式下的总览安装/提炼说明。用户给目标时可以主动查询并提出建议；查看/建议不写入，不因一句“今天做什么”启动生产。宿主作用域和服务端校验继续执行。
+- 树是当前 SQLite + 本地 Skill 的只读投影，仅进入 ModelContext，不追加 messages.json，不改变 checkpoint 的源摘要。每条用户请求构建一次，成功业务写工具后刷新；执行写操作仍由业务服务校验当前状态。失效 Skill 明确标记，不自动修复、不阻断其他查询。
+- 账号 Agent 可按需查询共享库元数据来组成新栏目；明确要求查看 Skill 时，受管理 Skill 正文可由专门只读分页工具读取，不放开 Web read_file 任意路径。调研 Codex 可读 Mind；生产 Codex 仍按现有本地路径/快照读取实际组合。
+- 全部实际投影计入预算；压缩规划为动态树预留输入空间，不把树交给历史摘要。Trace 记录本次实际树、查询时间、字段省略及独立 token 估算。本机业务树为这一诊断记录的内容例外，不记录 Skill 正文或 assets。不新做 Trace UI。
+- 范围只覆盖 Web 账号模式；总览/CLI 保持原投影行为，不增加自动长期记忆、自主调度、发布或新的 Agent 框架。
+- 验收：隔离数据库/Skill 库/会话验证树归属、去重、当前本地修改、坏 Skill、文本省略、全部栏目保留；账本/checkpoint 不受刷新影响，动态预算和 Trace 一致；成功写后刷新。真实低成本 DeepSeek 只读查询和显式 Skill 回读，不启动调研、生图或发布，不改正式运营数据；P1/Runtime/工具回归。
+
+### 数据流与实现位置
+
+1. Web 账号会话固定 creator_id，`CreatorContextBuilder.build` 读取当前 SQLite 的账号及其全部栏目；按绑定 ID/已登记路径读取本地 SKILL.md 根部元数据，不扫描资产或恢复工作副本。树仅含现有账号字段、栏目定位/受众/revision/状态、绑定引用与去重 Skill 元数据；自由文本上限 1000 字符，省略记录 original_chars/shown_chars。
+2. `AgentChatService` 使用独立 ACCOUNT_INSTRUCTIONS；Loop 的可选 context_factory 每条 query 构建一次，成功 compose/update/queue/start/research 后的下一 Step 刷新。查询期间复用同一 as_of，不监控其他页面正在做的修改；写操作由原业务服务实时校验。
+3. `build_model_context` 将数据块放在固定前缀和滚动摘要之后、近期原文之前，不改 messages.json。压缩/硬预算外置后的重建仍带树，摘要输入无树；省略/超限不修改数据库或原始消息。
+4. Main Trace 的 account_context 保存实际树与 as_of/omissions，estimated_parts.account_context 单独统计且总和与全请求估算一致。用户可经已有 Session context-trace API 检查；未做新 UI。
+5. 显式 `get_producer_skill` 经共享业务接口只读分页正文，供用户查看规则；工具实现可跨入口复用，但总览/CLI 没有账号树或新的账号模式。外层通常无需正文；研究与生产执行器的 Mind/单 thread 本地 Skill 读取沿用既有逻辑，本轮未重新生成内容。
+6. 新账号 Agent Run 在创建前检查绑定当前元数据；文件缺失/无效返回 409，未创建任务。已有 Run 不重新检查当前工作副本，继续使用原冻结输入；普通 UI/总览的原生产入口未改变。
+
+### 验证结果与复跑
+
+- `python -m tests.smoke_account_context` 通过：隔离真实 SQLite/Skill 文件含单/双绑定、路径与 ID 去重、元数据修改刷新、105 个以上栏目无目录截断、长文标记、坏 Skill；确定性 Provider 仅验证 Runtime 数据投影/故障路径（不冒充任务能力评分）。覆盖成功写后刷新、账本/checkpoint 原文不变、压缩源无树、主请求/Trace 有树及超大树不发送主请求；隔离 HTTP 检查缺失 Skill 的新 Run 409、零任务/零生产、只读继续可用。
+- `python -m tests.smoke_producer_skill_read_tool` 通过：真实隔离 HTTP、账号会话、登记/内置 Skill 连续分页、任意路径拒绝、缺文件/非法 UTF-8 不写回。未触发 Codex。
+- `python -m tests.live_account_context` 真实 DeepSeek 通过：两条只读 query、3 次主调用，唯一工具 get_producer_skill；首次直接根据宿主树回答账号/栏目/Skill，第二条显式读取前 200 字符。每次树估算 254 tokens，input 总计 13,978 / output 332 / cache hit 8,704；另一账号未进入请求，零 Run/零 Producer 调用。夹具为合成账号，临时会话随测试清理；这是接线样本，不是运营决策或内容质量 Benchmark。
+- 关联回归通过：smoke_account_sessions、smoke_account_scope、smoke_web_agent、smoke_runtime_context、smoke_agent_studio、smoke_studio_composition_tools、smoke_studio_api、smoke_auto_compaction、check_context_trace、check_step_compaction、smoke_context_protection、smoke_compacted_model_context；compileall 通过。仅后端改动，无前端视觉或浏览器验收声明。
+- 新只读工具使旧自动压缩夹具的固定 6000-token 窗口装不下完整 schema，最初被正确预算阻止；调整测试窗口为至少 schema 估算＋1000 内容空间＋输出预留，仍要求 30k 字符旧结果触发一次摘要且保留近期请求。未放宽正式预算/断言，重跑自动压缩及 Trace 通过。
+- 下一步先用真实账号问“今天做什么”，观察查询和建议质量；跨会话偏好/目标记忆、批量栏目筛选、反馈分析能力和 Trace 面板仍暂缓。生产仍由用户明确授权，不能把本轮上下文接线称作自动运营闭环。
+
 ## P1 账号会话与作用域 · 2026-10-04（完成）
 
 ### 问题与最小方案
