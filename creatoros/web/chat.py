@@ -19,6 +19,7 @@ from creatoros.config import PROJECT_ROOT
 from creatoros.context import RuntimeContext
 from creatoros.session.snapshot import load_messages, new_messages, save_messages
 from creatoros.session.context_trace import read_trace
+from creatoros.session.request_trace import RequestSnapshots, redact
 from creatoros.terminal import Console
 
 STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics",
@@ -168,6 +169,12 @@ class AgentChatService:
                     for entry in doc["entries"]:
                         if entry.get("kind") == "tool" and entry.get("status") == "running":
                             entry["status"] = "unknown"
+                    if doc['requests']:
+                        doc['requests'][-1]['status'] = 'interrupted'
+                        answer = next((e for e in reversed(doc['entries']) if e['kind'] == 'assistant'
+                                       and e.get('turn_id') == doc['requests'][-1]['id']), None)
+                        if answer is not None:
+                            answer['terminal'] = True
                     self._repair(doc["id"])
                     self._save(doc)
 
@@ -253,6 +260,47 @@ class AgentChatService:
             self._read(session_id)
             return read_trace(self._path(session_id).with_name('messages.json'), after, limit)
 
+    def turn_trace(self, session_id, turn_id):
+        with self.lock:
+            doc = self._read(session_id)
+            requests = {}
+            cursor = 0
+            path = self._path(session_id).with_name('messages.json')
+            while True:
+                page = read_trace(path, cursor, 100)
+                for row in page['items']:
+                    if (isinstance(row, dict) and row.get('turn_id') == turn_id
+                            and isinstance(row.get('request_id'), str)):
+                        requests[row['request_id']] = row
+                cursor = page['next_cursor']
+                if not page['has_more']:
+                    break
+            owned = next((item for item in doc['requests'] if item['id'] == turn_id), None)
+            if owned is None:
+                raise HTTPException(404, "这条请求不属于当前对话。")
+            active = doc['requests'][-1]['id'] == turn_id and doc['status'] == 'running'
+            status = 'running' if active else owned.get('status', 'finished')
+            # Original metadata API is unchanged; full payloads stay on-demand.
+            result = {"turn_id": turn_id, "status": status, "requests": list(requests.values()),
+                      "available": bool(requests)}
+            return redact(result)[0]
+
+    def request_snapshot(self, session_id, turn_id, request_id):
+        index = self.turn_trace(session_id, turn_id)
+        if not any(row['request_id'] == request_id for row in index['requests']):
+            raise HTTPException(404, "请求快照不属于这条回复。")
+        try:
+            store = RequestSnapshots(self._path(session_id).with_name('messages.json'))
+            snapshot = store.read(request_id)
+            if snapshot.get('turn_id') != turn_id:
+                raise ValueError("Wrong turn")
+            # Defense-in-depth if a local file was subsequently edited.
+            clean, changed = redact(snapshot)
+            clean['redacted'] = bool(clean.get('redacted') or changed)
+            return clean
+        except (OSError, ValueError, TypeError, AttributeError):
+            raise HTTPException(404, "这次请求未记录正文，或快照已不可用。") from None
+
     def submit(self, session_id, request_id, text, version, studio_url):
         with self.lock:
             doc = self._read(session_id)
@@ -269,14 +317,14 @@ class AgentChatService:
             if self.thread is not None and self.thread.is_alive():
                 raise HTTPException(409, "Agent 正在处理一条指令，请完成后再发送。生产任务可继续后台运行。")
             provider = self.provider_factory()
-            doc["requests"].append({"id": request_id, "text": text})
-            doc["entries"].append({"kind": "user", "text": text})
+            doc["requests"].append({"id": request_id, "text": text, "status": "running"})
+            doc["entries"].append({"kind": "user", "text": text, "turn_id": request_id})
             doc.update(status="running", error=None, version=doc["version"] + 1)
             if doc["title"] == "新对话":
                 doc["title"] = text[:36]
             self.active, self.provider = doc, provider
             self._save(doc)
-            self.thread = Thread(target=self._run, args=(doc, text, studio_url, provider), daemon=True)
+            self.thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id), daemon=True)
             self.thread.start()
             return self._view(doc)
 
@@ -294,7 +342,13 @@ class AgentChatService:
                 return
             kind, data = event.kind, event.data
             if kind == "turn_start":
-                entries.append({"kind": "assistant", "text": ""})
+                entries.append({"kind": "assistant", "text": "", "turn_id": data.get('turn_id'),
+                                "complete": False, "terminal": False})
+            elif kind == "model_response":
+                answer = next((e for e in reversed(entries) if e['kind'] == 'assistant'
+                               and e.get('turn_id') == data['turn_id']), None)
+                if answer is not None:
+                    answer.update(complete=data['complete'], model_request_id=data['request_id'])
             elif kind == "tool_call":
                 entries.append({"kind": "tool", "name": data["name"], "status": "running"})
             elif kind == "tool_result":
@@ -313,7 +367,7 @@ class AgentChatService:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
-    def _run(self, doc, text, studio_url, provider):
+    def _run(self, doc, text, studio_url, provider, request_id=None):
         status, error = "idle", None
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
@@ -326,6 +380,7 @@ class AgentChatService:
                 save_messages(messages, session_file)
             run_agent(provider, console=WebConsole(text),
                       session_file=session_file,
+                      user_request_id=request_id, capture_request_trace=True,
                       runtime_context=RuntimeContext(project_root=PROJECT_ROOT, studio_url=studio_url,
                                                      allowed_tools=ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS,
                                                      archive_only_reads=True, creator_id=doc.get("creator_id"),
@@ -349,6 +404,12 @@ class AgentChatService:
                         status, error = "interrupted", "服务关闭，指令已中断；请先查看已有任务。"
                     self._repair(doc["id"])
                     doc.update(status=status, error=error, version=doc["version"] + 1)
+                    if doc['requests'] and doc['requests'][-1]['id'] == request_id:
+                        doc['requests'][-1]['status'] = status
+                    answer = next((e for e in reversed(doc['entries']) if e['kind'] == 'assistant'
+                                   and e.get('turn_id') == request_id), None)
+                    if answer is not None:
+                        answer['terminal'] = True
                     for entry in doc["entries"]:
                         if entry.get("kind") == "tool" and entry.get("status") == "running":
                             entry["status"] = "unknown"

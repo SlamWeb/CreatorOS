@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 聊天回复 Trace（2026-10-05）
+
+- 复用既有会话和 Context Trace：宿主 request_id 关联本轮所有主/摘要模型请求；Web 显式保存实际 ModelContext、模型回复与工具结果的本地快照，不影响原 CLI 默认行为。
+- GET `/api/agent/sessions/{session_id}/turn-trace/{turn_id}` 只读请求索引；其 `/requests/{request_id}` 按需返回一份正文快照。校验 session/turn/request 归属和受管路径，坏/缺快照 404，合法响应 no-store；完整正文不进入聊天 SSE。
+- 旧回复不补造请求正文，失败/中断和缺工具结果保留未知语义。已知凭证脱敏，不展示传输 headers 或模型内部思考，不重放工具、不访问其他会话。实现/验证及 DeepSeek Harness 参考集中在 `docs/agent-studio/web-chat/SPEC.md` 的“回复级 Trace”。
+
 ## 账号上下文树与 Skill 按需正文（2026-10-04）
 
 - AgentChatService 由宿主提供 CreatorContextBuilder 回调；每条账号指令构建当前账号/全部栏目/绑定 Skill 元数据，成功业务写后刷新。总览和 CLI 不自动注入树，没有会话或数据库迁移。

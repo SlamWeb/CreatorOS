@@ -1,5 +1,31 @@
 # Web 宿主复用 Agent Loop
 
+## 回复级 Trace · 2026-10-05（完成）
+
+- 本轮只做聊天诊断，不实施账号工作区的整页重构。完整回复底部提供复制原文和 Trace 两个图标；Trace 打开只读 dialog，不重新调用模型或工具。
+- 复用现有 Context Trace，Web 新请求将宿主 request_id 作为 turn_id，关联本条用户请求的多次主调用和自动摘要。每次预算/压缩/外置后的实际 ModelContext 单独保存请求快照，含 system/developer、目录树、摘要、近期消息及 tools schema；不是用当前 messages.json 重建过去。这不是 HTTP 报文、模型内部思考或 Codex 生产子线程 Trace。
+- 快照保存在当前 Web Session 的 messages.request-trace/，记录模型回复、工具调用参数与实际返回的模型可见正文、失败/未知状态；主 Trace JSONL 仍只保存诊断元数据。CLI 默认不启用正文快照。已知环境凭证和敏感键脱敏，不记录传输 headers/原始异常；本机上下文内容是用户明确请求的诊断例外，不上传外部平台。
+- 新 GET /{session_id}/turn-trace/{turn_id} 返回该轮请求索引；GET /{session_id}/turn-trace/{turn_id}/requests/{request_id} 按需读取一份快照。路径只能从会话和严格 ID 推导，拒绝跨会话/跨轮/符号链接；no-store。主聊天 SSE 不携带完整上下文。
+- UI 按实际调用顺序选择 Step（摘要单独标记），展示用量/预算/压缩和上下文、模型回复、工具参数/结果。长文本默认展示短预览，显式展开全文、收起；不执行 HTML 或加载其中的图片。加载/空/失败/重试明确，切换会话关闭 Trace，迟到响应不能串入另一条回复。
+- 历史回复没有请求 ID/原文快照时提示未记录，不补造；流式输出未完成不展示成功回复操作。复制以原始 Markdown 为准，权限失败不假成功，Trace 可用键盘打开/Escape 关闭并恢复入口焦点。
+- 验收：隔离真实 SQLite/HTTP 验证两轮/多 Step/同名 tool call ID/重启/跨会话拒绝/旧记录/缺损快照/脱敏；确定性 Provider 用于故障与压缩路径，真实低成本 DeepSeek 只读账号查询验证请求快照与 Provider 输入一致；浏览器 1440/390 的复制、Trace 选择、长文展开收起、错误重试/切会话、刷新零 POST。不调研、生图、安装或发布，不改正式运营数据。
+
+### DeepSeek Harness 参考与取舍
+
+- 只读研究本机 `D:\DeepSeek Harness\deepseek-harness`，再核对官方当前 [架构](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/architecture.md)、[Session](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/session.md) 和 [Trajectory UI](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-trajectory/src/client/TrajectoryView.tsx)。本机 clone 是旧快照，不能把它当成官方最新版本。
+- 借鉴 turn → step → tool call/result 的关联、模型请求可追溯、概览与按需 inspector 分层、阅读与原始消息分开。官方当前 system prompt 来自 `system/message` 历史，`request/header` 只承载调用配置/默认值/工具 Schema，不是完整 HTTP headers。
+- CreatorOS 保留现有 Ledger、C3 元数据 JSONL 和逐请求正文 sidecar，不迁移成完整 Event Sourcing、统一 seq、压缩日志、虚拟化 ledger 或外部观测平台。回复弹窗选择主/摘要请求，详情分上下文、模型输出、工具；请求统计折叠，阅读默认展示真实换行，原始消息保留完整字段；参数和结果按 call ID 配对。
+- Trace 是诊断证据，不是恢复或重放按钮。快照写入失败不能使已经成功的业务工具被错误地判为失败；缺正文/缺结果如实标未记录或未知。记录保留在本机，占用空间随调用次数增长，本轮不增加清理策略；已知凭证脱敏不等于通用敏感信息识别。
+
+### 验证结果与复跑
+
+- `python -m tests.smoke_reply_trace` 通过：隔离真实 HTTP/SQLite 两轮多 Step、重复 call ID、错误结果、无 StreamEnd 的部分回复、finish_reason=length 的截断、自动摘要请求的独立正文、跨会话/轮次拒绝、缺文件/坏 JSON/错误结构、脱敏、重启、历史记录和 CLI 默认不保存正文。快照写入是 best effort，不把已完成的工具操作变成失败。
+- `python -m tests.live_reply_trace` 真实 DeepSeek 通过：两条只读指令、3 次主调用（各 1/2 次），唯一工具为 get_producer_skill；记录的 messages/tools 与实际 Provider 输入逐项相同，账号范围正确，零 ContentRun/零 Producer 调用。使用临时数据库/会话，不是任务质量 Benchmark。
+- 后端关联回归通过：smoke_web_agent、check_context_trace、smoke_account_sessions、smoke_agent_events、smoke_account_context、check_step_compaction；compileall 通过。CLI 默认事件序列和原预算/压缩/外置策略保持不变。
+- `npm --prefix web run build` 通过（保留既有大 chunk 提示）；设 CREATOROS_PYTHON 为 deepcode 环境后，`npm --prefix web run e2e -- reply-trace.spec.ts account-chat.spec.ts agent-layout.spec.ts` 4/4 通过。受控响应仅验证 UI 确定性/故障路径：原文复制、单份快照按需读取、统计折叠、阅读/原始消息、三页签、call ID 配对/未知结果、重试、切会话、旧记录、键盘和 390px 溢出。
+- CUA 在独立 8879 服务实际发送一条 DeepSeek 只读 Skill 查询：2 次模型请求及真实 tool result 可见；复制原始 Markdown、长文展开、切换 Step/页签、Escape 关闭及入口焦点恢复通过。390×844 下 document scrollWidth=390；正式 8765 服务与运营数据未操作。验收临时服务已停止。
+- 实际截图保存在忽略目录 `tmp/testresults/reply-trace-real-tools-20261005.jpg` 和 `tmp/testresults/reply-trace-real-mobile-20261005.jpg`；受控桌面/手机截图在 web/test-results/。旧回复不能补录；更新后重启 Web，发送新指令才会产生正文快照。
+
 ## P2 账号上下文树 · 2026-10-04（完成）
 
 - 用户确认默认上下文层级为账号 → 栏目 → 绑定 Skill，Skill 只展示当前本地文件的 name/description；单 Skill 和 mind+production 组合均支持，共享 Skill 元数据去重。不注入正文、assets、选题队列、生产历史或其他账号。

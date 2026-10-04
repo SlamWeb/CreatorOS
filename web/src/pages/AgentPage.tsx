@@ -4,9 +4,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Check, Copy } from "lucide-react";
+import { ChatTrace } from "../components/ChatTrace";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
-  input_tokens?: number; output_tokens?: number };
+  input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
+  model_request_id?: string };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
@@ -153,7 +156,7 @@ export function AgentPage() {
       {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
         <button type="button" disabled={cannotSend} onClick={() => setDraft(creatorId ? `看看「${creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
-      {doc?.entries.map((entry, index) => <ChatEntry key={index} entry={entry} />)}
+      {doc?.entries.map((entry, index) => <ChatEntry key={`${doc.id}-${index}`} entry={entry} sessionId={doc.id} sessionStatus={doc.status} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
@@ -169,16 +172,22 @@ export function AgentPage() {
   </section>;
 }
 
-function ChatEntry({ entry }: { entry: Entry }) {
+function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionId: string; sessionStatus: string }) {
   if (entry.kind === "user") return <div className="chat-user">{entry.text}</div>;
-  if (entry.kind === "assistant") return entry.text ? <div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+  if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,
     a: ({ href, children }) => {
       const runPath = href?.match(/^(?:http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)?(\/runs\/[a-f0-9-]{36})$/)?.[1];
       return runPath ? <Link to={runPath}>{children}</Link> : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
     },
-  }}>{entry.text}</Markdown></div> : null;
+  }}>{entry.text}</Markdown></div>
+    {(entry.complete || entry.terminal || (entry.complete === undefined && entry.terminal === undefined && sessionStatus !== "running")) && <div className="chat-reply-actions">
+      <CopyReply text={entry.text} />
+      <ChatTrace sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}
+        incomplete={entry.terminal === true && !entry.complete} />
+    </div>}
+  </div> : null;
   if (entry.kind === "tool") return <div className="chat-tool">
     <span>{entry.status === "running" ? "◌" : entry.status === "done" ? "✓" : "!"} {tools[entry.name ?? ""] ?? entry.name}</span>
     <small>{entry.status === "running" ? "调用中" : entry.status === "done" ? "已返回" : "结果需检查"}</small>
@@ -187,4 +196,30 @@ function ChatEntry({ entry }: { entry: Entry }) {
   if (entry.kind === "usage") return <details className="chat-usage"><summary>本轮用量</summary>
     输入 {entry.input_tokens?.toLocaleString()} · 输出 {entry.output_tokens?.toLocaleString()} tokens</details>;
   return <p className="agent-note">{entry.kind === "guard_stop" ? "已达到本次调用上限，请检查当前结果。" : entry.kind === "context_compacted" ? "较早消息已压缩，完整记录仍在本地。" : "上下文接近预算。"}</p>;
+}
+
+function CopyReply({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const reset = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(reset.current), []);
+  const copy = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("浏览器不支持剪贴板写入。");
+      await navigator.clipboard.writeText(text);
+      setCopied(true); setError("");
+      window.clearTimeout(reset.current);
+      reset.current = window.setTimeout(() => setCopied(false), 1600);
+    } catch (e) {
+      setCopied(false);
+      setError(e instanceof Error ? `复制失败：${e.message}` : "复制失败，请检查浏览器剪贴板权限。");
+    }
+  };
+  return <>
+    <button type="button" className="chat-reply-action" aria-label="复制回复原文" title="复制回复原文" onClick={() => void copy()}>
+      {copied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}
+    </button>
+    {error && <span className="chat-copy-error" role="alert">{error}</span>}
+    {copied && <span className="sr-only" role="status">已复制回复原文</span>}
+  </>;
 }

@@ -1,5 +1,11 @@
 # Context Management：设计、实现与面试复习
 
+## Web 请求正文快照 · 2026-10-05（完成）
+
+- 回复级 Trace 复用 C3 主/摘要计数，同时由 Web 显式开启逐请求 ModelContext、模型回复及工具结果的本地快照；CLI 默认仅元数据。原预算/压缩/外置算法不改，实际请求与账本仍分离。
+- user request_id 关联 turn_id，每个模型 request_id 保存独立快照，不把单条用户 query 当成一次 LLM call。快照可看稳定前缀/目录/摘要/历史/工具 Schema，正文仅在点开 Trace 时读取，不随 SSE 广播。已知凭证脱敏，无 headers 或内部思考；旧数据不能逐字重建时明确未记录。
+- 实施、完整接口、隐私边界与验收记录集中于 docs/agent-studio/web-chat/SPEC.md；这是本机诊断内容例外，不引入外部观测服务、重放副作用或新上下文算法。
+
 ## P2 账号树作为动态请求数据（2026-10-04）
 
 - Web 账号宿主可给 Loop 提供 context_factory；build_model_context 在稳定前缀/滚动摘要后插入本次账号目录数据块，不改变 user/assistant/tool 账本、tool-call 批次或 checkpoint 原索引。CLI/总览不提供回调，原行为不变。

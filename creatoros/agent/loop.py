@@ -105,6 +105,8 @@ def run_agent(
     session_file: Path | None = None,
     runtime_context: RuntimeContext | None = None,
     context_factory: Callable[[], dict] | None = None,
+    user_request_id: str | None = None,
+    capture_request_trace: bool = False,
 ):
     console = console or Console()
 
@@ -126,7 +128,7 @@ def run_agent(
     checkpoint = (load_compaction_checkpoint(state.messages) if session_file is None
                   else load_compaction_checkpoint(state.messages, session_file))
     persist(state.messages)
-    trace = ContextTrace(runtime_context.session_file)
+    trace = ContextTrace(runtime_context.session_file, capture_payload=capture_request_trace)
 
     try:
         while True:
@@ -170,7 +172,7 @@ def run_agent(
             persist(state.messages)
             state.status = "running"
             task_start_turn = state.turn
-            turn_id = uuid4().hex
+            turn_id = user_request_id or uuid4().hex
             context_data = deepcopy(context_factory()) if context_factory else None
             context_dirty = False
 
@@ -182,7 +184,7 @@ def run_agent(
                     break
 
                 state.turn += 1
-                emit(AgentEvent("turn_start", {"turn": state.turn}))
+                emit(AgentEvent("turn_start", {"turn": state.turn, "turn_id": turn_id}))
                 if context_dirty and context_factory is not None:
                     context_data = deepcopy(context_factory())
                     context_dirty = False
@@ -283,6 +285,7 @@ def run_agent(
                     def traced_event(event):
                         if isinstance(event, StreamEnd):
                             span.record['stream_finished'] = True
+                            span.record['finish_reason'] = event.finish_reason
                             span.usage(event.usage)
                         if on_stream_event is not None:
                             on_stream_event(event)
@@ -293,6 +296,7 @@ def run_agent(
                     response = stream_llm(provider=provider, context=model_context,
                                           on_event=traced_event, console=console)
                     span.usage(response.usage)
+                    span.capture('response', response)
                     span.record['tool_calls'] = [{'id': call.id, 'name': call.name} for call in response.tool_calls]
                     if not span.record['stream_finished']:
                         span.record['status'] = 'interrupted'
@@ -311,6 +315,11 @@ def run_agent(
 
                 state.messages.append(response.to_message())
                 persist(state.messages)
+                if capture_request_trace:
+                    emit(AgentEvent("model_response", {"turn_id": turn_id,
+                        "request_id": span.record['request_id'],
+                        "complete": not response.tool_calls and bool(span.record.get('stream_finished'))
+                        and span.record.get('finish_reason') == 'stop'}))
 
                 if not response.tool_calls:
                     state.status = "idle"
@@ -319,6 +328,7 @@ def run_agent(
                 for tool_call in response.tool_calls:
                     emit(AgentEvent("tool_call", {"name": tool_call.name}))
                     tool_result = execute_tool_call(tool_call, context=runtime_context, model_requested=True)
+                    span.capture('tool_result', tool_call, tool_result)
                     if not tool_result.is_error and tool_call.name in {
                         "compose_series", "update_series_composition", "queue_topics",
                         "start_content_run", "research_series_topics",

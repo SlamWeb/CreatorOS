@@ -8,6 +8,7 @@ from time import monotonic
 from uuid import uuid4
 
 from ..ai.context import ContextBudget
+from .request_trace import RequestSnapshots, redact
 
 
 def trace_path(session_file):
@@ -59,11 +60,14 @@ def breakdown(context, *, kind, skill_text='', summary_text='', account_text='')
 
 
 class ContextTrace:
-    def __init__(self, session_file):
+    def __init__(self, session_file, *, capture_payload=False):
         self.path = trace_path(session_file)
         self.session_id = hashlib.sha256(str(Path(session_file).resolve()).encode()).hexdigest()[:24]
+        self.snapshots = RequestSnapshots(session_file) if capture_payload else None
 
     def append(self, record):
+        if self.snapshots is not None:
+            record = redact(record)[0]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # A process killed mid-write may leave an incomplete final JSON line.
         if self.path.exists() and self.path.stat().st_size:
@@ -112,7 +116,18 @@ class TraceRequest:
                            reserve_output_tokens=budget.reserve_output_tokens,
                            started_at=datetime.now(timezone.utc).isoformat())
         self.started = monotonic()
+        self.capture('begin', self.record['turn_id'], context)
         self.owner.append({**self.record, 'status': 'started', 'sent': None})
+
+    def capture(self, operation, *args):
+        if self.owner.snapshots is None:
+            return
+        try:
+            getattr(self.owner.snapshots, operation)(self.record['request_id'], *args)
+            self.record['snapshot_available'] = True
+        except (OSError, ValueError, TypeError, AttributeError, KeyError):
+            # Diagnostics must not turn an already-effective tool into a failed action.
+            self.record['snapshot_available'] = False
 
     def usage(self, usage):
         if usage is not None:

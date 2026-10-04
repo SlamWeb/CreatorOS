@@ -190,6 +190,7 @@ def generate_compaction_summary(
     response = provider.complete(context)
     if trace is not None:
         trace.usage(response.usage)
+        trace.capture('response', response)
         trace.record['stage'] = 'summary_validation'
     if response.tool_calls:
         raise ValueError("摘要请求不应该返回工具调用。")
