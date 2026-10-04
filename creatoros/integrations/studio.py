@@ -15,7 +15,8 @@ class StudioClientError(RuntimeError):
 
 
 class StudioClient:
-    def __init__(self, base_url: str, *, client: httpx.Client | None = None, origin: str = "agent"):
+    def __init__(self, base_url: str, *, client: httpx.Client | None = None, origin: str = "agent",
+                 agent_session_id: str | None = None):
         parsed = urlsplit(base_url)
         if (parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
                 or parsed.username or parsed.password or parsed.path not in {"", "/"}
@@ -23,19 +24,24 @@ class StudioClient:
             raise ValueError("Studio 地址必须是本机 HTTP 地址，例如 http://127.0.0.1:8765。")
         self.base_url = base_url.rstrip("/")
         self.origin = origin
+        self.agent_session_id = agent_session_id
         self.client = client or httpx.Client(timeout=30, trust_env=False, follow_redirects=False)
 
     @classmethod
-    def from_defaults(cls):
-        return cls(os.environ.get("CREATOROS_STUDIO_URL", "http://127.0.0.1:8765"))
+    def from_defaults(cls, *, agent_session_id: str | None = None):
+        return cls(os.environ.get("CREATOROS_STUDIO_URL", "http://127.0.0.1:8765"),
+                   agent_session_id=agent_session_id)
 
     def close(self):
         self.client.close()
 
     def request(self, method: str, path: str, *, params=None, payload=None) -> dict:
         try:
+            headers = {"x-creatoros-origin": self.origin}
+            if self.agent_session_id:
+                headers["x-creatoros-agent-session"] = self.agent_session_id
             response = self.client.request(method, self.base_url + path, params=params, json=payload,
-                                           headers={"x-creatoros-origin": self.origin})
+                                           headers=headers)
         except httpx.ConnectError as error:
             raise StudioClientError(
                 "无法连接 Studio。请先运行 python -m creatoros.web，并核对 Studio 地址。",

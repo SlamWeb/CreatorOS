@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 账号 Agent 会话与作用域（2026-10-04）
+
+- 总览和账号入口复用既有 AgentChatService/Loop；创建会话可指定 creator_id，绑定不可通过聊天或更新接口改变。旧 JSON 无字段仍为总览，不迁移表。
+- 账号身份来自持久化会话，经 RuntimeContext → StudioClient 固定头传播。AgentScopeGuard 核验账号、栏目、选题、调研批次、Run；目录只投影当前账号，未列入范围的接口拒绝。全局安装/提炼/转移仍留总览。
+- 同一 Studio 进程内，账号请求的归属检查和路由执行与 HTTP 写操作互斥，防止栏目恰在检查后被转移。不是跨进程数据库锁或多租户认证；直接改文件/数据库不属于此防误操作边界。
+- 移动栏目如带旧账号冻结 Run，账号 Agent 保守拒绝其选题/调研/生产操作，由总览处理。普通本机 UI、CLI 和总览仍保留全局操作能力。
+- 范围、兼容、测试与下一阶段见 `docs/agent-studio/web-chat/SPEC.md` 的 P1；暂不加账号记忆/自动运营或并发聊天。
+
 ## 产物提炼 Skill 接口（2026-10-02）
 
 - `/api/skill-extractions` 共用持久化提炼服务，上传/提炼/查询/取消/确认入库拆开。图片限制为静态 PNG/JPEG/WebP，每张 4 MiB、最多 6 张；不接任意路径或远端下载 URL。

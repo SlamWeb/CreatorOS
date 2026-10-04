@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import os
+import asyncio
 from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -61,6 +62,7 @@ from .run_routes import review_routes
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_routes import chat_routes
+from .agent_scope import AgentScopeGuard
 from .skill_routes import skill_routes
 from .extraction_routes import extraction_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
@@ -103,11 +105,14 @@ def create_app(
     db_file = db.engine.url.database
     session_root = (Path(db_file).resolve().parent / (Path(db_file).stem + "-agent-sessions")
                     if db_file and db_file != ":memory:" else runs.output_root / ".agent-sessions")
-    chat = AgentChatService(chat_root or session_root, chat_provider_factory)
+    chat = AgentChatService(chat_root or session_root, chat_provider_factory,
+                            creator_lookup=ContentRepository(db).get_creator)
     skill_installs = skill_install_service or SkillInstallService(ProducerSkillCatalog(skills_root_for(db)))
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
+    agent_scope = AgentScopeGuard(db, chat, research)
+    scope_request_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -152,7 +157,8 @@ def create_app(
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):
-        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        mutating = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        if mutating:
             origin = request.headers.get("origin")
             parsed = urlsplit(origin) if origin is not None else None
             local_origin = parsed is not None and parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
@@ -160,6 +166,14 @@ def create_app(
                 return _error_response(403, "origin_rejected", "写入只允许本机 Studio 页面。")
             if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
                 return _error_response(415, "json_required", "写请求需要 application/json。")
+        if mutating or request.headers.get("x-creatoros-agent-session"):
+            # A concurrent HTTP reassignment cannot land between the ownership
+            # check and the route action. This is local to this Studio process.
+            async with scope_request_lock:
+                scoped_response = await agent_scope.check(request)
+                if scoped_response is not None:
+                    return scoped_response
+                return await call_next(request)
         return await call_next(request)
 
     @app.exception_handler(ContentRunError)

@@ -21,6 +21,8 @@ class RuntimeContext:
     allowed_tools: frozenset[str] | None = None
     session_file: Path | None = None
     archive_only_reads: bool = False
+    creator_id: str | None = None
+    agent_session_id: str | None = None
 
     @classmethod
     def from_defaults(cls):

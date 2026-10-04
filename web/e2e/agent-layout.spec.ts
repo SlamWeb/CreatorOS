@@ -8,8 +8,8 @@ test("agent history, markdown and composer remain usable", async ({ page }, info
     { kind: "usage", input_tokens: 2340, output_tokens: 189 },
   ];
   const docs = [
-    { id: "one", title: "查看账号与栏目", version: 1, status: "idle", error: null, entries, updated_at: "2026-09-13T08:00:00Z", has_older: false },
-    { id: "two", title: "知识栏目选题调研与待生产队列确认", version: 1, status: "idle", error: null, entries: [{ kind: "assistant", text: "另一段独立对话。" }], updated_at: "2026-09-12T08:00:00Z", has_older: false },
+    { id: "one", title: "查看账号与栏目", version: 1, status: "idle", error: null, scope_kind: "overview", creator_id: null, entries, updated_at: "2026-09-13T08:00:00Z", has_older: false },
+    { id: "two", title: "知识栏目选题调研与待生产队列确认", version: 1, status: "idle", error: null, scope_kind: "overview", creator_id: null, entries: [{ kind: "assistant", text: "另一段独立对话。" }], updated_at: "2026-09-12T08:00:00Z", has_older: false },
   ];
   let posts = 0;
   await page.route("**/api/agent/sessions**", async route => {

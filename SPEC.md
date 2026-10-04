@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## 账号 Agent 第一阶段（2026-10-04）
+
+- 开源下载、本机自用：总览 + 绑定 Creator 的 Web 对话复用既有 Runtime。账号/栏目/选题/任务仍 SQLite；会话完整账本、压缩检查点和 Trace 仍 JSON/JSONL，不迁移数据库或保存 Codex 凭证。
+- 绑定创建后不可改：前端按账号查看历史，后端核验资源归属；不是仅在 Prompt 写账号限制，也不是多租户登录系统。旧对话仍总览，生产仍走已有 ContentRun/Codex。
+- 完整范围及验收见 `docs/agent-studio/web-chat/SPEC.md` P1；下一步是当前账号状态 brief，之后再做目标型运营规划。本阶段未实现跨会话记忆/定时运营。
+
 ## 单 thread 原生生产切片（2026-10-02）
 
 - 新建 ContentRun 用 native-v1：把选中本地 Skill 的路径交给同一个 Codex thread，内容稿格式自由；宿主只验收最终图片索引与证据。历史 Run 保持 legacy，不迁移旧产物。

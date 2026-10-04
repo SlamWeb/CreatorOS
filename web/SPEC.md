@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## 账号 Agent 入口（2026-10-04）
+
+- 工作台账号行增加“对话”，打开 `/agent?creator=ID`；已有总览保留。账号 Session 的列表按固定绑定筛选，首次发送才创建，浏览/刷新/新对话视图不调用模型。
+- 只带 chat 的深链从服务器绑定补回 creator 参数；链接与绑定冲突时隐藏正文并禁发，不改绑历史。缺账号/停用账号禁发。输入提交失败保留草稿、POST 不自动重试。
+- 回到工作台以 creator 聚焦该账号，显式选另一个栏目的时候同步其 owner，未分配栏目清除账号焦点；不会让旧 creator 参数卡住栏目导航。
+- typecheck/build、账号聊天 + 原聊天布局 Playwright 3/3 通过；真实隔离 Creator/Session API，聊天 turns 单独注入 503。桌面/390px 已截图检查。完整接口/真实 DeepSeek 证据见 `docs/agent-studio/web-chat/SPEC.md` P1；未实现账号长期记忆。
+- 原 studio-workflow 1/1 完整通过（32.4s），生产使用隔离受控产物，不调用 Codex 生图。故障拦截更新为匹配带 scope query 的会话列表；旧 Preview/返工/批准/刷新路径保留。
+
 ## 作品提炼 Skill 面板（2026-10-02）
 
 - Skill 库增加“从作品提炼”面板：上传 1–6 张 PNG/JPEG/WebP（每张最多 4 MiB），选择 pair（默认）、mind、visual、single 模式并填写可选要求；依次上传后提交唯一 request_id，POST 不自动重试。

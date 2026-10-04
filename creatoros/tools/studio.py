@@ -173,7 +173,9 @@ def list_producer_skills(context=None):
 
 def _call(action, context=None):
     url = getattr(context, "studio_url", None)
-    client = StudioClient(url) if url else StudioClient.from_defaults()
+    agent_session_id = getattr(context, "agent_session_id", None)
+    client = (StudioClient(url, agent_session_id=agent_session_id) if url
+              else StudioClient.from_defaults(agent_session_id=agent_session_id))
     try:
         data = action(client)
         return ToolResult(content=json.dumps(data, ensure_ascii=False))

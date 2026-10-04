@@ -1,6 +1,7 @@
 import asyncio
 import json
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -15,16 +16,23 @@ class ChatTurnRequest(BaseModel):
     expected_version: int = Field(ge=0)
 
 
+class ChatCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    creator_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
 def chat_routes(service):
     router = APIRouter(prefix="/api/agent/sessions")
 
     @router.get("")
-    def sessions():
-        return {"items": service.list()}
+    def sessions(scope_kind: Literal["overview", "creator"] | None = None, creator_id: str | None = None):
+        if (scope_kind == "creator" and not creator_id) or (scope_kind == "overview" and creator_id):
+            raise HTTPException(422, "账号会话筛选需要账号 ID；总览不能指定账号。")
+        return {"items": service.list(scope_kind, creator_id)}
 
     @router.post("", status_code=201)
-    def create():
-        return service.create()
+    def create(payload: ChatCreateRequest | None = None):
+        return service.create(payload.creator_id if payload else None)
 
     @router.get("/{session_id}")
     def get(session_id: UUID):

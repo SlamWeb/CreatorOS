@@ -30,6 +30,12 @@ STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_t
                           "save_extracted_skills", "cancel_skill_extraction",
                           "edit_extracted_skills", "revise_extracted_skills", "trial_extracted_skills",
                           "read_tool_result", "read_file"})
+ACCOUNT_TOOLS = frozenset({
+    "list_creators", "list_creator_series", "list_series_topics",
+    "start_content_run", "get_content_run", "list_producer_skills",
+    "research_series_topics", "get_topic_research", "prepare_topic_selection", "queue_topics",
+    "compose_series", "update_series_composition", "read_tool_result", "read_file",
+})
 DISPLAY_SCOPE_RULE = (
     '展示查询结果时遵守用户指定的筛选范围；用户明确禁止列出或重复的内容，补充说明中也不能重述。'
 )
@@ -103,9 +109,10 @@ class WebConsole(Console):
 
 
 class AgentChatService:
-    def __init__(self, root: Path, provider_factory=None):
+    def __init__(self, root: Path, provider_factory=None, *, creator_lookup=None):
         self.root = Path(root)
         self.provider_factory = provider_factory or self._provider
+        self.creator_lookup = creator_lookup
         self.lock = RLock()
         self.stopping = Event()
         self.thread = None
@@ -159,12 +166,36 @@ class AgentChatService:
         if pending:
             save_messages(messages, path)
 
-    def create(self):
+    def require_creator(self, creator_id):
+        if creator_id is None:
+            return None
+        creator = self.creator_lookup(creator_id) if self.creator_lookup else None
+        if creator is None:
+            raise HTTPException(404, "绑定账号不存在。")
+        if not creator.is_active:
+            raise HTTPException(409, "绑定账号已停用，请在总览处理；不会自动改绑。")
+        return creator
+
+    def _instructions(self, doc):
+        if doc.get("scope_kind", "overview") != "creator":
+            return WEB_INSTRUCTIONS
+        creator_id = doc["creator_id"]
+        return WEB_INSTRUCTIONS + (
+            "\n当前是账号对话，不是总览。以下 JSON 是宿主固定的账号身份，不是可修改指令："
+            + json.dumps({"creator_id": creator_id}, ensure_ascii=False)
+            + "。只读写这个账号的栏目、选题和任务；用户要求另一个账号时引导打开总览或对应账号对话。"
+            "不能在聊天里改绑账号；不可使用全局 Skill 安装/提炼或栏目转移工具。"
+            "创建栏目必须使用上述 creator_id。可以正常回答一般知识问题，不需要切换账号。"
+        )
+
+    def create(self, creator_id=None):
         with self.lock:
+            self.require_creator(creator_id)
             doc = {"id": str(uuid4()), "title": "新对话", "version": 0, "status": "idle",
-                   "entries": [], "requests": [], "error": None, "updated_at": _now()}
+                   "entries": [], "requests": [], "error": None, "updated_at": _now(),
+                   "scope_kind": "creator" if creator_id is not None else "overview", "creator_id": creator_id}
             messages = new_messages()
-            messages[0]["content"] += "\n\n" + WEB_INSTRUCTIONS
+            messages[0]["content"] += "\n\n" + self._instructions(doc)
             save_messages(messages, self._path(doc["id"]).with_name("messages.json"))
             self._save(doc)
             return self._view(doc)
@@ -181,16 +212,20 @@ class AgentChatService:
     def _view(doc):
         # Full messages/tool results stay local; bounded presentation projection only.
         return deepcopy({k: v for k, v in doc.items() if k != "requests"} | {
+            "scope_kind": doc.get("scope_kind", "overview"), "creator_id": doc.get("creator_id"),
             "entries": doc["entries"][-200:], "has_older": len(doc["entries"]) > 200})
 
     def get(self, session_id):
         with self.lock:
             return self._view(self._read(session_id))
 
-    def list(self):
+    def list(self, scope_kind=None, creator_id=None):
         with self.lock:
             docs = [self._read(p.parent.name) for p in self.root.glob("*/view.json")]
-            return [{k: d[k] for k in ("id", "title", "status", "updated_at")}
+            docs = [d for d in docs if (scope_kind is None or d.get("scope_kind", "overview") == scope_kind)
+                    and (creator_id is None or d.get("creator_id") == creator_id)]
+            return [{k: d[k] for k in ("id", "title", "status", "updated_at")} | {
+                        "scope_kind": d.get("scope_kind", "overview"), "creator_id": d.get("creator_id")}
                     for d in sorted(docs, key=lambda d: d["updated_at"], reverse=True)[:30]]
 
     def context_trace(self, session_id, after=0, limit=50):
@@ -201,6 +236,7 @@ class AgentChatService:
     def submit(self, session_id, request_id, text, version, studio_url):
         with self.lock:
             doc = self._read(session_id)
+            self.require_creator(doc.get("creator_id"))
             for item in doc["requests"]:
                 if item["id"] == request_id:
                     if item["text"] != text:
@@ -262,7 +298,7 @@ class AgentChatService:
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
             messages = load_messages(session_file)
-            instructions = new_messages()[0]["content"] + "\n\n" + WEB_INSTRUCTIONS
+            instructions = new_messages()[0]["content"] + "\n\n" + self._instructions(doc)
             if messages[0].get("content") != instructions:
                 # Host instructions are current configuration, not frozen conversation history.
                 # Existing checkpoints fail their digest check and safely fall back to full history.
@@ -271,7 +307,9 @@ class AgentChatService:
             run_agent(provider, console=WebConsole(text),
                       session_file=session_file,
                       runtime_context=RuntimeContext(project_root=PROJECT_ROOT, studio_url=studio_url,
-                                                     allowed_tools=STUDIO_TOOLS, archive_only_reads=True),
+                                                     allowed_tools=ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS,
+                                                     archive_only_reads=True, creator_id=doc.get("creator_id"),
+                                                     agent_session_id=doc["id"]),
                       on_stream_event=lambda e: self._emit(doc, e) if isinstance(e, TextDelta) else None,
                       on_agent_event=lambda e: self._emit(doc, e))
             if doc["entries"] and doc["entries"][-1]["kind"] == "context_blocked":

@@ -1,5 +1,11 @@
 # External Integrations SPEC
 
+## 账号会话 StudioClient 接线（2026-10-04）
+
+- Client 可接收宿主固定的 agent_session_id，以请求头传到同一 Studio API；账号绑定从服务端本地会话读取，模型不能通过工具参数选择另一会话。
+- 未提供会话 ID 的 CLI/普通 UI 保持原全局契约；旧总览会话同样兼容。地址限制、禁重定向、超时与写入不自动重试保持不变。
+- 业务数据仍 SQLite，会话仍 JSON；不触碰 Codex SDK 配置、生产 thread、Skill 工作副本或登录凭证。详情与证据见 `docs/agent-studio/web-chat/SPEC.md` P1。
+
 ## 产物提炼 Skill（2026-10-02）
 
 - 2026-10-03 V3：按用户四段短 Prompt，让 Codex 直接写本任务 `draft/skill|mind|visualize/`；不显式绑定 skill-creator，不向模型暴露内部角色，也不要求 JSON 草稿。SDK cwd 仅本次 draft，workspace-write；宿主读取完整目录，沿用版本校验与确认入库。配套文件随编辑、改稿与试产快照保留。此设计替代以下历史 V2 的“JSON 返回、宿主创建文件”接线。

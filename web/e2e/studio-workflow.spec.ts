@@ -117,7 +117,7 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   // Failure injection verifies readable feedback without making a model call.
-  await page.route("**/api/agent/sessions", route => route.fulfill({ status: 503, json: { error: { message: "隔离验收：服务暂不可用" } } }));
+  await page.route(/\/api\/agent\/sessions(?:\?.*)?$/, route => route.fulfill({ status: 503, json: { error: { message: "隔离验收：服务暂不可用" } } }));
   await page.reload();
   await expect(page.getByRole("alert")).toContainText("隔离验收：服务暂不可用", { timeout: 15_000 });
   await page.screenshot({ path: testInfo.outputPath("agent-error-mobile.png"), fullPage: true });

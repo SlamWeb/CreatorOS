@@ -81,14 +81,19 @@ export function WorkspacePage() {
 
   const accounts = creators.data.items;
   const allSeries = seriesAll.data;
-  const valid = allSeries.some(s => s.id === params.get("series"));
-  const seriesId = valid ? params.get("series")! : (allSeries[0]?.id ?? null);
+  const scopedCreatorId = params.get("creator");
+  const availableSeries = scopedCreatorId ? allSeries.filter(s => s.creator_id === scopedCreatorId) : allSeries;
+  const valid = availableSeries.some(s => s.id === params.get("series"));
+  const seriesId = valid ? params.get("series")! : (availableSeries[0]?.id ?? null);
   const series = allSeries.find(s => s.id === seriesId) ?? null;
 
   function selectSeries(id: string) {
     setParams(previous => {
       const next = new URLSearchParams(previous);
       next.set("series", id);
+      const selected = allSeries.find(item => item.id === id);
+      if (selected?.creator_id) next.set("creator", selected.creator_id);
+      else next.delete("creator");
       for (const key of ["topics", "offset", "select", "research", "operation"]) next.delete(key);
       return next;
     });
@@ -100,6 +105,7 @@ export function WorkspacePage() {
         <div className="rail-account">
           <span className="rail-avatar" aria-hidden="true">{account.display_name.slice(0, 1)}</span>
           <h2>{account.display_name}</h2>
+          <Link className="text-link" to={`/agent?creator=${encodeURIComponent(account.id)}`} aria-label={`与 ${account.display_name} 对话`}>对话</Link>
           {!allSeries.some(s => s.creator_id === account.id) && (
             confirmingAccount === account.id
               ? <button type="button" className="rail-add rail-delete" disabled={deleteAccount.isPending}
@@ -172,8 +178,8 @@ export function WorkspacePage() {
     <main className="workspace-main">
       {!series && <div className="workspace-empty">
         <h1>栏目</h1>
-        <p>还没有栏目。先在 Skill 页组合或在这里新建。</p>
-        <button type="button" className="button button-primary" onClick={() => setSeriesDraft({ name: "", creatorId: accounts[0]?.id ?? null })}>新建栏目</button>
+        <p>{scopedCreatorId ? "这个账号还没有栏目。可以先创建栏目，或在 Agent 中查看账号信息。" : "还没有栏目。先在 Skill 页组合或在这里新建。"}</p>
+        <button type="button" className="button button-primary" onClick={() => setSeriesDraft({ name: "", creatorId: scopedCreatorId ?? accounts[0]?.id ?? null })}>新建栏目</button>
       </div>}
       {series && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
