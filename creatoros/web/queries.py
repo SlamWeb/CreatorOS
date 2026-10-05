@@ -105,7 +105,7 @@ class StudioQueryService:
             series = list(
                 session.scalars(
                     select(Series)
-                    .where(Series.creator_id == creator_id)
+                    .where(Series.creator_id == creator_id, Series.is_active.is_(True))
                     .order_by(Series.created_at, Series.id)
                 )
             )
@@ -122,7 +122,9 @@ class StudioQueryService:
     def list_series(self) -> list[SeriesView]:
         """全部栏目（含未分配账号的），供创作空间三栏使用。"""
         with self.database.session() as session:
-            all_series = list(session.scalars(select(Series).order_by(Series.created_at, Series.id)))
+            all_series = list(session.scalars(
+                select(Series).where(Series.is_active.is_(True)).order_by(Series.created_at, Series.id)
+            ))
             topics = list(session.scalars(select(Topic).order_by(Topic.position, Topic.id)))
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             topics_by_series: dict[str, list[Topic]] = {}
@@ -408,6 +410,8 @@ class StudioQueryService:
             runs_by_topic.setdefault(run.topic_id, []).append(run)
         series_by_creator: dict[str, list[Series]] = {}
         for item in series:
+            if not item.is_active:
+                continue
             series_by_creator.setdefault(item.creator_id, []).append(item)
         return [
             CreatorView(

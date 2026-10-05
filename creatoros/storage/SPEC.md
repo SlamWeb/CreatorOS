@@ -1,5 +1,11 @@
 # CreatorOS Storage SPEC
 
+## 栏目移除回执（2026-10-05）
+
+- `20261005_0008` 只扩展 `write_receipts` 的 operation CHECK，允许 `delete_series`；复用 `Series.is_active` 归档，无新增表/字段。只验证隔离 SQLite，正式库未改，日常启动入口按既有机制升级。
+- 无选题/Run/调研历史的空栏目物理删除；有历史的栏目归档保留原行，目录默认不再显示。删除通过 revision 与 request_id，回执保留内部账号归属以支持账号作用域下的响应丢失重试。
+- 隔离 `smoke_series_remove`、`smoke_operation_migration`、`smoke_series_composition_service`、`smoke_account_scope`、`smoke_topic_research`、`smoke_studio_api` 通过；禁止活跃生产/调研时删除，未取消任务或清理原产物。
+
 ## 人工发布迁移（2026-09-30）
 
 - `20260930_0007` 增加 `manual_publications` 和 `publication_metrics`，分别保存已批准产物对应的人工发布凭证与追加式数据快照。隔离 Alembic/ORM 对比零 drift，正式库在备份后由本机启动入口增量升级；现有 Creator/Series/Topic/Run 行未由迁移重写。业务与验收见 `creatoros/publication/SPEC.md`。

@@ -46,6 +46,8 @@ from .schemas import (
     QueueTopicsRequest,
     QueueTopicsResponse,
     SeriesComposeRequest,
+    SeriesDeleteRequest,
+    SeriesDeleteResponse,
     SeriesView,
     SeriesCreateRequest,
     SeriesWriteResponse,
@@ -275,6 +277,20 @@ def create_app(
     @app.get("/api/series", response_model=list[SeriesView])
     def list_series() -> list[SeriesView]:
         return queries.list_series()
+
+    @app.delete("/api/series/{series_id}", response_model=SeriesDeleteResponse)
+    def delete_series(series_id: str, payload: SeriesDeleteRequest, request: Request) -> SeriesDeleteResponse:
+        # Keep checks and the delete/archive transaction serialized against the
+        # in-process run executor and research submitter.
+        with runs._write_lock, research.lock:
+            result_id, status, deduplicated, _creator_id = composition.delete_series(
+                series_id,
+                expected_revision=payload.expected_revision,
+                request_id=payload.request_id,
+                origin=_request_origin(request),
+                research=research,
+            )
+        return SeriesDeleteResponse(id=result_id, status=status, deduplicated=deduplicated)
 
     @app.post("/api/creators/{creator_id}/series", response_model=SeriesView, status_code=201)
     def create_series(creator_id: str, payload: SeriesCreateRequest) -> SeriesView:

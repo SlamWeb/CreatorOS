@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, Creator, Database, Series, Topic
+from creatoros.storage import ContentRun, Creator, Database, Series, Topic, WriteReceipt
 
 
 _CREATOR_PATH = re.compile(r"^/api/creators/([^/]+)$")
@@ -20,6 +20,7 @@ _SERIES_TOPICS = re.compile(r"^/api/series/([^/]+)/(?:topics|topic-library)$")
 _SERIES_RESEARCH = re.compile(r"^/api/series/([^/]+)/topic-research$")
 _SERIES_COMPOSITION = re.compile(r"^/api/series/([^/]+)/composition$")
 _SERIES_QUEUE = re.compile(r"^/api/series/([^/]+)/queue$")
+_SERIES_DELETE = re.compile(r"^/api/series/([^/]+)$")
 _BATCH = re.compile(r"^/api/topic-research/([a-f0-9]{32})$")
 _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)$")
 _RUN = re.compile(r"^/api/runs/([^/]+)$")
@@ -81,6 +82,17 @@ class AgentScopeGuard:
         if method == "POST" and match:
             return None if self._owns_series(match.group(1), creator_id) else self._denied()
 
+        match = _SERIES_DELETE.fullmatch(path)
+        if method == "DELETE" and match:
+            try:
+                payload = await request.json()
+            except Exception:
+                return None
+            request_id = payload.get("request_id") if isinstance(payload, dict) else None
+            if self._owns_series(match.group(1), creator_id):
+                return None
+            return None if self._owns_deleted_series(match.group(1), request_id, creator_id) else self._denied()
+
         match = _BATCH.fullmatch(path)
         if method == "GET" and match:
             return None if self._owns_batch(match.group(1), creator_id) else self._denied()
@@ -134,6 +146,18 @@ class AgentScopeGuard:
             # A moved Series may contain a Run whose frozen snapshot names its old
             # Creator. Refuse the whole projection so topic DTOs cannot leak that Run.
             return all((run.input_snapshot_json or {}).get("creator_id") == creator_id for run in runs)
+
+    def _owns_deleted_series(self, series_id: str, request_id, creator_id: str) -> bool:
+        if not isinstance(request_id, str):
+            return False
+        with self.db.session() as session:
+            receipt = session.get(WriteReceipt, request_id)
+            return bool(
+                receipt
+                and receipt.operation == "delete_series"
+                and receipt.resource_id == series_id
+                and receipt.response_json.get("creator_id") == creator_id
+            )
 
     def _owns_topic(self, topic_id: str, creator_id: str) -> bool:
         with self.db.session() as session:

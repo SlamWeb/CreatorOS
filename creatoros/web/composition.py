@@ -10,10 +10,21 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog
-from creatoros.storage import Creator, Database, OperationPolicy, Series, WriteReceipt
+from creatoros.storage import (
+    ContentRun,
+    ContentRunStatus,
+    Creator,
+    Database,
+    OperationPolicy,
+    Series,
+    Topic,
+    WriteReceipt,
+)
 
 
 class CompositionError(ValueError):
@@ -124,6 +135,100 @@ class SeriesCompositionService:
             return series
 
         return self._run_idempotent("assign_series", request_id, origin, write, resource_id=series_id)
+
+    def delete_series(
+        self,
+        series_id: str,
+        *,
+        expected_revision: int,
+        request_id: str,
+        origin: str,
+        research,
+    ) -> tuple[str, str, bool, str | None]:
+        """Delete a truly unused series, otherwise archive it and keep its history.
+
+        Callers hold the run service and research locks while invoking this method,
+        so an execution or research submission cannot start between the activity
+        check and the database commit.
+        """
+        operation = "delete_series"
+        try:
+            with self.database.session() as session:
+                existing = session.get(WriteReceipt, request_id)
+                if existing is not None:
+                    if existing.operation != operation:
+                        raise CompositionError(
+                            "request_id 已被其他操作占用，请为每个新操作生成新的 request_id。",
+                            status_code=409, code="request_id_reused",
+                        )
+                    payload = existing.response_json
+                    if existing.resource_id != series_id:
+                        raise CompositionError(
+                            "request_id 已用于删除其他栏目，请为每个栏目生成独立 request_id。",
+                            status_code=409, code="request_id_reused",
+                        )
+                    return payload["series_id"], payload["status"], True, payload.get("creator_id")
+
+                series = self._load_series(session, series_id)
+                if not series.is_active:
+                    raise CompositionError("栏目已归档。", status_code=409, code="series_inactive")
+                self._check_revision(series, expected_revision)
+
+                active_statuses = (ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING)
+                active_run = session.scalar(
+                    select(ContentRun.id)
+                    .join(Topic, ContentRun.topic_id == Topic.id)
+                    .where(Topic.series_id == series_id, ContentRun.status.in_(active_statuses))
+                    .limit(1)
+                )
+                if active_run is not None or research.has_active_for_series(series_id):
+                    raise CompositionError(
+                        "栏目仍有生产或调研任务进行中；请等待任务结束后重新操作。",
+                        status_code=409, code="series_active",
+                    )
+
+                has_topics = session.scalar(
+                    select(Topic.id).where(Topic.series_id == series_id).limit(1)
+                ) is not None
+                has_runs = session.scalar(
+                    select(ContentRun.id)
+                    .join(Topic, ContentRun.topic_id == Topic.id)
+                    .where(Topic.series_id == series_id)
+                    .limit(1)
+                ) is not None
+                has_research = research.has_history_for_series(series_id)
+                creator_id = series.creator_id
+                if has_topics or has_runs or has_research:
+                    series.is_active = False
+                    status = "archived"
+                else:
+                    session.delete(series)
+                    status = "deleted"
+
+                response = {"series_id": series_id, "status": status, "creator_id": creator_id}
+                session.add(WriteReceipt(
+                    request_id=request_id,
+                    operation=operation,
+                    resource_id=series_id,
+                    origin=origin,
+                    response_json=response,
+                ))
+                session.flush()
+                return series_id, status, False, creator_id
+        except IntegrityError as error:
+            with self.database.session() as session:
+                existing = session.get(WriteReceipt, request_id)
+                if existing is not None and existing.operation == operation:
+                    payload = existing.response_json
+                    if existing.resource_id != series_id:
+                        raise CompositionError(
+                            "request_id 已用于删除其他栏目，请为每个栏目生成独立 request_id。",
+                            status_code=409, code="request_id_reused",
+                        )
+                    return payload["series_id"], payload["status"], True, payload.get("creator_id")
+            raise CompositionError("删除栏目时发生数据冲突，请重新读取后操作。", status_code=409, code="conflict") from error
+        except StaleDataError as error:
+            raise CompositionError("栏目配置已变化，请按最新状态重新提交。", status_code=409, code="revision_conflict") from error
 
     # ---- internals ----
 

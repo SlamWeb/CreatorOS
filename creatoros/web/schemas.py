@@ -372,6 +372,17 @@ class AssignmentRequest(WriteRequest):
     request_id: str = Field(min_length=8, max_length=64)
 
 
+class SeriesDeleteRequest(WriteRequest):
+    expected_revision: int = Field(ge=1)
+    request_id: str = Field(min_length=8, max_length=64)
+
+
+class SeriesDeleteResponse(ApiModel):
+    id: str
+    status: Literal["deleted", "archived"]
+    deduplicated: bool
+
+
 class SeriesWriteResponse(ApiModel):
     request_id: str
     deduplicated: bool

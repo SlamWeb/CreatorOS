@@ -132,8 +132,10 @@ class TopicResearchService:
     def submit(self, series_id, count=10, instructions=""):
         if not 1 <= count <= 30 or len(instructions) > 3000:
             raise ValueError("候选数须为 1–30，补充要求最多 3000 字。")
-        snapshot = self.snapshot(series_id)
         with self.lock:
+            # Serialize the initial ownership/configuration read with series
+            # deletion, so a submission cannot start against a deleted series.
+            snapshot = self.snapshot(series_id)
             if self.worker and self.worker.is_alive():
                 active = next((p for p in self.root.glob("batches/*.json")
                                if json.loads(p.read_text(encoding="utf-8"))["status"] == "researching"), None)
@@ -207,6 +209,33 @@ class TopicResearchService:
             records = [json.loads(p.read_text(encoding="utf-8")) for p in self.root.glob("batches/*.json")]
         return [{k: r[k] for k in ("id", "created_at", "status", "count", "note")}
                 for r in sorted(records, key=lambda r: r["created_at"], reverse=True) if r["series_id"] == series_id]
+
+    def has_history_for_series(self, series_id: str) -> bool:
+        """Research batches are durable history even after they finish or fail."""
+        if not self.root.exists():
+            return False
+        for path in (self.root / "batches").glob("*.json"):
+            try:
+                if json.loads(path.read_text(encoding="utf-8")).get("series_id") == series_id:
+                    return True
+            except (OSError, ValueError):
+                # An unreadable record cannot prove that a series is unused.
+                return True
+        return False
+
+    def has_active_for_series(self, series_id: str) -> bool:
+        """Only a live in-process worker blocks deletion; stale persisted jobs remain history."""
+        with self.lock:
+            if not self.worker or not self.worker.is_alive():
+                return False
+            for path in (self.root / "batches").glob("*.json"):
+                try:
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if record.get("series_id") == series_id and record.get("status") == "researching":
+                    return True
+        return False
 
     @staticmethod
     def topic_id(batch_id, candidate_id):
