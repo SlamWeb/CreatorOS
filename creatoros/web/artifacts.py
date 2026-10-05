@@ -95,6 +95,71 @@ class StudioArtifacts:
         except (OSError, ValueError, Image.DecompressionBombError):
             return dict(artifact_available=False, artifact_error="产物缺失、损坏或已变化，请检查文件或提出返工。", review_digest=None)
 
+    def cover_projection(self, run: ContentRun, revision: ContentRevision,
+                         attempts: list[ContentAttempt]) -> dict:
+        """Return a cover only when it belongs to this Run's valid active artifact."""
+        try:
+            if (revision.content_run_id != run.id
+                    or revision.revision_number != run.active_revision_number
+                    or not revision.artifact_directory or not revision.artifact_digest):
+                return {"cover_url": None, "card_count": None}
+            validation = revision.validation_json or {}
+            if not isinstance(validation, dict):
+                return {"cover_url": None, "card_count": None}
+            images = validation.get("images")
+            digest = revision.artifact_digest
+            if (not isinstance(images, list) or not images
+                    or not isinstance(digest, str) or len(digest) != 64
+                    or any(char not in "0123456789abcdef" for char in digest)):
+                return {"cover_url": None, "card_count": None}
+            info = images[0]
+            if not isinstance(info, dict):
+                return {"cover_url": None, "card_count": None}
+            order, checksum = info.get("order"), info.get("sha256")
+            count = validation.get("card_count")
+            if (not isinstance(order, int) or isinstance(order, bool) or order < 1
+                    or not isinstance(checksum, str) or len(checksum) != 64
+                    or any(char not in "0123456789abcdef" for char in checksum)
+                    or not isinstance(count, int) or isinstance(count, bool) or count < 1):
+                return {"cover_url": None, "card_count": None}
+
+            data = ContentRunInput.model_validate(revision.production_input_json)
+            root_path = Path(revision.artifact_directory)
+            if root_path.is_symlink():
+                return {"cover_url": None, "card_count": None}
+            root = root_path.resolve()
+            expected = (self.output_root / data.creator_id / data.series_id / run.id
+                        / f"revision-{revision.revision_number:03d}")
+            valid_paths = {expected / f"attempt-{attempt.attempt_number:03d}" for attempt in attempts}
+            if (not root.is_relative_to(self.output_root)
+                    or root not in {path.resolve() for path in valid_paths}):
+                return {"cover_url": None, "card_count": None}
+            cursor = root_path.absolute()
+            while cursor != self.output_root:
+                if cursor.is_symlink():
+                    return {"cover_url": None, "card_count": None}
+                cursor = cursor.parent
+
+            pack = self.pack(root, data)
+            card = next((item for item in pack.cards if item.order == order), None)
+            if card is None or len(pack.cards) != count:
+                return {"cover_url": None, "card_count": None}
+            image_path = (root / card.image_path).resolve()
+            if not image_path.is_relative_to(root):
+                return {"cover_url": None, "card_count": None}
+            raw = image_path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != checksum:
+                return {"cover_url": None, "card_count": None}
+            with Image.open(BytesIO(raw)) as image:
+                if image.format not in {"PNG", "JPEG", "WEBP", "GIF"}:
+                    return {"cover_url": None, "card_count": None}
+                image.verify()
+            cover_url = (f"/api/runs/{run.id}/revisions/{revision.id}/cards/{order}"
+                         f"?digest={digest}&checksum={checksum}")
+            return {"cover_url": cover_url, "card_count": count}
+        except (AttributeError, OSError, TypeError, ValueError, Image.DecompressionBombError):
+            return {"cover_url": None, "card_count": None}
+
     def image(self, run_id: str, revision_id: str, order: int, *, digest: str, checksum: str):
         try:
             root, recorded_digest, data, saved_validation = self.locate(run_id, revision_id)

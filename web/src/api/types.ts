@@ -39,6 +39,8 @@ export interface TopicView {
   existing_run_status: string | null;
   existing_run_version: number | null;
   available_actions: string[];
+  cover_url?: string | null;
+  card_count?: number | null;
 }
 
 export interface PageInfo {

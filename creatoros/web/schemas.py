@@ -51,6 +51,8 @@ class TopicView(ApiModel):
     existing_run_id: str | None = None
     existing_run_status: str | None = None
     existing_run_version: int | None = None
+    cover_url: str | None = None
+    card_count: int | None = Field(default=None, ge=1)
     available_actions: list[str]
 
 

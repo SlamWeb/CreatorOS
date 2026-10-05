@@ -220,6 +220,33 @@ class StudioQueryService:
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 
+    def topic_cover_projection(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Project validated covers for a library page with one bulk DB read."""
+        if self.artifacts is None or not run_ids:
+            return {}
+        wanted = set(run_ids)
+        with self.database.session() as session:
+            rows = session.execute(
+                select(ContentRun, ContentRevision, ContentAttempt)
+                .join(
+                    ContentRevision,
+                    (ContentRevision.content_run_id == ContentRun.id)
+                    & (ContentRevision.revision_number == ContentRun.active_revision_number),
+                )
+                .outerjoin(ContentAttempt, ContentAttempt.revision_id == ContentRevision.id)
+                .where(ContentRun.id.in_(wanted))
+            ).all()
+
+        grouped: dict[str, tuple[ContentRun, ContentRevision, list[ContentAttempt]]] = {}
+        for run, revision, attempt in rows:
+            current = grouped.setdefault(run.id, (run, revision, []))
+            if attempt is not None:
+                current[2].append(attempt)
+        result = {}
+        for run_id, (run, revision, attempts) in grouped.items():
+            result[run_id] = self.artifacts.cover_projection(run, revision, attempts)
+        return result
+
     def get_run(self, run_id: str) -> RunDetail | None:
         with self.database.session() as session:
             run = session.get(ContentRun, run_id)

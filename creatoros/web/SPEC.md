@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 内容库批量封面投影（2026-10-05）
+
+- topic-library 的已入队条目新增可选 cover_url/card_count；只对当前分页关联的 Run 批量读取活跃 Revision/Attempt，一次 SQL，不让浏览器逐卡请求完整 RunDetail。待选条目返回空封面，既有筛选、身份、顺序与动作不变，无数据库迁移或新路由。
+- 复用现有 pack 和受控图片端点，校验 Run/Revision、冻结输入归属、受管 Attempt 路径、保存的 digest/首图 checksum 及栅格解码；当前新版缺失产物、缺图/坏封面返回 null，不借旧版或部分预览。完整图片端点仍保留原产物校验；列表不重新 hash 整套图片。
+- 隔离 `smoke_topic_library_covers` 通过：真实 SQLite/HTTP，合法封面 200、一次批量 SQL、无 Run/事件/生产写入、当前新版本无图不回退、删首图后不投影。`smoke_studio_artifacts`、`smoke_topic_research`、`smoke_native_artifact_web` 关联回归通过。正式数据及原图不变，未生图或发布。
+- 正式前端接线、账号会话、轮询与真实只读 DeepSeek/CUA 验证见 `docs/studio/account-workspace/SPEC.md` 的 2026-10-05 记录。
+
 ## 聊天回复 Trace（2026-10-05）
 
 - 复用既有会话和 Context Trace：宿主 request_id 关联本轮所有主/摘要模型请求；Web 显式保存实际 ModelContext、模型回复与工具结果的本地快照，不影响原 CLI 默认行为。

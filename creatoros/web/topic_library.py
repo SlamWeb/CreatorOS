@@ -29,7 +29,14 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20):
                 "available_actions": [] if record["stale"] else ["prepare_topic_selection"],
             }
     rows = [r for r in items.values() if state == "all" or r["selection_state"] == state]
-    return {"items": rows[offset:offset + limit],
+    page_rows = rows[offset:offset + limit]
+    run_ids = [row["existing_run_id"] for row in page_rows if row.get("existing_run_id")]
+    covers = queries.topic_cover_projection(run_ids)
+    for row in page_rows:
+        cover = covers.get(row.get("existing_run_id"), {})
+        row["cover_url"] = cover.get("cover_url")
+        row["card_count"] = cover.get("card_count")
+    return {"items": page_rows,
             "page": {"offset": offset, "limit": limit, "total": len(rows)},
             "message": "pending=待选，不可生产；queued=已入队，执行状态及允许动作看每项字段。"
                        "序号仅对当前筛选列表有效；选择待选项使用其 batch_id/candidate_id 准备人工确认。"}
