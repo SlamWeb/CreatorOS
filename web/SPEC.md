@@ -1,5 +1,16 @@
 # CreatorOS Studio Web SPEC
 
+## 调研原聊天可见进度 · 2026-10-05（完成）
+
+- 入口仍为账号/普通 Agent 聊天，不改 Skill 页/工作区布局。调用调研工具后当前对话保持进行中，工具行下展示公开消息、搜索/工具活动、最近实际活动和批次链接；任务完成后继续 Agent 回复候选，失败就在当前工具下显示原因。
+- 活动由会话 GET/SSE 投影，不由页面重提；刷新读取同一会话，不重复调研。正文长时展开，屏蔽 HTML/远图，不展示内部思考。120 秒无新事件只提示暂无新活动，不自动判失败。
+- Given/When/Then：进行中收到公开事件→可读且仍 running；ready→明确候选未入队并继续回复；failed→本页可见具体原因；刷新/切对话→只读同一任务且迟到响应不串线；390px→长文局部换行/滚动无页面溢出。
+- 验收使用确定性延迟/失败注入验证交互，真实模型/HTTP 链路另证；无生图、发布或正式库写入。
+- 实施补发现：迟到 GET/POST 快照可能把较新 SSE 进度盖回旧状态；现在统一按 version + updated_at 选择新快照，旧会话 SSE 不回灌新会话。状态读取失败明确 unknown/查询同批次，不伪称后台失败或新增重试按钮。
+- 定向 Playwright `agent-research` + `reply-trace` + `account-chat` + `agent-layout` 合计 8/8 通过（45.7 秒）；包含开始/活动长文展开、reasoning/HTML/远图不执行、静默提示、断线/刷新零 POST、ready/failed/unknown、迟到 GET 与切会话、桌面/手机和既有复制 Trace。typecheck/build 通过（原有 >500kB bundle 提示保留，不趁机拆整站）。截图实际看过 `web/test-results/.../research-running-desktop.png` / `research-failed-mobile.png`，1440×900 / 390×844。
+- CUA 用隔离 8896 复查真实 DeepSeek + Codex 研究结果：公开活动、候选原聊天回复、Trace 的终态 tool result、关闭/刷新保持原批次；无新模型请求，验收服务已关闭，正式 8765 未停止。真实模型证据见 `docs/agent-studio/web-chat/SPEC.md`；受控 E2E 不作为十候选内容质量证明。
+
+
 ## 自由 Skill 组合与栏目管理 · 2026-10-05
 
 - 主导航固定在视口内；栏目树仅显示名称，空栏目仍可进入管理，但账号内容聚合不展示空栏目。栏目绑定的每个 Skill 可直接打开完整文件详情，沿用原配色与 Inspector。

@@ -160,7 +160,7 @@ tool_registry = {
         ),
         Tool(name="list_creators", description="分页查询 Studio 运营账号（不是 PersonClone 作者）。先查真实目录，不编造 ID。",
              execute=list_creators, args_model=PageArgs),
-        Tool(name="research_series_topics", description="用户要求栏目选题调研时委托 Codex 联网研究，返回后台批次。只产生候选，不入队、不生产；提交后结束等待，不循环轮询。",
+        Tool(name="research_series_topics", description="用户要求栏目选题调研时委托 Codex 联网研究。Web宿主持续展示同一批次进度并等待结果；CLI可返回后台批次。只产生候选，不入队、不生产。失败或状态未知时先解释原因/查询同一批次，不自动重新提交。",
              execute=research_series_topics, args_model=ResearchTopicsArgs),
         Tool(name="get_topic_research", description="用户询问进展或要求选择时读取调研批次；ready 且非 stale 才可选，queued=true 的候选不可重复入队。",
              execute=get_topic_research, args_model=ResearchBatchArgs),

@@ -6,10 +6,11 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
+import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
-  model_request_id?: string };
+  model_request_id?: string; research?: ResearchSnapshot };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
@@ -21,6 +22,8 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
+const newestSession = (old: Session | undefined, next: Session) => old &&
+  (old.version > next.version || (old.version === next.version && old.updated_at > next.updated_at)) ? old : next;
 const draftStorageKey = (scope: string) => `creatoros.agent.draft.v1:${encodeURIComponent(scope)}`;
 const selectedChatStorageKey = (scope: string) => `creatoros.agent.selected-chat.v1:${encodeURIComponent(scope)}`;
 const readSessionValue = (key: string) => {
@@ -74,7 +77,10 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const lastSeed = useRef("");
-  const session = useQuery({ queryKey: ["agent-session", scopeKey, id], queryFn: () => request<Session>(`${base}/${id}`),
+  const session = useQuery({ queryKey: ["agent-session", scopeKey, id], queryFn: async () => {
+    const next = await request<Session>(`${base}/${id}`);
+    return newestSession(cache.getQueryData<Session>(["agent-session", scopeKey, id]), next);
+  },
     enabled: active && !!id, refetchInterval: q => active && q.state.data?.status === "running" ? 2000 : false });
   const doc = session.data;
   const creatorId = standalone ? (requestedCreatorId ?? (doc?.scope_kind === "creator" ? doc.creator_id : null)) : embeddedCreatorId;
@@ -137,7 +143,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     source.addEventListener("snapshot", event => {
       const next = JSON.parse((event as MessageEvent).data) as Session;
       if (!live || next.id !== id) return;
-      cache.setQueryData<Session>(["agent-session", scopeKey, id], old => old && old.updated_at > next.updated_at ? old : next);
+      cache.setQueryData<Session>(["agent-session", scopeKey, id], old => newestSession(old, next));
     });
     return () => { live = false; source.close(); };
   }, [active, id, scopeKey, doc?.status, cache]);
@@ -171,7 +177,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       }) });
     },
     onSuccess: (next, variables) => {
-      cache.setQueryData(["agent-session", variables.submittedScopeKey, next.id], next);
+      cache.setQueryData<Session>(["agent-session", variables.submittedScopeKey, next.id], old => newestSession(old, next));
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
       updateError(variables.submittedScopeKey, "");
       if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
@@ -266,10 +272,11 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
         incomplete={entry.terminal === true && !entry.complete} />
     </div>}
   </div> : null;
-  if (entry.kind === "tool") return <div className="chat-tool">
+  if (entry.kind === "tool") return <div className="chat-tool" data-status={entry.status}>
     <span>{entry.status === "running" ? "◌" : entry.status === "done" ? "✓" : "!"} {tools[entry.name ?? ""] ?? entry.name}</span>
-    <small>{entry.status === "running" ? "调用中" : entry.status === "done" ? "已返回" : "结果需检查"}</small>
+    <small>{entry.status === "running" ? (entry.research ? "等待调研结果" : "调用中") : entry.status === "done" ? "已返回" : "结果需检查"}</small>
     {entry.run_id && <Link to={`/runs/${entry.run_id}`}>查看内容任务 ↗</Link>}
+    {entry.research && <ResearchActivity research={entry.research} />}
   </div>;
   if (entry.kind === "usage") return <details className="chat-usage"><summary>本轮用量</summary>
     输入 {entry.input_tokens?.toLocaleString()} · 输出 {entry.output_tokens?.toLocaleString()} tokens</details>;

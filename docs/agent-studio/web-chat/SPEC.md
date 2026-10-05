@@ -1,5 +1,19 @@
 # Web 宿主复用 Agent Loop
 
+## 调研在原会话等待终态 · 2026-10-05（完成）
+
+- 真实坏例：用户提交英语栏目调研后聊天结束，后台因服务 PATH 找不到 Codex 立即失败，原会话没有失败反馈。修复启动链路及任务观察，不自动重跑旧失败批次，不入队、生图或发布。
+- Web 调研工具提交一次，由宿主有界等待同一批次；每秒读取已有 GET，公开活动更新当前工具行，终态才将候选/安全错误返回模型。不是模型重复轮询或重提。CLI 未配置观察回调时仍保留后台提交语义。
+- 观察/刷新不取消、不重提。读失败或等待超时保留批次 ID，明确任务状态待查询；服务关闭结束等待并修复未知结果，重启不重放付费动作。
+- 单会话单请求，最多四个不同会话并行；各自 Provider、账本、Trace、活动与保存节流互不共用。调研执行器仍一次一个，不自动排队；同配置、同栏目、同数量与归一化要求的进行中调研共享任务。
+- UI 复用既有工具行，展示真实阶段、最近实际活动、可展开公开消息/工具摘要与同批次链接；失败直接在原对话可见。心跳不充当模型活动，不公开内部 reasoning、凭证或本机路径。候选就绪不代表入队。
+- 验收：隔离 HTTP/SQLite 覆盖等待期间 running、终态候选回到模型、失败回到工具/聊天、重复提交、两会话共享同批次/不同会话隔离、关闭/重启/读故障零重提；真实低频 Codex 联网候选与 DeepSeek 原聊天链路另证。浏览器 1440/390 操作与刷新零 POST。
+- `python -m tests.smoke_research_chat` 与更新后的 `smoke_web_agent` 通过（含最多 4 会话、第五条拒绝）；账号 sessions/scope/context、reply_trace、studio_api/composition_tools/runtime_context 回归通过。受控 Provider/Researcher 专门覆盖竞态与故障，不代替真实服务证明。
+- `python -m tests.live_research_chat --run` 使用真实 DeepSeek `deepseek-v4-flash` + Codex `gpt-6-luna/xhigh`；74.7 秒、单一研究提交、真实搜索事件和 1 个英语候选（borrow vs lend / 牛津词典来源）、终态结果回到同一聊天，隔离 Topic 为零。证据 `tmp/research-chat-live-3v6w09qo/result.json`，聊天 `61be7ea9-eee5-4a56-8135-fbc39adc40c2`，批次 `4c20431eb7734343adcc2e4285b592db`；没有重跑用户旧批次或改正式数据。
+- CUA 实际打开这份隔离真实结果，检查公开活动、回复 Trace 两次主请求/步骤 1 的 ready 工具结果，刷新仍是同一批次；没有额外模型请求。可用 `python -m tests.live_research_chat --serve tmp/research-chat-live-3v6w09qo` 在 8896 只读复查；新的真实探针必须显式 `--run`。
+- 限制：归一化仅大小写/空白/NFKC，不保证两个模型把同一句话改写成不同工具参数后仍去重；未实现跨进程调研队列、自动恢复模型执行或长时无人值守重试。生产仍在 Run 页面异步观察。
+
+
 ## 回复级 Trace · 2026-10-05（完成）
 
 - 本轮只做聊天诊断，不实施账号工作区的整页重构。完整回复底部提供复制原文和 Trace 两个图标；Trace 打开只读 dialog，不重新调用模型或工具。

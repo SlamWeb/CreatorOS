@@ -79,7 +79,12 @@ def main():
                 assert send("hold", 0, rid).status_code == 202
                 assert send("hold", 0, rid).status_code == 202  # same request is not rerun
                 assert send("different", 0, rid).status_code == 409
-                assert send("hold", 0, session_id=b["id"]).status_code == 409
+                assert send("hold", 0, session_id=b["id"]).status_code == 202
+                assert send("hold", 1, session_id=b["id"]).status_code == 409
+                extras = [client.post(endpoint, json={}).json() for _ in range(3)]
+                for doc in extras[:2]:
+                    assert send("hold", 0, session_id=doc["id"]).status_code == 202
+                assert send("hold", 0, session_id=extras[2]["id"]).status_code == 409
                 # A real EventSource-style observer receives partial text and can disconnect.
                 with client.stream("GET", f"{endpoint}/{sid}/events") as response:
                     assert response.status_code == 200
@@ -89,6 +94,9 @@ def main():
                 assert client.get(f"{endpoint}/{sid}").json()["status"] == "running"
                 gate.set()
                 done = wait_idle(client, sid)
+                other = wait_idle(client, b["id"])
+                assert all(wait_idle(client, d["id"])["status"] == "idle" for d in extras[:2])
+                assert other["status"] == "idle" and other["version"] == 2
                 assert done["status"] == "idle" and done["version"] == 2
                 assert len([e for e in done["entries"] if e["kind"] == "user"]) == 1
                 session_file = chat_root / sid / "messages.json"
@@ -106,7 +114,7 @@ def main():
                 assert send("error", done["version"]).status_code == 202
                 done = wait_idle(client, sid)
                 assert done["status"] == "failed" and "SECRET" not in json.dumps(done)
-                assert client.get(f"{endpoint}/{b['id']}").json()["entries"] == []
+                assert len([e for e in client.get(f"{endpoint}/{b['id']}").json()["entries"] if e["kind"] == "user"]) == 1
                 assert send("/reset", done["version"]).status_code == 422
                 assert client.post(f"{endpoint}/{sid}/turns", json={}, headers={"origin": "https://evil.example"}).status_code == 403
                 assert client.get(endpoint).json()["items"]
@@ -135,12 +143,12 @@ def main():
             assert not (chat_root / b["id"] / "messages.compaction.json").exists()
             with patch.dict("os.environ", {"DEEPSEEK_API_KEY": ""}):
                 try:
-                    recovered.submit(b["id"], str(uuid4()), "hello", 0, url)
+                    recovered.submit(b["id"], str(uuid4()), "hello", other["version"], url)
                 except Exception as e:
                     assert getattr(e, "status_code", 0) == 503
                 else:
                     raise AssertionError("missing key accepted")
-            assert recovered.get(b["id"])["entries"] == []
+            assert recovered.get(b["id"])["entries"] == other["entries"]
             # The actual Loop must write compaction next to the injected session, not CLI latest.json.
             compact_path = root / "compact-session" / "messages.json"
             save_messages(compaction_history(), compact_path)
@@ -157,7 +165,7 @@ def main():
             host.submit(empty["id"], str(uuid4()), "hold", 0, url)
             host.shutdown()
             assert host.get(empty["id"])["status"] == "interrupted"
-            assert not host.thread.is_alive()
+            assert not host.threads
             print("web_agent_smoke=passed stream=passed isolation=passed duplicate=passed busy=passed recovery=passed tools=passed")
         finally:
             gate.set()

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
+from .research_wait import observe_research
 
 
 class ResearchTopicsArgs(BaseModel):
@@ -29,11 +30,15 @@ class SelectResearchArgs(ResearchBatchArgs):
 
 
 def research_series_topics(series_id, count=10, instructions="", context=None):
-    return _call(lambda c: c.request("POST", f"/api/series/{series_id}/topic-research", payload={"count": count, "instructions": instructions}), context)
+    def research(client):
+        batch = client.request("POST", f"/api/series/{quote(series_id, safe='')}/topic-research",
+                               payload={"count": count, "instructions": instructions})
+        return observe_research(client, batch, context)
+    return _call(research, context)
 
 
 def get_topic_research(batch_id, context=None):
-    return _call(lambda c: c.request("GET", f"/api/topic-research/{batch_id}"), context)
+    return _call(lambda c: observe_research(c, c.request("GET", f"/api/topic-research/{batch_id}"), context), context)
 
 
 def prepare_topic_selection(batch_id, selections, context=None):
@@ -191,6 +196,8 @@ def _call(action, context=None):
               else StudioClient.from_defaults(agent_session_id=agent_session_id))
     try:
         data = action(client)
+        if isinstance(data, ToolResult):
+            return data
         return ToolResult(content=json.dumps(data, ensure_ascii=False))
     except StudioClientError as error:
         return ToolResult(

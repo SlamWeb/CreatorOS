@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## Web 调研等待终态（2026-10-05）
+
+- `research_series_topics` 只提交一次；Web 提供公开活动回调时宿主每秒 GET 同一批次，终态候选/安全错误再返回模型。`get_topic_research` 也可观察已有活跃批次。CLI 无回调时仍异步返回，不增加新工具或模型轮询循环。
+- 有界等待为 Codex 宿主超时 + 10 秒，读取超时 2 秒；停止/等待超时/读失败保留原批次 ID 和 unknown，不自动重发 POST、取消后台任务或谎称研究失败。真实 failed/interrupted/stale 返回 error ToolResult，公开活动不反复塞进模型上下文。
+- `smoke_research_chat` 通过真实隔离 HTTP/SQLite，模型受控以验证竞态：两会话共享同批次、独立 Provider/账本、终态/错误回到模型、等待中关服务/重启不重提、读失败/超时零重提、无自动入队或生产；低成本真实模型验收另见业务 SPEC。
+
 ## 账号会话工具范围（2026-10-04）
 
 - Web 账号模式复用同一工具实现，仅缩小固定 allowed_tools；全局安装/提炼/栏目转移留总览。执行器照旧再次拒绝未开放工具。

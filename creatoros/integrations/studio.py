@@ -35,13 +35,14 @@ class StudioClient:
     def close(self):
         self.client.close()
 
-    def request(self, method: str, path: str, *, params=None, payload=None) -> dict:
+    def request(self, method: str, path: str, *, params=None, payload=None, timeout_seconds=None) -> dict:
         try:
             headers = {"x-creatoros-origin": self.origin}
             if self.agent_session_id:
                 headers["x-creatoros-agent-session"] = self.agent_session_id
+            options = {"timeout": timeout_seconds} if timeout_seconds is not None else {}
             response = self.client.request(method, self.base_url + path, params=params, json=payload,
-                                           headers=headers)
+                                           headers=headers, **options)
         except httpx.ConnectError as error:
             raise StudioClientError(
                 "无法连接 Studio。请先运行 python -m creatoros.web，并核对 Studio 地址。",
