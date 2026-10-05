@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 已安装 Skill 文件浏览读取（2026-10-05）
+
+- 目录只接受已登记 ID 的当前 `working/<id>` 副本或固定内置 Skill；读取复用严格路径/重解析点检查，不经 `describe()` / `locate()`，不修复副本、不执行脚本、不访问任意本地路径。
+- 列表返回 Skill 元数据及受限相对文件树（最多 500 个文件、2,000 个目录/文件项），每项包含 `path/kind/size`；隐藏目录、Git 元数据和凭证/密钥/数据库文件不暴露。超出边界或发现可见路径链接时拒绝整个读取。
+- `.md`、UTF-8 源码/文本可按需读完整内容，单文件最多 512 KiB；仅列出的 PNG/JPEG/WebP/GIF 后缀可请求图像预览，实际内容还必须解码为 PNG/JPEG/WebP/GIF，限制 16 MiB、40M 像素、最多 100 帧，响应 MIME 跟随解码格式。扩展名和真实编码不一致时仍提供原始字节与真实 MIME；损坏图拒绝。其他类型返回 415，超限返回 413；现有分页 `/content` 契约保持不变。
+- `tests/smoke_producer_skill_files.py` 使用隔离 SQLite/工作目录覆盖长于 4,000 字的完整正文、嵌套脚本与文本、正常 PNG、JPEG 编码但命名 `.png` 的原始字节/真实 MIME、损坏图拒绝、unsupported、UTF-8、路径逃逸、缺失/损坏元数据、链接拒绝及 GET 前后数据库/受管文件树无改写；无模型调用或正式 Skill 修改。
+- 常见 Python/JS/TS/Shell/SQL/CSS/HTML 源码只以 JSON 文本返回；补 `.js` 与 `.html` 真实 HTTP 用例检查 `application/json` 与完整源码。新文件浏览 smoke、原分页 smoke 均通过；前端实际操作/失败修复与截图见 `web/SPEC.md`。
+
 ## 账号会话 StudioClient 接线（2026-10-04）
 
 - Client 可接收宿主固定的 agent_session_id，以请求头传到同一 Studio API；账号绑定从服务端本地会话读取，模型不能通过工具参数选择另一会话。

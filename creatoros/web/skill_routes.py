@@ -1,5 +1,6 @@
 """Skill installation and explicit compare-and-set column binding."""
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 from pydantic import Field
 from sqlalchemy import update
 from typing import Literal
@@ -33,6 +34,31 @@ def skill_routes(database, service):
             return service.catalog.read_skill_page(skill_id, offset=offset, limit=limit)
         except (ValueError, OSError, UnicodeError, KeyError) as error:
             raise HTTPException(status_code=404, detail="Skill 正文不可用或未登记。") from error
+
+    @router.get("/producer-skills/{skill_id}/files")
+    def list_skill_files(skill_id: str):
+        try:
+            return JSONResponse(service.catalog.list_skill_files(skill_id),
+                                headers={"Cache-Control": "no-store"})
+        except (ValueError, OSError, UnicodeError, KeyError) as error:
+            raise HTTPException(status_code=404, detail="Skill 文件不可用或未登记。") from error
+
+    @router.get("/producer-skills/{skill_id}/files/content")
+    def get_skill_file(skill_id: str, path: str = Query(min_length=1, max_length=512)):
+        try:
+            result = service.catalog.read_skill_file(skill_id, path)
+        except TypeError as error:
+            raise HTTPException(status_code=415, detail=str(error)) from error
+        except OverflowError as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except (ValueError, OSError, UnicodeError, KeyError) as error:
+            raise HTTPException(status_code=404, detail="Skill 文件不可用或路径无效。") from error
+        if result["kind"] == "image":
+            return Response(content=result["content"], media_type=result["media_type"],
+                            headers={"Cache-Control": "no-store"})
+        return JSONResponse({"path": result["path"], "kind": result["kind"],
+                             "content": result["content"]},
+                            headers={"Cache-Control": "no-store"})
 
     @router.post("/producer-skills/install", status_code=202)
     def install_skill(request: InstallSkillRequest):

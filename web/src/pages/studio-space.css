@@ -21,6 +21,9 @@
 .skill-card { width: 100%; display: flex; align-items: center; gap: 11px; text-align: left; padding: 13px 14px; background: var(--surface); border: 0; border-radius: var(--radius-md); cursor: grab; font: inherit; color: inherit; transition: background .15s; touch-action: none; user-select: none; }
 .skill-card:hover:not(:disabled) { background: #ececf0; }
 .skill-card:active { cursor: grabbing; }
+.skill-card.view-only, .skill-card.view-only:active { cursor: pointer; touch-action: auto; }
+.skill-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.skill-slot-view { display: block; margin: 7px 0 0 auto; padding: 2px 0; border: 0; background: none; color: var(--accent); font: 12px/1.5 inherit; cursor: pointer; }
 .skill-card:disabled { cursor: not-allowed; opacity: .5; touch-action: auto; }
 .skill-card.open { border-radius: var(--radius-md) var(--radius-md) 0 0; }
 .skill-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 9px; background: #e8e8ed; color: var(--ink); }

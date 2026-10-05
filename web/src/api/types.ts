@@ -295,6 +295,25 @@ export interface ProducerSkillItem {
   local_path?: string | null;
 }
 
+export type ProducerSkillFileKind = "markdown" | "text" | "image" | "unsupported";
+export interface ProducerSkillFile {
+  path: string;
+  kind: ProducerSkillFileKind;
+  size: number;
+}
+export interface ProducerSkillFiles {
+  id: string;
+  name: string;
+  description: string;
+  role: SkillRole;
+  files: ProducerSkillFile[];
+}
+export interface ProducerSkillText {
+  path: string;
+  kind: "markdown" | "text";
+  content: string;
+}
+
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
 export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";
 export type SkillExtractionOperation = "extract" | "revise" | "trial" | null;

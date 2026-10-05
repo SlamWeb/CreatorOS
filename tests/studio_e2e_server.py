@@ -55,6 +55,12 @@ def seed_research(series_id: str):
     return seed_batch(app.state.topic_research, series_id, uuid4().hex)
 
 
+@app.post("/test/skill-files")
+def seed_skill_files():
+    from tests.skill_browser_fixture import seed_skill_files as seed
+    return seed(app.state.skill_installs.catalog, root / "skill-fixtures")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8877)

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Image as ImageIcon, Package, CircleHelp } from "lucide-react";
 import { studioApi, request } from "../api/client";
@@ -6,6 +6,7 @@ import { useCreators } from "../api/hooks";
 import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
+import { SkillInspector } from "../components/SkillInspector";
 import "./studio-space.css";
 
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
@@ -28,9 +29,12 @@ export function SkillsPage() {
   const [audience, setAudience] = useState("");
   const [creatorId, setCreatorId] = useState("");
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [inspected, setInspected] = useState<ProducerSkillItem | null>(null);
   const [drag, setDrag] = useState<{ payload: DragPayload; x: number; y: number; target: string | null } | null>(null);
   const dragRef = useRef<{ payload: DragPayload; startX: number; startY: number; active: boolean } | null>(null);
+  const dragCleanup = useRef<(() => void) | null>(null);
+  const suppressClick = useRef(false);
+  useEffect(() => () => dragCleanup.current?.(), []);
 
   const compose = useMutation({
     retry: false,
@@ -79,11 +83,14 @@ export function SkillsPage() {
 
   const onDragStart = (payload: DragPayload) => (event: React.PointerEvent) => {
     if (event.button !== 0) return;
+    dragCleanup.current?.();
     dragRef.current = { payload, startX: event.clientX, startY: event.clientY, active: false };
     const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("keydown", esc);
+      dragCleanup.current = null;
     };
     const move = (e: PointerEvent) => {
       const state = dragRef.current;
@@ -100,21 +107,22 @@ export function SkillsPage() {
       setDrag(null);
       if (!state) return;
       if (state.active) {
+        suppressClick.current = true;
         const target = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-drop]")?.getAttribute("data-drop") ?? null;
         if (target && validTarget(state.payload, target)) applyDrop(state.payload, target);
-      } else {
-        const skillId = state.payload.skill.id;
-        setExpanded(current => (current === skillId ? null : skillId));
       }
     };
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+    const cancel = () => {
       cleanup();
+      suppressClick.current = Boolean(dragRef.current?.active);
       dragRef.current = null;
       setDrag(null);
     };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") cancel(); };
+    dragCleanup.current = cleanup;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
     window.addEventListener("keydown", esc);
   };
 
@@ -133,19 +141,14 @@ export function SkillsPage() {
   const draggingSkill = drag?.payload.skill ?? null;
 
   const skillCard = (skill: ProducerSkillItem, enabled: boolean) => {
-    const open = expanded === skill.id;
     return <div key={skill.id} className={`skill-card-wrap ${draggingSkill?.id === skill.id ? "drag-source" : ""}`}>
-      <button type="button" className={`skill-card ${open ? "open" : ""}`} disabled={!enabled}
-        onPointerDown={enabled ? onDragStart({ kind: "skill", skill }) : undefined}
-        aria-expanded={open}>
+      <button type="button" className={`skill-card ${enabled ? "" : "view-only"}`}
+        onPointerDown={event => { suppressClick.current = false; if (enabled) onDragStart({ kind: "skill", skill })(event); }}
+        onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } setInspected(skill); }}
+        aria-haspopup="dialog">
         <span className="skill-icon">{skillIcon(skill.role)}</span>
         <span className="skill-copy"><strong>{skill.name}</strong></span>
       </button>
-      {open && <div className="skill-detail">
-        <p>{skill.description}</p>
-        <button type="button" className="skill-add"
-          onClick={() => { if (skill.role === "mind") setMind(skill); if (skill.role === "production") setProduction(skill); setExpanded(null); }}>加入组合</button>
-      </div>}
     </div>;
   };
 
@@ -192,6 +195,7 @@ export function SkillsPage() {
             {mind ? <strong>{mind.name}</strong> : <span>Mind</span>}
             {mind && <span aria-hidden="true">×</span>}
           </button>
+          {mind && <button type="button" className="skill-slot-view" onClick={() => setInspected(mind)}>查看 Mind Skill</button>}
           <div className="slot-plus">+</div>
           <button type="button" data-drop="slot-production"
             className={`slot production-slot ${production ? "filled" : ""} ${draggingSkill?.role === "production" ? (drag?.target === "slot-production" ? "drop-ok" : "can-drop") : ""}`}
@@ -199,6 +203,7 @@ export function SkillsPage() {
             {production ? <strong>{production.name}</strong> : <span>Visualize</span>}
             {production && <span aria-hidden="true">×</span>}
           </button>
+          {production && <button type="button" className="skill-slot-view" onClick={() => setInspected(production)}>查看 Visualize Skill</button>}
           <form className="composer-form" onSubmit={event => { event.preventDefault(); setNotice(null); compose.mutate(); }}>
             <label>栏目名称<input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
             <label>栏目定位<input maxLength={10_000} value={description} onChange={event => setDescription(event.target.value)} placeholder="这个栏目讲什么" /></label>
@@ -217,5 +222,11 @@ export function SkillsPage() {
     {drag && <div className={`drag-ghost ${drag.target ? "on-target" : ""}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
       {drag.payload.skill.name}
     </div>}
+    {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={() => setInspected(null)}
+      onAdd={inspected.role === "mind" || inspected.role === "production" ? () => {
+        if (inspected.role === "mind") setMind(inspected);
+        if (inspected.role === "production") setProduction(inspected);
+        setInspected(null);
+      } : undefined} />}
   </div>;
 }

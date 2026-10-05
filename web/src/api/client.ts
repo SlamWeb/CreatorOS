@@ -10,6 +10,8 @@ import type {
   PageResponse,
   PendingOperationView,
   ProducerSkillItem,
+  ProducerSkillFiles,
+  ProducerSkillText,
   SkillExtractionJob,
   SkillExtractionEvent,
   SkillExtractionEventPage,
@@ -85,6 +87,12 @@ export const studioApi = {
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
   seriesAll: () => request<SeriesView[]>("/api/series"),
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
+  producerSkillFiles: (id: string, signal?: AbortSignal) => request<ProducerSkillFiles>(
+    `/api/producer-skills/${encodeURIComponent(id)}/files`, { signal }),
+  producerSkillFilePath: (id: string, path: string) =>
+    `/api/producer-skills/${encodeURIComponent(id)}/files/content?${new URLSearchParams({ path })}`,
+  producerSkillText: (id: string, path: string, signal?: AbortSignal) => request<ProducerSkillText>(
+    studioApi.producerSkillFilePath(id, path), { signal }),
   skillExtractions: () => request<{ items: SkillExtractionJob[] }>("/api/skill-extractions"),
   skillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}`),
   skillExtractionEvents: (id: string, beforeId = 0, limit = 50) => request<SkillExtractionEventPage>(

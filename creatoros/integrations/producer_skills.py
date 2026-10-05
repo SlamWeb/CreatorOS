@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tarfile
 from pathlib import Path
@@ -164,6 +165,17 @@ class ProducerSkillCatalog:
     ROLES = frozenset({"mind", "production", "legacy_end_to_end"})
     PRODUCIBLE_ROLES = frozenset({"production", "legacy_end_to_end"})
     BUILTIN_ID = "knowledge-to-carousel"
+    MAX_BROWSE_FILES = 500
+    MAX_BROWSE_ENTRIES = 2_000
+    MAX_TEXT_BYTES = 512 * 1024
+    MAX_IMAGE_BYTES = 16 * 1024 * 1024
+    MAX_IMAGE_PIXELS = 40_000_000
+    _TEXT_SUFFIXES = frozenset({".txt", ".py", ".sh", ".bash", ".ps1", ".js", ".ts", ".jsx",
+                                ".tsx", ".sql", ".css", ".html", ".json", ".yaml", ".yml",
+                                ".toml", ".ini", ".csv", ".xml", ".md"})
+    _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+    _IMAGE_MIME_TYPES = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp",
+                         "GIF": "image/gif"}
 
     def __init__(self, root: Path, project_root: Path | None = None):
         from creatoros.config import PROJECT_ROOT
@@ -222,42 +234,8 @@ class ProducerSkillCatalog:
         """Read one bounded page of a registered Skill's SKILL.md without repairing files."""
         if offset < 0 or not 1 <= limit <= 4000:
             raise ValueError("Skill 正文分页参数无效。")
-        if skill_id == self.BUILTIN_ID:
-            directory = self.project_root / "creatoros" / "skills" / skill_id
-            managed_root = self.project_root / "creatoros" / "skills"
-            item = {"id": skill_id, "role": "legacy_end_to_end"}
-        else:
-            if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
-                raise ValueError("请提供目录返回的 Skill ID。")
-            registry_root = self.root / "registry"
-            if (registry_root.is_symlink() or not registry_root.is_dir()
-                    or not registry_root.resolve().is_relative_to(self.root)):
-                raise ValueError("Skill 注册目录路径无效。")
-            record_path = registry_root / f"{skill_id}.json"
-            if record_path.is_symlink() or not record_path.is_file():
-                raise ValueError("生产 Skill 未登记。")
-            data = json.loads(record_path.read_text(encoding="utf-8"))
-            if data.get("id") != skill_id:
-                raise ValueError("Skill 注册记录与 ID 不匹配。")
-            directory = self.root / "working" / skill_id
-            managed_root = self.root / "working"
-            item = {"id": skill_id, "role": self._role(data)}
-
-        project_root = self.project_root.resolve()
-        if ((skill_id == self.BUILTIN_ID and (self.project_root / "creatoros").is_symlink())
-                or managed_root.is_symlink() or not managed_root.is_dir()
-                or not managed_root.resolve().is_relative_to(project_root if skill_id == self.BUILTIN_ID else self.root)):
-            raise ValueError("Skill 受管目录不存在或路径无效。")
-        if (directory.is_symlink() or not directory.is_dir()
-                or not directory.resolve().is_relative_to(managed_root.resolve())):
-            raise ValueError("Skill 工作目录不存在或路径无效。")
+        directory, item, skill = self._readable_skill_directory(skill_id)
         skill_file = directory / "SKILL.md"
-        if skill_file.is_symlink() or not skill_file.is_file() or skill_file.resolve().parent != directory.resolve():
-            raise ValueError("Skill 正文文件不存在或路径无效。")
-        from creatoros.skills.loader import SkillLoader
-        skill = SkillLoader([directory])._read_metadata(skill_file)
-        if skill is None:
-            raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
         content = skill_file.read_text(encoding="utf-8")
         page = content[offset:offset + limit]
         has_more = offset + len(page) < len(content)
@@ -265,6 +243,176 @@ class ProducerSkillCatalog:
                 "content": page, "page": {"offset": offset, "limit": limit,
                                              "total_chars": len(content), "has_more": has_more,
                                              "next_offset": offset + len(page) if has_more else None}}
+
+    @staticmethod
+    def _is_link_or_reparse(path: Path) -> bool:
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return False
+        return stat.S_ISLNK(info.st_mode) or bool(getattr(info, "st_file_attributes", 0) & 0x400)
+
+    @staticmethod
+    def _sensitive_skill_path(relative: Path) -> bool:
+        parts = relative.parts
+        if any(part.startswith(".") or part.lower() in {"secrets", "credentials"} for part in parts):
+            return True
+        name = parts[-1].lower()
+        return (name in {"id_rsa", "id_ed25519", "credentials", "secrets.json"}
+                or name.startswith(".env")
+                or Path(name).suffix in {".pem", ".key", ".p12", ".pfx", ".sqlite", ".db"})
+
+    def _readable_skill_directory(self, skill_id: str):
+        """Resolve only an explicitly registered working copy or the fixed built-in Skill."""
+        if skill_id == self.BUILTIN_ID:
+            base = self.project_root.resolve()
+            managed_root = self.project_root / "creatoros" / "skills"
+            directory = managed_root / skill_id
+            item = {"id": skill_id, "role": "legacy_end_to_end"}
+            if self._is_link_or_reparse(self.project_root / "creatoros"):
+                raise ValueError("Skill 受管目录路径无效。")
+        else:
+            if not isinstance(skill_id, str) or not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
+                raise ValueError("请提供目录返回的 Skill ID。")
+            base = self.root
+            registry_root = self.root / "registry"
+            if (self._is_link_or_reparse(registry_root) or not registry_root.is_dir()
+                    or not registry_root.resolve().is_relative_to(self.root)):
+                raise ValueError("Skill 注册目录路径无效。")
+            record_path = registry_root / f"{skill_id}.json"
+            if (self._is_link_or_reparse(record_path) or not record_path.is_file()
+                    or record_path.stat().st_size > 128 * 1024):
+                raise ValueError("生产 Skill 未登记。")
+            try:
+                data = json.loads(record_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeError) as error:
+                raise ValueError("Skill 注册记录无效。") from error
+            if (not isinstance(data, dict) or data.get("id") != skill_id
+                    or not isinstance(data.get("digest"), str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", data["digest"])):
+                raise ValueError("Skill 注册记录与 ID 不匹配。")
+            directory = self.root / "working" / skill_id
+            managed_root = self.root / "working"
+            item = {"id": skill_id, "role": self._role(data)}
+
+        if (self._is_link_or_reparse(managed_root) or not managed_root.is_dir()
+                or not managed_root.resolve().is_relative_to(base)):
+            raise ValueError("Skill 受管目录不存在或路径无效。")
+        if (self._is_link_or_reparse(directory) or not directory.is_dir()
+                or not directory.resolve().is_relative_to(managed_root.resolve())):
+            raise ValueError("Skill 工作目录不存在或路径无效。")
+        skill_file = directory / "SKILL.md"
+        if (self._is_link_or_reparse(skill_file) or not skill_file.is_file()
+                or skill_file.resolve().parent != directory.resolve()):
+            raise ValueError("Skill 正文文件不存在或路径无效。")
+        from creatoros.skills.loader import SkillLoader
+        skill = SkillLoader([directory])._read_metadata(skill_file)
+        if skill is None:
+            raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
+        return directory, item, skill
+
+    def list_skill_files(self, skill_id: str) -> dict:
+        directory, item, skill = self._readable_skill_directory(skill_id)
+        files = []
+        entries = 0
+        for current, dirs, names in os.walk(directory, topdown=True, followlinks=False):
+            parent = Path(current)
+            visible_dirs = []
+            for name in dirs:
+                relative = (parent / name).relative_to(directory)
+                if self._sensitive_skill_path(relative):
+                    continue
+                entries += 1
+                if entries > self.MAX_BROWSE_ENTRIES:
+                    raise ValueError("Skill 文件过多，无法安全展示。")
+                child = parent / name
+                if self._is_link_or_reparse(child) or not child.resolve().is_relative_to(directory.resolve()):
+                    raise ValueError("Skill 包含不支持的链接或越界目录。")
+                visible_dirs.append(name)
+            dirs[:] = visible_dirs
+            for name in names:
+                path = parent / name
+                relative = path.relative_to(directory)
+                if self._sensitive_skill_path(relative):
+                    continue
+                entries += 1
+                if entries > self.MAX_BROWSE_ENTRIES:
+                    raise ValueError("Skill 文件过多，无法安全展示。")
+                if self._is_link_or_reparse(path) or not path.is_file() or not path.resolve().is_relative_to(directory.resolve()):
+                    raise ValueError("Skill 包含不支持的链接或越界文件。")
+                suffix = path.suffix.lower()
+                kind = "markdown" if suffix == ".md" else (
+                    "text" if suffix in self._TEXT_SUFFIXES else
+                    "image" if suffix in self._IMAGE_SUFFIXES else "unsupported")
+                files.append({"path": relative.as_posix(), "kind": kind, "size": path.stat().st_size})
+                if len(files) > self.MAX_BROWSE_FILES:
+                    raise ValueError("Skill 文件过多，无法安全展示。")
+        files.sort(key=lambda entry: entry["path"].casefold())
+        return {**item, "name": skill.name, "description": skill.description, "files": files}
+
+    def read_skill_file(self, skill_id: str, relative_path: str) -> dict:
+        if (not isinstance(relative_path, str) or not relative_path or len(relative_path) > 512
+                or "\\" in relative_path or ":" in relative_path or "\x00" in relative_path):
+            raise ValueError("Skill 文件路径无效。")
+        if any(part in {"", ".", ".."} for part in relative_path.split("/")):
+            raise ValueError("Skill 文件路径无效。")
+        relative = Path(relative_path)
+        if relative.is_absolute():
+            raise ValueError("Skill 文件路径无效。")
+        if self._sensitive_skill_path(relative):
+            raise ValueError("Skill 文件不可读取。")
+        directory, _item, _skill = self._readable_skill_directory(skill_id)
+        path = directory.joinpath(*relative.parts)
+        resolved_root = directory.resolve()
+        for parent in [directory, *(directory / Path(*relative.parts[:index])
+                                    for index in range(1, len(relative.parts) + 1))]:
+            if self._is_link_or_reparse(parent) or not parent.resolve().is_relative_to(resolved_root):
+                raise ValueError("Skill 文件路径越界或无效。")
+        if not path.is_file():
+            raise ValueError("Skill 文件不存在。")
+        suffix = path.suffix.lower()
+        if suffix in self._IMAGE_SUFFIXES:
+            size = path.stat().st_size
+            if size > self.MAX_IMAGE_BYTES:
+                raise OverflowError("图片超过 16 MiB，无法预览。")
+            with path.open("rb") as stream:
+                content = stream.read(self.MAX_IMAGE_BYTES + 1)
+            if len(content) > self.MAX_IMAGE_BYTES:
+                raise OverflowError("图片超过 16 MiB，无法预览。")
+            from PIL import Image, UnidentifiedImageError
+            try:
+                with Image.open(io.BytesIO(content)) as image:
+                    if (image.format not in self._IMAGE_MIME_TYPES
+                            or image.width * image.height > self.MAX_IMAGE_PIXELS):
+                        raise ValueError("图片格式或尺寸无效。")
+                    media_type = self._IMAGE_MIME_TYPES[image.format]
+                    frames = getattr(image, "n_frames", 1)
+                    if frames > 100:
+                        raise ValueError("图片动画帧数过多，无法预览。")
+                    for index in range(frames):
+                        image.seek(index)
+                        if image.width * image.height > self.MAX_IMAGE_PIXELS:
+                            raise ValueError("图片尺寸过大，无法预览。")
+                        image.load()
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+                raise ValueError("图片内容无效，无法预览。") from error
+            return {"path": relative.as_posix(), "kind": "image", "content": content,
+                    "media_type": media_type}
+        if suffix in self._TEXT_SUFFIXES:
+            size = path.stat().st_size
+            if size > self.MAX_TEXT_BYTES:
+                raise OverflowError("文本文件超过 512 KiB，无法预览。")
+            try:
+                with path.open("rb") as stream:
+                    raw_content = stream.read(self.MAX_TEXT_BYTES + 1)
+                if len(raw_content) > self.MAX_TEXT_BYTES:
+                    raise OverflowError("文本文件超过 512 KiB，无法预览。")
+                content = raw_content.decode("utf-8")
+            except UnicodeError as error:
+                raise ValueError("文本文件不是有效 UTF-8。") from error
+            return {"path": relative.as_posix(),
+                    "kind": "markdown" if suffix == ".md" else "text", "content": content}
+        raise TypeError("此文件类型不支持预览。")
 
     def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):

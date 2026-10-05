@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 安装 Skill 文件浏览 API（2026-10-05）
+
+- `GET /api/producer-skills/{id}/files` 返回注册 Skill 的 `id/name/description/role` 与相对路径文件清单（`path/kind/size`）；只覆盖当前受管工作副本或固定内置 Skill，不公开绝对路径。列表与内容响应均 `Cache-Control: no-store`。
+- `GET /api/producer-skills/{id}/files/content?path=...` 对 Markdown/UTF-8 文本返回完整 JSON 正文。只有 PNG/JPEG/WebP/GIF 后缀作为图片候选；还要验证实际解码格式在该栅格白名单中，响应 MIME 根据真实内容返回，后缀不匹配时仍原样返回文件字节，坏图拒绝。类型不支持为 415，文本/图片超限为 413，未登记、越界、缺失或链接路径为 404。拒绝 HTML/SVG 原样服务，现有分页 `/content` 保持兼容。
+- 账号 Agent 会话的共享 Skill 只读访问仍遵循既有受限访问规则；普通浏览器不需要会话头。隔离 HTTP/SQLite 与受管文件树只读证据见 `tests/smoke_producer_skill_files.py`；不触发安装、生产、模型或正式数据写入。
+
 ## 内容库批量封面投影（2026-10-05）
 
 - topic-library 的已入队条目新增可选 cover_url/card_count；只对当前分页关联的 Run 批量读取活跃 Revision/Attempt，一次 SQL，不让浏览器逐卡请求完整 RunDetail。待选条目返回空封面，既有筛选、身份、顺序与动作不变，无数据库迁移或新路由。
