@@ -208,7 +208,7 @@ test("uploads, creates one persisted job, resumes after refresh, previews and co
   await expect(page.getByText("已加入 CreatorOS Skill 库")).toBeVisible();
   await expect(page.getByText(/本地路径：D:\/isolated\/producer-skills\/work-skill\/SKILL.md/)).toBeVisible();
   await expect.poll(api.skillReads).toBeGreaterThan(1);
-  await expect(page.getByRole("button", { name: /作品完整 Skill/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "作品完整 Skill", exact: true })).toBeVisible();
   expect(api.posts.filter(item => item.path.endsWith("/save"))).toHaveLength(1);
 });
 

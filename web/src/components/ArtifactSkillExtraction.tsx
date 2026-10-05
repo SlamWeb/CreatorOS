@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
-import type { ExtractedSkillDraft, SkillExtractionFile, SkillExtractionMode } from "../api/types";
+import type { ExtractedSkillDraft, ProducerSkillItem, SkillExtractionFile, SkillExtractionMode } from "../api/types";
 import { ExtractionActivity } from "./ExtractionActivity";
 import "./artifact-skill-extraction.css";
 
@@ -72,7 +72,7 @@ function clearStoredDraft(jobId: string) {
   try { sessionStorage.removeItem(draftStorageKey(jobId)); } catch { /* The in-memory draft remains available. */ }
 }
 
-export function ArtifactSkillExtraction() {
+export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSkill?: (skill: ProducerSkillItem) => void; onDirtyChange?: (dirty: boolean) => void } = {}) {
   const cache = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("extraction");
@@ -86,6 +86,7 @@ export function ArtifactSkillExtraction() {
   const [draftSkills, setDraftSkills] = useState<ExtractedSkillDraft[]>([]);
   const [draftBaseDigest, setDraftBaseDigest] = useState("");
   const [draftDirty, setDraftDirty] = useState(false);
+  useEffect(() => { onDirtyChange?.(draftDirty); }, [draftDirty, onDirtyChange]);
   const [viewerMode, setViewerMode] = useState<"preview" | "edit">("preview");
   const [activeFileKey, setActiveFileKey] = useState("");
   const [fileContent, setFileContent] = useState("");
@@ -304,7 +305,7 @@ export function ArtifactSkillExtraction() {
     <button type="button" className="button button-secondary extraction-toggle" aria-expanded={open}
       onClick={() => setOpen(value => !value)}>{open ? "收起提炼" : "从作品提炼"}</button>
     {open && <div className="extraction-panel">
-      <h2>从作品提炼 Skill</h2>
+      <h2>{activeJob?.task_kind === "merge" ? "Skill 融合草稿" : "从作品提炼 Skill"}</h2>
       <details className="extraction-new-work" open={newWorkOpen} onToggle={event => setNewWorkOpen(event.currentTarget.open)}>
         <summary>新作品</summary>
         <form onSubmit={event => { event.preventDefault(); setPanelError(""); create.mutate(); }}>
@@ -349,7 +350,7 @@ export function ArtifactSkillExtraction() {
         <h3>提炼任务</h3>
         {jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
           onClick={() => selectJob(job.id)}>
-          <span>{job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong>{statusLabels[job.status] ?? "状态更新"}</strong>
+          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong>{statusLabels[job.status] ?? "状态更新"}</strong>
         </button>)}
       </div> : null}
       {selectionPrompt && <div className="extraction-confirm-switch" role="group" aria-label="放弃未保存编辑">
@@ -366,9 +367,10 @@ export function ArtifactSkillExtraction() {
       {activeJob && <div className="extraction-detail" aria-label="提炼任务详情">
         {draftStorageError && <p role="alert" className="extraction-error">{draftStorageError}</p>}
         <div className="extraction-status"><strong>任务状态：{statusLabels[activeJob.status] ?? "状态更新"}</strong>
-          {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? "提炼" : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
+          {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && <span>{activeJob.note}</span>}
         </div>
+        {activeJob.task_kind === "merge" && <p className="extraction-help">来源：{activeJob.source_skills?.map(skill => skill.name).join(" + ")}。原 Skill 未修改；请检查融合的取舍与资源。</p>}
         {activeJob.progress && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
         <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
@@ -459,6 +461,7 @@ export function ArtifactSkillExtraction() {
         {activeJob.status === "saved" && <div className="extraction-saved" role="status">
           <strong>已加入 CreatorOS Skill 库</strong>
           {activeJob.saved_skills.map(skill => <p key={skill.id}>{skill.name}{skill.local_path ? <> · 本地路径：<code>{skill.local_path}</code></> : ""}</p>)}
+          {onUseSkill && activeJob.saved_skills.map(skill => <button type="button" className="button button-secondary" key={`use-${skill.id}`} onClick={() => onUseSkill(skill)}>用「{skill.name}」创建栏目</button>)}
         </div>}
         {(activeJob.trials ?? []).length > 0 && <div className="extraction-trials">
           <h3>试产结果</h3>

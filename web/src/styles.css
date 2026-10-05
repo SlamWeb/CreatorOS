@@ -17,7 +17,7 @@ button:disabled { cursor: not-allowed; opacity: .42; }
 
 /* Shell */
 .studio-shell { display: flex; min-height: 100vh; background: var(--canvas); }
-.sidebar { width: 220px; flex: 0 0 220px; border-right: 1px solid #e8e8eb; padding: 26px 16px 20px; display: flex; flex-direction: column; background: var(--canvas); }
+.sidebar { position: sticky; top: 0; align-self: flex-start; height: 100dvh; width: 220px; flex: 0 0 220px; border-right: 1px solid #e8e8eb; padding: 26px 16px 20px; display: flex; flex-direction: column; background: var(--canvas); }
 .brand-mark { color: var(--accent); font-weight: 700; font-size: 26px; letter-spacing: -.13em; line-height: 1; padding-left: 2px; }
 .brand-mark span { color: var(--ink); }
 .brand-name { font-weight: 700; letter-spacing: .01em; margin-top: 12px; }

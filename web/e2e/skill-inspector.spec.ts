@@ -22,7 +22,7 @@ test("real files: full Markdown, source, script, image, local links; viewing nev
     if (req.url().startsWith("https://example.invalid")) external.push(req.url());
   });
   const dialog = await openMind(page);
-  await expect(page.getByRole("button", { name: "Mind 槽", exact: true })).not.toContainText("inspector-mind");
+  await expect(page.getByLabel("Skill 组合框", { exact: true })).not.toContainText("inspector-mind");
   await expect(dialog.getByText("将新主题变成可复用的内容方法与图解。", { exact: true })).toBeVisible();
   const tree = dialog.getByRole("navigation", { name: "Skill 文件结构" });
   await expect(tree.getByRole("button", { name: "SKILL.md", exact: true })).toHaveAttribute("aria-current", "page");
@@ -55,23 +55,23 @@ test("add is explicit; filled slot can inspect without clearing; keyboard remain
     expect(await dialog.evaluate(node => node.contains(document.activeElement))).toBeTruthy();
   }
   await dialog.getByRole("button", { name: "加入组合", exact: true }).click();
-  const slot = page.getByRole("button", { name: "Mind 槽", exact: true });
+  const slot = page.getByLabel("Skill 组合框", { exact: true });
   await expect(slot).toContainText("inspector-mind");
-  await page.getByRole("button", { name: "查看 Mind Skill", exact: true }).click();
+  await page.getByRole("button", { name: "查看 inspector-mind", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "关闭 Skill 详情", exact: true }).click();
   await expect(slot).toContainText("inspector-mind");
-  await slot.click();
+  await page.getByRole("button", { name: "移除 inspector-mind", exact: true }).click();
   await expect(slot).not.toContainText("inspector-mind");
   await page.getByRole("button", { name: "knowledge-to-carousel", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "knowledge-to-carousel" })).toBeVisible();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "加入组合" })).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByRole("button", { name: "加入组合" })).toBeVisible();
 });
 
-test("drag still selects the matching slot without opening inspector", async ({ page }) => {
+test("drag selects the free basket without opening inspector", async ({ page }) => {
   await page.goto("/skills");
   const card = page.getByRole("button", { name: "inspector-visual", exact: true });
-  const slot = page.getByRole("button", { name: "Visualize 槽", exact: true });
+  const slot = page.getByLabel("Skill 组合框", { exact: true });
   const start = await card.boundingBox(), finish = await slot.boundingBox();
   expect(start && finish).toBeTruthy();
   await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);

@@ -60,10 +60,17 @@
 .rail-form input { font-size: 13px; padding: 9px 11px; }
 .workspace-head h1 { font-size: clamp(28px, 3vw, 36px); }
 .workspace-recipe { margin: 8px 0 0; font-size: 13px; font-weight: 550; color: var(--ink); }
+.workspace-bound-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; color: var(--muted); font-size: 12px; }
+.workspace-bound-skills button { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-align: left; cursor: pointer; }
+.workspace-bound-skills button:hover { text-decoration: underline; }
+.workspace-series-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.workspace-delete-series { color: var(--danger); }
 .workspace-meta { font-size: 13px; }
 .workspace-add input { font-size: 14px; padding: 11px 18px; }
 @media (max-width: 760px) {
   .studio-shell.workspace-studio .workspace { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .workspace-series-controls { width: 100%; justify-content: flex-end; }
+  .workspace-series-controls .workspace-assign { flex: 1 1 auto; }
 }
 .rail-new-account { width: 100%; text-align: left; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 9px 12px; font: 550 13px inherit; cursor: pointer; transition: border-color .15s, color .15s; }
 .rail-new-account:hover { border-color: var(--accent); color: var(--ink); }

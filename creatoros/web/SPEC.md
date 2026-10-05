@@ -1,5 +1,17 @@
 # CreatorOS Web API SPEC
 
+## 自由 Skill 组合与栏目移除（2026-10-05，完成）
+
+- Skill 组合框不按角色限制：一个完整 Skill 直接创建栏目；多个 Skill 生成新的融合草稿，沿用提炼工作台查看文件、编辑、改稿、试用及显式入库，原 Skill 不改写。入库不自动绑定或生产，用户再次选择创建栏目。
+- 融合请求记录输入 ID 与文件 digest，冻结本地资源；模型仅在任务草稿目录工作。刷新读取同一任务，未知结果重试复用 request_id，不自动重发收费任务。纯内容 Skill 不伪装为图片生产能力。
+- DELETE `/api/series/{id}` 使用 request_id / expected_revision：无选题且无历史时删除，有历史时移出工作区但保留数据；活跃生产或调研拒绝移除。现有账号作用域和历史 Run 读取保持有效。
+- 验收：完整单 Skill 实际建栏；任意多 Skill 先草稿后人工确认；融合失败/取消保留原库；刷新恢复任务；空栏目移除、不空栏目确认且旧产物保留；固定导航与绑定 Skill 详情可真实操作。
+
+### 融合 API 后端切片（2026-10-05）
+
+- `POST /api/skill-extractions/merge` 接受 2–8 个不同已登记 ID、`request_id` 和可选 `instruction`；返回 HTTP 202 的普通提炼 Job，增加 `task_kind: "merge"` 与源 ID/name/role/digest。一个 Skill 沿用既有直接建栏路径。
+- 任务使用现有查询、事件、取消、编辑、改稿、试用及显式保存 API；同 request ID 重试复用任务，参数变化返回 409。隔离 HTTP/SQLite smoke 通过；前端全量 48/48、随后晚响应工作区回归 5/5 通过，真实 SDK 融合 ready（281.3 秒）且无正式库写入。模型输出质量不由接口验收代替。
+
 ## 安装 Skill 文件浏览 API（2026-10-05）
 
 - `GET /api/producer-skills/{id}/files` 返回注册 Skill 的 `id/name/description/role` 与相对路径文件清单（`path/kind/size`）；只覆盖当前受管工作副本或固定内置 Skill，不公开绝对路径。列表与内容响应均 `Cache-Control: no-store`。
