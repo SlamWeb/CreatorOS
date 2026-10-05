@@ -133,9 +133,10 @@ async def _bounded_sdk(operation, deadline: float, cancel_event=None):
 
 
 @asynccontextmanager
-async def _production_client(deadline: float, cancel_event=None):
+async def _production_client(deadline: float, cancel_event=None, *,
+                             config_overrides=PRODUCTION_CONFIG, codex_bin=None):
     from openai_codex import AsyncCodex, CodexConfig
-    client = AsyncCodex(CodexConfig(config_overrides=PRODUCTION_CONFIG))
+    client = AsyncCodex(CodexConfig(config_overrides=config_overrides, codex_bin=codex_bin))
     try:
         await _bounded_sdk(client.__aenter__(), deadline, cancel_event)
         yield client

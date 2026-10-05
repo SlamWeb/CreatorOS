@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 调研统一 Python SDK（2026-10-06）
+
+- 调研从 CLI exec 迁移到现有 Python SDK app-server 通道，复用 `_production_client`、`_bounded_sdk` 和单消费者 `collect_observed_turn`；共享 client 增加可选配置/执行文件参数，生产与提炼默认行为不变。
+- 默认 runtime 由 SDK 管理，不再依赖 CLI PATH、git init 或项目 AGENTS；显式执行文件覆盖用公开 CodexConfig 传入。调研 fresh thread、Luna/xhigh、live 搜索、只读且禁止审批，关闭历史记忆。
+- 保留原 ResearchReceipt、候选批次/正式队列边界及聊天安全进度，扩展共享进度 stage 为 research。旧 CLI 生产器仅供历史兼容；下方旧文档所述“调研仍走 CLI”已被本节替代。
+- 详细验收和续跑证据见 docs/agent-studio/topic-research/SPEC.md；不做 CLI/SDK 对照实验。
+
 ## 调研执行器定位与公开活动（2026-10-05）
 
 - 用户真实三次调研在启动阶段报“未找到 codex CLI”，不是额度或内容质量失败。默认 CLI 复用已安装 `openai-codex==0.157.1` 的捆绑可执行文件；显式 `CREATOROS_CODEX_EXECUTABLE` 配置无效时拒绝，不修改全局 PATH/登录态。使用 SDK 私有 `_resolve_codex_bin` 是有回归覆盖的兼容接缝，升级 SDK 必须重新验证。

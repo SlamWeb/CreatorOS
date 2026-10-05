@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from creatoros.integrations.codex import CodexProducer, CodexUsage
+from creatoros.integrations.codex import CodexProducer, CodexProducerError, CodexUsage
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _write
 from creatoros.integrations.topic_research import CodexTopicResearcher, ResearchReceipt, TopicResearchService
@@ -27,12 +27,30 @@ def main():
         executable = resolve_codex_executable()
         version = subprocess.run([executable, "--version"], check=True, capture_output=True, text=True, timeout=15)
         assert "codex" in version.stdout.lower()
+        # SDK default discovery is left to its pinned runtime, never a PATH probe.
+        with patch.dict(os.environ, {"CREATOROS_CODEX_EXECUTABLE": ""}), \
+             patch("creatoros.integrations.topic_research.resolve_codex_executable",
+                   side_effect=AssertionError("default SDK preflight must not resolve a CLI")):
+            sdk_researcher = CodexTopicResearcher()
+            sdk_researcher.preflight()
+            assert sdk_researcher._sdk_bin is None
         with patch.dict(os.environ, {"CREATOROS_CODEX_EXECUTABLE": "missing-codex-override.exe"}):
             try:
                 resolve_codex_executable()
                 raise AssertionError("Invalid explicit override must not fall back to the SDK")
             except FileNotFoundError:
                 pass
+            try:
+                CodexTopicResearcher().preflight()
+                raise AssertionError("SDK must also reject an invalid explicit executable")
+            except CodexProducerError as error:
+                assert error.error_type == "codex_not_found"
+    with patch.dict(sys.modules, {"openai_codex": None}):
+        try:
+            CodexTopicResearcher().preflight()
+            raise AssertionError("Missing SDK must fail before launching a worker")
+        except CodexProducerError as error:
+            assert error.error_type == "codex_sdk_not_installed"
     assert os.environ.get("PATH") == old_path
     with TemporaryDirectory() as temporary:
         root = Path(temporary)

@@ -1,13 +1,15 @@
 """Persistent research candidates, separate from the human-approved Topic queue."""
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import re
-import subprocess
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock, Thread
+from time import monotonic
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -17,9 +19,11 @@ from creatoros.ai import ModelUsage
 from creatoros.operations import OperationParseDecision, OperationParseResult, PendingOperationService
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, SeriesResearchContext, TopicDraft
 from creatoros.storage import ContentRepository
-from .codex import CodexProducer, CodexProducerError, ProductionModel
+from .codex import (CODEX_MODEL, CODEX_EFFORT, PRODUCTION_CONFIG, CodexProducerError,
+                    CodexRun, CodexSdkProducer, ProductionModel, _bounded_sdk, _production_client)
 from .codex_executable import resolve_codex_executable
-from .extraction_activity import safe_text
+from .extraction_activity import field, safe_text
+from .production_progress import ProgressWriter, collect_observed_turn
 from .producer_skills import ProducerSkillCatalog, _digest, _write
 
 
@@ -54,17 +58,33 @@ class CandidateSelection(ProductionModel):
     angle: str | None = Field(default=None, min_length=1, max_length=3000)
 
 
-class CodexTopicResearcher(CodexProducer):
+class CodexTopicResearcher:
+    """Fresh, read-only SDK research; no production Skill execution or CLI transport."""
     receipt_model = ResearchReceipt
 
-    def _command(self, schema_path, working_directory, thread_id):
-        command = super()._command(schema_path, working_directory, None)
-        command[1:1] = ["-c", 'web_search="live"']
-        return command
+    def __init__(self, *, timeout_seconds=1800, executable=None,
+                 project_root=None, generated_images_root=None):
+        # Retain constructor compatibility for local fixtures, not CLI inheritance.
+        self.timeout_seconds = timeout_seconds
+        self.executable = executable
+        self._sdk_bin = None
+
+    @classmethod
+    def from_defaults(cls):
+        from ..config import CODEX_PRODUCER_TIMEOUT_SECONDS
+        return cls(timeout_seconds=CODEX_PRODUCER_TIMEOUT_SECONDS)
 
     def preflight(self):
         try:
-            self.executable = resolve_codex_executable(None if self.executable == "codex" else self.executable)
+            from openai_codex import AsyncCodex, CodexConfig
+        except ImportError as error:
+            raise CodexProducerError("未安装项目声明的 openai-codex 依赖。",
+                                     error_type="codex_sdk_not_installed") from error
+        override = self.executable if self.executable != "codex" else None
+        override = override or os.environ.get("CREATOROS_CODEX_EXECUTABLE")
+        try:
+            # Default executable discovery belongs to the SDK's pinned runtime.
+            self._sdk_bin = resolve_codex_executable(override) if override else None
         except FileNotFoundError as error:
             raise CodexProducerError(str(error), error_type="codex_not_found") from error
 
@@ -78,14 +98,93 @@ class CodexTopicResearcher(CodexProducer):
             f"请求最多 {count} 条，不足可少给，note 说明。不要选择最终生产项、不要直接入队。中文输出。\n"
             f"用户补充要求：{instructions}\n栏目输入：{json.dumps(snapshot, ensure_ascii=False)}"
         )
-        result = self._execute(prompt, workspace, cancel_event=cancel, public_observer=public_observer)
-        trace = (workspace / "codex_trace.jsonl").read_text(encoding="utf-8")
-        if not any(json.loads(line).get("item", {}).get("type") == "web_search"
-                   for line in trace.splitlines() if line.strip()):
-            raise ValueError("未观察到联网搜索事件，不能把结果标记为已调研。")
-        if len(result.receipt.candidates) > count:
-            raise ValueError("调研返回候选超过请求数量。")
-        return result
+        workspace = Path(workspace)
+        (workspace / "research_request.txt").write_text(prompt, encoding="utf-8")
+        return asyncio.run(self._research_async(prompt, count, workspace, cancel, public_observer))
+
+    async def _research_async(self, prompt, count, workspace, cancel, public_observer):
+        from openai_codex import ApprovalMode, Sandbox, TextInput
+        deadline = monotonic() + self.timeout_seconds
+        progress = ProgressWriter(workspace, "research")
+        searched = False
+
+        def emit(event):
+            # Only bounded, redacted public fields enter the trace/HTTP projection.
+            with (workspace / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+            if public_observer is not None:
+                public_observer(event)
+
+        def observe(event):
+            nonlocal searched
+            if event.method not in {"item/started", "item/completed"}:
+                return
+            item = field(event.payload, "item")
+            item = field(item, "root", item)
+            kind = field(item, "type", "")
+            mapped = {"agentMessage": "agent_message", "webSearch": "web_search",
+                      "commandExecution": "command_execution", "mcpToolCall": "mcp_tool_call"}.get(kind)
+            if mapped is None:
+                return
+            payload = {"type": mapped, "status": str(field(field(item, "status", ""), "value", field(item, "status", "")))}
+            if kind == "agentMessage":
+                payload["text"] = _public_text(field(item, "text", ""))
+            elif kind == "webSearch":
+                action = field(item, "action")
+                action = field(action, "root", action)
+                action_type = field(action, "type", "")
+                searched |= event.method == "item/completed" and action_type == "search"
+                query = field(action, "query") or field(action, "queries") or field(action, "url") or field(item, "query", "")
+                payload.update(query=_public_text(query), action={"type": action_type})
+            elif kind == "commandExecution":
+                payload["exit_code"] = field(item, "exit_code")
+            else:
+                payload["tool"] = _public_text(field(item, "tool", "工具"))
+            emit({"type": "item.started" if event.method == "item/started" else "item.completed", "item": payload})
+
+        try:
+            async with _production_client(deadline, cancel,
+                    config_overrides=PRODUCTION_CONFIG + ('web_search="live"',), codex_bin=self._sdk_bin) as client:
+                thread = await _bounded_sdk(client.thread_start(
+                    model=CODEX_MODEL, cwd=str(workspace.resolve()), sandbox=Sandbox.read_only,
+                    approval_mode=ApprovalMode.deny_all,
+                    developer_instructions="本次是独立选题调研。只使用当前栏目资料与联网来源；不执行 Skill、不生图、不发布、不修改文件、不读取其他任务或全局记忆。"),
+                    deadline, cancel)
+                emit({"type": "thread.started", "thread_id": thread.id, "backend": "python-codex-sdk",
+                      "model": CODEX_MODEL, "reasoning_effort": CODEX_EFFORT})
+                turn = await _bounded_sdk(thread.turn([TextInput(prompt)], model=CODEX_MODEL, effort=CODEX_EFFORT,
+                    sandbox=Sandbox.read_only, output_schema=ResearchReceipt.model_json_schema()), deadline, cancel)
+                try:
+                    result = await _bounded_sdk(collect_observed_turn(turn, progress, observe), deadline, cancel)
+                except BaseException:
+                    try:
+                        await asyncio.wait_for(turn.interrupt(), timeout=5)
+                    except Exception:
+                        pass
+                    raise
+            final_text = result.final_response or ""
+            (workspace / "response.txt").write_text(final_text, encoding="utf-8")
+            usage = CodexSdkProducer._sdk_usage(result.usage)
+            progress.record_usage(usage.model_dump())
+            try:
+                receipt = ResearchReceipt.model_validate_json(final_text)
+            except ValueError as error:
+                raise CodexProducerError("Codex 调研回执不符合约定。", error_type="invalid_research_receipt") from error
+            if not searched:
+                raise CodexProducerError("未观察到已完成的联网搜索，不能把结果标记为已调研。", error_type="research_no_search")
+            if len(receipt.candidates) > count:
+                raise CodexProducerError("调研返回候选超过请求数量。", error_type="invalid_research_receipt")
+            emit({"type": "turn.completed", "thread_id": thread.id, "usage": usage.model_dump()})
+            progress.finish("completed")
+            return CodexRun(thread.id, receipt, usage)
+        except Exception as error:
+            progress.finish("interrupted" if cancel.is_set() else "failed")
+            if isinstance(error, CodexProducerError):
+                emit({"type": "stage.failed", "error_type": error.error_type})
+                raise
+            failure = CodexProducerError(str(error) or type(error).__name__, error_type="codex_sdk_failed")
+            emit({"type": "stage.failed", "error_type": failure.error_type})
+            raise failure from error
 
 
 def _public_text(value):
@@ -103,6 +202,8 @@ def research_failure(error, cancelled=False):
     message = str(error)
     if kind == "codex_not_found":
         return kind, "无法启动 Codex：请安装项目声明的 openai-codex 依赖，或配置有效的 CREATOROS_CODEX_EXECUTABLE；不是登录或额度错误。"
+    if kind == "codex_sdk_not_installed":
+        return kind, "当前服务 Python 环境未安装项目声明的 openai-codex 依赖；不是登录或额度错误。"
     if kind == "codex_timeout":
         return kind, "调研达到宿主等待时限，已停止；候选未入队，未自动重试。"
     if "usage limit" in message.lower():
@@ -216,6 +317,7 @@ class TopicResearchService:
         item = event.get("item") or {}
         event_type = event.get("type")
         if event_type == "thread.started":
+            record["thread_id"] = event.get("thread_id")
             self._activity(record, "status", "Codex 已连接，开始调研。")
         elif event_type in {"item.started", "item.updated", "item.completed"} and isinstance(item, dict):
             kind = item.get("type")
@@ -253,10 +355,6 @@ class TopicResearchService:
                     _write(self._path(batch_id), record)
                 workspace = self.root / "work" / batch_id / str(attempt)
                 workspace.mkdir(parents=True)
-                subprocess.run(["git", "init", str(workspace)], check=True, capture_output=True)
-                (workspace / "AGENTS.md").write_text(
-                    "This is an isolated read-only topic research task. Do not implement, install, generate images, or publish.\n",
-                    encoding="utf-8")
                 if isinstance(self.researcher, CodexTopicResearcher):
                     result = self.researcher.research(snapshot, record["count"], record["instructions"], workspace, self.cancel,
                                                      public_observer=lambda event: self._observe(record, event))

@@ -1,5 +1,17 @@
 # 栏目选题调研与选择
 
+## Python SDK 统一执行器 · 2026-10-06（完成）
+
+- 用户决定调研迁移 Python SDK，不做 CLI/SDK 对照实验。保留候选、查询、幂等、配置变更有限重做和人工入队契约，不迁移历史批次，不自动重试旧失败。
+- CodexTopicResearcher 不再继承 CLI 生产器；复用生产/提炼的 SDK client、启动与流式等待 deadline、turn collector、用量和取消处理。默认使用 SDK 捆绑 runtime，显式 executable 覆盖仍验证后传给公开 CodexConfig。
+- 每次独立 thread；显式 gpt-6-luna/xhigh、live web_search、read_only/deny_all，禁用全局记忆和项目指令。只把 Skill 作为栏目分析资料，不原生执行生产 Skill。
+- SDK 可见消息/工具/搜索通知转换为现有聊天进度契约；本地记录 thread、有限安全事件、最终回执与用量，不向网页输出 reasoning、凭证或原始通知。只有观察到完成的 search 动作才允许 ready，仅打开网页不算搜索成功。
+- 验收：隔离真实 SDK 联网调研，经真实 HTTP/聊天显示活动与最终候选，正式队列/生产/发布零写入；故障注入覆盖取消、超时、无搜索、坏回执和失败终态。无需 CLI 对照，不冒充取消测试已真实消耗模型验证。
+- 本地回归通过：`smoke_topic_research_sdk`、`smoke_topic_research_observation`、`smoke_topic_research`、`smoke_research_chat`、`smoke_production_progress`、`smoke_native_production`、`smoke_skill_extraction`、`smoke_codex_producer` 共 8 项；SDK 通知使用真实 collector，Mock 仅用于无费用故障注入。compileall / diff --check 通过。
+- 真实聊天探针 `python -m tests.live_research_chat --run`：188.9 秒，SDK thread `01a10d37-3d19-7e21-a27b-c868bf2447c9`，调研 ready、聊天 idle、公开活动可见、返回 5 个有 Oxford 来源的英语候选，正式队列零写入。证据 `tmp/research-chat-live-iuvw4x_4/`。**探针整体未通过**：用户要求 1 组，外层 DeepSeek 的工具参数却为 count=10、instructions 写 1 组；执行器按 count 上限校验正常，探针的一条候选断言失败。这是外层工具参数一致性 badcase，不计为 SDK 失败或完整聊天验收通过；本轮不通过放宽断言掩盖。
+- 直接指定数量的真实服务探针 `python -m tests.live_topic_research` 通过：请求 2 条，返回 2 条有来源的 Agent 工程选题，SDK thread `01a10d3b-f80d-71d1-8d8a-c9053ca2fddb`；实际搜索与公开事件存在，SQLite 正式 Topic 零写入。证据 `tmp/topic-research-live-20261006-020313/`。调研 SDK 通道验收完成，外层参数 badcase 留待下一步，不声称模型所有工具选择正确。
+- 升级需重启实际 `python -m creatoros.web` 进程，再显式发起新调研；历史失败不会自动变为成功，也不自动付费重跑。本轮未停止用户正在运行的正式服务，未修改登录态/全局配置/正式运营库。
+
 ## 启动与公开进度修复 · 2026-10-05（完成）
 
 - 批次 `3df6505325ec457490f931df1734c075` 及另两次真实调研均在启动阶段报“未找到 codex CLI”；当前网页服务 `/api/health` 也报告 unavailable。电脑已有可执行文件，但服务进程 PATH 不含它，不能归因为模型额度或调研内容问题。

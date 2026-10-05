@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ProductionProgress(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    stage: Literal["mind", "visual", "production"]
+    stage: Literal["mind", "visual", "production", "research"]
     status: Literal["running", "completed", "failed", "interrupted"]
     started_at: datetime
     last_activity_at: datetime
