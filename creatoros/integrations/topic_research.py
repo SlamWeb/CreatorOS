@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -16,7 +17,9 @@ from creatoros.ai import ModelUsage
 from creatoros.operations import OperationParseDecision, OperationParseResult, PendingOperationService
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, SeriesResearchContext, TopicDraft
 from creatoros.storage import ContentRepository
-from .codex import CodexProducer, ProductionModel
+from .codex import CodexProducer, CodexProducerError, ProductionModel
+from .codex_executable import resolve_codex_executable
+from .extraction_activity import safe_text
 from .producer_skills import ProducerSkillCatalog, _digest, _write
 
 
@@ -59,7 +62,14 @@ class CodexTopicResearcher(CodexProducer):
         command[1:1] = ["-c", 'web_search="live"']
         return command
 
-    def research(self, snapshot, count, instructions, workspace, cancel):
+    def preflight(self):
+        try:
+            self.executable = resolve_codex_executable(None if self.executable == "codex" else self.executable)
+        except FileNotFoundError as error:
+            raise CodexProducerError(str(error), error_type="codex_not_found") from error
+
+    def research(self, snapshot, count, instructions, workspace, cancel, *, public_observer=None):
+        self.preflight()
         prompt = (
             "你是栏目选题研究员，只调研，不执行 Skill，不生成图片或内容，不安装、不发布、不修改项目。\n"
             "必须使用联网搜索并打开来源，优先官方文档/一手来源；不能把固有知识伪装为本次检索。\n"
@@ -68,7 +78,7 @@ class CodexTopicResearcher(CodexProducer):
             f"请求最多 {count} 条，不足可少给，note 说明。不要选择最终生产项、不要直接入队。中文输出。\n"
             f"用户补充要求：{instructions}\n栏目输入：{json.dumps(snapshot, ensure_ascii=False)}"
         )
-        result = self._execute(prompt, workspace, cancel_event=cancel)
+        result = self._execute(prompt, workspace, cancel_event=cancel, public_observer=public_observer)
         trace = (workspace / "codex_trace.jsonl").read_text(encoding="utf-8")
         if not any(json.loads(line).get("item", {}).get("type") == "web_search"
                    for line in trace.splitlines() if line.strip()):
@@ -76,6 +86,30 @@ class CodexTopicResearcher(CodexProducer):
         if len(result.receipt.candidates) > count:
             raise ValueError("调研返回候选超过请求数量。")
         return result
+
+
+def _public_text(value):
+    text = safe_text(str(value))[0]
+    text = re.sub(r"(?i)[a-z]:[\\/][^\s'\"<>]+", "<local-path>", text)
+    text = re.sub(r"\\\\[^\s\\]+\\[^\s'\"<>]+", "<local-path>", text)
+    text = re.sub(r"(?<![\w:/])/(?:[^\s/'\"<>]+/)+[^\s'\"<>]*", "<local-path>", text)
+    return text[:1000]
+
+
+def research_failure(error, cancelled=False):
+    if cancelled:
+        return "codex_interrupted", "调研已中断，候选未入队；未自动重试。"
+    kind = getattr(error, "error_type", "research_failed")
+    message = str(error)
+    if kind == "codex_not_found":
+        return kind, "无法启动 Codex：请安装项目声明的 openai-codex 依赖，或配置有效的 CREATOROS_CODEX_EXECUTABLE；不是登录或额度错误。"
+    if kind == "codex_timeout":
+        return kind, "调研达到宿主等待时限，已停止；候选未入队，未自动重试。"
+    if "usage limit" in message.lower():
+        return "codex_usage_limit", "Codex 返回额度限制，调研未完成；未自动重试。"
+    if any(word in message.lower() for word in ("unauthorized", "not logged in", "authentication")):
+        return "codex_auth", "Codex 登录验证失败，请检查启动服务使用的本地登录态。"
+    return kind, "调研未完成：" + _public_text(message)
 
 
 class TopicResearchService:
@@ -88,6 +122,7 @@ class TopicResearchService:
         self.lock = RLock()
         self.cancel = Event()
         self.worker = None
+        self.active_batch_id = None
 
     def _path(self, batch_id):
         if not re.fullmatch(r"[a-f0-9]{32}", batch_id):
@@ -137,22 +172,74 @@ class TopicResearchService:
             # deletion, so a submission cannot start against a deleted series.
             snapshot = self.snapshot(series_id)
             if self.worker and self.worker.is_alive():
-                active = next((p for p in self.root.glob("batches/*.json")
-                               if json.loads(p.read_text(encoding="utf-8"))["status"] == "researching"), None)
-                if active:
-                    job = json.loads(active.read_text(encoding="utf-8"))
-                    if job["series_id"] == series_id and job["count"] == count and job["instructions"] == instructions:
+                if self.active_batch_id:
+                    job = self._load(self.active_batch_id)
+                    if (job["status"] == "researching" and job["series_id"] == series_id
+                            and job["count"] == count and self._normalized(job["instructions"]) == self._normalized(instructions)
+                            and self._same_config(job["snapshot"], snapshot)):
                         return self.get(job["id"])
                 raise ValueError("已有选题调研进行中；请先查看该任务，本步不自动排队。")
             batch_id = uuid4().hex
             record = {"id": batch_id, "series_id": series_id, "count": count,
                       "instructions": instructions, "status": "researching", "attempt": 0,
                       "created_at": datetime.now(timezone.utc).isoformat(), "snapshot": snapshot,
-                      "candidates": [], "note": "正在联网调研，可离开页面稍后查看。", "attempts": []}
+                      "candidates": [], "note": "正在连接 Codex 调研执行器。", "attempts": [],
+                      "progress": {"stage": "starting", "last_activity_at": None, "events": []}}
+            try:
+                if hasattr(self.researcher, "preflight"):
+                    self.researcher.preflight()
+            except Exception as error:
+                self._fail(record, error)
+                _write(self._path(batch_id), record)
+                return self.get(batch_id)
             _write(self._path(batch_id), record)
+            self.active_batch_id = batch_id
             self.worker = Thread(target=self._run, args=(batch_id,), daemon=True)
             self.worker.start()
             return self.get(batch_id)
+
+    @staticmethod
+    def _normalized(instructions):
+        return " ".join(unicodedata.normalize("NFKC", instructions).split()).casefold()
+
+    def _activity(self, record, kind, text, status="running", *, stage="researching"):
+        with self.lock:
+            progress = record["progress"]
+            at = datetime.now(timezone.utc).isoformat()
+            events = progress["events"]
+            identifier = events[-1]["id"] + 1 if events else 1
+            events.append({"id": identifier, "kind": kind, "text": _public_text(text), "status": status, "at": at})
+            progress.update(stage=stage, last_activity_at=at, events=events[-30:])
+            _write(self._path(record["id"]), record)
+
+    def _observe(self, record, event):
+        item = event.get("item") or {}
+        event_type = event.get("type")
+        if event_type == "thread.started":
+            self._activity(record, "status", "Codex 已连接，开始调研。")
+        elif event_type in {"item.started", "item.updated", "item.completed"} and isinstance(item, dict):
+            kind = item.get("type")
+            status = "completed" if event_type == "item.completed" else "running"
+            if item.get("status") == "failed" or item.get("exit_code") not in (None, 0):
+                status = "failed"
+            if kind == "agent_message" and event_type == "item.completed":
+                self._activity(record, "message", item.get("text", ""), status)
+            elif kind == "web_search":
+                action = item.get("action") or {}
+                query = item.get("query") or (action.get("query") if isinstance(action, dict) else None)
+                self._activity(record, "search", "联网搜索：" + str(query or "检索来源"), status)
+            elif kind in {"command_execution", "mcp_tool_call"} and event_type != "item.updated":
+                # Do not expose raw arguments/commands, credentials or binary MCP content.
+                tool = item.get("tool") if kind == "mcp_tool_call" else "命令工具"
+                self._activity(record, "tool", f"{tool or '工具'}：{status}", status)
+
+    def _fail(self, record, error):
+        kind, message = research_failure(error, self.cancel.is_set())
+        record.update(status="interrupted" if self.cancel.is_set() else "failed",
+                      note=message, error_type=kind, error=message)
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / f"{record['id']}-error.txt").write_text(str(error), encoding="utf-8")
+        self._activity(record, "error", message, record["status"], stage=record["status"])
 
     def _run(self, batch_id):
         record = self._load(batch_id)
@@ -170,23 +257,27 @@ class TopicResearchService:
                 (workspace / "AGENTS.md").write_text(
                     "This is an isolated read-only topic research task. Do not implement, install, generate images, or publish.\n",
                     encoding="utf-8")
-                result = self.researcher.research(snapshot, record["count"], record["instructions"], workspace, self.cancel)
+                if isinstance(self.researcher, CodexTopicResearcher):
+                    result = self.researcher.research(snapshot, record["count"], record["instructions"], workspace, self.cancel,
+                                                     public_observer=lambda event: self._observe(record, event))
+                else:
+                    result = self.researcher.research(snapshot, record["count"], record["instructions"], workspace, self.cancel)
                 record["attempts"].append({"thread_id": result.thread_id, "usage": result.usage.model_dump()})
                 if self.cancel.is_set():
                     raise RuntimeError("stopped")
                 if not self._same_config(snapshot, self.snapshot(record["series_id"])):
                     record["note"] = "栏目配置已改变，正在按最新配置重新调研。"
+                    self._activity(record, "status", record["note"], stage="restarting")
                     continue
                 record.update(status="ready", note=result.receipt.note,
                               candidates=[{"id": f"c{i}", **c.model_dump()} for i, c in enumerate(result.receipt.candidates, 1)])
+                self._activity(record, "status", f"调研完成：{len(record['candidates'])} 个候选，尚未入队。", "completed", stage="ready")
                 break
             else:
                 record.update(status="stale", note="栏目连续变化，已停止追加调用；请稳定配置后重新调研。")
+                self._activity(record, "status", record["note"], "interrupted", stage="stale")
         except Exception as error:
-            record.update(status="interrupted" if self.cancel.is_set() else "failed",
-                          note="调研已中断，请重新发起。" if self.cancel.is_set() else "调研失败，未入队；请检查本地调研错误记录后重试。")
-            self.root.mkdir(parents=True, exist_ok=True)
-            (self.root / f"{batch_id}-error.txt").write_text(str(error), encoding="utf-8")
+            self._fail(record, error)
         finally:
             with self.lock:
                 _write(self._path(batch_id), record)
@@ -194,6 +285,14 @@ class TopicResearchService:
     def get(self, batch_id):
         with self.lock:
             record = self._load(batch_id)
+        # Older failures get a safe read-only projection; never rewrite their evidence.
+        if record["status"] == "failed" and not record.get("error_type"):
+            error_path = self.root / f"{batch_id}-error.txt"
+            if error_path.is_file() and error_path.stat().st_size <= 16 * 1024:
+                text = error_path.read_text(encoding="utf-8")
+                error = CodexProducerError(text, error_type="codex_not_found") if "未找到 codex CLI" in text else RuntimeError(text)
+                record["error_type"], record["error"] = research_failure(error)
+        record.setdefault("progress", {"stage": record["status"], "last_activity_at": None, "events": []})
         try:
             stale = not self._same_config(record["snapshot"], self.snapshot(record["series_id"]))
         except ValueError:
@@ -290,6 +389,8 @@ class TopicResearchService:
             record = json.loads(path.read_text(encoding="utf-8"))
             if record["status"] == "researching":
                 record.update(status="interrupted", note="上次调研已中断；候选未入队，可重新发起。")
+                if record.get("progress"):
+                    self._activity(record, "status", record["note"], "interrupted", stage="interrupted")
                 _write(path, record)
 
     def shutdown(self):

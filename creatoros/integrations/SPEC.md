@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 调研执行器定位与公开活动（2026-10-05）
+
+- 用户真实三次调研在启动阶段报“未找到 codex CLI”，不是额度或内容质量失败。默认 CLI 复用已安装 `openai-codex==0.157.1` 的捆绑可执行文件；显式 `CREATOROS_CODEX_EXECUTABLE` 配置无效时拒绝，不修改全局 PATH/登录态。使用 SDK 私有 `_resolve_codex_bin` 是有回归覆盖的兼容接缝，升级 SDK 必须重新验证。
+- CLI JSONL 单消费者仍写完整本地 Trace、解析回执与用量；可选 observer 只投影公开消息、搜索、工具状态。调研窗口最多 30 条/每条 1000 字，已知凭证/本地路径脱敏，不展示 reasoning。旧失败 GET 仅投影具体安全错误，不改写旧证据。
+- 相同栏目/配置/数量/归一化要求仅在任务进行中复用；不是语义去重或已完成缓存。不同调研仍受全局单 worker 限制，无自动排队；失败不自动重试。Web 原聊天观察逻辑见 web-chat SPEC。
+- `smoke_topic_research_observation` / `smoke_topic_research` / `smoke_codex_producer` 通过；PATH 为空时真实捆绑 `codex-cli 0.157.1 --version` 成功。另有真实 DeepSeek → Codex `gpt-6-luna/xhigh` 联网验收，74.7 秒、1 个有来源的英语候选，原聊天显示公开活动且正式队列不变，证据 `tmp/research-chat-live-3v6w09qo/`；不生图、发布或修改正式库。
+
 ## 本地 Skill 融合草稿（2026-10-05，后端切片）
 
 - 多 Skill 融合复用 `SkillExtractionService` 单 Skill 工作台 Job；已登记来源各自冻结摘要与过滤后的文件副本，源目录从不作为模型工作目录。目标草稿自包含安全来源资源，并保留可编辑/改稿/试用/显式保存的既有门禁。

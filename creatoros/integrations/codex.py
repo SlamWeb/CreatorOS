@@ -212,11 +212,13 @@ class CodexProducer:
     @classmethod
     def from_defaults(cls) -> "CodexProducer":
         from ..config import CODEX_PRODUCER_TIMEOUT_SECONDS, PROJECT_ROOT
+        from .codex_executable import default_codex_executable
 
         codex_home = Path(os.getenv("CODEX_HOME") or Path.home() / ".codex")
         return cls(
             project_root=PROJECT_ROOT,
             generated_images_root=codex_home / "generated_images",
+            executable=default_codex_executable(),
             timeout_seconds=CODEX_PRODUCER_TIMEOUT_SECONDS,
         )
 
@@ -376,6 +378,7 @@ class CodexProducer:
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
         on_process_stopped: Callable[[], None] | None = None,
+        public_observer: Callable[[dict], None] | None = None,
     ) -> CodexRun:
         with TemporaryDirectory(prefix="creatoros-codex-schema-") as temporary:
             schema_path = Path(temporary) / "production-receipt.schema.json"
@@ -427,6 +430,18 @@ class CodexProducer:
                                 trace.flush()
                                 lines.append(line)
                                 self._notify_thread_started(line, on_thread_started)
+                                if public_observer is not None:
+                                    try:
+                                        event = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if (isinstance(event, dict) and
+                                            (event.get("type") == "thread.started" or
+                                             (event.get("type") in {"item.started", "item.updated", "item.completed"}
+                                              and isinstance(event.get("item"), dict)
+                                              and event["item"].get("type") in {"agent_message", "web_search",
+                                                                                  "command_execution", "mcp_tool_call"}))):
+                                        public_observer(event)
                         return_code = process.wait()
                     finally:
                         finished.set()

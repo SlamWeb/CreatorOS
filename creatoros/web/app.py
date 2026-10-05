@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import os
 import asyncio
 from contextlib import ExitStack, asynccontextmanager
@@ -71,6 +70,7 @@ from .extraction_routes import extraction_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
+from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
 
@@ -230,10 +230,15 @@ def create_app(
             queries.health_database()
         except Exception as error:
             raise HTTPException(status_code=503, detail="数据库不可用。") from error
+        try:
+            resolve_codex_executable()
+            available = True
+        except FileNotFoundError:
+            available = False
         return HealthView(
             status="ok",
             database="ok",
-            codex_available=shutil.which("codex") is not None,
+            codex_available=available,
             writable_routes_enabled=True,
             operation_parser_configured=bool(operation_parser or operation_parser_factory or os.environ.get("DEEPSEEK_API_KEY", "").strip()),
         )
