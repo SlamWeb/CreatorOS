@@ -14,6 +14,7 @@ async function createSession(request: APIRequestContext, creatorId: string | nul
 
 test("account entry stays lazy and the first turn is bound to that account", async ({ page, request }, info) => {
   const creator = await createCreator(request, "账号聊天隔离验收");
+  const otherCreator = await createCreator(request, "另一账号草稿隔离");
   let sessionPosts = 0;
   let creatorFilterReads = 0;
   page.on("request", requestEvent => {
@@ -26,22 +27,43 @@ test("account entry stays lazy and the first turn is bound to that account", asy
   }));
 
   await page.goto("/");
-  await page.getByRole("link", { name: `与 ${creator.display_name} 对话` }).click();
-  await expect(page).toHaveURL(new RegExp(`/agent\\?creator=${creator.id}`));
-  await expect(page.getByRole("heading", { name: `从「${creator.display_name}」开始` })).toBeVisible();
+  await page.getByRole("button", { name: `查看账号 ${creator.display_name}` }).click();
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("heading", { name: `从「${creator.display_name}」开始` })).toBeVisible();
   expect(sessionPosts).toBe(0);
   await page.screenshot({ path: info.outputPath("account-chat-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("account-chat-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 900 });
+
+  const input = panel.getByRole("textbox", { name: "给 Agent 的消息" });
+  await input.fill("A 账号的草稿不能泄漏给 B。");
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+  await expect(panel).toBeHidden();
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(input).toHaveValue("A 账号的草稿不能泄漏给 B。");
+  await page.getByRole("button", { name: `查看账号 ${otherCreator.display_name}` }).click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("heading", { name: otherCreator.display_name, exact: true })).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
+  await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("B 账号自己的草稿。");
+  await page.getByRole("button", { name: `查看账号 ${creator.display_name}` }).click();
+  await expect(panel.getByRole("heading", { name: creator.display_name, exact: true })).toBeVisible();
+  await expect(input).toHaveValue("A 账号的草稿不能泄漏给 B。");
+  expect(sessionPosts).toBe(0);
+
   await page.reload();
-  await expect(page.getByRole("heading", { name: `从「${creator.display_name}」开始` })).toBeVisible();
+  await expect(page.locator(".account-chat-panel")).toBeHidden();
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(page.locator(".account-chat-panel").getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("A 账号的草稿不能泄漏给 B。");
   expect(sessionPosts).toBe(0);
   expect(creatorFilterReads).toBeGreaterThan(0);
 
-  await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("查看这个账号的栏目");
-  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await page.locator(".account-chat-panel").getByRole("textbox", { name: "给 Agent 的消息" }).fill("查看这个账号的栏目");
+  await page.locator(".account-chat-panel").getByRole("button", { name: "发送 ↑" }).click();
   await expect(page.getByRole("alert")).toContainText("模型响应故障注入");
   expect(sessionPosts).toBe(1);
 
@@ -50,9 +72,14 @@ test("account entry stays lazy and the first turn is bound to that account", asy
   expect(result.items).toHaveLength(1);
   expect(result.items[0].creator_id).toBe(creator.id);
   expect(result.items[0].scope_kind).toBe("creator");
+  expect(await page.evaluate((key) => sessionStorage.getItem(key), `creatoros.agent.selected-chat.v1:creator%3A${creator.id}`)).toBe(result.items[0].id);
   await page.reload();
-  await expect.poll(() => new URL(page.url()).searchParams.get("chat")).toBe(result.items[0].id);
-  await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(creator.id);
+  expect(new URL(page.url()).searchParams.has("chat")).toBe(false);
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  const restoredPanel = page.locator(".account-chat-panel");
+  await restoredPanel.getByRole("button", { name: "历史对话", exact: true }).click();
+  await expect(restoredPanel.locator('.agent-history-list button[aria-current="page"]')).toBeVisible();
+  await expect(restoredPanel.getByText("记录已保存")).toBeVisible();
   expect(sessionPosts).toBe(1);
 });
 
@@ -72,9 +99,9 @@ test("deep links derive a bound session scope; mismatched scopes cannot send", a
   });
 
   await page.goto(`/?creator=${creator.id}`);
-  await page.locator(".rail-series").filter({ hasText: "乙账号栏目" }).click();
+  await page.getByRole("button", { name: `查看账号 ${otherCreator.display_name}` }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(otherCreator.id);
-  await expect(page.getByRole("heading", { name: "乙账号栏目" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: otherCreator.display_name, level: 1 })).toBeVisible();
 
   await page.goto("/agent");
   await expect(page.locator(".agent-history-list button")).toHaveCount(1);

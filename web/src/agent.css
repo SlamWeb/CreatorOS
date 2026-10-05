@@ -131,3 +131,50 @@
   .agent-composer { padding: 12px; }
   .agent-conversation > .agent-note { text-align: left; }
 }
+
+.account-chat-panel {
+  position: fixed;
+  z-index: 40;
+  inset: 76px 20px 20px auto;
+  width: min(420px, calc(100vw - 40px));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: 0 18px 55px rgb(0 0 0 / 16%);
+}
+.account-chat-panel[hidden] { display: none; }
+.account-chat-panel-header { flex: 0 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.account-chat-panel-header h2 { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.account-chat-panel-header span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.account-chat-panel-close { display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.account-chat-panel-close:hover { background: var(--surface); color: var(--ink); }
+.account-chat-panel-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-chat-workspace { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; width: 100%; height: auto; min-height: 0; padding: 12px 16px 16px; overflow: hidden; }
+.account-chat-workspace .agent-history-toggle { display: block; align-self: flex-start; flex: 0 0 auto; margin-bottom: 8px; border: 0; border-radius: 980px; background: #e8e8ed; color: var(--ink); padding: 7px 12px; font-size: 11px; cursor: pointer; }
+.account-chat-workspace .agent-history { display: none; flex: 0 0 auto; max-height: 220px; min-height: 0; margin-bottom: 8px; padding: 10px; overflow: hidden; border: 0; border-radius: 12px; background: var(--surface); }
+.account-chat-workspace .agent-history.is-open { display: flex; }
+.account-chat-workspace .agent-history-label { margin: 4px 8px 6px; }
+.account-chat-workspace .agent-history-list { min-height: 0; overflow-y: auto; }
+.account-chat-workspace .agent-history-list button { padding: 7px 8px; font-size: 12px; }
+.account-chat-workspace .agent-conversation { flex: 1 1 auto; height: 100%; min-height: 0; overflow: hidden; }
+.account-chat-workspace .agent-heading { flex: 0 0 auto; padding-bottom: 10px; }
+.account-chat-workspace .agent-heading h1 { font-size: 17px; }
+.account-chat-workspace .agent-transcript { flex: 1 1 auto; height: auto; min-height: 0; padding: 12px 4px; }
+.account-chat-workspace .agent-welcome { margin: 18px auto; }
+.account-chat-workspace .agent-welcome h2 { font-size: 18px; }
+.account-chat-workspace .agent-composer { flex: 0 0 auto; margin-top: 6px; padding: 10px 12px; }
+.account-chat-workspace .chat-user { max-width: 94%; }
+.account-chat-panel .chat-tool { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 6px 0 6px 10px; border: 0; border-left: 2px solid var(--line); background: transparent; color: var(--muted); margin: 4px 0 8px; font-size: 12px; }
+.account-chat-panel .agent-workspace button:focus-visible, .account-chat-panel .chat-table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .account-chat-panel { inset: 64px 8px 8px; width: auto; border-radius: 14px; }
+  .account-chat-panel-header { padding: 12px 14px; }
+  .account-chat-workspace { padding: 10px 12px 12px; }
+  .account-chat-workspace .agent-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .account-chat-workspace .agent-transcript { height: auto; min-height: 0; }
+}

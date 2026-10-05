@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import { useRunEvents } from "../api/useRunEvents";
 import type { CardView, PartialCardView, RevisionView, RunDetail } from "../api/types";
@@ -8,14 +8,19 @@ import { RunControls } from "./RunControls";
 import { StatusPill, formatDate } from "./StatusPill";
 
 export function RunInspector({ run }: { run: RunDetail }) {
+  const [params] = useSearchParams();
+  const requestedReturn = params.get("return");
+  // Only return to our own content workspace, never an arbitrary external URL.
+  const returnTo = requestedReturn && /^\/(?:\?|$|series\/[^/?#]+(?:\?|$))/.test(requestedReturn)
+    ? requestedReturn : `/series/${run.series_id}`;
   const [selected, setSelected] = useState<string | null>(null);
-  const { events, connection } = useRunEvents(run.id);
+  const { events, connection } = useRunEvents(run.id, ["queued", "producing", "validating", "running"].includes(run.status));
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);
   const old = revision?.revision_number !== run.active_revision_number;
   const partialCards = !old && !revision?.cards.length ? [...(run.partial_cards ?? [])].sort((a, b) => a.order - b.order) : [];
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <>
-    <Link className="back-link" to={`/series/${run.series_id}`}>← 返回栏目</Link>
+    <Link className="back-link" to={returnTo}>← 返回栏目</Link>
     <header className="page-heading inspector-heading"><div><p className="run-context">{run.creator_name} / {run.series_name}</p><h1>{run.topic_title}</h1></div>{run.publication ? <span className="status-active">● 已发布</span> : <StatusPill status={run.status} />}</header>
     <div className="inspector-toolbar"><label>内容版本 <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)}>{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select></label><span className="stream-status" role="status">{connection}</span></div>
     {old ? <div className="review-warning">正在查看历史版本，仅供对照，不能批准或修改。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本 →</button></div> : null}

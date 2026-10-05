@@ -68,3 +68,24 @@
 .rail-new-account { width: 100%; text-align: left; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: transparent; color: var(--muted); padding: 9px 12px; font: 550 13px inherit; cursor: pointer; transition: border-color .15s, color .15s; }
 .rail-new-account:hover { border-color: var(--accent); color: var(--ink); }
 .rail-add.rail-delete { color: var(--danger); font-size: 12px; white-space: nowrap; }
+.workspace-tree-toggle { display:none; }
+.rail-account-select { display:flex; align-items:center; flex:1; min-width:0; gap:8px; padding:6px; border:0; border-radius:8px; background:transparent; text-align:left; color:var(--ink); }
+.rail-account-select:hover,.rail-account-select[aria-current="page"] { background:var(--accent-soft); }
+.rail-account-select h2 { overflow-wrap:anywhere; }
+.account-series-section { margin:28px 0 36px; }
+.account-series-head { margin-bottom:8px; }
+.account-series-head h2 { margin:0; font-size:16px; }
+.account-series-head button { display:flex; gap:8px; padding:0; background:transparent; border:0; font-weight:600; color:var(--ink); }
+.account-series-head button span { color:var(--muted); }
+.workspace-chat-launcher { position:fixed; right:24px; bottom:24px; z-index:35; display:grid; place-items:center; width:56px; height:56px; padding:8px; border:1px solid #d8e5f7; border-radius:50%; background:white; box-shadow:0 6px 24px #1c416422; }
+.workspace-chat-launcher svg { width:36px; height:36px; }
+.workspace-chat-launcher[aria-expanded="true"] { visibility:hidden; }
+@media(min-width:1400px) { .workspace.chat-open { padding-right:400px; gap:22px; } .workspace.chat-open .content-feed { columns:2 200px; } }
+@media(max-width:760px) {
+  .workspace-tree-toggle { display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--canvas); border-radius:10px; color:var(--ink); font-size:12px; overflow-wrap:anywhere; }
+  .workspace-rail { display:none; }
+  .workspace-rail.is-open { display:block; padding:10px; background:var(--surface); border-radius:12px; }
+  .workspace-rail .rail-group { display:block; margin-bottom:12px; }
+  .workspace-rail .rail-series { width:100%; }
+  .workspace-chat-launcher { right:16px; bottom:max(16px,env(safe-area-inset-bottom)); width:50px; height:50px; }
+}

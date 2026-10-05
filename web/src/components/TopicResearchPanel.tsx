@@ -15,7 +15,8 @@ const labels: Record<string, string> = { researching: "调研中", ready: "待�
 export function TopicResearchPanel({ seriesId, controlsOnly = false }: { seriesId: string; controlsOnly?: boolean }) {
   const [params] = useSearchParams();
   const history = useQuery({ queryKey: ["research-history", seriesId],
-    queryFn: () => request<{ items: Batch[] }>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`), refetchInterval: 5000 });
+    queryFn: () => request<{ items: Batch[] }>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`),
+    refetchInterval: query => query.state.data?.items.some(batch => batch.status === "researching") ? 5000 : false });
   const batchId = params.get("research") ?? history.data?.items[0]?.id ?? null;
   if (history.isPending && !batchId) return <section className="research-panel"><p role="status">正在读取调研记录…</p></section>;
   return <ResearchPanel key={`${seriesId}-${batchId ?? "new"}`} seriesId={seriesId} batchId={batchId} history={history} controlsOnly={controlsOnly} />;
@@ -32,7 +33,8 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
   const [editing, setEditing] = useState<Selection | null>(null);
   const editButtons = useRef<Record<string, HTMLButtonElement | null>>({});
   const batch = useQuery({ queryKey: ["research", batchId], enabled: !!batchId,
-    queryFn: () => request<Batch>(`/api/topic-research/${encodeURIComponent(batchId!)}`), refetchInterval: 3000 });
+    queryFn: () => request<Batch>(`/api/topic-research/${encodeURIComponent(batchId!)}`),
+    refetchInterval: query => query.state.data?.status === "researching" ? 3000 : false });
   const chooseBatch = (id: string) => setParams(p => { p.set("research", id); return p; });
   const start = useMutation({ retry: false,
     mutationFn: () => request<Batch>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`, {

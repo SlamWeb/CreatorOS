@@ -18,7 +18,7 @@ export function OperationDrawer() {
   const cache = useQueryClient();
   const id = params.get("operation"), command = params.get("command");
   const opened = !!id || !!command;
-  const query = useOperation(id), overview = useOverview();
+  const query = useOperation(id), overview = useOverview(command === "new");
   const [offset, setOffset] = useState(0);
   const plans = useQuery({ queryKey: ["operations", offset], queryFn: () => studioApi.operations(offset), enabled: command === "list" });
   const [draft, setDraft] = useState(""), [scope, setScope] = useState("");

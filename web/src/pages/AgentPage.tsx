@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request, studioApi } from "../api/client";
@@ -21,111 +21,189 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
+const draftStorageKey = (scope: string) => `creatoros.agent.draft.v1:${encodeURIComponent(scope)}`;
+const selectedChatStorageKey = (scope: string) => `creatoros.agent.selected-chat.v1:${encodeURIComponent(scope)}`;
+const readSessionValue = (key: string) => {
+  try { return window.sessionStorage.getItem(key) ?? ""; } catch { return ""; }
+};
+const writeSessionValue = (key: string, value: string) => {
+  try {
+    if (value) window.sessionStorage.setItem(key, value);
+    else window.sessionStorage.removeItem(key);
+  } catch { /* In-memory state still works when storage is unavailable. */ }
+};
 
 export function AgentPage() {
+  return <AgentConversation mode="standalone" />;
+}
+
+export type AgentConversationProps = {
+  mode: "standalone" | "embedded";
+  creatorId?: string | null;
+  accountName?: string;
+  active?: boolean;
+  draftSeed?: string | null;
+  draftSeedId?: string | number;
+};
+
+export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, accountName,
+  active = true, draftSeed, draftSeedId }: AgentConversationProps) {
   const [params, setParams] = useSearchParams();
-  const id = params.get("chat");
   const cache = useQueryClient();
-  const [draft, setDraft] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState("");
+  const standalone = mode === "standalone";
+  const requestedCreatorId = standalone ? params.get("creator") : embeddedCreatorId;
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
+  const scopeKeyRef = useRef("");
+  const creatorScopeId = requestedCreatorId;
+  const scopeKey = creatorScopeId ? `creator:${creatorScopeId}` : "overview";
+  scopeKeyRef.current = scopeKey;
+  const draft = drafts[scopeKey] ?? readSessionValue(draftStorageKey(scopeKey));
+  const id = standalone ? params.get("chat") : ((selectedChats[scopeKey] ?? readSessionValue(selectedChatStorageKey(scopeKey))) || null);
+  const error = errors[scopeKey] ?? "";
+  const updateDraft = useCallback((scope: string, value: string) => {
+    setDrafts(previous => ({ ...previous, [scope]: value }));
+    writeSessionValue(draftStorageKey(scope), value);
+  }, []);
+  const updateError = useCallback((scope: string, value: string) => {
+    setErrors(previous => ({ ...previous, [scope]: value }));
+  }, []);
+  const [connected, setConnected] = useState(false);
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  const requestedCreatorId = params.get("creator");
-  const session = useQuery({ queryKey: ["agent-session", id], queryFn: () => request<Session>(`${base}/${id}`),
-    enabled: !!id, refetchInterval: q => q.state.data?.status === "running" ? 2000 : 10000 });
+  const lastSeed = useRef("");
+  const session = useQuery({ queryKey: ["agent-session", scopeKey, id], queryFn: () => request<Session>(`${base}/${id}`),
+    enabled: active && !!id, refetchInterval: q => active && q.state.data?.status === "running" ? 2000 : false });
   const doc = session.data;
-  const creatorId = requestedCreatorId ?? (doc?.scope_kind === "creator" ? doc.creator_id : null);
-  const scopeReady = !id || !!doc || session.isError;
+  const creatorId = standalone ? (requestedCreatorId ?? (doc?.scope_kind === "creator" ? doc.creator_id : null)) : embeddedCreatorId;
+  const dataScopeKey = creatorId ? `creator:${creatorId}` : "overview";
+  const scopeReady = active && (!id || !!doc || session.isError);
   const scopeQuery = creatorId
     ? `scope_kind=creator&creator_id=${encodeURIComponent(creatorId)}`
     : "scope_kind=overview";
-  const sessions = useQuery({ queryKey: ["agent-sessions", creatorId],
+  const sessions = useQuery({ queryKey: ["agent-sessions", dataScopeKey],
     queryFn: () => request<{ items: Session[] }>(`${base}?${scopeQuery}`),
-    enabled: scopeReady, refetchInterval: 5000 });
+    enabled: scopeReady, refetchInterval: q => active && q.state.data?.items.some(item => item.status === "running") ? 5000 : false });
   const creator = useQuery({ queryKey: ["creator", creatorId], queryFn: () => studioApi.creator(creatorId!), retry: false,
-    enabled: !!creatorId });
+    enabled: active && !!creatorId });
   const docCreatorId = doc?.scope_kind === "creator" ? doc.creator_id : null;
   const scopeMismatch = !!doc && (doc.scope_kind !== (creatorId ? "creator" : "overview") || docCreatorId !== creatorId);
   const accountError = creatorId ? creator.isError : false;
   const accountInactive = !!creator.data && !creator.data.is_active;
   const accountPending = !!creatorId && creator.isPending;
   const cannotSend = scopeMismatch || accountError || accountInactive || accountPending;
+  const observedSession = useRef<{ key: string; status?: string }>({ key: "" });
 
   useEffect(() => {
-    if (!id || requestedCreatorId || !doc || doc.scope_kind !== "creator" || !doc.creator_id) return;
+    if (!active || !doc || scopeMismatch) return;
+    const key = `${scopeKey}:${doc.id}`;
+    const previous = observedSession.current;
+    observedSession.current = { key, status: doc.status };
+    if (previous.key === key && previous.status === "running" && doc.status !== "running") {
+      // A finished tool turn may have changed business state. Refresh once;
+      // do not keep polling the workspace while the conversation is idle.
+      for (const queryKey of ["creators", "series-all", "series", "topics", "runs", "overview"]) {
+        void cache.invalidateQueries({ queryKey: [queryKey] });
+      }
+    }
+  }, [active, doc?.id, doc?.status, scopeKey, scopeMismatch, cache]);
+
+  useEffect(() => {
+    if (!standalone || !id || requestedCreatorId || !doc || doc.scope_kind !== "creator" || !doc.creator_id) return;
     setParams(previous => {
       const next = new URLSearchParams(previous);
       next.set("creator", doc.creator_id!);
       return next;
     }, { replace: true });
-  }, [id, requestedCreatorId, doc, setParams]);
-  useEffect(() => { setError(""); }, [id, requestedCreatorId]);
+  }, [standalone, id, requestedCreatorId, doc, setParams]);
+  useEffect(() => { updateError(scopeKey, ""); setHistoryOpen(false); }, [id, scopeKey, updateError]);
+  useEffect(() => {
+    if (!draftSeed) { lastSeed.current = ""; return; }
+    if (!active) return;
+    const seedKey = `${scopeKey}\u001f${draftSeedId ?? draftSeed}`;
+    if (lastSeed.current === seedKey) return;
+    lastSeed.current = seedKey;
+    updateDraft(scopeKey, draftSeed);
+  }, [active, draftSeed, draftSeedId, scopeKey, updateDraft]);
   useEffect(() => {
     setConnected(false); follow.current = true;
-    if (!id) return;
+    if (!active || !id || doc?.status !== "running") return;
+    let live = true;
     const source = new EventSource(apiUrl(`${base}/${id}/events`));
-    source.onopen = () => setConnected(true);
-    source.onerror = () => setConnected(false);
+    source.onopen = () => { if (live) setConnected(true); };
+    source.onerror = () => { if (live) setConnected(false); };
     source.addEventListener("snapshot", event => {
       const next = JSON.parse((event as MessageEvent).data) as Session;
-      if (next.id !== id) return;
-      cache.setQueryData<Session>(["agent-session", id], old => old && old.updated_at > next.updated_at ? old : next);
+      if (!live || next.id !== id) return;
+      cache.setQueryData<Session>(["agent-session", scopeKey, id], old => old && old.updated_at > next.updated_at ? old : next);
     });
-    return () => source.close();
-  }, [id, cache]);
+    return () => { live = false; source.close(); };
+  }, [active, id, scopeKey, doc?.status, cache]);
   useEffect(() => {
     if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [doc]);
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId }: { text: string; current: Session | undefined; scopeCreatorId: string | null }) => {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey }: { text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string }) => {
       const target = current ?? await request<Session>(base, { method: "POST", body: JSON.stringify({ creator_id: scopeCreatorId }) });
       const targetCreatorId = target.scope_kind === "creator" ? target.creator_id : null;
       if (targetCreatorId !== scopeCreatorId || target.scope_kind !== (scopeCreatorId ? "creator" : "overview")) {
         throw new Error("会话账号范围与当前选择不一致，已停止发送。请返回对应账号后打开正确的对话。");
       }
       if (!current) {
-        cache.setQueryData(["agent-session", target.id], target);
-        setParams(previous => {
-          const next = new URLSearchParams(previous);
-          next.set("chat", target.id);
-          if (scopeCreatorId) next.set("creator", scopeCreatorId);
-          else next.delete("creator");
-          return next;
-        });
+        cache.setQueryData(["agent-session", submittedScopeKey, target.id], target);
+        writeSessionValue(selectedChatStorageKey(submittedScopeKey), target.id);
+        setSelectedChats(previous => ({ ...previous, [submittedScopeKey]: target.id }));
+        if (standalone && scopeKeyRef.current === submittedScopeKey) {
+          setParams(previous => {
+            const next = new URLSearchParams(previous);
+            next.set("chat", target.id);
+            if (scopeCreatorId) next.set("creator", scopeCreatorId);
+            else next.delete("creator");
+            return next;
+          });
+        }
       }
       return request<Session>(`${base}/${target.id}/turns`, { method: "POST", body: JSON.stringify({
         text, request_id: crypto.randomUUID(), expected_version: target.version,
       }) });
     },
-    onSuccess: next => {
-      cache.setQueryData(["agent-session", next.id], next); setDraft(""); setError(""); follow.current = true;
-      void cache.invalidateQueries({ queryKey: ["agent-sessions"] });
+    onSuccess: (next, variables) => {
+      cache.setQueryData(["agent-session", variables.submittedScopeKey, next.id], next);
+      if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
+      updateError(variables.submittedScopeKey, "");
+      if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
+      void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
     },
-    onError: (e: Error) => {
-      setError(`${e.message} 没有自动重试；请先检查对话与运行记录。`);
-      void cache.invalidateQueries({ queryKey: ["agent-session"] });
+    onError: (e: Error, variables) => {
+      updateError(variables.submittedScopeKey, `${e.message} 没有自动重试；请先检查对话与运行记录。`);
+      void cache.invalidateQueries({ queryKey: ["agent-session", variables.submittedScopeKey] });
     },
   });
   const submit = () => {
     if (!draft.trim() || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
-    setError(""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId });
+    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey });
   };
   const chooseSession = (next: string | null) => {
-    setError(""); setDraft(""); setHistoryOpen(false);
-    setParams(previous => {
-      const params = new URLSearchParams(previous);
-      params.delete("command");
-      if (next) params.set("chat", next); else params.delete("chat");
-      if (creatorId) params.set("creator", creatorId);
-      else params.delete("creator");
-      return params;
-    });
+    updateError(scopeKey, ""); setHistoryOpen(false);
+    if (standalone) {
+      setParams(previous => {
+        const nextParams = new URLSearchParams(previous);
+        nextParams.delete("command");
+        if (next) nextParams.set("chat", next); else nextParams.delete("chat");
+        if (creatorId) nextParams.set("creator", creatorId);
+        else nextParams.delete("creator");
+        return nextParams;
+      });
+    } else {
+      writeSessionValue(selectedChatStorageKey(scopeKey), next ?? "");
+      setSelectedChats(previous => ({ ...previous, [scopeKey]: next ?? "" }));
+    }
   };
   const history = sessions.data?.items ?? [];
-  return <section className="agent-workspace">
+  return <section className={`agent-workspace${standalone ? "" : " account-chat-workspace"}`}>
     <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls="agent-history"
       onClick={() => setHistoryOpen(!historyOpen)}>历史对话</button>
     <aside id="agent-history" className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
@@ -143,9 +221,9 @@ export function AgentPage() {
     </aside>
     <div className="agent-conversation">
     <div className="agent-heading"><div><h1>{doc?.title ?? (creatorId ? "账号对话" : "把想法交给 Agent")}</h1>
-      {creatorId && <span className="agent-connection">账号：{creator.data?.display_name ?? (creator.isPending ? "读取中…" : creatorId)} · <Link to={`/?creator=${encodeURIComponent(creatorId)}`}>返回账号工作台</Link></span>}
-      {id && <span className="agent-connection">{connected ? "实时连接" : "连接中 · 自动刷新"}</span>}</div>
-      <Link className="text-link" to={(() => { const next = new URLSearchParams(params); next.set("command", "new"); return `?${next.toString()}`; })()}>添加 / 调整选题 ↗</Link></div>
+      <span className="agent-connection">{creatorId ? `账号：${accountName ?? creator.data?.display_name ?? (creator.isPending ? "读取中…" : creatorId)}` : "全部账号"}{standalone && creatorId && <> · <Link to={`/?creator=${encodeURIComponent(creatorId)}`}>返回账号工作台</Link></>}</span>
+      {id && <span className="agent-connection">{doc?.status === "running" ? (connected ? "实时连接" : "连接中 · 自动刷新") : "记录已保存"}</span>}</div>
+      {standalone && <Link className="text-link" to={(() => { const next = new URLSearchParams(params); next.set("command", "new"); return `?${next.toString()}`; })()}>添加 / 调整选题 ↗</Link>}</div>
     {(session.isError || sessions.isError || accountError || accountInactive || scopeMismatch) && <p role="alert" className="review-warning">
       {scopeMismatch ? "这个对话属于其他账号范围，不能在当前账号上下文中继续发送。" : accountInactive ? "该账号已停用，不能发送新的对话指令。" : accountError ? `无法读取账号，已阻止发送：${creator.error?.message ?? "账号不存在或暂不可用。"}` : session.error?.message ?? sessions.error?.message}
     </p>}
@@ -153,15 +231,15 @@ export function AgentPage() {
       const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     }} aria-label="对话记录">
       {id && session.isPending && <p className="agent-note">正在读取对话…</p>}
-      {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
-        <button type="button" disabled={cannotSend} onClick={() => setDraft(creatorId ? `看看「${creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
+      {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
+        <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
       {doc?.entries.map((entry, index) => <ChatEntry key={`${doc.id}-${index}`} entry={entry} sessionId={doc.id} sessionStatus={doc.status} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
       <textarea aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={2}
-        onChange={e => setDraft(e.target.value)} onKeyDown={e => {
+        onChange={e => updateDraft(scopeKey, e.target.value)} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
       <div><span role="status">{send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]} · Enter 发送</span>

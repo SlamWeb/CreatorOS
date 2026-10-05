@@ -95,6 +95,10 @@ test("workspace first use to revision and approval survives refresh", async ({ p
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  const mobileTree = page.getByRole("button", { name: /账号与栏目/ });
+  await expect(mobileTree).toHaveAttribute("aria-expanded", "false");
+  await mobileTree.click();
+  await expect(page.locator(".workspace-rail")).toHaveClass(/is-open/);
   await expect(page.getByRole("button", { name: /Agent 每日一题/ })).toBeVisible();
   const width = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: window.innerWidth }));
   expect(width.body).toBeLessThanOrEqual(width.viewport);
@@ -110,6 +114,15 @@ test("workspace first use to revision and approval survives refresh", async ({ p
       expect(overflow, route).toEqual([]);
     }
   }
+  await page.goto("/");
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  const accountPanel = page.locator(".account-chat-panel");
+  await expect(accountPanel).toBeVisible();
+  await expect(accountPanel.getByRole("heading", { name: "账号对话" })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/agent/);
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+
+  await page.goto("/agent");
   await page.getByRole("button", { name: "看看我的账号和栏目 ↗" }).click();
   await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("看看我有哪些账号和栏目，先不要生产。");
   await page.getByRole("button", { name: /运营指令/ }).click();
