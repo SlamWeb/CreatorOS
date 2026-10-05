@@ -1,5 +1,25 @@
 # Artifact → Skill Workbench
 
+## V4：真实失败与公开执行记录（2026-10-05）
+
+- 实际 Mind 提炼任务在约 180 秒被宿主 `codex_timeout` 中断，期间公开消息、文件修改与校验仍在进行，已有 SKILL.md 不等于 turn 正常完成。此前 single 提炼/改稿成功不能证明所有模式/作品稳定。
+- 四段短 Prompt 与 gpt-6-sol/high 不变；提炼/改稿默认 600 秒总期限，`CREATOROS_SKILL_EXTRACTION_TIMEOUT_SECONDS` 可配置（30–1800 秒）。取消仍中断实际 turn；无隐式重试，不根据残存文件冒充 ready。
+- 唯一 SDK stream 增加可选公开事件观察器：记录 agentMessage 的流式文本、工具名称/输入/状态/可见结果、文件变更与真实错误；不保存 reasoning、传输 headers、二进制图片或未知事件正文。复用已知凭证脱敏并补普通文本凭证字段过滤，长正文有明确上限，不宣称完整原始 SDK dump。
+- 每个事件为可更新的本地记录，同一消息/工具不因 delta 重复列行。`GET /{id}/events?before_id=0&limit=50` 返回当前操作最后一页摘要（按 ID 升序），包含 stream_id、has_more；`GET /{id}/events/{event_id}?stream_id=...` 按需读正文。正文不进入任务列表，旧任务明确“未记录公开正文”。操作切换不混合改稿/试产记录。
+- 工作台展示真实公开消息与工具状态，可展开输入/结果；仅选中运行任务轮询，完成后停止，刷新不重提。失败按实际 error_type 显示可执行原因，不泛指登录/额度。旧失败记录只读投影已有 error.txt，不改写正式任务。
+- 验收：隔离 API/路径/脱敏/未知与 reasoning 排除/流式更新/超时取消故障注入；浏览器真实点击展开/刷新/失败路径；真实同参考图、Mind 模式与原要求的无生图探针。真实质量、正式入库与图片试产不在本轮。
+
+### V4 验证结果
+
+- 原失败任务 `615c061c…65522` 的 `error.txt` 为“Codex SDK 请求超时。”；180 秒截止前仍有文件修改，草稿及格式校验存在。直接原因是宿主截止，未据此推断登录/额度失败。原任务与正式数据不改写，旧错误由 GET 只读投影真实原因；未将原残存草稿伪装为完成。
+- 真实同图、Mind、原要求“重点保留内容结构，6个单词改为4个单词足矣”提炼通过，约 119 秒；证据 `tmp/skill-extraction-live-ynk36a7e/`，thread `01a10bb7-90db-74d0-af66-4d311b41219d`。gpt-6-sol/high；input 95,153 / cached 80,384 / output 2,814（阶段累计，不是上下文长度）。保留 10 条公开活动，包含一条退出码 1 的目录搜索及后续成功写入/校验。未生图、未联网搜索、未入库或试产；只证明此例完成，不承诺所有作品稳定或质量达标。
+- `smoke_extraction_activity` 通过：SDK 唯一 stream、delta/重复完成更新同条事件、公开正文/工具失败、reasoning 与未知正文排除、凭证脱敏、正文上限、隔离 HTTP 分页/按需详情/no-store/路径与链接拒绝、旧任务不改写、真实限时与启动/运行中取消故障注入。初次测试夹具未关闭 SQLite 导致临时目录清理错误，补 `db.close()` 后重跑通过，不隐瞒为产品验收成功。
+- `smoke_skill_draft_files`、`smoke_skill_extraction`、`smoke_skill_workbench`、`smoke_production_progress`、`smoke_skill_extraction_tools`、`smoke_web_agent` 回归通过。提炼工具旧 FakeStudioClient 未接收已上线的 agent_session_id，修正夹具签名后重跑；不是通过修改正式客户端掩盖错误。
+- 页面验收与受控 E2E 结果见 `web/SPEC.md`；CUA 实际展开真实失败工具与完成工具的 1551 字符正文、刷新原任务、切到原失败记录的隔离副本核对超时原因，截图保存在上述探针目录。不把受控 E2E 计作真实模型成功。公开记录正文最多 64Ki 字符、最多 2000 条，并保留长正文按需读取；不是无筛选原始 Notification dump。
+
+原例无生图续验：`python -m tests.live_skill_extraction --image <参考图绝对路径> --mode mind --instruction "重点保留内容结构，6个单词改为4个单词足矣" --no-save`。重启 Studio 后读取新版活动接口；旧任务没有公开消息正文时如实说明未记录，不补造历史。
+
+
 ## V3 本轮实施：Codex 直接写文件（2026-10-03）
 
 - 四种提炼 Prompt 使用用户给出的四段原文，只追加来源、用户要求与输出路径；不显式调用 skill-creator，不向模型暴露内部 `legacy_end_to_end` 角色，也不要求模型返回整份 JSON Skill。

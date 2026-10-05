@@ -30,6 +30,8 @@
 
 ## 产物提炼 Skill 接口（2026-10-02）
 
+- 2026-10-05：GET `/{job_id}/events` 返回当前操作最后 1–100 条公开摘要，before_id 读取更早页；GET `/{job_id}/events/{event_id}?stream_id=...` 按需正文，两个接口 no-store、只读、校验任务及当前操作归属与受管文件路径。正文不塞入 Job 列表，旧任务空记录不补造。失败 Job 的 error_type/文案反映已记录原因，旧记录只读投影；不泄露错误中的绝对路径或已知凭证。隔离 HTTP/分页/负参数/越界/链接与旧任务零改写通过，详情见 artifact-to-skill SPEC V4。
+
 - `/api/skill-extractions` 共用持久化提炼服务，上传/提炼/查询/取消/确认入库拆开。图片限制为静态 PNG/JPEG/WebP，每张 4 MiB、最多 6 张；不接任意路径或远端下载 URL。
 - 复用本地 JSON 写入门禁和 Skill catalog；输入幂等与草稿摘要检查，刷新不重提，确认不绑定栏目。Agent 调相同 API。
 - 隔离 HTTP/SQLite 覆盖四模式、坏图/重复图/缺图、幂等冲突、失败取消、重启、篡改拒绝、部分登记后重试不重复。真实 Codex 图像输入在独立 catalog 验证，不改正式库；细节见 `docs/artifact-to-skill/SPEC.md`。

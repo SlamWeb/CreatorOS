@@ -11,6 +11,8 @@ import type {
   PendingOperationView,
   ProducerSkillItem,
   SkillExtractionJob,
+  SkillExtractionEvent,
+  SkillExtractionEventPage,
   SkillExtractionMode,
   RunDetail,
   RunCancelInput,
@@ -85,6 +87,12 @@ export const studioApi = {
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
   skillExtractions: () => request<{ items: SkillExtractionJob[] }>("/api/skill-extractions"),
   skillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}`),
+  skillExtractionEvents: (id: string, beforeId = 0, limit = 50) => request<SkillExtractionEventPage>(
+    `/api/skill-extractions/${encodeURIComponent(id)}/events?before_id=${beforeId}&limit=${limit}`),
+  skillExtractionEvent: (id: string, eventId: number, streamId: string) => {
+    const query = new URLSearchParams({ stream_id: streamId });
+    return request<SkillExtractionEvent>(`/api/skill-extractions/${encodeURIComponent(id)}/events/${eventId}?${query}`);
+  },
   uploadSkillExtractionImage: (input: { name: string; data_base64: string }) => request<{ id: string; name: string; url: string }>("/api/skill-extractions/uploads", { method: "POST", body: JSON.stringify(input) }),
   createSkillExtraction: (input: { request_id: string; upload_ids: string[]; source_text: string; mode: SkillExtractionMode; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions", { method: "POST", body: JSON.stringify(input) }),
   skillExtractionFile: async (id: string, role: string, path: string) => {

@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
 import type { ExtractedSkillDraft, SkillExtractionFile, SkillExtractionMode } from "../api/types";
+import { ExtractionActivity } from "./ExtractionActivity";
 import "./artifact-skill-extraction.css";
 
 const modeLabels: Record<SkillExtractionMode, string> = {
@@ -15,6 +16,10 @@ const statusLabels: Record<string, string> = {
 };
 const roleLabels: Record<string, string> = { mind: "Mind", production: "Visualize", legacy_end_to_end: "完整 Skill" };
 const trialStatusLabels: Record<string, string> = { running: "试产中", completed: "试产完成", failed: "试产失败", interrupted: "试产已中断" };
+const progressActivityLabels: Record<string, string> = {
+  thinking: "正在处理", reading: "正在读取", searching: "正在搜索", tool_running: "工具运行中",
+  responding: "正在回复", waiting: "等待中", completed: "阶段完成", failed: "阶段失败",
+};
 const defaultTopic = "沿用参考作品的内容试做，保留内容与呈现特点。";
 
 async function toBase64(file: File) {
@@ -364,8 +369,10 @@ export function ArtifactSkillExtraction() {
           {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? "提炼" : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && <span>{activeJob.note}</span>}
         </div>
-        {activeJob.progress && <p className="extraction-help">最近活动：{activeJob.progress.last_event}</p>}
+        {activeJob.progress && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
+        <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
+          active={activeJob.status === "running" || Boolean(activeJob.operation)} />
         {(activeJob.status === "running" || activeJob.operation) && activeJob.cancel_requested && <p role="status">正在取消当前操作…</p>}
         {(activeJob.status === "running" || activeJob.operation) && !activeJob.cancel_requested && <button type="button" className="button button-secondary" disabled={cancel.isPending}
           onClick={() => cancel.mutate()}>{cancel.isPending ? "正在取消…" : "取消当前操作"}</button>}
@@ -458,7 +465,7 @@ export function ArtifactSkillExtraction() {
           {(activeJob.trials ?? []).map(item => <article className="extraction-trial" key={item.id}>
             <div className="extraction-status"><strong>{trialStatusLabels[item.status] ?? item.status}</strong><span>选题：{item.topic}</span>
               {item.digest !== activeJob.digest && <span className="extraction-old-digest">旧草稿结果</span>}</div>
-            {item.progress && <p className="extraction-help">最近活动：{item.progress.last_event}</p>}
+            {item.progress && <p className="extraction-help">最近活动：{progressActivityLabels[item.progress.activity] ?? "状态已更新"}</p>}
             {item.error && <p role="alert" className="extraction-error">{item.error}</p>}
             {item.cards.length > 0 && <div className="extraction-trial-cards">{item.cards.map(card => <figure key={card.order}>
               <img src={apiUrl(card.url)} alt={`试产第 ${card.order} 张图片`} />

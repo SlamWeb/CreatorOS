@@ -1,8 +1,8 @@
 """Web and Agent share the same explicit extraction/registration boundary."""
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import Field
 
 from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE
@@ -69,6 +69,14 @@ def extraction_routes(service):
     @router.get("/{job_id}")
     def get(job_id: str):
         return call(lambda: service.get(job_id))
+
+    @router.get("/{job_id}/events")
+    def events(job_id: str, before_id: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
+        return JSONResponse(call(lambda: service.events(job_id, before_id, limit)), headers={"Cache-Control": "no-store"})
+
+    @router.get("/{job_id}/events/{event_id}")
+    def event(job_id: str, event_id: int, stream_id: str = "."):
+        return JSONResponse(call(lambda: service.event(job_id, event_id, stream_id)), headers={"Cache-Control": "no-store"})
 
     @router.get("/{job_id}/files")
     def file(job_id: str, role: str, path: str):

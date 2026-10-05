@@ -63,7 +63,7 @@ def begin(service, job_id, request_id, digest, operation, value):
 def launch(service, job, operation, key, directory, target):
     service.cancel_event = threading.Event()
     service.active_id = job["id"]
-    job.update(operation=operation, error=None, cancel_requested=False,
+    job.update(operation=operation, error=None, error_type=None, cancel_requested=False,
                progress_directory=directory.relative_to(service._path("jobs", job["id"])).as_posix(),
                updated_at=now())
     _write(service._path("jobs", job["id"]) / "job.json", job)
@@ -99,8 +99,12 @@ def revise(service, job_id, request_id, expected_digest, instruction):
                     service._publish(job_id, result, references(service, job))
             except Exception as error:
                 (directory / "error.txt").write_text(str(error), encoding="utf-8")
+                from .skill_extraction import extraction_failure
+                kind, message = extraction_failure(error, service.cancel_event.is_set())
+                from .extraction_activity import ExtractionActivity
+                ExtractionActivity(directory).finish("interrupted" if service.cancel_event.is_set() else "failed", message)
                 service._update(job_id, operation=None, cancel_requested=False,
-                    error="改稿已取消，原草稿保留。" if service.cancel_event.is_set() else "改稿失败，原草稿保留；可修改要求后重试。")
+                    error="改稿未完成，原草稿保留。" + message, error_type=kind)
 
         launch(service, job, "revise", key, directory, run)
         return service.get(job_id)

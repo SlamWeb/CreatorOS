@@ -28,7 +28,7 @@ class ProductionProgress(BaseModel):
     page_attempt: int = Field(default=0, ge=0, le=2)
 
 
-TOOLS = {"commandExecution", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration", "collabAgentToolCall"}
+TOOLS = {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration", "collabAgentToolCall"}
 
 
 class ProgressWriter:
@@ -107,7 +107,7 @@ class ProgressWriter:
         path.write_text(json.dumps(usage), encoding="utf-8")
 
 
-async def collect_observed_turn(turn, progress: ProgressWriter):
+async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=None):
     # SDK 0.157.1 is pinned. Its private collector is the sole compatibility seam;
     # retain final-answer selection, usage and failed-turn semantics instead of duplicating them.
     from openai_codex._run import _collect_async_turn_result
@@ -115,6 +115,8 @@ async def collect_observed_turn(turn, progress: ProgressWriter):
     stream = turn.stream()
     async def observed():
         async for event in stream:
+            if public_observer is not None:
+                public_observer(event)
             if event.method == "thread/tokenUsage/updated":
                 total = getattr(getattr(event.payload, "token_usage", None), "total", None)
                 if total is not None:

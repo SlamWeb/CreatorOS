@@ -17,8 +17,9 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"fixture-data"
 class FakeStudioClient:
     calls = []
 
-    def __init__(self, _base_url=None):
+    def __init__(self, _base_url=None, *, agent_session_id=None):
         self.base_url = "http://127.0.0.1:8765"
+        self.agent_session_id = agent_session_id
 
     @classmethod
     def from_defaults(cls):

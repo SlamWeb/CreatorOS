@@ -24,12 +24,51 @@ function fakeJob(status: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function installControlledApi(page: Page, initialStatus = "ready", dropFirstCreateResponse = false) {
+async function installControlledApi(page: Page, initialStatus = "ready", dropFirstCreateResponse = false,
+  switchEventStream = false, noEventHistory = false, updateActivity = false, paginateEvents = false) {
   let job = fakeJob("interrupted");
   const posts: Array<{ path: string; body: unknown }> = [];
+  let eventReads = 0;
+  let latestEventReads = 0;
   let skillsReadCount = 0;
   let draftVersion = 1;
   let catalogSaved = false;
+  const makeEvents = (streamId: string) => {
+    if (paginateEvents) return Array.from({ length: 101 }, (_, index) => ({
+      id: index + 1, kind: "status", title: `活动 ${index + 1}`, status: "completed",
+      at: "2026-10-05T01:00:00Z", updated_at: "2026-10-05T01:00:01Z", text: `活动正文 ${index + 1}`,
+      truncated: false, redacted: false,
+    }));
+    const toolRunning = updateActivity && eventReads === 1;
+    const message = streamId === "stream-e2e-1"
+      ? `## Codex 公开进度\n${"正文片段。".repeat(120)}\n完整消息结尾标记`
+      : "新 stream 的真实公开消息";
+    const toolText = toolRunning ? `工具仍在运行\n${"临时输出片段。".repeat(80)}`
+      : updateActivity ? "工具完成结果：草稿文件已读取完毕。" : "工具读取失败：权限不足";
+    const all = [
+      { id: 1, kind: "message", title: streamId === "stream-e2e-1" ? "Codex 进度消息" : "新 stream 消息", status: "completed",
+        at: "2026-10-05T01:00:00Z", updated_at: "2026-10-05T01:00:01Z", text: message,
+        truncated: message.length > 500, redacted: false, item_type: "agentMessage", item_id: "message-e2e" },
+      { id: 2, kind: "tool", title: "读取草稿文件", status: toolRunning ? "running" : updateActivity ? "completed" : "failed", at: "2026-10-05T01:00:02Z",
+        updated_at: toolRunning ? "2026-10-05T01:00:03Z" : "2026-10-05T01:00:04Z", text: toolText, truncated: toolText.length > 500, redacted: false,
+        item_type: "commandExecution", item_id: "tool-e2e" },
+    ];
+    return all.map(item => ({ ...item, text: item.text.slice(0, 500) }));
+  };
+  const fullEvent = (eventId: number, streamId: string) => {
+    if (eventId === 1) return {
+      id: 1, kind: "message", title: streamId === "stream-e2e-1" ? "Codex 进度消息" : "新 stream 消息", status: "completed",
+      at: "2026-10-05T01:00:00Z", updated_at: "2026-10-05T01:00:01Z",
+      text: streamId === "stream-e2e-1" ? `## Codex 公开进度\n${"正文片段。".repeat(120)}\n完整消息结尾标记` : "新 stream 的真实公开消息",
+      truncated: false, redacted: false, item_type: "agentMessage", item_id: "message-e2e",
+    };
+    const completed = updateActivity && eventReads > 1;
+    const toolText = completed ? "工具完成结果：草稿文件已读取完毕。"
+      : updateActivity ? `工具仍在运行\n${"临时输出片段。".repeat(80)}` : "工具读取失败：权限不足";
+    return { id: 2, kind: "tool", title: "读取草稿文件", status: completed ? "completed" : updateActivity ? "running" : "failed", at: "2026-10-05T01:00:02Z",
+      updated_at: completed ? "2026-10-05T01:00:04Z" : "2026-10-05T01:00:03Z", text: toolText, truncated: toolText.length > 500, redacted: false,
+      item_type: "commandExecution", item_id: "tool-e2e" };
+  };
   await page.route("**/api/producer-skills", async route => {
     skillsReadCount += 1;
     const items = catalogSaved ? [{ id: "saved-e2e", name: "作品完整 Skill", description: "提炼自作品", carousel_compatible: true, compatibility_note: "", commit: null, github_url: null, role: "legacy_end_to_end", producible: true, local_path: "D:/isolated/producer-skills/work-skill/SKILL.md" }] : [];
@@ -39,7 +78,24 @@ async function installControlledApi(page: Page, initialStatus = "ready", dropFir
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname;
-    if (pathname.endsWith("/uploads") && request.method() === "POST") {
+    const eventsPath = pathname.match(/^\/api\/skill-extractions\/[^/]+\/events$/);
+    const eventDetailPath = pathname.match(/^\/api\/skill-extractions\/[^/]+\/events\/(\d+)$/);
+    if (eventsPath && request.method() === "GET") {
+      eventReads += 1;
+      if (noEventHistory) {
+        await route.fulfill({ status: 404, json: { error: { message: "此任务没有公开活动记录。" } } });
+        return;
+      }
+      const streamId = switchEventStream && eventReads > 1 ? "stream-e2e-2" : "stream-e2e-1";
+      const beforeId = Number(url.searchParams.get("before_id") ?? 0);
+      if (beforeId === 0) latestEventReads += 1;
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const events = makeEvents(streamId).filter(item => beforeId === 0 || item.id < beforeId);
+      await route.fulfill({ json: { stream_id: streamId, items: events.slice(-limit), has_more: events.length > limit } });
+    } else if (eventDetailPath && request.method() === "GET") {
+      const streamId = url.searchParams.get("stream_id") ?? "stream-e2e-1";
+      await route.fulfill({ json: fullEvent(Number(eventDetailPath[1]), streamId) });
+    } else if (pathname.endsWith("/uploads") && request.method() === "POST") {
       const body = request.postDataJSON();
       posts.push({ path: pathname, body });
       await route.fulfill({ json: { id: "upload-e2e", name: body.name, url: "/api/skill-extractions/uploads/upload-e2e" } });
@@ -116,7 +172,7 @@ async function installControlledApi(page: Page, initialStatus = "ready", dropFir
       await route.fulfill({ status: 404, json: { error: { message: "受控测试中不存在此提炼资源。" } } });
     }
   });
-  return { posts, skillReads: () => skillsReadCount };
+  return { posts, skillReads: () => skillsReadCount, eventReads: () => eventReads, latestEventReads: () => latestEventReads };
 }
 
 async function submitOneImage(page: Page, instruction = "保持克制") {
@@ -248,4 +304,72 @@ test("cancels a running extraction explicitly", async ({ page }) => {
   await expect(page.getByText("正在取消当前操作…")).toBeVisible();
   await expect(page.getByRole("button", { name: "取消当前操作" })).toHaveCount(0);
   expect(api.posts.some(item => item.path.endsWith("/cancel"))).toBe(true);
+});
+
+test("shows public messages and failed tools, and expands the real full message on demand", async ({ page }) => {
+  const api = await installControlledApi(page, "running");
+  await submitOneImage(page);
+  await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await expect(page.getByText("Codex 进度消息")).toBeVisible();
+  await expect(page.getByText("完整消息结尾标记")).toHaveCount(0);
+  await expect(page.getByText(/reasoning.*secret/i)).toHaveCount(0);
+  await page.getByRole("button", { name: "展开全文" }).click();
+  await expect(page.getByText("完整消息结尾标记")).toBeVisible();
+  await page.getByRole("button", { name: "收起全文" }).click();
+  await expect(page.getByText("完整消息结尾标记")).toHaveCount(0);
+  await page.getByRole("button", { name: "查看工具输入 / 结果" }).click();
+  await expect(page.getByText("工具读取失败：权限不足")).toBeVisible();
+  await expect(page.getByText("commandExecution")).toBeHidden();
+  await page.getByText("技术标识").last().click();
+  await expect(page.getByText("commandExecution")).toBeVisible();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+  expect(api.posts.filter(item => item.path.endsWith("/uploads"))).toHaveLength(1);
+});
+
+test("refreshes a selected task's events, clears the prior stream and never resubmits", async ({ page }) => {
+  const api = await installControlledApi(page, "running", false, true);
+  await submitOneImage(page);
+  await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await expect(page.getByText("Codex 进度消息")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await expect(page.getByText("新 stream 消息")).toBeVisible();
+  await expect(page.getByText("Codex 进度消息")).toHaveCount(0);
+  expect(api.eventReads()).toBeGreaterThanOrEqual(2);
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+  expect(api.posts.filter(item => item.path.endsWith("/uploads"))).toHaveLength(1);
+});
+
+test("explains that older tasks may have no recorded public activity", async ({ page }) => {
+  const api = await installControlledApi(page, "failed", false, false, true);
+  await submitOneImage(page, "模拟失败");
+  await expect(page.getByText("受控测试：Codex 暂不可用")).toBeVisible();
+  await expect(page.getByText("此任务没有已记录的公开活动；旧任务可能未保存这类记录。")).toBeVisible();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+});
+
+test("refreshes a running tool's expanded result when the same event completes", async ({ page }) => {
+  const api = await installControlledApi(page, "running", false, false, false, true);
+  await submitOneImage(page);
+  await expect(page.getByText("工具活动 · 进行中")).toBeVisible();
+  await page.getByRole("button", { name: "查看工具输入 / 结果" }).click();
+  await expect(page.getByText(/工具仍在运行/)).toBeVisible();
+  await expect(page.getByText("工具活动 · 已完成")).toBeVisible({ timeout: 7000 });
+  await expect(page.getByText("工具完成结果：草稿文件已读取完毕。")).toBeVisible();
+  expect(api.eventReads()).toBeGreaterThanOrEqual(2);
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+});
+
+test("does not restore the older-events button after all pages have been loaded", async ({ page }) => {
+  const api = await installControlledApi(page, "running", false, false, false, false, true);
+  await submitOneImage(page);
+  await expect(page.getByText("活动 52", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "加载更早活动" }).click();
+  await expect(page.getByText("活动 2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "加载更早活动" }).click();
+  await expect(page.getByText("活动 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "加载更早活动" })).toHaveCount(0);
+  const readsBeforePoll = api.latestEventReads();
+  await expect.poll(api.latestEventReads, { timeout: 5000 }).toBeGreaterThan(readsBeforePoll);
+  await expect(page.getByRole("button", { name: "加载更早活动" })).toHaveCount(0);
 });

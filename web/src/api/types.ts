@@ -336,6 +336,29 @@ export interface SkillExtractionTrial {
   thread_id: string | null;
 }
 
+export type SkillExtractionEventKind = "message" | "tool" | "error" | "status";
+export type SkillExtractionEventStatus = "running" | "completed" | "failed" | "interrupted";
+
+export interface SkillExtractionEvent {
+  id: number;
+  kind: SkillExtractionEventKind;
+  title: string;
+  status: SkillExtractionEventStatus;
+  at: string;
+  updated_at: string;
+  text: string;
+  truncated: boolean;
+  redacted: boolean;
+  item_type?: string;
+  item_id?: string;
+}
+
+export interface SkillExtractionEventPage {
+  stream_id: string;
+  items: SkillExtractionEvent[];
+  has_more: boolean;
+}
+
 export interface SkillExtractionJob {
   id: string;
   request_id: string;
