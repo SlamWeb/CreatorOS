@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE
 from .schemas import WriteRequest
@@ -20,6 +20,19 @@ class Extract(WriteRequest):
     source_text: str = Field(default="", max_length=20000)
     mode: Literal["pair", "mind", "visual", "single"] = "single"
     instruction: str = Field(default="", max_length=4000)
+
+
+class Merge(WriteRequest):
+    request_id: str = Field(min_length=1, max_length=128)
+    skill_ids: list[str] = Field(min_length=2, max_length=8)
+    instruction: str = Field(default="", max_length=4000)
+
+    @model_validator(mode="after")
+    def unique_skill_ids(self):
+        if (len(set(self.skill_ids)) != len(self.skill_ids)
+                or any(not item or len(item) > 120 for item in self.skill_ids)):
+            raise ValueError("请选择不同的 Skill。")
+        return self
 
 
 class Save(WriteRequest):
@@ -65,6 +78,10 @@ def extraction_routes(service):
     @router.post("", status_code=202)
     def extract(request: Extract):
         return call(lambda: service.submit(**request.model_dump()))
+
+    @router.post("/merge", status_code=202)
+    def merge(request: Merge):
+        return call(lambda: service.submit_merge(**request.model_dump()))
 
     @router.get("/{job_id}")
     def get(job_id: str):

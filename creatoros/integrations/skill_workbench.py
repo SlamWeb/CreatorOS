@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import shutil
 import threading
 from pathlib import Path
 
@@ -89,6 +90,11 @@ def revise(service, job_id, request_id, expected_digest, instruction):
         from .skill_draft_files import seed_file_drafts
         seed_file_drafts(directory, job["mode"], {s["role"]: service._draft_root(job) / s["role"]
                                                 for s in job["skills"]})
+        if job.get("task_kind") == "merge":
+            shutil.copyfile(service._path("jobs", job_id) / "merge_context.json",
+                            directory / "merge_context.json")
+            from .skill_merge import seed_model_sources
+            seed_model_sources(service._path("jobs", job_id), directory / "draft")
 
         def run():
             try:
@@ -96,6 +102,9 @@ def revise(service, job_id, request_id, expected_digest, instruction):
                     instruction, service.cancel_event,
                     lambda value: service._update(job_id, thread_id=value), job["skills"]))
                 with service.lock:
+                    if job.get("task_kind") == "merge":
+                        from .skill_merge import retain_source_material
+                        retain_source_material(service._path("jobs", job_id), result)
                     service._publish(job_id, result, references(service, job))
             except Exception as error:
                 (directory / "error.txt").write_text(str(error), encoding="utf-8")

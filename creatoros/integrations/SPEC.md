@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 本地 Skill 融合草稿（2026-10-05，后端切片）
+
+- 多 Skill 融合复用 `SkillExtractionService` 单 Skill 工作台 Job；已登记来源各自冻结摘要与过滤后的文件副本，源目录从不作为模型工作目录。目标草稿自包含安全来源资源，并保留可编辑/改稿/试用/显式保存的既有门禁。
+- 文件总量上限 2,000 项/32 MiB；链接/越界内容拒绝；隐藏敏感项过滤；白名单外文件类型显式拒绝。来源规则冲突由模型要求写成待人工决定项，不由宿主静默合并。
+- `tests.smoke_skill_merge` 使用隔离 SQLite/HTTP 与受控提炼器通过：快照、摘要、资源保留、改稿上下文、幂等、仅显式保存入库和原件不变；包含符号链接外部零写入、改稿删除来源后恢复、实际当前 frontmatter 能力检查。
+- 真实 SDK 隔离探针 `python -m tests.live_skill_merge --run` 通过，gpt-6-sol/high，281.3 秒，thread `01a10c35-200f-7b12-877b-4359405fe634`；生成 `bilingual-word-carousel` 的 5 个文件，包含两份来源说明/两张参考图且原件摘要不变，未入库、生图或发布。证据 `tmp/skill-merge-live-y57mg83w/`。此前一轮失败原因是探针 mkdtemp 根目录私有 ACL 导致沙箱不能穿越父目录；补既有 inherit_copy_permissions(root) 后重跑，不扩大正式目录权限。此例证明实际融合文件链路，不证明所有 Skill 组合内容质量。
+
 ## 已安装 Skill 文件浏览读取（2026-10-05）
 
 - 目录只接受已登记 ID 的当前 `working/<id>` 副本或固定内置 Skill；读取复用严格路径/重解析点检查，不经 `describe()` / `locate()`，不修复副本、不执行脚本、不访问任意本地路径。

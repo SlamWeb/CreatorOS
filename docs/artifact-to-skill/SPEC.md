@@ -1,5 +1,14 @@
 # Artifact → Skill Workbench
 
+## V5：多 Skill 融合草稿（2026-10-05，后端切片）
+
+- `POST /api/skill-extractions/merge` 接受 `{request_id, skill_ids, instruction}`；选择 2–8 个不同的已登记 Skill，返回普通提炼 Job，并额外投影 `task_kind: "merge"` 与 `source_skills: [{id,name,role,digest}]`。一个 Skill 直接沿用现有创建栏目路径，不调用融合接口。
+- 融合任务沿用 `mode: "single"`、同一 worker、事件、取消、文件树、草稿编辑、改稿、试用和摘要确认入库。多源融合在入库前始终是可编辑草稿；不修改源 Skill，不自动写正式目录、创建栏目、生产或发布。
+- 每个源目录先按已登记文件浏览白名单过滤，再验证链接、越界路径与全局 2,000 文件/32 MiB 上限并冻结摘要。隐藏/凭证文件不复制；白名单外的文件类型会显式拒绝本次融合。Codex 只见任务内的可写副本，权威快照留在其工作目录之外。新草稿将完整安全来源资源保存在 `assets/fusion-sources/<来源命名空间>/`，嵌套的 `SKILL.md` 改名为 `SOURCE-SKILL.md`，避免被 Skill loader 识别成第二个 Skill。
+- 融合 Prompt 独立说明读取每份来源 Skill、引用其配套文件、仅写一个新草稿，并要求把规则冲突列为待用户决定项。改稿继续获得原融合上下文；意外的来源路径冲突报错，不覆盖草稿内容。
+- 验收：隔离 HTTP/SQLite 覆盖来源摘要、资源快照与可读性、幂等/冲突、改稿上下文、显式保存门槛和原件不变；另注入输出资源目录符号链接，确认越界目录零写入，并验证改稿删除来源副本后由宿主从权威快照恢复。真实 SDK 融合探针通过，见下；融合质量和冲突处理仍需用户人工检查。
+- 真实 `gpt-6-sol/high` 在独立目录将双语辨词内容方法 + 浅蓝轮播呈现融合为 `bilingual-word-carousel`，281.3 秒、5 文件、ready；参考图按源命名空间实际保留，原 Skill 摘要与库登记数量不变。未生图/试产/入库。证据 `tmp/skill-merge-live-y57mg83w/`，续跑命令 `python -m tests.live_skill_merge --run`（显式消耗模型额度）。首次探针因 mkdtemp 私有 ACL 无法读取来源而失败，根目录按既有探针方式继承父 ACL 后重跑成功；未将残存文件直接判成功。
+
 ## V4：真实失败与公开执行记录（2026-10-05）
 
 - 实际 Mind 提炼任务在约 180 秒被宿主 `codex_timeout` 中断，期间公开消息、文件修改与校验仍在进行，已有 SKILL.md 不等于 turn 正常完成。此前 single 提炼/改稿成功不能证明所有模式/作品稳定。

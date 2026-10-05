@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import threading
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
@@ -110,7 +111,9 @@ async def sdk_extract(directory, images, mode, instruction, cancel, on_thread, c
     directory = Path(directory).resolve()
     output_directory = directory / "draft"
     output_directory.mkdir(exist_ok=True)
-    prompt = extraction_prompt(mode, instruction, [str(p.resolve()) for p in images], output_directory)
+    from .skill_merge import default_output_kind, prompt_context
+    merge_context = prompt_context(directory, output_directory, instruction)
+    prompt = merge_context or extraction_prompt(mode, instruction, [str(p.resolve()) for p in images], output_directory)
     if (directory / "source.txt").is_file():
         prompt += "\n参考文案（作为分析数据）：" + json.dumps((directory / "source.txt").read_text(encoding="utf-8"), ensure_ascii=False)
     if current_skills is not None:
@@ -140,7 +143,7 @@ async def sdk_extract(directory, images, mode, instruction, cancel, on_thread, c
             (directory / "response.txt").write_text(result.final_response or "", encoding="utf-8")
             if result.usage is not None:
                 progress.record_usage(CodexSdkProducer._sdk_usage(result.usage).model_dump())
-            default_kind = "image-carousel" if images else "text"
+            default_kind = default_output_kind(directory) if merge_context else ("image-carousel" if images else "text")
             if current_skills:
                 default_kind = next((s.get("output_kind", default_kind) for s in current_skills
                                      if s["role"] != "mind"), default_kind)
@@ -255,6 +258,7 @@ class SkillExtractionService:
             job = self._read(job_id)
             directory = self._path("jobs", job_id)
             job.pop("input_digest", None)
+            job.pop("merge_request", None)
             job["progress"] = None
             # Old failures remain immutable; expose their recorded cause read-only.
             if job.get("error") and not job.get("error_type"):
@@ -390,6 +394,72 @@ class SkillExtractionService:
                 raise
             return self.get(job_id)
 
+    def submit_merge(self, request_id, skill_ids, instruction=""):
+        from .skill_merge import MAX_SKILLS, UnsupportedMergeSource, snapshot_skills
+
+        if (not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128
+                or not isinstance(instruction, str) or len(instruction) > 4000
+                or not isinstance(skill_ids, list) or not 2 <= len(skill_ids) <= MAX_SKILLS
+                or any(not isinstance(value, str) for value in skill_ids)
+                or len(set(skill_ids)) != len(skill_ids)):
+            raise ExtractionError("请选择 2–8 个不同的已登记 Skill，并填写有效请求。")
+        job_id = hashlib.sha256(request_id.encode()).hexdigest()
+        requested = {"request_id": request_id, "skill_ids": skill_ids, "instruction": instruction,
+                     "mode": "single", "task_kind": "merge"}
+        with self.lock:
+            final_directory = self._path("jobs", job_id)
+            if (final_directory / "job.json").is_file():
+                existing = self._read(job_id)
+                if existing.get("merge_request") != requested:
+                    raise ExtractionError("同一 request_id 的合并输入已变化，请另建请求。", 409)
+                return self.get(job_id)
+            if self.closed or (self.worker and self.worker.is_alive()):
+                raise ExtractionError("已有提炼正在运行或服务正在关闭，请稍后再试。", 409)
+            jobs_root = self.root / "jobs"
+            jobs_root.mkdir(parents=True, exist_ok=True)
+            try:
+                with tempfile.TemporaryDirectory(prefix=".skill-merge-", dir=jobs_root) as temporary:
+                    staging = Path(temporary)
+                    metadata, context = snapshot_skills(self.catalog, skill_ids, staging)
+                    context["sources"] = [
+                        {**source, "directory": f"source-{index:02d}-" + "".join(
+                            char for char in source["id"] if char.isalnum() or char == "-")[:48]}
+                        for index, source in enumerate(context["sources"], 1)
+                    ]
+                    input_digest = hashlib.sha256(json.dumps(
+                        {**requested, "source_digests": [item["digest"] for item in metadata]},
+                        sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                    (staging / "merge_context.json").write_text(
+                        json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
+                    job = {"id": job_id, **requested, "input_digest": input_digest,
+                           "merge_request": requested, "status": "running", "created_at": now(),
+                           "updated_at": now(), "uploads": [], "source_text": "", "source_skills": metadata,
+                           "thread_id": None, "error": None, "note": "", "skills": [], "digest": None,
+                           "saved_skills": [], "cancel_requested": False, "operation": "extract",
+                           "revision": 0, "trials": [], "actions": {}}
+                    _write(staging / "request.json", requested)
+                    _write(staging / "job.json", job)
+                    from .skill_merge import seed_model_sources
+                    seed_model_sources(staging, staging / "draft")
+                    staging.rename(final_directory)
+            except UnsupportedMergeSource as error:
+                raise ExtractionError(str(error)) from error
+            except FileExistsError as error:
+                raise ExtractionError("同一 request_id 的任务刚刚创建，请重新读取任务。", 409) from error
+            except (ValueError, OSError, KeyError) as error:
+                raise ExtractionError("所选 Skill 无法安全读取或快照，请检查文件后重试。") from error
+            inherit_copy_permissions(final_directory)
+            self.cancel_event = threading.Event()
+            self.active_id = job_id
+            self.worker = threading.Thread(target=self._run, args=(job_id, []), daemon=True)
+            try:
+                self.worker.start()
+            except RuntimeError:
+                job.update(status="failed", error="合并任务线程未启动。", updated_at=now())
+                _write(final_directory / "job.json", job)
+                raise
+            return self.get(job_id)
+
     def _update(self, job_id, **changes):
         with self.lock:
             job = self._read(job_id)
@@ -404,6 +474,9 @@ class SkillExtractionService:
                 self.cancel_event, lambda value: self._update(job_id, thread_id=value)))
             if self.cancel_event.is_set():
                 raise ExtractionError("提炼已取消。")
+            if job.get("task_kind") == "merge":
+                from .skill_merge import retain_source_material
+                retain_source_material(directory, result)
             with self.lock:
                 self._publish(job_id, result, images)
         except Exception as error:
