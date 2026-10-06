@@ -292,6 +292,7 @@ export interface ProducerSkillItem {
   github_url: string | null;
   role: SkillRole;
   producible: boolean;
+  editable?: boolean;
   local_path?: string | null;
 }
 
@@ -306,12 +307,19 @@ export interface ProducerSkillFiles {
   name: string;
   description: string;
   role: SkillRole;
+  editable?: boolean;
+  digest: string;
   files: ProducerSkillFile[];
 }
 export interface ProducerSkillText {
+  skill_id?: string;
   path: string;
   kind: "markdown" | "text";
   content: string;
+  digest: string;
+  editable: boolean;
+  name?: string;
+  description?: string;
 }
 
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";

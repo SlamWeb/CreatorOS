@@ -1,9 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { BookOpen, ChevronRight, File, FileCode, FileImage, FileText, Folder, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiUrl, studioApi } from "../api/client";
+import { ApiError, apiUrl, studioApi } from "../api/client";
 import type { ProducerSkillFile, ProducerSkillItem } from "../api/types";
 import "./skill-inspector.css";
 
@@ -39,16 +40,16 @@ function FileIcon({ file }: { file: ProducerSkillFile }) {
   return file.kind === "text" ? <FileCode size={16} /> : <File size={16} />;
 }
 
-function TreeItems({ nodes, selected, onSelect }: {
-  nodes: TreeNode[]; selected: string; onSelect: (path: string) => void;
+function TreeItems({ nodes, selected, onSelect, disabled }: {
+  nodes: TreeNode[]; selected: string; onSelect: (path: string) => void; disabled?: boolean;
 }) {
   return <ul>{nodes.map(node => <li key={node.path}>{node.file
     ? <button type="button" className="skill-file-item" title={node.path}
-      aria-current={selected === node.path ? "page" : undefined} onClick={() => onSelect(node.path)}>
+      disabled={disabled} aria-current={selected === node.path ? "page" : undefined} onClick={() => onSelect(node.path)}>
       <FileIcon file={node.file} /><span>{node.name}</span>
     </button>
     : <details open className="skill-file-folder"><summary><ChevronRight size={13} /><Folder size={16} /><span>{node.name}</span></summary>
-      <TreeItems nodes={node.children} selected={selected} onSelect={onSelect} />
+      <TreeItems nodes={node.children} selected={selected} onSelect={onSelect} disabled={disabled} />
     </details>}
   </li>)}</ul>;
 }
@@ -57,9 +58,18 @@ export function SkillInspector({ skill, onClose, onAdd }: {
   skill: ProducerSkillItem; onClose: () => void; onAdd?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const titleId = useId();
   const [selected, setSelected] = useState("SKILL.md");
   const [source, setSource] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [editDigest, setEditDigest] = useState("");
+  const [editError, setEditError] = useState("");
+  const [latestContent, setLatestContent] = useState<string | null>(null);
+  const [agentRequest, setAgentRequest] = useState("");
+  const [agentOpen, setAgentOpen] = useState(false);
   const files = useQuery({
     queryKey: ["producer-skill-files", skill.id],
     queryFn: ({ signal }) => studioApi.producerSkillFiles(skill.id, signal),
@@ -72,6 +82,20 @@ export function SkillInspector({ skill, onClose, onAdd }: {
     queryFn: ({ signal }) => studioApi.producerSkillText(skill.id, selected, signal),
     enabled: file?.kind === "markdown" || file?.kind === "text",
     retry: false, gcTime: 0,
+  });
+  const dirty = editing && draft !== text.data?.content;
+  const save = useMutation({
+    mutationFn: () => studioApi.saveProducerSkillText(skill.id, {
+      path: selected, content: draft, expected_digest: editDigest,
+    }),
+    onSuccess: result => {
+      queryClient.setQueryData(["producer-skill-file", skill.id, selected], result);
+      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) => current
+        ? { ...current, digest: result.digest, name: result.name, description: result.description } : current);
+      void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+      setDraft(result.content); setEditing(false); setEditError(""); setLatestContent(null);
+    },
+    onError: error => setEditError(error.message),
   });
   useEffect(() => {
     const node = dialog.current;
@@ -88,7 +112,32 @@ export function SkillInspector({ skill, onClose, onAdd }: {
       if (origin?.isConnected) origin.focus();
     };
   }, []);
-  const selectFile = (path: string) => { setSelected(path); setSource(false); };
+  useEffect(() => {
+    if (text.data && !editing) setDraft(text.data.content);
+  }, [text.data, editing]);
+  const confirmDiscard = () => !dirty || window.confirm("当前文件有未保存修改。离开会丢弃草稿，仍要离开吗？");
+  const selectFile = (path: string) => {
+    if (save.isPending || path === selected || !confirmDiscard()) return;
+    setEditing(false); setDraft(""); setEditError(""); setLatestContent(null); setSelected(path); setSource(false);
+  };
+  const close = () => { if (!save.isPending && confirmDiscard()) onClose(); };
+  const readLatest = async () => {
+    const [latestFiles, latestText] = await Promise.all([files.refetch(), text.refetch()]);
+    if (latestFiles.data && latestText.data) {
+      setEditDigest(latestText.data.digest);
+      setLatestContent(latestText.data.content);
+      setEditError("已读取服务器当前版本；你的草稿仍保留。检查差异后可明确覆盖保存。");
+    }
+  };
+  const handToAgent = () => {
+    if (!agentRequest.trim() || save.isPending || !confirmDiscard()) return;
+    const nonce = crypto.randomUUID();
+    const payload = { skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
+    try { window.sessionStorage.setItem(`creatoros.skill-edit-handoff:${nonce}`, JSON.stringify(payload)); }
+    catch { setEditError("无法保存本次聊天草稿，请检查浏览器会话存储后重试。"); return; }
+    const existing = window.sessionStorage.getItem("creatoros.agent.selected-chat.v1:overview");
+    navigate(`/agent${existing ? `?chat=${encodeURIComponent(existing)}&` : "?"}skill_edit=${encodeURIComponent(nonce)}`);
+  };
   const resolveReference = (value: string | undefined) => {
     if (!value || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return undefined;
     try {
@@ -102,7 +151,7 @@ export function SkillInspector({ skill, onClose, onAdd }: {
   const markdown = text.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "") ?? "";
 
   return <dialog ref={dialog} className="skill-inspector" aria-labelledby={titleId}
-    onCancel={event => { event.preventDefault(); onClose(); }}
+    onCancel={event => { event.preventDefault(); close(); }}
     onKeyDown={event => {
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
@@ -120,8 +169,9 @@ export function SkillInspector({ skill, onClose, onAdd }: {
         </div>
       </div>
       <div className="skill-inspector-actions">
-        {onAdd && <button type="button" className="skill-inspector-add" onClick={onAdd}>加入组合</button>}
-        <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus onClick={onClose}><X size={20} /></button>
+        {onAdd && <button type="button" className="skill-inspector-add" disabled={save.isPending}
+          onClick={() => { if (confirmDiscard()) onAdd(); }}>加入组合</button>}
+        <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending} onClick={close}><X size={20} /></button>
       </div>
     </header>
     {files.isPending ? <p className="skill-inspector-state" role="status">正在读取 Skill 文件…</p>
@@ -129,23 +179,36 @@ export function SkillInspector({ skill, onClose, onAdd }: {
         <button type="button" onClick={() => void files.refetch()}>重新读取</button></div>
       : <div className="skill-inspector-body">
         <details open className="skill-inspector-sidebar"><summary>文件</summary>
-          <nav aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} /></nav>
+          <nav aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending} /></nav>
         </details>
         <section className="skill-inspector-preview" aria-label="文件预览">
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
-            {file?.kind === "markdown" && <div className="skill-file-modes" aria-label="Markdown 显示方式">
-              <button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
-              <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>
+            {files.data && <button type="button" className="skill-agent-trigger" aria-expanded={agentOpen}
+              aria-label="让 Agent 帮我修改当前 Skill" onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
+            {(file?.kind === "markdown" || file?.kind === "text") && text.data && <div className="skill-file-modes">
+              {editing ? <><button type="button" disabled={save.isPending} onClick={() => { if (confirmDiscard()) { setEditing(false); setDraft(text.data?.content ?? ""); setEditError(""); setLatestContent(null); } }}>取消编辑</button>
+                <button type="button" disabled={!dirty || save.isPending || !editDigest}
+                  onClick={() => { setEditError(""); save.mutate(); }}>{save.isPending ? "正在保存…" : latestContent !== null ? "覆盖保存" : "保存文件"}</button></>
+                : <><button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
+                  {file.kind === "markdown" && <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>}
+                  {files.data?.editable && <button type="button" onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
             </div>}
           </div>
           <div className="skill-file-content" key={selected}>
+            {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
+              <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
+              <p>会把 Skill 名称、ID、当前文件路径和要求带入 Agent 草稿；检查后由你发送。</p>
+              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
             {file?.kind === "unsupported" && <p>此文件不支持预览。可以在本地 Skill 目录中查看；网页不会执行它。</p>}
             {file?.kind === "image" && <SkillImage key={imageUrl} url={imageUrl} path={file.path} />}
             {(file?.kind === "markdown" || file?.kind === "text") && <>
+              {files.data && !files.data.editable && <p className="skill-inspector-state">此 Skill 为只读版本；可在本地 Skill 目录中维护，网页不会写入。</p>}
               {text.isPending && <p role="status">正在读取文件…</p>}
               {text.isError && <div role="alert"><p>{text.error.message}</p><button type="button" onClick={() => void text.refetch()}>重新读取文件</button></div>}
-              {text.data && (file.kind === "text" || source
+              {text.data && editing ? <div className="skill-file-editor"><textarea aria-label={`编辑 ${selected}`} disabled={save.isPending} value={draft} onChange={event => setDraft(event.target.value)} spellCheck={false} />
+                <p>保存会更新本地 Skill 文件，并影响后续新 Run；已创建 Run 使用的冻结版本不变。</p></div>
+                : text.data && (file.kind === "text" || source
                 ? <pre className="skill-file-source">{text.data.content}</pre>
                 : <div className="skill-file-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
                   img: ({ src, alt }) => {
@@ -159,6 +222,10 @@ export function SkillInspector({ skill, onClose, onAdd }: {
                       : href && /^https?:\/\//i.test(href) ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>;
                   },
                 }}>{markdown}</Markdown></div>)}
+              {editError && <div className="skill-edit-feedback" role={save.isError ? "alert" : "status"}><p>{editError}</p>
+                {save.error instanceof ApiError && save.error.status === 409 && latestContent === null && <button type="button" onClick={() => void readLatest()}>读取当前版本并保留草稿</button>}
+                {latestContent !== null && <details><summary>查看服务器当前版本</summary><pre>{latestContent}</pre></details>}
+              </div>}
             </>}
           </div>
         </section>

@@ -77,6 +77,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const lastSeed = useRef("");
+  const consumedSkillHandoff = useRef("");
   const session = useQuery({ queryKey: ["agent-session", scopeKey, id], queryFn: async () => {
     const next = await request<Session>(`${base}/${id}`);
     return newestSession(cache.getQueryData<Session>(["agent-session", scopeKey, id]), next);
@@ -133,6 +134,21 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     lastSeed.current = seedKey;
     updateDraft(scopeKey, draftSeed);
   }, [active, draftSeed, draftSeedId, scopeKey, updateDraft]);
+  useEffect(() => {
+    const nonce = params.get("skill_edit");
+    if (!nonce || consumedSkillHandoff.current === nonce) return;
+    consumedSkillHandoff.current = nonce;
+    const key = `creatoros.skill-edit-handoff:${nonce}`;
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      if (!raw) return;
+      const value = JSON.parse(raw) as { skillId?: string; skillName?: string; path?: string; request?: string };
+      if (!value.skillId || !value.skillName || !value.path || !value.request) return;
+      updateDraft(scopeKey, `请帮我修改 CreatorOS 本地 Skill「${value.skillName}」。\nSkill ID：${value.skillId}\n目标文件：${value.path}\n\n修改要求：\n${value.request}\n\n请先检查当前文件内容并给出具体修改；没有实际文件写入工具时，不要声称已经保存。`);
+      window.sessionStorage.removeItem(key);
+      setParams(previous => { const next = new URLSearchParams(previous); next.delete("skill_edit"); return next; }, { replace: true });
+    } catch { updateError(scopeKey, "无法读取 Skill 修改草稿，请返回 Skill 卡片重新提交。"); }
+  }, [params, scopeKey, setParams, updateDraft, updateError]);
   useEffect(() => {
     setConnected(false); follow.current = true;
     if (!active || !id || doc?.status !== "running") return;

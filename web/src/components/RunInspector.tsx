@@ -1,11 +1,28 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import { useRunEvents } from "../api/useRunEvents";
 import type { CardView, PartialCardView, RevisionView, RunDetail } from "../api/types";
 import { RunControls } from "./RunControls";
 import { StatusPill, formatDate } from "./StatusPill";
+import { SkillInspector } from "./SkillInspector";
+import type { ProducerSkillItem } from "../api/types";
+
+type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
+function runSkills(run: RunDetail): RunSkillSnapshot[] {
+  const snapshot = run.input_snapshot as {
+    skill_name?: unknown; skill_digest?: unknown;
+    composition?: { mind?: { id?: unknown; name?: unknown; digest?: unknown }; production?: { id?: unknown; name?: unknown; digest?: unknown } };
+  };
+  if (snapshot.composition) return (["mind", "production"] as const).flatMap(role => {
+    const item = snapshot.composition?.[role];
+    return typeof item?.id === "string" ? [{ id: item.id, name: typeof item.name === "string" ? item.name : item.id,
+      role, digest: typeof item.digest === "string" ? item.digest : null }] : [];
+  });
+  return typeof snapshot.skill_name === "string" ? [{ id: snapshot.skill_name, name: snapshot.skill_name,
+    role: "production", digest: typeof snapshot.skill_digest === "string" ? snapshot.skill_digest : null }] : [];
+}
 
 export function RunInspector({ run }: { run: RunDetail }) {
   const [params] = useSearchParams();
@@ -14,9 +31,13 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const returnTo = requestedReturn && /^\/(?:\?|$|series\/[^/?#]+(?:\?|$))/.test(requestedReturn)
     ? requestedReturn : `/series/${run.series_id}`;
   const [selected, setSelected] = useState<string | null>(null);
+  const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
+  const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills, retry: false,
+    enabled: runSkills(run).length > 0 });
+  const usedSkills = runSkills(run);
   const { events, connection } = useRunEvents(run.id, ["queued", "producing", "validating", "running"].includes(run.status));
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);
-  const old = revision?.revision_number !== run.active_revision_number;
+  const old = revision ? revision.revision_number !== run.active_revision_number : false;
   const partialCards = !old && !revision?.cards.length ? [...(run.partial_cards ?? [])].sort((a, b) => a.order - b.order) : [];
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <>
@@ -32,6 +53,18 @@ export function RunInspector({ run }: { run: RunDetail }) {
       </section>
       <aside className="inspector-copy">
         {revision?.content_summary ? <p className="content-summary">{revision.content_summary}</p> : null}
+        {usedSkills.length ? <section className="run-used-skills" aria-label="本次运行使用的 Skill"><h2>本次运行使用的 Skill</h2>
+          <p>下面可打开本地 Skill 库的当前版本查看或编辑。本次 Run 使用创建时冻结的版本，编辑只影响新 Run。</p>
+          {usedSkills.map(item => {
+            const current = skills.data?.items.find(skill => skill.id === item.id);
+            return <div className="run-used-skill" key={`${item.role}-${item.id}`}><div><strong>{current?.name ?? item.name}</strong><span>{item.role === "mind" ? "内容 Skill" : "制作 Skill"}</span>
+              <small>Run 冻结摘要：{item.digest ? `${item.digest.slice(0, 12)}…` : "旧记录未保存摘要"}</small></div>
+              {skills.isError ? <span role="status">当前 Skill 库暂不可读</span> : current
+                ? <button type="button" className="text-link" onClick={() => setInspectedSkill(current)}>打开当前库版本 ↗</button>
+                : skills.isPending ? <span role="status">正在读取 Skill 库…</span> : <span>当前库中未登记；Run 冻结版本仍保留</span>}
+            </div>;
+          })}
+        </section> : null}
         {run.error_message ? <p className="review-warning">{run.error_message}</p> : null}
         {revision?.publish_copy ? <Publication revision={revision} /> : <div className="copy-empty"><h2>发布文案</h2><p>产物生成后展示标题、正文与标签。</p></div>}
         {revision?.instruction ? <div className="revision-note"><h3>本版返工要求</h3><p>{revision.instruction}</p></div> : null}
@@ -43,6 +76,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
       <div className="inspector-history"><section><h3>状态时间线</h3><ol className="event-timeline">{events.map((event) => <li key={event.id}><time>{formatDate(event.created_at)}</time><span>{eventNames[event.event_type] ?? event.event_type}</span></li>)}</ol></section>
         <section><h3>第 {revision?.revision_number} 版 · 执行尝试</h3>{revision?.attempts.map((attempt) => <div className="attempt-detail" key={attempt.id}><div><b>尝试 {attempt.attempt_number}</b><StatusPill status={attempt.status} /></div><p>{formatDate(attempt.started_at)} · {attempt.duration_ms !== null ? `${Math.round(attempt.duration_ms / 1000)} 秒` : "耗时未记录"}</p><p>{attempt.error_message}</p><dl><dt>Token 用量</dt><dd>{attempt.usage ? JSON.stringify(attempt.usage) : "未记录"}</dd><dt>生产日志</dt><dd>{attempt.trace_available ? "已保存" : "未记录"}</dd></dl></div>)}<dl className="technical-ids"><dt>Run</dt><dd>{run.id}</dd><dt>Thread</dt><dd>{run.producer_thread_id ?? "未记录"}</dd><dt>产物摘要</dt><dd>{revision?.artifact_digest ?? "未记录"}</dd></dl></section></div>
     </details>
+    {inspectedSkill && <SkillInspector key={inspectedSkill.id} skill={inspectedSkill} onClose={() => setInspectedSkill(null)} />}
   </>;
 }
 

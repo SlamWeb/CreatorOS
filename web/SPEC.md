@@ -1,5 +1,15 @@
 # CreatorOS Studio Web SPEC
 
+## Skill 文件编辑与 Run 来源入口 · 2026-10-06（前端接线）
+
+- SkillInspector 在完整文件卡片中支持可编辑 working Skill 的 Markdown/文本编辑与保存，PUT 携带进入编辑时读取文件所见的目录级 `expected_digest`；冲突时不重置草稿，读取的当前正文 digest 成为新基准，用户检查差异后才能选择覆盖。只读内置 Skill 不显示编辑动作。切换文件、关闭和 Escape 离开未保存编辑均先提示，保存期间锁定对象。成功后同步当前 Skill 名称/描述、文件及列表缓存。
+- 每张卡片可将 Skill ID、名称、当前文件路径和修改要求送入已有 Agent 聊天的输入草稿，保留当前 overview 对话；不自动发送。用户可以检查/调整草稿后再提交。
+- Run 详情从创建时冻结的 `input_snapshot` 显示本次使用 Skill 身份/摘要，并可打开 Skill 卡片查看本地库当前版本。文案明确库内保存只影响新 Run；历史 Run 仍使用冻结副本。已创建 Run 的技能版本不提供回写操作。
+- E2E 覆盖真实隔离 API 文件保存/刷新、切换文件未保存提示、注入 409 后草稿保留与显式覆盖（确认二次保存使用正文响应 digest）、聊天草稿接线且零自动发送，以及 Run 详情 Skill 来源入口。测试只使用 Playwright 专属隔离数据库及产物目录，不访问正式数据或触发生图/发布。
+- 验收：`npm run typecheck`、`npm run build` 通过；SkillInspector Playwright 10/10 通过（含真实隔离 API 文件保存/刷新、未保存提示、409 草稿保护/显式覆盖 digest、Agent 草稿零自动发送、Run 来源）；随后关联复核 5/5（account-chat 2、agent-layout、reply-trace、studio-workflow），末次相邻复核 3/3（加入组合确认、编辑/离开、Run 来源加载态）。
+- 所有写入发生在 Playwright 专属临时 SQLite/Skill/产物目录。studio-workflow 使用确定性测试 Producer 跑既有隔离 Run 审批链路，不调用真实 Codex/图片模型，不改正式库或发布。
+- 人工复查 1440×900 与 390×844 编辑态和 Run 来源截图；编辑器工具栏保持既有浅色样式，手机路径不折行、内容局部滚动。截图保存在 `web/tmp/skill-edit-ui-20261006/`。行为断言与截图分别作为证据。
+
 ## 调研原聊天可见进度 · 2026-10-05（完成）
 
 - 入口仍为账号/普通 Agent 聊天，不改 Skill 页/工作区布局。调用调研工具后当前对话保持进行中，工具行下展示公开消息、搜索/工具活动、最近实际活动和批次链接；任务完成后继续 Agent 回复候选，失败就在当前工具下显示原因。

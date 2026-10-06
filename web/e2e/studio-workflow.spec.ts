@@ -55,6 +55,14 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await page.getByRole("button", { name: "生产", exact: true }).first().click();
   await page.getByRole("link", { name: "查看本次运行" }).click();
   await expect(page.getByText(/Codex 正在生产/)).toBeVisible();
+  const usedSkill = page.getByRole("region", { name: "本次运行使用的 Skill" });
+  await expect(usedSkill).toBeVisible();
+  await expect(usedSkill).toContainText("Run 冻结摘要");
+  await expect(usedSkill).toContainText("编辑只影响新 Run");
+  await usedSkill.getByRole("button", { name: "打开当前库版本 ↗" }).click();
+  const skillCard = page.getByRole("dialog", { name: "knowledge-to-carousel" });
+  await expect(skillCard).toBeVisible();
+  await skillCard.getByRole("button", { name: "关闭 Skill 详情" }).click();
   await page.screenshot({ path: testInfo.outputPath("03-producing.png"), fullPage: true });
   await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: testInfo.outputPath("04-inspector.png"), fullPage: true });

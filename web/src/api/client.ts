@@ -93,6 +93,10 @@ export const studioApi = {
     `/api/producer-skills/${encodeURIComponent(id)}/files/content?${new URLSearchParams({ path })}`,
   producerSkillText: (id: string, path: string, signal?: AbortSignal) => request<ProducerSkillText>(
     studioApi.producerSkillFilePath(id, path), { signal }),
+  saveProducerSkillText: (id: string, input: { path: string; content: string; expected_digest: string }) =>
+    request<ProducerSkillText>(`/api/producer-skills/${encodeURIComponent(id)}/files/content`, {
+      method: "PUT", body: JSON.stringify(input),
+    }),
   skillExtractions: () => request<{ items: SkillExtractionJob[] }>("/api/skill-extractions"),
   skillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}`),
   skillExtractionEvents: (id: string, beforeId = 0, limit = 50) => request<SkillExtractionEventPage>(
