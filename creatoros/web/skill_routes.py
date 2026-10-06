@@ -1,11 +1,12 @@
 """Skill installation and explicit compare-and-set column binding."""
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
 from typing import Literal
 
 from creatoros.storage import Series
+from creatoros.integrations.producer_skills import SkillDigestConflict
 from .schemas import WriteRequest
 
 
@@ -18,6 +19,13 @@ class InstallSkillRequest(WriteRequest):
 class BindSkillRequest(WriteRequest):
     skill_id: str = Field(min_length=1, max_length=4096)
     expected_skill_name: str = Field(min_length=1, max_length=120)
+
+
+class UpdateSkillFileRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    path: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=512 * 1024)
+    expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 def skill_routes(database, service):
@@ -55,10 +63,33 @@ def skill_routes(database, service):
             raise HTTPException(status_code=404, detail="Skill 文件不可用或路径无效。") from error
         if result["kind"] == "image":
             return Response(content=result["content"], media_type=result["media_type"],
-                            headers={"Cache-Control": "no-store"})
+                            headers={"Cache-Control": "no-store",
+                                     "X-Skill-Digest": result["digest"],
+                                     "X-Skill-Editable": str(result["editable"]).lower()})
         return JSONResponse({"path": result["path"], "kind": result["kind"],
+                             "digest": result["digest"], "editable": result["editable"],
                              "content": result["content"]},
                             headers={"Cache-Control": "no-store"})
+
+    @router.put("/producer-skills/{skill_id}/files/content")
+    def update_skill_file(skill_id: str, request: UpdateSkillFileRequest):
+        try:
+            return JSONResponse(service.catalog.update_skill_file(
+                skill_id, request.path, request.content, request.expected_digest,
+            ), headers={"Cache-Control": "no-store"})
+        except SkillDigestConflict as error:
+            return JSONResponse(status_code=409, content={"error": {
+                "code": "skill_digest_conflict", "message": str(error),
+                "current_digest": error.current_digest,
+            }})
+        except OverflowError as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except TypeError as error:
+            raise HTTPException(status_code=415, detail=str(error)) from error
+        except UnicodeError as error:
+            raise HTTPException(status_code=422, detail="Skill 内容必须是有效 UTF-8 文本。") from error
+        except (ValueError, OSError, KeyError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.post("/producer-skills/install", status_code=202)
     def install_skill(request: InstallSkillRequest):

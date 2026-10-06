@@ -26,6 +26,9 @@ _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)
 _RUN = re.compile(r"^/api/runs/([^/]+)$")
 _RUN_EXECUTE = re.compile(r"^/api/runs/([^/]+)/execute$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
+_PRODUCER_SKILL_FILES = re.compile(
+    r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/files(?:/content)?$"
+)
 
 
 class AgentScopeGuard:
@@ -58,6 +61,10 @@ class AgentScopeGuard:
             return None
         if method == "GET" and _PRODUCER_SKILL_CONTENT.fullmatch(path):
             return None
+
+        match = _PRODUCER_SKILL_FILES.fullmatch(path)
+        if match and method in {"GET", "PUT"}:
+            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
 
         if method == "GET" and path == "/api/creators":
             return await self._creator_page(request, creator_id)
@@ -146,6 +153,12 @@ class AgentScopeGuard:
             # A moved Series may contain a Run whose frozen snapshot names its old
             # Creator. Refuse the whole projection so topic DTOs cannot leak that Run.
             return all((run.input_snapshot_json or {}).get("creator_id") == creator_id for run in runs)
+
+    def _owns_skill(self, skill_id: str, creator_id: str) -> bool:
+        with self.db.session() as session:
+            series = session.scalars(select(Series).where(Series.creator_id == creator_id))
+            return any(skill_id in {item.skill_name, item.mind_skill_id, item.production_skill_id}
+                       for item in series)
 
     def _owns_deleted_series(self, series_id: str, request_id, creator_id: str) -> bool:
         if not isinstance(request_id, str):

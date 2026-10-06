@@ -165,6 +165,19 @@ class ProducerSkillArgs(BaseModel):
                           description="从 list_producer_skills 或栏目组合元数据取得的 Skill ID。")
     offset: int = Field(default=0, ge=0, description="正文字符分页起点；有更多内容时按 page.has_more 继续。")
     limit: int = Field(default=2000, ge=1, le=4000, description="本页最多字符数，最大 4000。")
+    path: str | None = Field(default=None, max_length=512,
+                             description="读取指定 Markdown/文本文件；路径须先从 list_files=true 的结果取得。")
+    list_files: bool = Field(default=False, description="true 时列出受管工作副本文件；不读取正文。")
+
+
+class UpdateProducerSkillFileArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    skill_id: str = Field(pattern=r"^[a-z0-9-]+--[a-f0-9]{16}$",
+                          description="从 list_producer_skills 取得的已安装 Skill ID。")
+    path: str = Field(min_length=1, max_length=512, description="从文件列表返回的相对路径。")
+    content: str = Field(max_length=512 * 1024, description="完整的新 UTF-8 文本。一次只更新一个已列出的文件。")
+    expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$",
+                                 description="读取 Skill 文件时返回的整个 Skill digest，用于并发保护。")
 
 
 class NoArgs(BaseModel):
@@ -184,9 +197,22 @@ def list_producer_skills(context=None):
     return _call(lambda c: c.request("GET", "/api/producer-skills"), context)
 
 
-def get_producer_skill(skill_id, offset=0, limit=2000, context=None):
+def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=False, context=None):
+    if list_files:
+        return _call(lambda c: c.request(
+            "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files"), context)
+    if path is not None:
+        return _call(lambda c: c.request(
+            "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
+            params={"path": path}), context)
     return _call(lambda c: c.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/content",
                                      params={"offset": offset, "limit": limit}), context)
+
+
+def update_producer_skill_file(skill_id, path, content, expected_digest, context=None):
+    return _call(lambda c: c.request(
+        "PUT", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
+        payload={"path": path, "content": content, "expected_digest": expected_digest}), context)
 
 
 def _call(action, context=None):
@@ -202,7 +228,8 @@ def _call(action, context=None):
     except StudioClientError as error:
         return ToolResult(
             content=json.dumps({"error": error.code, "message": str(error), "run_id": error.run_id,
-                                "url": f"{client.base_url}/runs/{error.run_id}" if error.run_id else None},
+                                "url": f"{client.base_url}/runs/{error.run_id}" if error.run_id else None,
+                                **error.details},
                                ensure_ascii=False),
             is_error=True, error_type=error.code,
         )

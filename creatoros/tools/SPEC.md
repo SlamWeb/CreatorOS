@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## 已安装 Skill 编辑工具（2026-10-06）
+
+- Agent 通过既有 `get_producer_skill` 的 `list_files=true` / `path` 参数获取受限文件树和正文，再由用户明确授权后调用 `update_producer_skill_file` 更新一个文本文件；更新带整个 Skill digest，工具结果保留冲突时的 `current_digest`。复用读取工具保持账号 Agent 的固定 schema 体量。
+- Web 账号 scope 仅对当前账号已绑定的 Skill 放行这三项文件工具；scope 候选来自服务端会话，不接收模型传入账号 ID。共享文件影响绑定栏目这一事实写入工具说明和宿主指令。
+- 隔离验收见 `tests.smoke_producer_skill_edit`，不调用真实模型；包含合法 frontmatter 更新反映到 catalog describe、原件/快照保留、CAS 冲突和跨账号 403。
+- 真实 DeepSeek Agent→本地 HTTP→Skill 文件验证见 `tests.live_producer_skill_edit --run`；报告在 `tmp/live-producer-skill-edit-20261006-222156/report.json`，模型实际选用了目录/读取/更新工具，未调用 Codex 或生图。
+
 ## Web 调研等待终态（2026-10-05）
 
 - `research_series_topics` 只提交一次；Web 提供公开活动回调时宿主每秒 GET 同一批次，终态候选/安全错误再返回模型。`get_topic_research` 也可观察已有活跃批次。CLI 无回调时仍异步返回，不增加新工具或模型轮询循环。

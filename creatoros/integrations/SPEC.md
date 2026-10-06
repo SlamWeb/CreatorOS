@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## Skill working 副本原子编辑 API（2026-10-06）
+
+- 浏览/读取接口返回整个 working 目录 SHA-256 和 `editable`；新增 PUT 只写已登记 Skill 的安全相对路径与既有 UTF-8 Markdown/文本文件，限制 512 KiB，内置 Skill 只读。
+- `expected_digest` 在更新前校验；过期返回 409/current_digest。SKILL.md 先通过现有 SkillLoader name/description 规则校验，再由同目录临时文件原子替换。`describe()` 及列表读取显示新的描述；versions 和历史 Run 快照不随 working 修改。
+- 编辑 SKILL.md 时另用 `yaml.safe_load` 校验真实 frontmatter YAML，name/description 必须为满足既有限制的字符串，并确认旧单行读取器解析结果一致；多行标量拒绝。`requirements.txt` 增加 `PyYAML>=6,<7`，只用于此编辑校验，不改变其他 SkillLoader 行为。
+- 账号 Agent scope 将 GET 文件树/正文及 PUT 限定为当前账号栏目绑定的 Skill。隔离 SQLite/HTTP 验收见 `tests.smoke_producer_skill_edit`。
+
 ## 调研统一 Python SDK（2026-10-06）
 
 - 调研从 CLI exec 迁移到现有 Python SDK app-server 通道，复用 `_production_client`、`_bounded_sdk` 和单消费者 `collect_observed_turn`；共享 client 增加可选配置/执行文件参数，生产与提炼默认行为不变。

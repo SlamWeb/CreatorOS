@@ -1,5 +1,19 @@
 # Codex 安装与栏目 Skill 绑定
 
+## 已安装 Skill 在线编辑（2026-10-06）
+
+- Skill Inspector 与 Agent 共用受管 `working/<id>` 文件浏览；新增文件更新仅接受已有文件清单中的 UTF-8 Markdown/文本，固定内置 Skill 不可写，versions 导入原件与历史 Run 快照不变。
+- 列表/文本读取返回整个工作目录 SHA-256 `digest` 与 `editable`；`PUT /api/producer-skills/{id}/files/content` 接收 `{path, content, expected_digest}`，检查并发 digest、单文件 512 KiB 限制和合法 SKILL.md name/description frontmatter，使用同目录临时文件原子替换。编辑校验新增依赖 `PyYAML>=6,<7`，只对写入的 SKILL.md frontmatter 调用 `yaml.safe_load`；name/description 必须为合法字符串并满足现有 name/长度约束。为确保原有读取器显示一致，多行块标量会明确拒绝；普通引号字符串可保存。该依赖不参与全局 SkillLoader 行为。成功后 `describe()` 读到更新后元数据；过期 digest 返回 409 和 `current_digest`。
+- CreatorOS Agent 的既有 `get_producer_skill` 支持 `list_files=true` 列表、传 `path` 读取单文件；新增 `update_producer_skill_file`。编辑工具只在用户明确授权后调用，一次仅保存一个文件；对话先告知共享 Skill 的其他绑定栏目也会受影响。账号 scope 仅允许读取/编辑绑定到当前账号栏目上的 Skill；跨账号拒绝。
+- `tests.smoke_producer_skill_edit` 使用临时 SQLite、HTTP 和工作目录覆盖新旧 digest、合法/非法元数据、原子更新、来源原件/历史快照不变及跨账号拒绝；无需模型或正式库。Deepcode Python 下通过；现有读取/安装/生产快照回归待合并前顺序复跑。
+- 首轮真实 Agent 报告 `tmp/live-producer-skill-edit-20261006-222156/report.json` 暴露旧行解析器未拒绝 YAML 冒号语法；已在历史报告中如实标记该校验缺口，不再把它作为 YAML 合法性证据。补充 safe_load 校验后以不含 YAML 特殊冒号的精确描述重跑一次通过：DeepSeek `deepseek-v4-flash`，12,194 tokens，四种工具调用及本地 HTTP 写入均成功，versions 与历史快照不变。最终报告：`tmp/live-producer-skill-edit-20261006-222632/report.json`。
+
+## Skill 文件编辑与使用来源 · 2026-10-06（完成）
+
+- SkillInspector 编辑 markdown/text 文件，使用目录 digest 做乐观并发；409 时保留页面草稿，读取当前正文供用户对照后再显式覆盖。关闭、Escape、切换文件均确认未保存草稿。
+- 本地库 Skill 入口可把身份/路径/用户要求预填至现有 Agent 会话，不自动发送。Run 详情依据 `input_snapshot` 展示创建时冻结的 Skill 与摘要，可打开当前库版本；界面说明保存会影响后续 Run，历史 Run 不变。
+- 验收：SkillInspector 隔离 Playwright 10/10 通过，相关账号聊天/Agent布局/回复Trace/工作流 5/5 通过，最终相邻回归 3/3 通过；`npm run typecheck`、`npm run build` 通过。1440×900 和 390×844 编辑态、Run 来源截图经人工复查，留档于 `web/tmp/skill-edit-ui-20261006/`。工作流测试只用隔离确定性 Producer，不调用真实模型或正式服务；不改正式库/已登记 Skill。
+
 ## 本地 Skill 直接登记（2026-10-02）
 
 - `ProducerSkillCatalog.register_local(directory, *, role, source_note=None)` 允许本地作者直接登记含根级 `SKILL.md` 的目录，不需要 GitHub、Codex 安装器或模型调用。

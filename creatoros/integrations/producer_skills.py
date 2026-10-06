@@ -15,9 +15,41 @@ from threading import Event, RLock, Thread
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from creatoros.skills.loader import SkillLoader
+from creatoros.skills.loader import SkillLoader, _NAME_PATTERN
+
+
+_SKILL_EDIT_LOCK = RLock()
+
+
+class SkillDigestConflict(ValueError):
+    def __init__(self, current_digest: str):
+        super().__init__("Skill 已被其他编辑更新，请重新读取后再保存。")
+        self.current_digest = current_digest
+
+
+def _validate_skill_frontmatter(content: str) -> dict[str, str]:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("SKILL.md 必须以 YAML frontmatter 起始。")
+    try:
+        closing = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+    except StopIteration as error:
+        raise ValueError("SKILL.md 缺少 YAML frontmatter 结束标记。") from error
+    try:
+        metadata = yaml.safe_load("\n".join(lines[1:closing]))
+    except yaml.YAMLError as error:
+        raise ValueError("SKILL.md frontmatter 不是合法 YAML。") from error
+    if not isinstance(metadata, dict):
+        raise ValueError("SKILL.md frontmatter 必须是 YAML 键值对象。")
+    name, description = metadata.get("name"), metadata.get("description")
+    if (not isinstance(name, str) or not _NAME_PATTERN.fullmatch(name) or len(name) > 64):
+        raise ValueError("SKILL.md name 必须是小写字母、数字和单连字符组成的字符串名称。")
+    if not isinstance(description, str) or not description.strip() or len(description) > 1_024:
+        raise ValueError("SKILL.md description 必须是非空字符串且不超过 1024 字符。")
+    return {"name": name, "description": description}
 
 
 def skills_root_for(database) -> Path:
@@ -268,7 +300,7 @@ class ProducerSkillCatalog:
             base = self.project_root.resolve()
             managed_root = self.project_root / "creatoros" / "skills"
             directory = managed_root / skill_id
-            item = {"id": skill_id, "role": "legacy_end_to_end"}
+            item = {"id": skill_id, "role": "legacy_end_to_end", "editable": False}
             if self._is_link_or_reparse(self.project_root / "creatoros"):
                 raise ValueError("Skill 受管目录路径无效。")
         else:
@@ -293,7 +325,7 @@ class ProducerSkillCatalog:
                 raise ValueError("Skill 注册记录与 ID 不匹配。")
             directory = self.root / "working" / skill_id
             managed_root = self.root / "working"
-            item = {"id": skill_id, "role": self._role(data)}
+            item = {"id": skill_id, "role": self._role(data), "editable": True}
 
         if (self._is_link_or_reparse(managed_root) or not managed_root.is_dir()
                 or not managed_root.resolve().is_relative_to(base)):
@@ -312,6 +344,10 @@ class ProducerSkillCatalog:
         return directory, item, skill
 
     def list_skill_files(self, skill_id: str) -> dict:
+        with _SKILL_EDIT_LOCK:
+            return self._list_skill_files_locked(skill_id)
+
+    def _list_skill_files_locked(self, skill_id: str) -> dict:
         directory, item, skill = self._readable_skill_directory(skill_id)
         files = []
         entries = 0
@@ -348,9 +384,14 @@ class ProducerSkillCatalog:
                 if len(files) > self.MAX_BROWSE_FILES:
                     raise ValueError("Skill 文件过多，无法安全展示。")
         files.sort(key=lambda entry: entry["path"].casefold())
-        return {**item, "name": skill.name, "description": skill.description, "files": files}
+        return {**item, "name": skill.name, "description": skill.description,
+                "digest": _digest(directory), "files": files}
 
     def read_skill_file(self, skill_id: str, relative_path: str) -> dict:
+        with _SKILL_EDIT_LOCK:
+            return self._read_skill_file_locked(skill_id, relative_path)
+
+    def _read_skill_file_locked(self, skill_id: str, relative_path: str) -> dict:
         if (not isinstance(relative_path, str) or not relative_path or len(relative_path) > 512
                 or "\\" in relative_path or ":" in relative_path or "\x00" in relative_path):
             raise ValueError("Skill 文件路径无效。")
@@ -361,7 +402,7 @@ class ProducerSkillCatalog:
             raise ValueError("Skill 文件路径无效。")
         if self._sensitive_skill_path(relative):
             raise ValueError("Skill 文件不可读取。")
-        directory, _item, _skill = self._readable_skill_directory(skill_id)
+        directory, item, _skill = self._readable_skill_directory(skill_id)
         path = directory.joinpath(*relative.parts)
         resolved_root = directory.resolve()
         for parent in [directory, *(directory / Path(*relative.parts[:index])
@@ -397,7 +438,8 @@ class ProducerSkillCatalog:
             except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
                 raise ValueError("图片内容无效，无法预览。") from error
             return {"path": relative.as_posix(), "kind": "image", "content": content,
-                    "media_type": media_type}
+                    "media_type": media_type, "digest": _digest(directory),
+                    "editable": item["editable"]}
         if suffix in self._TEXT_SUFFIXES:
             size = path.stat().st_size
             if size > self.MAX_TEXT_BYTES:
@@ -410,9 +452,74 @@ class ProducerSkillCatalog:
                 content = raw_content.decode("utf-8")
             except UnicodeError as error:
                 raise ValueError("文本文件不是有效 UTF-8。") from error
-            return {"path": relative.as_posix(),
+            return {"path": relative.as_posix(), "digest": _digest(directory),
+                    "editable": item["editable"],
                     "kind": "markdown" if suffix == ".md" else "text", "content": content}
         raise TypeError("此文件类型不支持预览。")
+
+    def update_skill_file(self, skill_id: str, relative_path: str, content: str,
+                          expected_digest: str) -> dict:
+        with _SKILL_EDIT_LOCK:
+            return self._update_skill_file_locked(skill_id, relative_path, content, expected_digest)
+
+    def _update_skill_file_locked(self, skill_id: str, relative_path: str, content: str,
+                                  expected_digest: str) -> dict:
+        """Atomically update one listed UTF-8 text file in an installed working copy."""
+        if skill_id == self.BUILTIN_ID:
+            raise ValueError("内置 Skill 只读，不能通过已安装 Skill 编辑入口修改。")
+        if not isinstance(content, str) or len(content.encode("utf-8")) > self.MAX_TEXT_BYTES:
+            raise OverflowError("Skill 文本文件最多 512 KiB。")
+        if not isinstance(expected_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+            raise ValueError("expected_digest 必须是文件列表返回的 Skill digest。")
+        # Reuse the reader's strict relative-path, symlink, UTF-8, size, and
+        # extension checks. Images and unsupported files are never writable.
+        readable = self.read_skill_file(skill_id, relative_path)
+        if readable["kind"] not in {"markdown", "text"}:
+            raise TypeError("只支持编辑已列出的 Markdown 或文本文件。")
+        directory, _item, _skill = self._readable_skill_directory(skill_id)
+        target = directory.joinpath(*Path(relative_path).parts)
+        if self._is_link_or_reparse(target) or not target.is_file():
+            raise ValueError("Skill 文件路径无效。")
+
+        current_digest = _digest(directory)
+        if current_digest != expected_digest:
+            raise SkillDigestConflict(current_digest)
+        temporary = None
+        try:
+            # Validate SKILL.md metadata before publishing the replacement.
+            if Path(relative_path).as_posix().casefold() == "skill.md":
+                frontmatter = _validate_skill_frontmatter(content)
+                from tempfile import NamedTemporaryFile
+                with NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                        prefix=".skill-edit-", suffix=".md",
+                                        dir=directory, delete=False) as stream:
+                    temporary = Path(stream.name)
+                    stream.write(content)
+                parsed = SkillLoader([directory])._read_metadata(temporary)
+                if (parsed is None or parsed.name != frontmatter["name"]
+                        or parsed.description != frontmatter["description"]):
+                    raise ValueError("当前只支持与单行 frontmatter 解析一致的 name/description；多行块标量不能保存。")
+            else:
+                from tempfile import NamedTemporaryFile
+                with NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                        prefix=".skill-edit-", suffix=target.suffix,
+                                        dir=target.parent, delete=False) as stream:
+                    temporary = Path(stream.name)
+                    stream.write(content)
+            # Confirm the target is still the file inspected above, then atomically replace.
+            if self._is_link_or_reparse(target) or target.resolve().parent != target.parent.resolve():
+                raise ValueError("Skill 文件路径越界或无效。")
+            temporary.replace(target)
+            temporary = None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+        updated = self.read_skill_file(skill_id, relative_path)
+        described = self.describe(skill_id)
+        return {"skill_id": skill_id, "path": updated["path"], "content": updated["content"],
+                "digest": described["digest"], "name": described["name"],
+                "description": described["description"], "editable": True}
 
     def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
