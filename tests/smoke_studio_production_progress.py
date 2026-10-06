@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from creatoros.integrations.production_progress import ProgressWriter
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
 from creatoros.runs import ContentRunService
-from creatoros.storage import Database, ContentAttempt, Creator, CreatorPlatform, Series, Topic, TopicSource, upgrade_database
+from creatoros.storage import Database, ContentAttempt, ContentRun, ContentRunStatus, Creator, CreatorPlatform, Series, Topic, TopicSource, upgrade_database
 from creatoros.web import create_app
 from tests.smoke_pair_production import ControlledPair, install_fixture
 
@@ -44,11 +44,21 @@ def main():
             detail = client.get(f"/api/runs/{run.id}")
             assert detail.status_code == 200
             assert detail.json()["production_progress"]["completed_tool_calls"] == 1
+            assert detail.json()["production_progress"]["status"] == "completed"
             assert "SECRET" not in detail.text and str(root) not in detail.text
             # Projection is read-only and does not advance the approval version.
             assert service.get(run.id).version == detail.json()["version"]
             progress = directory / "production_progress.json"
             good = progress.read_bytes()
+            # A stale activity file must follow the authoritative database terminal state.
+            for state in (ContentRunStatus.FAILED, ContentRunStatus.INTERRUPTED, ContentRunStatus.CANCELLED):
+                with db.session() as session:
+                    session.get(ContentRun, run.id).status = state
+                projected = client.get(f"/api/runs/{run.id}").json()["production_progress"]
+                assert projected["status"] == ("failed" if state == ContentRunStatus.FAILED else "interrupted")
+                assert progress.read_bytes() == good  # GET does not rewrite evidence.
+            with db.session() as session:
+                session.get(ContentRun, run.id).status = ContentRunStatus.AWAITING_APPROVAL
             progress.write_text(json.dumps({"stage": "D:/SECRET", "activity": "bad"}), encoding="utf-8")
             assert client.get(f"/api/runs/{run.id}").json()["production_progress"] is None
             progress.write_bytes(good)

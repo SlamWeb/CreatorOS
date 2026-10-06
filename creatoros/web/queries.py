@@ -333,7 +333,18 @@ class StudioQueryService:
                     or not path.resolve().is_relative_to(base)
                     or path.is_symlink() or path.stat().st_size > 16_384):
                 return None
-            return ProductionProgress.model_validate_json(path.read_text(encoding="utf-8"))
+            progress = ProductionProgress.model_validate_json(path.read_text(encoding="utf-8"))
+            # Files describe worker activity; the persisted Run owns business state.
+            # A stale heartbeat/progress file must not resurrect stopped work.
+            terminal = {
+                ContentRunStatus.AWAITING_APPROVAL: "completed", ContentRunStatus.APPROVED: "completed",
+                ContentRunStatus.FAILED: "failed", ContentRunStatus.INTERRUPTED: "interrupted",
+                ContentRunStatus.CANCELLED: "interrupted",
+            }.get(run.status)
+            if terminal is not None:
+                progress.status = terminal
+                progress.activity = "completed" if terminal == "completed" else "failed"
+            return progress
         except (OSError, ValueError):
             # Legacy/malformed telemetry must never prevent access to the actual Run.
             return None

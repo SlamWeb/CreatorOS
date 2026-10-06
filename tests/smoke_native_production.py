@@ -329,9 +329,11 @@ def main():
         make_delivery(boundary, evil_thread.thread_id, escaped_image)
         assert_value_error(lambda: ingest(boundary, evil_thread, generated_root))
 
-        # Existing accepted items cannot silently change their image or Prompt.
+        # Only finalized deliveries are immutable; previews remain editable.
+        cp.turn_completed = True
         make_delivery(boundary, cp.thread_id, valid_image, prompt="rewritten prompt")
         assert_value_error(lambda: ingest(boundary, cp, generated_root))
+        cp.turn_completed = False
         reference = boundary / "skills" / "production" / "assets" / "escape.md"
         try:
             reference.symlink_to(outside)

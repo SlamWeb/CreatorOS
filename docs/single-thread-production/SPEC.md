@@ -92,3 +92,11 @@
 - 回归通过：local/Git producer skills、production_sessions、production_progress、content_run_service、pair_production、receipt_recovery、series_guards、studio_executor、studio_partial_cards、studio_production_progress、studio_run_api、visual_checkpoint、studio_api、topic CRUD。历史受控 Producer 夹具明确选择 legacy，不把假图片当 native 真交付测试。
 - Web typecheck/build、受控 Playwright `production-progress.spec.ts + studio-workflow.spec.ts` 10/10 通过（34.8 秒），包括内容单字段/Prompt 单字段/均空回归；桌面与 390px 手机截图在 tmp/testresults。最小 UI 修复：不能因为 Skill 没交固定格式内容稿就把已保存 Prompt 隐藏。生产时 partial 仍仅图片，未暗中扩 DTO。
 - 既存警告：Starlette/httpx 兼容层弃用提示、Vite 大 chunk 提示。没有为本轮更改依赖；自动回归无调研、生图或发布费用。
+
+## 2026-10-06：生产预览不等于最终冻结
+
+- 真实失败根因：同页修图或共享内容稿补写时，宿主将先前预览误判为不可变交付，拒绝最后的完整产物。现在允许生产期间更新图片、Prompt、引用和内容；全套新索引验证通过才替换 checkpoint，图片按摘要保存，旧预览字节保留。SDK 完成且交付完整后才冻结，最终审批摘要约束不变。
+- 恢复保留 work 中最新 delivery，不用旧 checkpoint 覆盖它。新增宿主 SDK receipt，将 turn 的成功/失败与交付校验区分；已有成功执行证据时可离线重验，不重新生图。旧任务可运行 `python -m creatoros.integrations.native_recovery --directory <Attempt路径> --record`：只读核验原 SDK thread/turn/cwd/最终回复，再补执行证据，不改 Run 状态；之后使用原执行/恢复 API。
+- 最小通信协议见 `docs/codex-worker/SPEC.md`。新增 `smoke_worker_delivery` 覆盖补稿、修图、坏索引不破坏预览、冻结后拒绝变更、SDK 最后失败不能冒充成功。
+- 真实历史回放：两个原失败 Attempt 均通过 SDK 历史只读核验，并在隔离目录组装通过完整 artifact 验收。`tmp/native-delivery-replay-9dnu081t/report.json`、`tmp/native-delivery-replay-t6unfftc/report.json`；各 1 张真实图片，模型调用 0、生图调用 0。第二条业务记录现为 cancelled，只验证可恢复性，不将其复活。
+- 自动回归通过：native_production、worker_delivery、native_run_wiring、native_artifact_web、production_progress、studio_production_progress、topic_research_sdk、content_run_service、studio_executor、studio_run_api。故障注入与执行器测试为隔离受控测试，不声称做了新的真实生图。

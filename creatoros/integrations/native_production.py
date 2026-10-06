@@ -24,6 +24,7 @@ from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAM
 from .producer_skills import ProducerSkillCatalog, _digest, freeze_skill
 from .production_progress import ProgressWriter, collect_observed_turn
 from .visual_production import atomic_json, input_digest
+from .worker_protocol import record_task, record_thread, completed_delivery_turn
 
 CHECKPOINT = "native_checkpoint.json"
 
@@ -148,7 +149,7 @@ def load_checkpoint(directory: Path, digest: str | None = None) -> Checkpoint | 
         return None
 
 
-def recover_checkpoint(directory: Path, digest: str) -> Checkpoint | None:
+def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None = None) -> Checkpoint | None:
     if not re.fullmatch(r"attempt-\d{3}", directory.name):
         return None
     for previous in sorted(directory.parent.glob("attempt-[0-9][0-9][0-9]"), reverse=True):
@@ -177,8 +178,29 @@ def recover_checkpoint(directory: Path, digest: str) -> Checkpoint | None:
         prior_index = directory / "work/delivery.json"
         if prior_index.is_file():
             shutil.copy2(prior_index, directory / "work/previous-delivery.json")
-        value.delivery.artifacts = [Artifact(**p.model_dump(include=set(Artifact.model_fields))) for p in value.pages]
-        atomic_json(prior_index, value.delivery)
+        if value.turn_completed:
+            value.delivery.artifacts = [Artifact(**p.model_dump(include=set(Artifact.model_fields))) for p in value.pages]
+            atomic_json(prior_index, value.delivery)
+        elif prior_index.is_file():
+            # Latest work may be newer than the preview. Preserve and revalidate it,
+            # rebasing only paths inside the exact prior attempt, never arbitrary text.
+            try:
+                latest = Delivery.model_validate_json(prior_index.read_text(encoding="utf-8-sig"))
+                for item in latest.artifacts:
+                    item.reference_assets = [Path(ref).relative_to(previous).as_posix()
+                        if Path(ref).is_absolute() and Path(ref).is_relative_to(previous) else ref
+                        for ref in item.reference_assets]
+                    if item.content_file and Path(item.content_file).is_absolute():
+                        item.content_file = Path(item.content_file).relative_to(previous / "work").as_posix()
+                atomic_json(prior_index, latest)
+                if generated_root is not None:
+                    ingest(directory, value, generated_root)
+                if (generated_root is not None and value.delivery.complete and value.pages
+                        and completed_delivery_turn(previous, value.thread_id)):
+                    value.turn_completed = True
+                    shutil.copy2(previous / "worker_receipt.json", directory / "worker_receipt.json")
+            except (ValueError, OSError):
+                pass  # Keep the last verified preview; the worker can repair the index.
         atomic_json(directory / CHECKPOINT, value)
         return value
     return None
@@ -194,6 +216,10 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
         raise ValueError("交付图片必须从 1 连续编号。")
     if len(delivery.artifacts) < len(checkpoint.pages):
         raise ValueError("交付不能移除已保存图片。")
+    # While the worker is running these are previews, not immutable deliverables.
+    # Validate the whole new index before publishing it, retaining previous images
+    # by hash so a failed/partial write cannot corrupt a visible checkpoint.
+    pages = []
     for item in delivery.artifacts:
         refs = []
         for ref in item.reference_assets:
@@ -206,26 +232,39 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
             file = safe_file(directory / "work", file, 2_000_000)
             content = file.read_text(encoding="utf-8-sig")
             content_file = file.relative_to(directory / "work").as_posix()
-        if item.order <= len(checkpoint.pages):
-            saved = checkpoint.pages[item.order - 1]
-            if ((saved.source_image_path, saved.image_prompt, saved.reference_assets, saved.content_file, saved.content)
-                    != (item.source_image_path, item.image_prompt, refs, content_file, content)):
-                raise ValueError("已验收页的图片、Prompt、引用或内容不能隐式覆盖。")
-            continue
         source = safe_file(generated_thread, Path(item.source_image_path))
         if source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
             raise ValueError("不支持的图片格式。")
         with Image.open(source) as image:
             image.verify()
         sha = hashlib.sha256(source.read_bytes()).hexdigest()
-        if sha in {p.sha256 for p in checkpoint.pages}:
+        if sha in {p.sha256 for p in pages}:
             raise ValueError("多个页重复交付同一图片。")
-        target = directory / "partial-images" / f"{item.order:02d}{source.suffix.lower()}"
+        target = directory / "partial-images" / f"{item.order:02d}-{sha}{source.suffix.lower()}"
         target.parent.mkdir(exist_ok=True)
-        shutil.copy2(source, target)
-        checkpoint.pages.append(SavedArtifact(**{**item.model_dump(), "reference_assets": refs, "content_file": content_file},
-                                             image_path=str(target.resolve()), sha256=sha, content=content))
-        atomic_json(directory / CHECKPOINT, checkpoint)
+        page = SavedArtifact(**{**item.model_dump(), "reference_assets": refs, "content_file": content_file},
+                             image_path=str(target.resolve()), sha256=sha, content=content)
+        if item.order <= len(checkpoint.pages):
+            saved = checkpoint.pages[item.order - 1]
+            # Reuse previously checked local bytes when the source is unchanged.
+            if page.model_dump(exclude={"image_path", "warnings"}) == saved.model_dump(exclude={"image_path", "warnings"}):
+                page = saved
+            elif checkpoint.turn_completed:
+                raise ValueError("最终交付已冻结，不能隐式修改图片、Prompt、引用或内容。")
+        if not Path(page.image_path).exists():
+            shutil.copy2(source, page.image_path)
+        if hashlib.sha256(Path(page.image_path).read_bytes()).hexdigest() != sha:
+            raise ValueError("已保存图片发生变化。")
+        pages.append(page)
+    if checkpoint.turn_completed and delivery != checkpoint.delivery:
+        raise ValueError("最终交付已冻结，不能修改交付索引。")
+    changed = [p.order for p in pages if p.order > len(checkpoint.pages)
+               or p != checkpoint.pages[p.order - 1]]
+    if changed:
+        with (directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"type": "delivery.updated", "orders": changed,
+                                    "at": datetime.now().astimezone().isoformat()}) + "\n")
+    checkpoint.pages = pages
     checkpoint.delivery = delivery
     atomic_json(directory / CHECKPOINT, checkpoint)
     return delivery
@@ -253,8 +292,9 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
                if checkpoint and checkpoint.composition_review else "")
             + "把内容稿和来源写到当前 work 目录；不要写工作目录以外的项目文件。"
             "必须用原生生图工具生成实际图片，不用代码绘图或占位图。不要自动审美重画。"
-            "每完成一张图片就更新 work/delivery.json（相对于当前 cwd 是 delivery.json），先写临时文件再替换。"
+            "每完成一张图片就更新 delivery.json（当前 cwd 内），先写临时文件再替换。"
             "保留全部已完成项，order 从 1 开始。每项提供实际工具返回的图片绝对路径、真正使用的完整 Prompt。"
+            "生产期间可以补充内容稿或修正同页图片，索引须指向最终采用的版本，Prompt 记录相关修正。"
             "reference_assets 只列实际使用的本次冻结 Skill 文件，填绝对路径，无参考图可为空。"
             "content_file 指向 work 内对应内容稿，可以多图共享整篇稿。不要把参考素材当交付图。"
             "图片全部完成后才置 complete=true。不要发布。无需最终重复输出整份 JSON。\n"
@@ -292,6 +332,7 @@ async def review_composition(thread, producer, directory, refs, request, progres
     prompt = composition_prompt(refs, request)
     (directory / "composition_request.txt").write_text(prompt, encoding="utf-8")
     progress.page("planning", None, 0)
+    progress.worker_phase = "composition"
     turn = await _bounded_sdk(thread.turn(
         [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]],
         cwd=str(directory / "work"), effort=CODEX_EFFORT, model=CODEX_MODEL,
@@ -337,6 +378,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             checkpoint = checkpoint or Checkpoint(input_digest=request_digest(directory), thread_id=thread.id,
                 skill_digests={role: _digest(path.parent) for role, path in skill_refs(directory)})
             progress.checkpoint = checkpoint
+            record_thread(directory, thread.id)
             atomic_json(directory / CHECKPOINT, checkpoint)
             if on_thread_started:
                 on_thread_started(thread.id)
@@ -355,6 +397,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             progress.page("planning", None, len(checkpoint.pages))
             (directory / "production_instructions.txt").write_text(prompt, encoding="utf-8")
             for repair in (False, True):
+                progress.worker_phase = "delivery_repair" if repair else "production"
                 if repair:
                     if checkpoint.repair_attempted:
                         raise ValueError("交付索引的一次修复额度已用完。")
@@ -445,7 +488,10 @@ def produce_native(producer, **request):
                "topic_brief", "series_description", "audience", "revision_instruction", "previous_pages")}
     prompt = json.dumps(payload, ensure_ascii=False)
     (directory / "production_request.txt").write_text(prompt, encoding="utf-8")
-    checkpoint = recover_checkpoint(directory, request_digest(directory))
+    record_task(directory, kind="production", scope={key: payload[key] for key in
+                ("pack_id", "creator_id", "series_id", "topic_id")},
+                input_ref="production_request.txt", deliverable="work/delivery.json")
+    checkpoint = recover_checkpoint(directory, request_digest(directory), producer.generated_images_root)
     if checkpoint is None or not (checkpoint.turn_completed and checkpoint.delivery.complete):
         checkpoint = asyncio.run(execute(producer, directory, refs, prompt, checkpoint,
                                         request.get("on_thread_started"), request.get("cancel_event")))
@@ -458,7 +504,7 @@ def produce_native(producer, **request):
     (directory / "images").mkdir()
     cards = []
     for page in checkpoint.pages:
-        target = directory / "images" / Path(page.image_path).name
+        target = directory / "images" / f"{page.order:02d}{Path(page.image_path).suffix}"
         shutil.copy2(page.image_path, target)
         cards.append(CarouselCard(order=page.order, kind="cover" if page.order == 1 else "content",
                                   headline=checkpoint.delivery.title or payload["topic_title"], body=page.content or None,

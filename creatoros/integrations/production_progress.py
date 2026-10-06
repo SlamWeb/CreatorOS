@@ -111,7 +111,10 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
     # SDK 0.157.1 is pinned. Its private collector is the sole compatibility seam;
     # retain final-answer selection, usage and failed-turn semantics instead of duplicating them.
     from openai_codex._run import _collect_async_turn_result
+    from .worker_protocol import record_turn
 
+    phase = getattr(progress, "worker_phase", progress.state.stage)
+    record_turn(progress.directory, turn.id, phase, "running")
     stream = turn.stream()
     async def observed():
         async for event in stream:
@@ -131,7 +134,14 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
             yield event
     iterator = observed()
     try:
-        return await _collect_async_turn_result(iterator, turn_id=turn.id)
+        result = await _collect_async_turn_result(iterator, turn_id=turn.id)
+        record_turn(progress.directory, turn.id, phase, "completed")
+        return result
+    except BaseException as error:
+        import asyncio
+        record_turn(progress.directory, turn.id, phase,
+                    "interrupted" if isinstance(error, asyncio.CancelledError) else "failed")
+        raise
     finally:
         await iterator.aclose()
         await stream.aclose()

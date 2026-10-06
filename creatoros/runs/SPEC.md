@@ -118,3 +118,10 @@
 ## 按快照使用生产 Skill（2026-09-08）
 
 - _produce_claimed 将既有 input.skill_name 传给 Producer，并使用数据库相邻的 Skill 注册目录。外部 Skill ID 指向不可变版本，改绑不重写已有 Run/Revision；内置默认兼容。验证见 docs/agent-studio/producer-skills/SPEC.md。
+
+## 2026-10-06：完成交付的离线恢复
+
+- Run/Revision/Attempt 仍是业务状态唯一来源；新 `worker_receipt.json` 只保存 SDK thread/turn 执行事实，不引入第二套业务状态。
+- native 生产中的预览可以更新；完成后才冻结。SDK 已完成但旧宿主误拒收的交付，显式恢复创建同 Revision 的新 Attempt，核验最新 work 后离线组装，原失败 Attempt/日志保留。取消状态不能因文件存在而恢复。
+- Web production_progress 在 Run 已终结时由数据库状态校准，不继续展示旧进度文件中的 running；GET 不修改文件或数据库版本。
+- 回归：smoke_worker_delivery、smoke_studio_production_progress、smoke_content_run_service、smoke_studio_executor、smoke_studio_run_api 通过；真实历史隔离回放见 docs/single-thread-production/SPEC.md。

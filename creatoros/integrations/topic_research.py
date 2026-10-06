@@ -100,6 +100,9 @@ class CodexTopicResearcher:
         )
         workspace = Path(workspace)
         (workspace / "research_request.txt").write_text(prompt, encoding="utf-8")
+        from .worker_protocol import record_task
+        record_task(workspace, kind="research", scope={"series": snapshot.get("series", {})},
+                    input_ref="research_request.txt", deliverable="response.txt (ResearchReceipt)")
         return asyncio.run(self._research_async(prompt, count, workspace, cancel, public_observer))
 
     async def _research_async(self, prompt, count, workspace, cancel, public_observer):
@@ -152,6 +155,8 @@ class CodexTopicResearcher:
                     deadline, cancel)
                 emit({"type": "thread.started", "thread_id": thread.id, "backend": "python-codex-sdk",
                       "model": CODEX_MODEL, "reasoning_effort": CODEX_EFFORT})
+                from .worker_protocol import record_thread
+                record_thread(workspace, thread.id)
                 turn = await _bounded_sdk(thread.turn([TextInput(prompt)], model=CODEX_MODEL, effort=CODEX_EFFORT,
                     sandbox=Sandbox.read_only, output_schema=ResearchReceipt.model_json_schema()), deadline, cancel)
                 try:
