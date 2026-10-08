@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## Observation 公开 SDK 事件 · 2026-10-08（完成）
+
+- 在共用 SDK stream 单消费者处补本地公开事件记录；保留原进度/交付文件，不改变模型、线程、工具或生产状态语义。
+- 保存可确认的 thread/turn/item 关联与公开输入输出，排除 reasoning 正文和已识别秘密；历史摘要不补造成完整轨迹。读取不调用 Codex，不扩展登录态或全局会话访问。
+- 详细契约与验证见 `docs/observation/SPEC.md`；诊断写入故障不得将正常交付改判失败。
+- SDK 中断正常返回时保留 interrupted，不误记 completed；完整 item 权威，未结束 delta 以 partial 保存。捕获、原生产进度、调研 SDK、讨论和交付 smoke 通过；未启动真实生图或发布。
+
 ## 明确任务输入与版本绑定讨论（2026-10-08）
 
 - `ContentDiscussionService` 给指定 Run/Revision/digest 保存独立讨论任务；SDK fork 生产 thread 或 fresh snapshot，后续同版本 resume 讨论 thread，实际附图。只读讨论不接收为生产交付，也不改变审批状态。协议、上下文范围、工具隔离局限和真实验证以 `docs/codex-worker/SPEC.md` 为准。

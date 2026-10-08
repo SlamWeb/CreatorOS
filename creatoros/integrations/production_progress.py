@@ -112,12 +112,16 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
     # retain final-answer selection, usage and failed-turn semantics instead of duplicating them.
     from openai_codex._run import _collect_async_turn_result
     from .worker_protocol import record_turn
+    from .codex_public_events import PublicEventCapture
 
     phase = getattr(progress, "worker_phase", progress.state.stage)
+    capture = PublicEventCapture(progress.directory, turn.id, phase, getattr(turn, "thread_id", ""))
+    capture.write("capture/started", {}, status="running")
     record_turn(progress.directory, turn.id, phase, "running")
     stream = turn.stream()
     async def observed():
         async for event in stream:
+            capture.observe(event)
             if public_observer is not None:
                 public_observer(event)
             if event.method == "thread/tokenUsage/updated":
@@ -135,10 +139,14 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
     iterator = observed()
     try:
         result = await _collect_async_turn_result(iterator, turn_id=turn.id)
-        record_turn(progress.directory, turn.id, phase, "completed")
+        # The pinned SDK returns interrupted turns normally; only failed raises.
+        status = getattr(result.status, "value", result.status)
+        capture.finish(status)
+        record_turn(progress.directory, turn.id, phase, status)
         return result
     except BaseException as error:
         import asyncio
+        capture.finish("interrupted" if isinstance(error, asyncio.CancelledError) else "failed")
         record_turn(progress.directory, turn.id, phase,
                     "interrupted" if isinstance(error, asyncio.CancelledError) else "failed")
         raise

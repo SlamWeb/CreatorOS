@@ -73,6 +73,8 @@ from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.integrations.content_discussion import ContentDiscussionService
 from .discussion_routes import discussion_routes
 from .worker_tasks import worker_task_routes
+from .observation import ObservationService
+from .observation_routes import observation_routes
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
@@ -122,6 +124,8 @@ def create_app(
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
+    observations = ObservationService(db, chat=chat, research=research,
+                                     discussions=discussions, extractions=extractions, runs=runs)
     agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions)
     scope_request_lock = asyncio.Lock()
 
@@ -162,6 +166,8 @@ def create_app(
     app.state.topic_research = research
     app.state.skill_extractions = extractions
     app.state.content_discussions = discussions
+    app.state.observation = observations
+    app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))
     app.include_router(worker_task_routes(db, research, discussions))
     app.include_router(extraction_routes(extractions))
