@@ -7,14 +7,16 @@ import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
+import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
-  model_request_id?: string; research?: ResearchSnapshot };
+  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
+  discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
   list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务",
   research_series_topics: "调研选题", get_topic_research: "查看调研候选", prepare_topic_selection: "准备选题预览",
   queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
@@ -290,9 +292,10 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
   </div> : null;
   if (entry.kind === "tool") return <div className="chat-tool" data-status={entry.status}>
     <span>{entry.status === "running" ? "◌" : entry.status === "done" ? "✓" : "!"} {tools[entry.name ?? ""] ?? entry.name}</span>
-    <small>{entry.status === "running" ? (entry.research ? "等待调研结果" : "调用中") : entry.status === "done" ? "已返回" : "结果需检查"}</small>
+    <small>{entry.status === "running" ? (entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中") : entry.status === "done" ? "已返回" : "结果需检查"}</small>
     {entry.run_id && <Link to={`/runs/${entry.run_id}`}>查看内容任务 ↗</Link>}
     {entry.research && <ResearchActivity research={entry.research} />}
+    {entry.discussion && <DiscussionActivity discussion={entry.discussion} />}
   </div>;
   if (entry.kind === "usage") return <details className="chat-usage"><summary>本轮用量</summary>
     输入 {entry.input_tokens?.toLocaleString()} · 输出 {entry.output_tokens?.toLocaleString()} tokens</details>;

@@ -27,6 +27,52 @@ export interface CreatorView {
   series: SeriesView[];
 }
 
+export type DiscussionStatus = "queued" | "running" | "completed" | "failed" | "interrupted";
+export interface DiscussionEventView { id: number; kind: string; text: string; at: string }
+export interface DiscussionImageContext { order: number; sha256: string }
+export interface DiscussionSkillContext { role: string; name: string; digest: string }
+export interface DiscussionContext {
+  revision_number: number;
+  image_count: number;
+  images: DiscussionImageContext[];
+  skills: DiscussionSkillContext[];
+  includes: string[];
+  excludes: string[];
+  history_mode: "forked_production" | "explicit_snapshot" | "continued_discussion";
+}
+export interface DiscussionEntry {
+  id: string;
+  request_id: string;
+  run_id: string;
+  revision_id: string;
+  message: string;
+  status: DiscussionStatus;
+  reply: string | null;
+  error: string | null;
+  thread_id: string | null;
+  source_thread_id: string | null;
+  created_at: string;
+  updated_at: string;
+  events: DiscussionEventView[];
+  context: DiscussionContext;
+}
+export interface CreatorTaskItem {
+  id: string;
+  kind: "research" | "production" | "discussion";
+  title: string;
+  status: string;
+  series_id: string | null;
+  run_id: string | null;
+  url: string | null;
+  updated_at: string;
+  last_activity_at: string | null;
+}
+export interface CreatorTaskList {
+  items: CreatorTaskItem[];
+  summary: { active: number; awaiting_approval: number; failed: number };
+  as_of: string;
+}
+
 export interface TopicView {
   id: string;
   series_id: string;

@@ -9,6 +9,7 @@ import { LibraryFilters, TopicLibrary } from "../components/TopicLibrary";
 import { AccountChatPanel } from "../components/AccountChatPanel";
 import { BrandMark } from "../components/BrandMark";
 import { SkillInspector } from "../components/SkillInspector";
+import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import "./workspace.css";
 
 export function WorkspaceRedirect() {
@@ -219,6 +220,7 @@ export function WorkspacePage() {
       {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {params.has("creator") && !account && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
+      {account && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={() => setSeriesDraft({name:"",creatorId:scopedCreatorId})}>新建栏目</button>}

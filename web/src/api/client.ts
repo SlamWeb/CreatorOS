@@ -1,5 +1,6 @@
 import type {
   CreatorView,
+  CreatorTaskList,
   CreatorCreateInput,
   HealthView,
   OverviewView,
@@ -17,6 +18,7 @@ import type {
   SkillExtractionEventPage,
   SkillExtractionMode,
   RunDetail,
+  DiscussionEntry,
   RunCancelInput,
   RunStartInput,
   RunSummary,
@@ -64,6 +66,11 @@ export const studioApi = {
   overview: () => request<OverviewView>("/api/overview"),
   creators: () => request<PageResponse<CreatorView>>("/api/creators?limit=100"),
   creator: (id: string) => request<CreatorView>(`/api/creators/${encodeURIComponent(id)}`),
+  creatorTasks: (id: string, seriesId?: string) => {
+    const query = new URLSearchParams();
+    if (seriesId) query.set("series_id", seriesId);
+    return request<CreatorTaskList>(`/api/creators/${encodeURIComponent(id)}/tasks${query.size ? `?${query}` : ""}`);
+  },
   createCreator: (input: CreatorCreateInput) => request<CreatorView>("/api/creators", { method: "POST", body: JSON.stringify(input) }),
   createSeries: (id: string, input: SeriesCreateInput) => request<SeriesView>(`/api/creators/${encodeURIComponent(id)}/series`, { method: "POST", body: JSON.stringify(input) }),
   series: (id: string) => request<SeriesView>(`/api/series/${encodeURIComponent(id)}`),
@@ -77,6 +84,9 @@ export const studioApi = {
   confirmOperation: (id: string, input: OperationConfirmInput) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/confirm`, { method: "POST", body: JSON.stringify(input) }),
   runs: () => request<PageResponse<RunSummary>>("/api/runs?limit=100"),
   run: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
+  runDiscussions: (id: string) => request<{ items: DiscussionEntry[] }>(`/api/runs/${encodeURIComponent(id)}/discussion`),
+  createRunDiscussion: (id: string, input: { request_id: string; revision_id: string; artifact_digest: string; message: string }) =>
+    request<DiscussionEntry>(`/api/runs/${encodeURIComponent(id)}/discussion`, { method: "POST", body: JSON.stringify(input) }),
   startRun: (input: RunStartInput) => request<RunDetail>("/api/runs", { method: "POST", body: JSON.stringify(input) }),
   executeRun: (id: string, version: number) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/execute`, { method: "POST", body: JSON.stringify({ expected_version: version }) }),
   cancelRun: (id: string, input: RunCancelInput) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),

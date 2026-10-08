@@ -8,6 +8,7 @@ import { RunControls } from "./RunControls";
 import { StatusPill, formatDate } from "./StatusPill";
 import { SkillInspector } from "./SkillInspector";
 import type { ProducerSkillItem } from "../api/types";
+import { RunDiscussion } from "./RunDiscussion";
 
 type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
 function runSkills(run: RunDetail): RunSkillSnapshot[] {
@@ -27,10 +28,12 @@ function runSkills(run: RunDetail): RunSkillSnapshot[] {
 export function RunInspector({ run }: { run: RunDetail }) {
   const [params] = useSearchParams();
   const requestedReturn = params.get("return");
+  const requestedRevision = params.get("revision");
   // Only return to our own content workspace, never an arbitrary external URL.
   const returnTo = requestedReturn && /^\/(?:\?|$|series\/[^/?#]+(?:\?|$))/.test(requestedReturn)
     ? requestedReturn : `/series/${run.series_id}`;
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => requestedRevision);
+  useEffect(() => { setSelected(requestedRevision); }, [run.id, requestedRevision]);
   const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills, retry: false,
     enabled: runSkills(run).length > 0 });
@@ -68,6 +71,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
         {run.error_message ? <p className="review-warning">{run.error_message}</p> : null}
         {revision?.publish_copy ? <Publication revision={revision} /> : <div className="copy-empty"><h2>发布文案</h2><p>产物生成后展示标题、正文与标签。</p></div>}
         {revision?.instruction ? <div className="revision-note"><h3>本版返工要求</h3><p>{revision.instruction}</p></div> : null}
+        {revision ? <RunDiscussion key={revision.id} run={run} revision={revision} focusId={params.get("discussion")} /> : null}
         {!old && revision ? <ReviewActions run={run} revision={revision} onRevision={() => setSelected(null)} /> : null}
         {!old && revision && run.status === "approved" ? <ManualPublicationPanel run={run} revision={revision} /> : null}
       </aside>

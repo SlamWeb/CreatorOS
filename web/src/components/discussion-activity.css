@@ -1,0 +1,13 @@
+.discussion-activity { flex: 0 0 100%; width: 100%; box-sizing: border-box; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--ink); }
+.discussion-activity header { display: flex; justify-content: space-between; gap: .6rem; color: var(--ink); font-size: 11px; }
+.discussion-activity header time { color: var(--muted); font-weight: 400; }
+.discussion-activity-reply { margin-top: .35rem; max-height: 180px; overflow: auto; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; line-height: 1.7; }
+.discussion-activity-reply p { margin: .3rem 0; }
+.discussion-activity-reply ul, .discussion-activity-reply ol { margin: .3rem 0; padding-left: 1.2rem; }
+.discussion-activity > ol { display: grid; gap: .25rem; margin: .45rem 0 0; padding: 0; list-style: none; }
+.discussion-activity > ol > li { display: grid; grid-template-columns: 3.1rem minmax(0, 1fr); gap: .45rem; font-size: 10px; }
+.discussion-activity > ol > li > span { color: var(--muted); }
+.discussion-activity > ol > li p { min-width: 0; margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.discussion-activity > a { display: inline-block; margin-top: .45rem; color: var(--accent); font-size: 10px; }
+.discussion-activity-failed { border-color: #efc4b7; background: #fffaf8; }
+.discussion-activity-error { margin: .35rem 0 0; color: var(--danger, #a43c23); font-size: 11px; overflow-wrap: anywhere; }
