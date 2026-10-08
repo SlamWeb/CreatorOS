@@ -70,6 +70,9 @@ from .extraction_routes import extraction_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
+from creatoros.integrations.content_discussion import ContentDiscussionService
+from .discussion_routes import discussion_routes
+from .worker_tasks import worker_task_routes
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
@@ -88,6 +91,7 @@ def create_app(
     skill_install_service=None,
     topic_research_service=None,
     skill_extraction_service=None,
+    content_discussion_service=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -116,7 +120,9 @@ def create_app(
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
-    agent_scope = AgentScopeGuard(db, chat, research)
+    discussions = content_discussion_service or ContentDiscussionService(
+        db, artifacts, session_root.with_name(session_root.name + "-discussions"))
+    agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions)
     scope_request_lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -129,11 +135,12 @@ def create_app(
                 skill_installs.start()
                 research.start()
                 extractions.start()
+                discussions.start()
                 yield
             finally:
                 # One timed-out service must not skip the remaining cleanup.
                 with ExitStack() as cleanup:
-                    for service in (executor, skill_installs, research, extractions, chat):
+                    for service in (executor, skill_installs, research, extractions, chat, discussions):
                         cleanup.callback(service.shutdown)
         finally:
             if owns_database:
@@ -154,6 +161,9 @@ def create_app(
     app.state.skill_installs = skill_installs
     app.state.topic_research = research
     app.state.skill_extractions = extractions
+    app.state.content_discussions = discussions
+    app.include_router(discussion_routes(discussions))
+    app.include_router(worker_task_routes(db, research, discussions))
     app.include_router(extraction_routes(extractions))
     app.include_router(research_routes(research, queries))
     app.include_router(skill_routes(db, skill_installs))

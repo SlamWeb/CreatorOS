@@ -1,5 +1,11 @@
 # External Integrations SPEC
 
+## 明确任务输入与版本绑定讨论（2026-10-08）
+
+- `ContentDiscussionService` 给指定 Run/Revision/digest 保存独立讨论任务；SDK fork 生产 thread 或 fresh snapshot，后续同版本 resume 讨论 thread，实际附图。只读讨论不接收为生产交付，也不改变审批状态。协议、上下文范围、工具隔离局限和真实验证以 `docs/codex-worker/SPEC.md` 为准。
+- 调研快照补当前账号身份与同栏目尚未入队的历史候选；正式选题仍保留。避免误称已看全部账号、其他栏目或账号聊天；不做跨栏目语义去重和缓存已完成结果。
+- 本轮 13 个后端 smoke 通过，覆盖讨论、工具/真实 loopback HTTP、作用域、任务投影、调研 SDK 接线、压缩、聊天与生产验收；2 轮真实 Codex 看图/续聊另见协议报告。隔离测试不改正式数据，未生图或发布。
+
 ## Skill working 副本原子编辑 API（2026-10-06）
 
 - 浏览/读取接口返回整个 working 目录 SHA-256 和 `editable`；新增 PUT 只写已登记 Skill 的安全相对路径与既有 UTF-8 Markdown/文本文件，限制 512 KiB，内置 Skill 只读。

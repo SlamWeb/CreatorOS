@@ -1,5 +1,15 @@
 # CreatorOS Web API SPEC
 
+## CreatorOS ↔ Codex 任务投影与 Agent 职责（2026-10-08，完成）
+
+- Web 账号 Agent 与总览/CLI 共用 CreatorOS 工具适配器；账号可按需读取只读任务摘要、讨论已验收作品，并在明确要求时建立待执行返工版本。
+- `GET /api/creators/{creator_id}/tasks?series_id=` 投影现有生产 Run、调研 batch 和讨论记录，不建立第二套状态。响应为 `items`、`summary(active/awaiting_approval/failed)`、`as_of`。
+- 账号 Agent Scope Guard 显式允许当前账号任务查询、Run 讨论读写与返工写入，并逐项检查当前账号和 Run 冻结 creator_id。含其他账号冻结 Run 的已转移栏目不向当前账号投影。
+- Web Agent 的讨论工具先提交一次，再 GET 同一 Run 的讨论历史观察相同记录直至终态；活动绑定当前 tool entry。超时、观察中断与状态读取故障均返回任务句柄，不自动 POST 第二次。Run 摘要额外投影每版 ID/digest/availability，供选择明确讨论版本。
+- 讨论/返工/Skill 编辑的授权边界写入共享账号与 Web Agent policy：讨论不等于返工；用户明确返工才建立新版本；普通反馈不自动改共享 Skill。图片路径/摘要本身不能作为看过图的依据。
+- 验收：隔离 SQLite/HTTP 对照现有 Run/Research/Discussion 记录检查投影字段和状态计数；跨账号与栏目转移拒绝；工具执行不隐式生产、批准或发布。
+- 2026-10-08 验证：工具到路由 loopback smoke 带 creator session scope，确认讨论工具等到同一记录终态并把活动写回当前工具项，返工严格请求体成功创建待执行 revision；任务投影及原讨论/研究聊天 smoke 通过。只使用隔离数据库/测试图片与可控 Reviewer。
+
 ## 调研原聊天观察与启动健康（2026-10-05）
 
 - Web 账号/总览聊天复用原 Loop，研究工具从“提交即结束”改为宿主等待同批次终态、公开活动随聊天 SSE/GET 持久化投影。最多 4 个不同会话并行，各自 Provider/账本/Trace；同一会话仍只接受一个指令。不把研究执行器改成并行 worker，也不改变生产异步提交。

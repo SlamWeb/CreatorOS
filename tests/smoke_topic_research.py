@@ -41,6 +41,9 @@ def main():
             creator = client.post("/api/creators", json={"display_name": "隔离测试"}).json()
             sid = client.post(f"/api/creators/{creator['id']}/series", json={"name": "测试栏目"}).json()["id"]
             seed_batch(service, sid)
+            snapshot = service.snapshot(sid)
+            assert snapshot["creator"]["id"] == creator["id"]
+            assert len(snapshot["existing_candidates"]) == 2 and not snapshot["existing_topics"]
             base = "/api/topic-research/" + "a" * 32
             assert client.get(base).json()["status"] == "ready"
             assert not repo.list_topics(sid)

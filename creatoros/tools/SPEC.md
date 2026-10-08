@@ -1,5 +1,17 @@
 # CreatorOS Tool Exposure SPEC
 
+## CreatorOS ↔ Codex 讨论和任务查询工具（2026-10-08，完成）
+
+- `discuss_content_run` 与 `get_content_discussion` 通过 Studio API 讨论指定已验收 Run/revision；创建任务需要 `request_id`、`revision_id`、`artifact_digest`、用户消息。模型工具不接受任意 thread ID 或产物路径，真实 SDK thread 与文件由宿主按版本定位。讨论只读，不改生产/批准状态。
+- Web Agent 创建讨论后读取同一记录直到完成/失败；超时或服务关闭时返回原讨论 ID，不重复提交。周期活动只投影到原工具项，不另建 Agent 任务状态。CLI 没有活动回调时保留异步任务句柄。
+- `request_content_revision` 仅在用户明确要求返工时调用，复用 `/api/runs/{id}/revisions`，按 `expected_version` 建立待执行版本，不自动执行。
+- `get_content_run` 的摘要包含紧凑版本目录（revision_id、revision_number、artifact_digest、artifact_available），因此 Agent 可以引用实际可讨论的历史版本；不把卡片、图片或完整产物塞入摘要。
+- `get_creator_tasks` 只查 `/api/creators/{creator_id}/tasks`，投影生产、调研和讨论现有记录。账号工具集同时开放这四个工具；Web/CLI 总工具目录复用同一适配器。
+- Agent 宿主共享职责约定：CreatorOS 提供业务事实、账号 scope 和冻结输入；Codex 只处理当前显式输入。图像讨论只有实际传入图像后才可声称看图。一次性讨论反馈不会自动保存 Skill；只有用户明确要求才调用返工或 Skill 编辑。
+- 账号 Scope Guard 对讨论读写、返工、账号任务读取逐个核验当前账号与冻结 Run 归属；任务列表从既有 DB/Research/Discussion 记录投影，无新业务状态表。栏目转移后含旧账号冻结 Run 的栏目按保守策略拒绝或从账号列表排除。
+- 验收：隔离真实 SQLite/HTTP 验证工具 schema、错误 ID/跨账号 403、转移前后冻结归属、只读任务投影及 summary 计数；不调用 Codex 模型、生图、发布或正式运营数据。
+- 2026-10-08 验证：`smoke_content_discussion_tools`、`smoke_worker_task_projection`、`smoke_content_discussion_tool_http`、既有 `smoke_content_discussion`、`smoke_research_chat` 通过。loopback HTTP 用真实 StudioClient 和 creator-session scope 验证版本选择、只读讨论提交/等待/历史回读及返工版本创建；隔离 Reviewer 替代 Codex，不产生模型或图片费用。
+
 ## 已安装 Skill 编辑工具（2026-10-06）
 
 - Agent 通过既有 `get_producer_skill` 的 `list_files=true` / `path` 参数获取受限文件树和正文，再由用户明确授权后调用 `update_producer_skill_file` 更新一个文本文件；更新带整个 Skill digest，工具结果保留冲突时的 `current_digest`。复用读取工具保持账号 Agent 的固定 schema 体量。

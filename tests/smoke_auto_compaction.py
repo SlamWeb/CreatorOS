@@ -27,10 +27,14 @@ class RecordingProvider:
     reserve_output_tokens = 500
 
     def __init__(self):
-        # Keep fixed schemas inside the tiny synthetic window as the catalog grows;
-        # the 30k-char old result must still force compaction, not a schema-only block.
+        # Keep the fixture's stable system message and fixed schemas inside the
+        # synthetic window. History below exceeds the compactor's 8k-token floor.
         schemas = [t for t in agent_loop.tools if t["function"]["name"] in STUDIO_TOOLS]
-        self.context_window = max(self.context_window, estimate_tokens({"tools": schemas}) + 1000 + self.reserve_output_tokens)
+        fixed_context = {"messages": [{"role": "system", "content": "stable"}], "tools": schemas}
+        self.context_window = max(
+            self.context_window,
+            estimate_tokens(fixed_context) + 1000 + self.reserve_output_tokens,
+        )
         self.summary_calls = 0
         self.stream_context = None
 
@@ -94,7 +98,7 @@ def compaction_history():
         {"role": "user", "content": "old request"},
         {"role": "assistant", "content": None, "tool_calls": [
             {"id": "large-result", "name": "list_creators", "arguments": "{}"}]},
-        {"role": "tool", "tool_call_id": "large-result", "content": "x" * 30000},
+        {"role": "tool", "tool_call_id": "large-result", "content": "x" * 40000},
         {"role": "user", "content": "recent request"},
         {"role": "assistant", "content": "recent answer"},
     ]

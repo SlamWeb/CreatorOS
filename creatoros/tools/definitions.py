@@ -44,6 +44,11 @@ from .skill_extraction import (
     EditExtractedSkillsArgs, ReviseExtractedSkillsArgs, TrialExtractedSkillsArgs,
     edit_extracted_skills, revise_extracted_skills, trial_extracted_skills,
 )
+from .content_discussion import (
+    CreatorTasksArgs, DiscussContentRunArgs, GetContentDiscussionArgs,
+    RequestContentRevisionArgs, discuss_content_run, get_content_discussion,
+    get_creator_tasks, request_content_revision,
+)
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -191,8 +196,12 @@ tool_registry = {
              execute=list_series_topics, args_model=TopicsArgs),
         Tool(name="start_content_run", description="用户明确要求生产时，把真实选题提交 Studio 后台，返回 Run 链接与当前状态；提交不等于完成。不会自动恢复旧任务。busy 或网络结果未知时不要自动重试，也不要轮询等待整篇完成。",
              execute=start_content_run, args_model=StartRunArgs),
-        Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
+        Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),
+        Tool(name="discuss_content_run", description="用户希望讨论已验收作品时，针对指定 revision 和 artifact_digest 创建只读讨论任务。讨论不修改图片、内容、Skill、审批状态或生产 Run；不自动返工。", execute=discuss_content_run, args_model=DiscussContentRunArgs),
+        Tool(name="get_content_discussion", description="读取同一 Run 的讨论历史与任务状态，不调用模型或重复提交。", execute=get_content_discussion, args_model=GetContentDiscussionArgs),
+        Tool(name="request_content_revision", description="仅在用户明确要求返工时调用；按当前 Run version 创建待执行 revision，不会执行生产、批准或发布。先查最新 Run 取得 expected_version。", execute=request_content_revision, args_model=RequestContentRevisionArgs),
+        Tool(name="get_creator_tasks", description="读取账号现有调研、生产与讨论任务摘要；只投影已有记录，不创建或改变任务状态。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
         Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
              execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),
         Tool(name="get_skill_extraction", description="查询提炼任务或列出历史任务；ready 只表示草稿可预览。先展示 Skill 草稿并等待用户明确确认，不能把提炼结果当作已入库。",

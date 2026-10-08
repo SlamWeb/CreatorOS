@@ -96,6 +96,13 @@ class StudioClient:
                   "error_type", "error_message", "card_count")
         result = {key: run.get(key) for key in fields}
         result["run_id"] = result.pop("id")
+        result["revisions"] = [
+            {"revision_id": revision.get("id"),
+             "revision_number": revision.get("revision_number"),
+             "artifact_digest": revision.get("artifact_digest"),
+             "artifact_available": revision.get("artifact_available", False)}
+            for revision in run.get("revisions", [])
+        ]
         result["accepted"] = accepted
         result["url"] = f"{self.base_url}/runs/{quote(run['id'], safe='')}"
         result["message"] = (

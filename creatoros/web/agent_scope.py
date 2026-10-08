@@ -25,6 +25,9 @@ _BATCH = re.compile(r"^/api/topic-research/([a-f0-9]{32})$")
 _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)$")
 _RUN = re.compile(r"^/api/runs/([^/]+)$")
 _RUN_EXECUTE = re.compile(r"^/api/runs/([^/]+)/execute$")
+_RUN_DISCUSSION = re.compile(r"^/api/runs/([^/]+)/discussion$")
+_RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
+_CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 _PRODUCER_SKILL_FILES = re.compile(
     r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/files(?:/content)?$"
@@ -34,10 +37,11 @@ _PRODUCER_SKILL_FILES = re.compile(
 class AgentScopeGuard:
     """Check every request carrying a persisted creator-scoped Agent session."""
 
-    def __init__(self, db: Database, chat, research):
+    def __init__(self, db: Database, chat, research, discussions=None):
         self.db = db
         self.chat = chat
         self.research = research
+        self.discussions = discussions
 
     async def check(self, request: Request) -> Response | None:
         session_id = request.headers.get("x-creatoros-agent-session")
@@ -72,6 +76,15 @@ class AgentScopeGuard:
         match = _CREATOR_PATH.fullmatch(path)
         if method == "GET" and match:
             return None if match.group(1) == creator_id else self._denied()
+
+        match = _CREATOR_TASKS.fullmatch(path)
+        if method == "GET" and match:
+            if match.group(1) != creator_id:
+                return self._denied()
+            series_id = request.query_params.get("series_id")
+            if series_id is not None and not self._owns_series(series_id, creator_id):
+                return self._denied()
+            return None
 
         match = _SERIES_TOPICS.fullmatch(path)
         if method == "GET" and match:
@@ -128,6 +141,14 @@ class AgentScopeGuard:
             return None if self._owns_run(match.group(1), creator_id) else self._denied()
 
         match = _RUN_EXECUTE.fullmatch(path)
+        if method == "POST" and match:
+            return None if self._owns_run(match.group(1), creator_id) else self._denied()
+
+        match = _RUN_DISCUSSION.fullmatch(path)
+        if match and method in {"GET", "POST"}:
+            return None if self._owns_run(match.group(1), creator_id) else self._denied()
+
+        match = _RUN_REVISIONS.fullmatch(path)
         if method == "POST" and match:
             return None if self._owns_run(match.group(1), creator_id) else self._denied()
 
