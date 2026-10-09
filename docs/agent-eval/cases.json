@@ -4,7 +4,7 @@
   "created_at": "2026-10-09",
   "status": "draft_not_run",
   "scope": "creator",
-  "purpose": "账号 Agent 的作用域、持久化、状态与工具能力。只有题集及结构校验；未实现新 grader/runner，未运行模型。",
+  "purpose": "账号 Agent 的作用域、持久化、状态与工具能力。not_run 是题目模板初态，不储存运行成绩；E01 已接线独立 runner/grader，实际运行与人工复核见 data/agent-eval。其余题尚未接线。",
   "split_policy": {
     "dev": 8,
     "acceptance": 4,

@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 账号 Agent Eval 只读接口（2026-10-10，完成）
+
+- `create_app(eval_root=...)` 注入独立报告根，默认 `data/agent-eval`；EvalStore 构造与 GET 不创建目录、不查 SDK、不调用模型/工具、不更新业务库。复用账号 guard 与本机写入限制，不引入公网权限系统。
+- GET `/api/eval` 返回 12 题公开定义与已有报告状态；`/runs?case_id=...`、`/runs/{id}`、`/runs/{id}/evidence?name=...` 读取白名单证据。没有报告就是未运行，损坏/路径不安全/超限明确错误，不假称通过。
+- POST `/api/eval/runs/{id}/review` 仅显式人工结论，CAS 绑定 report + review，冲突 409；独立原子写 sidecar，不改报告。自动通过要求真实执行完成、全部检查和四维通过；执行失败固定投影失败，不能人工把自动失败改为通过。
+- `tests.test_eval_store` 11 项通过；`tests.smoke_eval_api` 真实 loopback HTTP/SQLite 验证零 GET 写入、账号 scope 403、路径/凭证/错误、复核/CAS/重启持久化。故障注入只验证接线，不冒充模型质量成绩；E01 真实调用另见 `docs/agent-eval/RESULTS.md`。
+- 关联 `smoke_account_scope`、`smoke_account_sessions`、`smoke_account_context` 全通过；正式服务/数据库/Skill 不改，不启动 Codex、生图或发布。
+
 ## 选题移除（2026-10-09，完成）
 
 - 用户授权实现：卡片/详情统一移除待选及正式选题。无 Run 的 Topic 物理删除，有 Run 的保留原行/状态/图片/Trace 并退出内容工作区；生产/验收进行中返回 409，用户先停止，不自动取消。

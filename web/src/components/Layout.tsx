@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { Activity, LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
+import { Activity, ClipboardCheck, LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 import { BrandMark } from "./BrandMark";
 
@@ -8,12 +8,13 @@ const navItems = [
   { to: "/skills", label: "Skill", icon: Layers },
   { to: "/agent", label: "Agent", icon: Sparkles },
   { to: "/observation", label: "Observation", icon: Activity },
+  { to: "/eval", label: "Eval", icon: ClipboardCheck },
 ];
 
 export function Layout() {
   const location = useLocation();
   const [, setParams] = useSearchParams();
-  const section = location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
+  const section = location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
   return (
     <div className={`studio-shell ${location.pathname === "/" ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">

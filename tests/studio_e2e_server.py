@@ -45,7 +45,7 @@ upgrade_database(database_url)
 database = Database(database_url)
 runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs",
                          production_protocol="legacy")
-app = create_app(database=database, run_service=runs)
+app = create_app(database=database, run_service=runs, eval_root=root / "eval-runs")
 
 # Only this isolated test executable exposes fixture creation, never the production app.
 @app.post("/test/series/{series_id}/research")
@@ -59,6 +59,29 @@ def seed_research(series_id: str):
 def seed_skill_files():
     from tests.skill_browser_fixture import seed_skill_files as seed
     return seed(app.state.skill_installs.catalog, root / "skill-fixtures")
+
+
+@app.post("/test/eval-runs")
+def seed_eval_runs():
+    """Synthetic reports for browser tests, kept in the isolated server's eval root."""
+    import json
+    from tests.test_eval_store import fixture_report, save_report
+
+    report = fixture_report()
+    report["fixture_version"] = "browser-e2e-controlled-v1"
+    report["checks"][0].update(label="完整隔离证据", detail="受控自动检查通过；仍需人工核对证据。")
+    report["manual_checks"] = ["核对完整原始证据、账号作用域及回复是否准确；此记录为浏览器受控夹具。"]
+    report["evidence_files"][0]["label"] = "完整请求与工具结果"
+    directory = save_report(root / "eval-runs", report)
+    long_text = "受控请求与工具结果原文，仅验证界面读取。" * 180 + "证据末尾验收标记。"
+    (directory / "trace.json").write_text(json.dumps({"messages": [{"role": "user", "content": long_text}],
+                                                    "api_key": "synthetic-e2e-value"}, ensure_ascii=False), encoding="utf-8")
+    failed = fixture_report(auto_status="failed")
+    failed["fixture_version"] = "browser-e2e-controlled-v1"
+    failed["checks"][0].update(label="证据完整性", detail="受控缺证据负例。", evidence=["missing.txt"])
+    failed["evidence_files"] = [{"name": "missing.txt", "label": "未保存的证据"}]
+    save_report(root / "eval-runs", failed)
+    return {"run_id": report["run_id"], "failed_run_id": failed["run_id"], "long_text": long_text}
 
 
 if __name__ == "__main__":

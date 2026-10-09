@@ -77,6 +77,8 @@ from .discussion_routes import discussion_routes
 from .worker_tasks import worker_task_routes
 from .observation import ObservationService
 from .observation_routes import observation_routes
+from .eval_routes import eval_routes
+from creatoros.evaluation.store import EvalStore
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
@@ -96,6 +98,7 @@ def create_app(
     topic_research_service=None,
     skill_extraction_service=None,
     content_discussion_service=None,
+    eval_root: Path | None = None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -169,6 +172,8 @@ def create_app(
     app.state.skill_extractions = extractions
     app.state.content_discussions = discussions
     app.state.observation = observations
+    app.state.evaluation = EvalStore(eval_root)
+    app.include_router(eval_routes(app.state.evaluation))
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))
     app.include_router(worker_task_routes(db, research, discussions))
