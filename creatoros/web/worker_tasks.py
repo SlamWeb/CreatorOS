@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, ContentRunStatus, Creator, Database, Series, Topic
+from creatoros.storage import ContentRun, ContentRunStatus, Creator, Database, Series, Topic, TopicRemoval
 
 
 _ACTIVE = {"researching", "running", "producing", "validating"}
@@ -56,6 +56,7 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
             if series_id is not None:
                 run_query = run_query.where(Series.id == series_id)
             run_rows = list(session.execute(run_query))
+            removed = set(session.scalars(select(TopicRemoval.topic_id)))
 
             # A Series transfer must not expose a Run frozen for its former owner.
         runs = [(run, topic, series) for run, topic, series in run_rows
@@ -63,6 +64,8 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
 
         items = []
         for run, topic, series in runs:
+            if topic.id in removed:
+                continue
             status = _status(run.status)
             items.append({
                 "id": run.id, "kind": "production", "title": topic.title,

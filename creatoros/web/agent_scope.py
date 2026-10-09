@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, Creator, Database, Series, Topic, WriteReceipt
+from creatoros.storage import ContentRun, Creator, Database, Series, Topic, TopicRemoval, WriteReceipt
 
 
 _CREATOR_PATH = re.compile(r"^/api/creators/([^/]+)$")
@@ -27,6 +27,7 @@ _RUN = re.compile(r"^/api/runs/([^/]+)$")
 _RUN_EXECUTE = re.compile(r"^/api/runs/([^/]+)/execute$")
 _RUN_DISCUSSION = re.compile(r"^/api/runs/([^/]+)/discussion$")
 _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
+_TOPIC_REMOVE = re.compile(r"^/api/topics/([^/]+)/remove$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 _PRODUCER_SKILL_FILES = re.compile(
@@ -112,6 +113,34 @@ class AgentScopeGuard:
             if self._owns_series(match.group(1), creator_id):
                 return None
             return None if self._owns_deleted_series(match.group(1), request_id, creator_id) else self._denied()
+
+        match = _TOPIC_REMOVE.fullmatch(path)
+        if method == "POST" and match:
+            topic_id = match.group(1)
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = None
+            request_id = payload.get("request_id") if isinstance(payload, dict) else None
+            with self.db.session() as transaction:
+                replay = transaction.scalar(select(TopicRemoval).where(TopicRemoval.request_id == request_id)) if isinstance(request_id, str) else None
+                if replay is not None:
+                    # Only the original account may replay its exact request,
+                    # even after a no-history series has been reassigned.
+                    return None if replay.topic_id == topic_id and replay.creator_id == creator_id else self._denied()
+            if self._owns_topic(topic_id, creator_id):
+                return None
+            with self.db.session() as transaction:
+                removal = transaction.get(TopicRemoval, topic_id)
+                if removal is not None:
+                    return None if self._owns_series(removal.series_id, creator_id) else self._denied()
+            batch_id = payload.get("batch_id") if isinstance(payload, dict) else None
+            candidate_id = payload.get("candidate_id") if isinstance(payload, dict) else None
+            if (isinstance(batch_id, str) and isinstance(candidate_id, str)
+                    and topic_id == self.research.topic_id(batch_id, candidate_id)
+                    and self._owns_batch(batch_id, creator_id)):
+                return None
+            return self._denied()
 
         match = _BATCH.fullmatch(path)
         if method == "GET" and match:

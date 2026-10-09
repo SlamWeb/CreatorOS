@@ -1,5 +1,17 @@
 # CreatorOS Web API SPEC
 
+## 选题移除（2026-10-09，完成）
+
+- 用户授权实现：卡片/详情统一移除待选及正式选题。无 Run 的 Topic 物理删除，有 Run 的保留原行/状态/图片/Trace 并退出内容工作区；生产/验收进行中返回 409，用户先停止，不自动取消。
+- POST `/api/topics/{id}/remove` 带 request_id；待选还带 batch_id/candidate_id，核验确定性 ID 与栏目归属。SQLite 保存 TopicRemoval 作为移除事实及幂等回执；不改原候选 JSON，不因正式 Topic 删除而恢复成待选，不额外调用模型。
+- 默认内容列表及账号/栏目计数过滤移除标记；Observation 和直接历史 Run 仍可读。移除后的选题不得被旧 Preview 重新入队，也不能从旧 queued Run 启动/返工生产。原严格 delete 接口兼容保留。
+- 验收：实际隔离 HTTP 删除/归档/待选移除、刷新/重启/重复/异文请求、越权、活跃任务/旧 Preview 竞争、历史图片与原 Run 不变；隔离迁移旧数据保持/metadata 无漂移；真实浏览器点击/失败/刷新与桌面手机截图。不改正式库、不生图/调研/发布。
+
+- 活跃作品讨论同样阻止移除；归档作品仍可只读讨论。queued Run 可以移除但不能重新 claim，历史 Run 列表/详情仍返回原状态与图片、动作投影仅 view。总览与账号任务摘要不再把移除 Run 当作当前生产工作，历史 Observation 不过滤。
+- 栏目删除将移除记录计入历史，不能因删空栏目级联清掉回执。精确 request_id 重试按首次冻结账号核验，栏目转移后的新请求按当前归属核验；候选来源异文 409，缺失批次 404。本地 Studio 共享锁与事务控制，不宣称跨进程/分布式幂等。
+- 隔离真实 loopback `smoke_topic_remove` 与迁移 smoke 通过；审查捕获的栏目级联、隐藏项调序、总览动作和转移后回放边界均补回归并通过。首版历史 Topic 测试把生产后的状态误设为 queued，修正为移除前后状态比较，不改业务迁就夹具。
+- 相关操作计划/解析、PendingOperation、栏目删除、账号作用域、封面查询、Observation 与调研 8 个 smoke 通过；前端真实交互与故障注入分别列在 `web/SPEC.md`。正式服务未重启，日常启动自动应用 0009 迁移后才加载新接口。
+
 ## Agent Skill 文本 JSON 路由（2026-10-09）
 
 - 新增只读 `GET /api/producer-skills/{id}/files/text?path=...`，复用受管目录/路径/UTF-8/512 KiB 校验，仅返回 JSON 文本与整个 Skill digest/可编辑状态。图片及其他二进制在读取解码前返回 415 / `skill_text_only`，不向 Agent 返回图片。

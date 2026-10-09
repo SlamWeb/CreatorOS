@@ -18,7 +18,7 @@ CASES = [
         "smoke_codex_public_events", "smoke_skill_extraction", "smoke_skill_draft_files",
         "smoke_skill_workbench", "smoke_topic_research_sdk", "smoke_content_discussion",
         "smoke_native_production", "smoke_worker_delivery", "smoke_studio_production_progress",
-        "smoke_studio_executor",
+        "smoke_studio_executor", "smoke_topic_remove", "smoke_topic_remove_migration",
     )],
 ]
 

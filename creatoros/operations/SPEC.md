@@ -1,5 +1,10 @@
 # CreatorOS Operations SPEC
 
+## 已移除选题的旧计划门禁 · 2026-10-09（完成）
+
+- Preview 与确认事务检查 TopicRemoval，旧候选计划不能在移除后重新入队；Repository add 同样拒绝已移除 ID。运营目录、Preview 与执行回执只列可见 Topic，历史/调研去重读取仍保留原行。
+- 隔离真实 HTTP 旧 Preview 竞争回归及原 operation_plan/parser/pending_operation_service 通过；移除后目录调序只要求可见完整集合，隐藏位置不变。未增加模型自动确认或自动重试。
+
 ## 长期待选候选的当前 Preview · 2026-10-09
 
 - 旧调研候选按当前栏目准备 `expected_series`；确认时原配置/版本/revision/confirmation token 守卫保留。配置冲突提示重新预览后再确认，不再要求付费重新调研。长期有效边界与隔离 HTTP 验收见 `docs/agent-studio/topic-research/SPEC.md`。

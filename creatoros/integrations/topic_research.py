@@ -425,8 +425,9 @@ class TopicResearchService:
             stale = False
         except ValueError:
             stale = True
+        removed = self.repository.removed_topic_ids(record["series_id"])
         candidates = [{**c, "queued": self.repository.get_topic(self.topic_id(batch_id, c["id"])) is not None}
-                      for c in record["candidates"]]
+                      for c in record["candidates"] if self.topic_id(batch_id, c["id"]) not in removed]
         return {key: value for key, value in record.items() if key not in {"snapshot", "candidates"}} | {
             "series_context": record["snapshot"]["series"], "stale": stale,
             "candidates": candidates, "url": f"/series/{record['series_id']}?research={batch_id}"}
@@ -484,6 +485,8 @@ class TopicResearchService:
             if candidate is None:
                 raise ValueError("候选不属于该批次。")
             topic_id = self.topic_id(batch_id, selection.candidate_id)
+            if self.repository.get_topic_removal(topic_id):
+                raise ValueError("选中的候选已移除，请刷新后重新选择。")
             if self.repository.get_topic(topic_id):
                 raise ValueError("选中的候选已入队，请刷新，勿重复添加。")
             brief = "\n".join([

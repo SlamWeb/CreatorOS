@@ -52,6 +52,8 @@ from .schemas import (
     SeriesWriteResponse,
     TopicEditRequest,
     TopicReorderRequest,
+    TopicRemoveRequest,
+    TopicRemoveResponse,
     TopicView,
     RunCancelRequest,
     RunStartRequest,
@@ -425,6 +427,15 @@ def create_app(
         except StudioWriteError as error:
             raise HTTPException(status_code=error.status_code, detail=str(error)) from error
         return {"ok": True}
+
+    @app.post("/api/topics/{topic_id}/remove", response_model=TopicRemoveResponse)
+    def remove_topic(topic_id: str, payload: TopicRemoveRequest):
+        try:
+            with runs._write_lock, research.lock, discussions.lock:
+                return writes.remove_topic(topic_id, request_id=payload.request_id, research=research,
+                    discussions=discussions, batch_id=payload.batch_id, candidate_id=payload.candidate_id)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
 
     @app.post("/api/series/{series_id}/reorder")
     def reorder_topics(series_id: str, payload: TopicReorderRequest):

@@ -1,5 +1,11 @@
 # ContentRun SPEC
 
+## 移除选题的生产门禁（2026-10-09，完成）
+
+- create、claim/恢复与 request_revision 在权威事务中检查 TopicRemoval；已移除拒绝新生产/返工，不改原 Run 状态、version、审批或已有文件。移除与本机 executor claim 共享 `_write_lock`，生产/验收进行中不能移除。
+- 排队但尚未认领的 Run 可以归档，之后 claim 会拒绝，不暗中取消或改写旧状态；历史只读接口和 Observation 仍可访问。验证只在隔离库，完整契约见 web/storage SPEC。
+- 实际隔离 HTTP 回归通过：活跃生产/验收/讨论移除被拒、旧 execute 与新返工被拒，未调用 Producer；归档前后 Run/version/事件/revision/图像 SHA256 不变，详情和 Observation 可读。没有改变生产 lease、审批状态或正式任务。
+
 ## Native 单 thread 协议接线（2026-10-02）
 
 - 新 `ContentRunService` 默认将 `production_protocol=native-v1` 固化进 Run/Revision 输入；调用方可显式传 `legacy`。未含协议字段的历史 JSON 仍解析为 `legacy`，返工沿用原输入快照。

@@ -278,6 +278,23 @@ class Topic(TimestampMixin, Base):
     )
 
 
+class TopicRemoval(Base):
+    """Explicit user removal; independent of production lifecycle and evidence."""
+    __tablename__ = "topic_removals"
+    __table_args__ = (
+        CheckConstraint("status IN ('deleted', 'archived', 'dismissed')", name="removal_status_values"),
+    )
+
+    topic_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id", ondelete="CASCADE"), index=True, nullable=False)
+    creator_id: Mapped[str | None] = mapped_column(String(80))
+    request_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    batch_id: Mapped[str | None] = mapped_column(String(32))
+    candidate_id: Mapped[str | None] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class PendingOperation(TimestampMixin, Base):
     __tablename__ = "pending_operations"
     __table_args__ = (

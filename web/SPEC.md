@@ -1,5 +1,15 @@
 # CreatorOS Studio Web SPEC
 
+## 内容卡片移除（2026-10-09，完成）
+
+- 沿用卡片菜单/详情弹窗，待选与正式内容均提供“移除”，二次确认后调用同一 remove API；既有产物保留的说明只在确认时显示。request_id 在本次操作重试期间稳定，禁止自动写入重试。
+- 成功后关闭对应详情、刷新内容与目录计数；失败保留卡片/具体错误。活跃生产由服务器 409 拒绝，提示先停止，不自动取消。列表空态、刷新不复活、迟到旧对象请求不改新对象；Skill 页不改。
+- 验收：实际隔离 API 点选/确认/刷新、待选/未生产/已产出移除，409/响应丢失故障注入，原 Run/图片/Observation 可读；桌面1440×900/手机390×844截图单独查看，不调用模型。
+
+前端执行记录：改前 `workspace-gallery`/`topic-research` 定向 4/4 通过，基线截图在 `web/test-results/workspace-gallery-account--fc1f4-er-and-focus-without-writes/` 与 `web/test-results/topic-research-candidate-b-b54a2-its-separate-from-selection/`。菜单和详情共用确认区；待选提交批次与候选身份，正式选题仅提交稳定的 `request_id`。成功核对当前 URL 后关闭详情、恢复选题库焦点，并失效 topics、series-all、creators、overview、creator-tasks、research-history、research；失败保留卡片及原 API 错误，显式重试复用原 request_id。移除请求进行时锁住同详情的编辑、挑选与生产入口。
+
+首轮浏览器回归 7/9，暴露焦点恢复时序和迟到响应误关新详情，修复后原失败路径 2/2、完整 `topic-removal`/`workspace-gallery`/`topic-research` 关联集 9/9 通过（隔离 8877、独立 SQLite/产物目录，受控 E2EProducer，不调用模型）。真实隔离 API 路径覆盖未生产删除、待选隐藏、同批正式入队后再移除不复活、已有产物归档后 Run/原图片仍可读及刷新；归档前“任务”区显示该生产链接，归档后与刷新后均消失，补充定向回归 1/1 通过。409、响应丢失、旧响应延迟用 Playwright route 故障注入，不作为服务器真实故障证明。已目视检查 `topic-removal` 输出的 1440×900/390×844 未生产及已有产物确认态、390×844 的 409 态截图，文字换行正常且整页无横溢出；Observation 保留由后端隔离验证负责。
+
 ## 提炼诊断降级提示 · 2026-10-09（完成）
 
 - 提炼 Job 增加可选 `observation_warning`：诊断文件保存失败不等于提炼失败。选中任务显示固定安全提示并隐藏可能过时的“最近活动”；原任务成功/失败/取消状态、检查草稿、编辑/入库门槛不变。

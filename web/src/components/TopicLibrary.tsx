@@ -21,6 +21,9 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const location = useLocation();
   const client = useQueryClient();
   const [researchOpen, setResearchOpen] = useState(false);
+  const [removePromptId, setRemovePromptId] = useState<string | null>(null);
+  const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
+  const removeRequestIds = useRef(new Map<string, string>());
   const state = ["pending", "queued"].includes(params.get("topics") ?? "") ? params.get("topics")! : "all";
   const offsetKey = compact ? `offset-${seriesId}` : "offset";
   const rawOffset = Number(params.get(offsetKey) ?? 0);
@@ -34,12 +37,27 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const change = (key: string, value: string) => setParams(p => {
     const next = new URLSearchParams(p); next.set(key, value); next.delete("topic"); return next;
   });
-  const openDetail = (id: string) => setParams(p => { const next = new URLSearchParams(p); next.set("topic", id); return next; });
-  const closeDetail = () => {
-    const id = params.get("topic");
-    setParams(p => { const next = new URLSearchParams(p); next.delete("topic"); return next; });
-    requestAnimationFrame(() => document.getElementById(`topic-card-${id}`)?.focus());
+  const openDetail = (id: string, removing = false) => {
+    setRemovePromptId(removing ? id : null);
+    setParams(p => { const next = new URLSearchParams(p); next.set("topic", id); return next; });
   };
+  const closeDetail = (id: string, removed = false) => {
+    const next = new URLSearchParams(window.location.search);
+    if (next.get("topic") !== id) return;
+    next.delete("topic");
+    setFocusAfterClose({ id, removed });
+    setParams(next);
+    setRemovePromptId(current => current === id ? null : current);
+  };
+  useEffect(() => {
+    if (!focusAfterClose || params.get("topic")) return;
+    const frame = requestAnimationFrame(() => {
+      (focusAfterClose.removed ? document.getElementById(`topic-library-${seriesId}-${compact ? "compact" : "main"}`)
+        : document.getElementById(`topic-card-${focusAfterClose.id}`))?.focus();
+      setFocusAfterClose(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusAfterClose, params, seriesId, compact]);
   const rememberReturn = (id: string, url = location.pathname + location.search) => {
     try { sessionStorage.setItem("creatoros-content-return", JSON.stringify({
       url, y: window.scrollY, focus: `topic-card-${id}`,
@@ -67,7 +85,8 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     <button className="button button-secondary" onClick={() => setParams(p => { const next = new URLSearchParams(p); next.delete("select"); return next; })}>← 返回选题库</button>
     <TopicResearchPanel key={seriesId} seriesId={seriesId} />
   </section>;
-  return <section className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
+  return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
+    className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
     <header className="library-heading">{!compact && <h2>内容</h2>}
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
@@ -97,6 +116,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           <details className="content-card-menu" onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>
             <summary aria-label={`选题操作 ${topic.title}`}><MoreHorizontal size={18} /></summary>
             <div><button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id); }}>详情与编辑</button>
+              <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id, true); }}>移除</button>
               {onDiscuss && <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); onDiscuss(topic.title); }}>与 Agent 讨论</button>}</div>
           </details>
         </footer>
@@ -110,10 +130,22 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     {!compact && <details className="library-research" open={researchOpen} onToggle={e => setResearchOpen(e.currentTarget.open)}>
       <summary>调研选题</summary>{researchOpen && <TopicResearchPanel seriesId={seriesId} controlsOnly />}
     </details>}
-    {detail && <TopicDetail key={detail.id} topic={detail} onClose={closeDetail} onChoose={chooseBatch}
+    {detail && <TopicDetail key={detail.id} topic={detail} onClose={() => closeDetail(detail.id)}
+      onRemoved={() => { removeRequestIds.current.delete(detail.id); closeDetail(detail.id, true); }}
+      requestId={() => {
+        const existing = removeRequestIds.current.get(detail.id);
+        if (existing) return existing;
+        const created = crypto.randomUUID().replaceAll("-", "");
+        removeRequestIds.current.set(detail.id, created);
+        return created;
+      }}
+      startRemoving={removePromptId === detail.id} onChoose={chooseBatch}
       returnUrl={detailReturnUrl} onOpenRun={() => rememberReturn(detail.id, detailReturnUrl)}
       startButton={startButton} onDiscuss={onDiscuss} onChanged={async () => {
         await Promise.all([client.invalidateQueries({queryKey:["topics"]}), client.invalidateQueries({queryKey:["series-all"]})]);
+      }} onRemovedChanged={async () => {
+        await Promise.all([["topics"], ["series-all"], ["creators"], ["overview"], ["creator-tasks"],
+          ["research-history", seriesId], ["research"]].map(queryKey => client.invalidateQueries({ queryKey })));
       }} />}
   </section>;
 }
@@ -135,41 +167,54 @@ function CardCover({ url, title }: {url: string; title: string}) {
     : <img className="content-card-cover" src={apiUrl(url)} alt={`${title} · 第一张图片`} loading="lazy" onError={() => setFailed(true)} />;
 }
 
-function TopicDetail({ topic, onClose, onChoose, startButton, onDiscuss, onChanged, returnUrl, onOpenRun }: {
+function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onChoose, startButton, onDiscuss, onChanged, onRemovedChanged, returnUrl, onOpenRun }: {
   topic: LibraryTopic; onClose: () => void; onChoose: (topic: PendingTopic) => void;
+  onRemoved: () => void; requestId: () => string; startRemoving: boolean;
   returnUrl: string; onOpenRun: () => void;
-  startButton: (topic: TopicView) => ReactNode; onDiscuss?: (title: string) => void; onChanged: () => Promise<void>;
+  startButton: (topic: TopicView) => ReactNode; onDiscuss?: (title: string) => void;
+  onChanged: () => Promise<void>; onRemovedChanged: () => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState(topic.title);
   const [brief, setBrief] = useState(topic.selection_state === "queued" ? topic.brief ?? "" : topic.angle);
   const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(startRemoving);
   useEffect(() => { dialog.current?.showModal(); }, []);
+  useEffect(() => { if (startRemoving) setConfirmRemove(true); }, [startRemoving]);
   const save = useMutation({retry:false, mutationFn: () => studioApi.editTopic(topic.id, {title:title.trim(),brief:brief || null}),
     onSuccess: async () => { setEditing(false); await onChanged(); }});
-  const remove = useMutation({retry:false, mutationFn: () => studioApi.deleteTopic(topic.id),
-    onSuccess: async () => { onClose(); await onChanged(); }});
+  const remove = useMutation({retry:false, mutationFn: () => studioApi.removeTopic(topic.id, {
+    request_id: requestId(), ...(topic.selection_state === "pending"
+      ? { batch_id: topic.batch_id, candidate_id: topic.candidate_id } : {}),
+  }), onSuccess: async () => { onRemoved(); await onRemovedChanged(); }});
   const pending = topic.selection_state === "pending";
   return <dialog ref={dialog} className="topic-detail-dialog" aria-label="选题详情" onCancel={e => {e.preventDefault();onClose();}}>
     <header><span>{pending ? "待选建议" : "选题详情"}</span><button type="button" aria-label="关闭选题详情" onClick={onClose}><X size={18} /></button></header>
     <h2>{topic.title}</h2>
-    {editing ? <form className="candidate-editor" onSubmit={e => {e.preventDefault();if(title.trim()) save.mutate();}}>
+    {editing ? <form className="candidate-editor" onSubmit={e => {e.preventDefault();if(title.trim() && !remove.isPending) save.mutate();}}>
       <label>标题<input required maxLength={240} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>切入点<textarea aria-label="切入点" rows={5} maxLength={10000} value={brief} onChange={e => setBrief(e.target.value)} /></label>
-      <div><button className="button button-primary" disabled={save.isPending || !title.trim()}>保存</button><button type="button" className="button button-secondary" onClick={() => setEditing(false)}>取消</button></div>
+      <div><button className="button button-primary" disabled={save.isPending || remove.isPending || !title.trim()}>保存</button><button type="button" className="button button-secondary" onClick={() => setEditing(false)}>取消</button></div>
     </form> : <p className="library-brief">{pending ? topic.angle : topic.brief || "尚未补充内容要求。"}</p>}
     {pending && <><p>{topic.rationale}</p><ul>{topic.sources.map((s,i) => <li key={i}><a href={s.url} target="_blank" rel="noreferrer">{s.title} ↗</a></li>)}</ul></>}
     {pending && topic.stale && <p className="form-error" role="alert">当前栏目或 Skill 不可用，请先修复配置；选题没有过期。</p>}
     <div className="topic-detail-actions">
-      {pending ? <button type="button" className="button button-primary" disabled={topic.stale || !topic.available_actions.includes("prepare_topic_selection")} onClick={() => onChoose(topic)}>挑选本批次</button>
+      {pending ? <button type="button" className="button button-primary" disabled={remove.isPending || topic.stale || !topic.available_actions.includes("prepare_topic_selection")} onClick={() => onChoose(topic)}>挑选本批次</button>
         : <>{topic.existing_run_id && <Link className="button button-secondary" to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(returnUrl)}`} onClick={onOpenRun}>查看内容与生产记录</Link>}
-          {(topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
-          <button type="button" className="button button-secondary" onClick={() => setEditing(true)}>编辑</button>
-          {!topic.existing_run_id && <button type="button" className="button button-quiet" disabled={remove.isPending} onClick={() => confirmDelete ? remove.mutate() : setConfirmDelete(true)}>{confirmDelete ? "确认删除" : "删除选题"}</button>}
+          {!remove.isPending && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
+          <button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => setEditing(true)}>编辑</button>
         </>}
-      {onDiscuss && <button type="button" className="button button-quiet" onClick={() => {onClose();onDiscuss(topic.title);}}>与 Agent 讨论</button>}
+      <button type="button" className="button button-quiet" disabled={remove.isPending || save.isPending} onClick={() => setConfirmRemove(true)}>移除</button>
+      {onDiscuss && <button type="button" className="button button-quiet" disabled={remove.isPending} onClick={() => {onClose();onDiscuss(topic.title);}}>与 Agent 讨论</button>}
     </div>
+    {confirmRemove && <div className="topic-remove-confirm" role="group" aria-label="确认移除选题">
+      <p>{pending ? "移除这条待选建议？移除后会从候选列表隐藏。" : topic.existing_run_id
+        ? "移除这张内容卡片？已有产物、生产记录和 Trace 会保留，仍可从原 Run 查看。"
+        : "移除这条未生产选题？它会从内容列表删除。"}</p>
+      <div><button type="button" className="button button-quiet" disabled={remove.isPending || save.isPending} onClick={() => remove.mutate()}>
+        {remove.isPending ? "正在移除…" : remove.isError ? "重试移除" : "确认移除"}
+      </button><button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => { remove.reset(); setConfirmRemove(false); }}>取消</button></div>
+    </div>}
     {save.error || remove.error ? <p role="alert" className="form-error">{(save.error ?? remove.error)?.message}</p> : null}
   </dialog>;
 }

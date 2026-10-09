@@ -9,12 +9,15 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20):
     while len(queued) < page.page.total:
         queued.extend(queries.list_topics(series_id, offset=len(queued), limit=100).items)
     items = {t.id: {**t.model_dump(mode="json"), "selection_state": "queued"} for t in queued}
+    removed = service.repository.removed_topic_ids(series_id)
     for batch in service.list(series_id):
         record = service.get(batch["id"])
         if record["status"] != "ready":
             continue
         for candidate in record["candidates"]:
             topic_id = service.topic_id(batch["id"], candidate["id"])
+            if topic_id in removed:
+                continue
             provenance = {"batch_id": batch["id"], "candidate_id": candidate["id"],
                           "sources": candidate["sources"], "research_angle": candidate["angle"],
                           "research_created_at": batch["created_at"]}

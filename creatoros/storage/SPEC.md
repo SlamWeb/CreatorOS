@@ -1,5 +1,12 @@
 # CreatorOS Storage SPEC
 
+## 选题移除记录（2026-10-09，完成）
+
+- 只增加 TopicRemoval/`topic_removals`，保存 topic_id（可指向尚未入队的确定性候选）、series_id、当时账号归属、request_id、候选来源与状态（deleted/archived/dismissed）、时间。topic_id 不外键到 Topic，支持物理删除；series 外键保留归属。
+- 有生产历史的选题不修改生命周期状态，不删除 Run/Revision/Attempt/图片；工作区通过移除标记过滤，历史与调研原件保持。迁移只在隔离库验证，正式库由日常启动的既有升级机制处理。
+- `20261009_0009` 仅建表与索引；0008→0009、降级/再升级的隔离验证通过，原 Topic/Run 保留、foreign_key_check 无错误、ORM metadata drift=0。降级会丢弃移除记录，仅在一次性测试库运行，不作为用户恢复步骤。
+- Repository 历史读取默认保留全部 Topic，运营计划显式 `include_removed=False`；可见调序复用原可见位置，隐藏行的位置不变，临时槽从全部行最大位置之后分配。栏目删除将移除记录计入历史并归档，保留墓碑/回执。
+
 ## 栏目移除回执（2026-10-05）
 
 - `20261005_0008` 只扩展 `write_receipts` 的 operation CHECK，允许 `delete_series`；复用 `Series.is_active` 归档，无新增表/字段。只验证隔离 SQLite，正式库未改，日常启动入口按既有机制升级。

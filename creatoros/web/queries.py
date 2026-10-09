@@ -21,6 +21,7 @@ from creatoros.storage import (
     PendingOperationStatus,
     Series,
     Topic,
+    TopicRemoval,
 )
 
 from .schemas import (
@@ -52,6 +53,10 @@ _ATTENTION_RUN_STATUSES = {
     ContentRunStatus.FAILED,
 }
 _ACTIVE_RUN_STATUSES = {ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING}
+
+
+def _visible_topic():
+    return Topic.id.not_in(select(TopicRemoval.topic_id))
 
 
 def _error_message(value: str | None) -> str | None:
@@ -90,7 +95,7 @@ class StudioQueryService:
                 )
             )
             series = list(session.scalars(select(Series).order_by(Series.created_at, Series.id)))
-            topics = list(session.scalars(select(Topic).order_by(Topic.position, Topic.id)))
+            topics = list(session.scalars(select(Topic).where(_visible_topic()).order_by(Topic.position, Topic.id)))
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             return PageResponse(
                 items=self._creator_views(creators, series, topics, runs),
@@ -112,7 +117,7 @@ class StudioQueryService:
             topics = list(
                 session.scalars(
                     select(Topic)
-                    .where(Topic.series_id.in_([item.id for item in series]))
+                    .where(Topic.series_id.in_([item.id for item in series]), _visible_topic())
                     .order_by(Topic.position, Topic.id)
                 )
             ) if series else []
@@ -125,7 +130,7 @@ class StudioQueryService:
             all_series = list(session.scalars(
                 select(Series).where(Series.is_active.is_(True)).order_by(Series.created_at, Series.id)
             ))
-            topics = list(session.scalars(select(Topic).order_by(Topic.position, Topic.id)))
+            topics = list(session.scalars(select(Topic).where(_visible_topic()).order_by(Topic.position, Topic.id)))
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             topics_by_series: dict[str, list[Topic]] = {}
             for topic in topics:
@@ -147,7 +152,7 @@ class StudioQueryService:
             series = session.get(Series, series_id)
             if series is None:
                 return None
-            topics = list(session.scalars(select(Topic).where(Topic.series_id == series_id)))
+            topics = list(session.scalars(select(Topic).where(Topic.series_id == series_id, _visible_topic())))
             runs = list(
                 session.scalars(
                     select(ContentRun)
@@ -165,14 +170,14 @@ class StudioQueryService:
                 return None
             total = int(
                 session.scalar(
-                    select(func.count()).select_from(Topic).where(Topic.series_id == series_id)
+                    select(func.count()).select_from(Topic).where(Topic.series_id == series_id, _visible_topic())
                 )
                 or 0
             )
             topics = list(
                 session.scalars(
                     select(Topic)
-                    .where(Topic.series_id == series_id)
+                    .where(Topic.series_id == series_id, _visible_topic())
                     .order_by(Topic.position, Topic.created_at, Topic.id)
                     .offset(offset)
                     .limit(limit)
@@ -217,8 +222,10 @@ class StudioQueryService:
             creator_by_id = {item.id: item for item in session.scalars(select(Creator))}
             series_by_id = {item.id: item for item in session.scalars(select(Series))}
             topics_by_id = {item.id: item for item in session.scalars(select(Topic))}
+            removed = set(session.scalars(select(TopicRemoval.topic_id)))
             return PageResponse(
-                items=[self._run_summary(run, creator_by_id, series_by_id, topics_by_id) for run in rows],
+                items=[self._run_summary(run, creator_by_id, series_by_id, topics_by_id,
+                                         removed=run.topic_id in removed) for run in rows],
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 
@@ -262,6 +269,7 @@ class StudioQueryService:
                 {creator.id: creator} if creator else {},
                 {series.id: series} if series else {},
                 {topic.id: topic} if topic else {},
+                removed=session.get(TopicRemoval, run.topic_id) is not None,
             )
             revisions = list(
                 session.scalars(
@@ -390,10 +398,12 @@ class StudioQueryService:
                     .order_by(PendingOperation.updated_at.desc(), PendingOperation.id)
                 )
             )
-            creator_views = self._creator_views(creators, series, topics, runs)
+            removed = set(session.scalars(select(TopicRemoval.topic_id)))
+            creator_views = self._creator_views(creators, series, [t for t in topics if t.id not in removed], runs)
             creator_by_id = {item.id: item for item in creators}
             series_by_id = {item.id: item for item in series}
             topics_by_id = {item.id: item for item in topics}
+            runs = [run for run in runs if run.topic_id not in removed]
             run_views = [self._run_summary(run, creator_by_id, series_by_id, topics_by_id) for run in runs]
             counts = OverviewCounts(
                 creator_count=len(creators),
@@ -487,7 +497,7 @@ class StudioQueryService:
             available_actions=actions,
         )
 
-    def _run_summary(self, run, creators, series_by_id, topics_by_id) -> RunSummary:
+    def _run_summary(self, run, creators, series_by_id, topics_by_id, *, removed: bool = False) -> RunSummary:
         snapshot = run.input_snapshot_json or {}
         creator = creators.get(snapshot.get("creator_id"))
         series = series_by_id.get(snapshot.get("series_id"))
@@ -520,7 +530,7 @@ class StudioQueryService:
             error_stage=run.failure_stage,
             error_type=run.error_type,
             error_message=_error_message(run.error_message),
-            allowed_actions=StudioQueryService._run_actions(run),
+            allowed_actions=["view"] if removed else StudioQueryService._run_actions(run),
             cover_url=cover_url,
             card_count=card_count,
         )

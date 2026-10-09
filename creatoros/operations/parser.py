@@ -102,7 +102,7 @@ def build_operation_catalog(repository: ContentRepository, series_id: str | None
                             "position": topic.position,
                             "title": topic.title,
                         }
-                        for topic in transaction.list_topics(series.id)
+                        for topic in transaction.list_topics(series.id, include_removed=False)
                     ],
                 }
             )

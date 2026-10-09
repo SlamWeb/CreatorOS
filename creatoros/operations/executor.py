@@ -65,7 +65,7 @@ class OperationExecutor:
         return OperationReceipt(
             applied_operations=len(plan.operations),
             topic_orders={
-                series_id: [topic.id for topic in repository.list_topics(series_id)]
+                series_id: [topic.id for topic in repository.list_topics(series_id, include_removed=False)]
                 for series_id in affected_series
             },
         )
@@ -96,7 +96,7 @@ class OperationExecutor:
                     expected = operation.expected_series.model_dump()
                     if any(getattr(series, key) != value for key, value in expected.items()):
                         raise OperationConflictError("栏目定位、受众或 Skill 已变化，请按最新配置重新预览后再确认。")
-            current_topics = repository.list_topics(series_id)
+            current_topics = repository.list_topics(series_id, include_removed=False)
             orders[series_id] = [topic.id for topic in current_topics]
             topic_snapshots[series_id] = {
                 topic.id: {
@@ -113,6 +113,8 @@ class OperationExecutor:
             before = list(orders[operation.series_id])
             if isinstance(operation, AddTopicsOperation):
                 for topic in operation.topics:
+                    if repository.get_topic_removal(topic.topic_id) is not None:
+                        raise OperationConflictError("选题已移除，请重新查看后再选择。")
                     if repository.get_topic(topic.topic_id) is not None:
                         raise OperationPlanError(f"Topic ID 已存在：{topic.topic_id}")
                     orders[operation.series_id].append(topic.topic_id)

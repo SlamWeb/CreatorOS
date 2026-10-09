@@ -23,6 +23,7 @@ from creatoros.storage import (
     OperationPolicy,
     Series,
     Topic,
+    TopicRemoval,
     WriteReceipt,
 )
 
@@ -197,8 +198,11 @@ class SeriesCompositionService:
                     .limit(1)
                 ) is not None
                 has_research = research.has_history_for_series(series_id)
+                has_removals = session.scalar(
+                    select(TopicRemoval.topic_id).where(TopicRemoval.series_id == series_id).limit(1)
+                ) is not None
                 creator_id = series.creator_id
-                if has_topics or has_runs or has_research:
+                if has_topics or has_runs or has_research or has_removals:
                     series.is_active = False
                     status = "archived"
                 else:

@@ -24,6 +24,7 @@ from creatoros.storage import (
     ContentRunStatus,
     Database,
     Topic,
+    TopicRemoval,
     TopicStatus,
 )
 
@@ -129,6 +130,9 @@ class ContentRunService:
         key = (idempotency_key or f"content:{topic_id}").strip()
         if not key:
             raise ContentRunError("idempotency_key 不能为空。")
+        with self.database.session() as session:
+            if session.get(TopicRemoval, topic_id) is not None:
+                raise ContentRunError("选题已移除，不能开始生产。", code="topic_removed")
         existing = self.repository.get_by_idempotency_key(key)
         if existing is not None:
             return existing
@@ -391,6 +395,8 @@ class ContentRunService:
             content_run = self._require(repository, run_id)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再返工。")
+            if session.get(TopicRemoval, content_run.topic_id) is not None:
+                raise ContentRunError("选题已移除，不能创建返工版本。", code="topic_removed")
             if content_run.status not in {
                 ContentRunStatus.AWAITING_APPROVAL,
                 ContentRunStatus.FAILED,
@@ -507,6 +513,8 @@ class ContentRunService:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
+            if session.get(TopicRemoval, content_run.topic_id) is not None:
+                raise ContentRunError("选题已移除，不能启动或恢复生产。", code="topic_removed")
             if expected_version is not None and content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再开始。", code="version_conflict")
             if content_run.status not in {

@@ -377,6 +377,18 @@ class SeriesDeleteRequest(WriteRequest):
     request_id: str = Field(min_length=8, max_length=64)
 
 
+class TopicRemoveRequest(WriteRequest):
+    request_id: str = Field(min_length=8, max_length=64)
+    batch_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    candidate_id: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class TopicRemoveResponse(ApiModel):
+    id: str
+    status: Literal["deleted", "archived", "dismissed"]
+    deduplicated: bool
+
+
 class SeriesDeleteResponse(ApiModel):
     id: str
     status: Literal["deleted", "archived"]

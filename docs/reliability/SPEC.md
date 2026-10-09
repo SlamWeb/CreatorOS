@@ -4,7 +4,7 @@
 
 修复真实 Skill 提炼中的 Windows 文件访问失败，并审计 SDK 执行、诊断记录、业务验收和测试之间的边界。后续按用户授权补讨论／调研收尾隔离。不换模型/SDK、不重构全部服务，不自动重试模型、不改正式任务或 Skill，不启动正式生图、调研或发布。
 
-统一回归入口 `python -m tests.run_reliability` 当前显式列出 15 组零付费调用测试，独立进程、每组 120 秒上限、失败后继续其他组；将日志和汇总留在忽略的 `tmp/reliability-<UTC>/`，非全通过返回非零。不得自动发现或运行 `live_*` 探针。
+统一回归入口 `python -m tests.run_reliability` 当前显式列出 17 组零付费调用测试（含新增选题移除 HTTP/迁移），独立进程、每组 120 秒上限、失败后继续其他组；将日志和汇总留在忽略的 `tmp/reliability-<UTC>/`，非全通过返回非零。不得自动发现或运行 `live_*` 探针。
 
 本轮验收要求：真实 Windows sharing lock、错误报告写失败、SDK 正常返回 interrupted、实际隔离 HTTP、网页刷新及草稿入库门槛；最后以同图真实提炼补一次接线验证。故障注入不作为真实模型成功率。执行器偶发失败须保留报告，补断言细节和失败时资源清理，不延长 lease 或删掉测试来掩盖失败。
 
@@ -19,6 +19,7 @@
 
 ### 可复查验证
 
+- 选题移除切片后的 17/17 组统一基线通过，报告 `tmp/reliability-20261009-134544-675509/report.json`；新增项覆盖实际隔离 HTTP/SQLite 的删除、归档、候选防复活、旧 Preview/生产门禁、作用域/幂等与迁移保留，不调用模型。另账号任务摘要投影补丁后独立 remove smoke 通过；相邻 8 个 smoke 与浏览器 9/9、任务摘要定向 1/1 通过，行为/截图及首轮失败见 web/storage SPEC。
 - 讨论／调研切片新增 7 条 unittest（`tests.test_worker_finalization`）及 15 组统一基线通过，报告 `tmp/reliability-20261009-125005-161671/report.json`。覆盖失败与中断、preflight、成功回复副本、用量/Trace/response 拒写、权威写入拒绝、禁止工具、SDK 真正失败、坏回执、无搜索和读取不重试；接口通过实际隔离 loopback HTTP，SDK 内容及磁盘故障受控注入，零付费调用。原生产版本、digest、队列及正式数据不变。
 - 把提交前的三个模块仅在内存中加载，再跑上述新用例，出现 8 个失败子例与 1 个 error；旧讨论终态仍 running、调研 preflight/关键观察器等缺口可被捕获。没有回退工作树或用真实任务做故障实验。
 - 后端 14 组两次连续完整通过，末次证据 `tmp/reliability-20261009-115550-160210/report.json`（前次 `tmp/reliability-20261009-114830-590785/report.json`）；其中 7 条 unittest 包含真实 Windows 文件分享占用、隔离 HTTP，SDK 输出为受控故障注入。completed-turn smoke 使用实际固定 SDK 的 typed Notification/collector 契约验证 6 个入口。

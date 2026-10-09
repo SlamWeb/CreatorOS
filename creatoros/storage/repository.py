@@ -13,6 +13,7 @@ from .models import (
     OperationPolicy,
     Series,
     Topic,
+    TopicRemoval,
     TopicSource,
     TopicStatus,
 )
@@ -139,6 +140,8 @@ class ContentRepository:
         brief: str | None = None,
     ) -> Topic:
         with self._session() as session:
+            if session.get(TopicRemoval, topic_id) is not None:
+                raise ValueError("该选题已移除，不能重新入队；请创建新的选题。")
             current_max = session.scalar(
                 select(func.max(Topic.position)).where(Topic.series_id == series_id)
             )
@@ -155,13 +158,22 @@ class ContentRepository:
             session.flush()
             return topic
 
-    def list_topics(self, series_id: str) -> tuple[Topic, ...]:
+    def get_topic_removal(self, topic_id: str) -> TopicRemoval | None:
         with self._session() as session:
+            return session.get(TopicRemoval, topic_id)
+
+    def removed_topic_ids(self, series_id: str) -> set[str]:
+        with self._session() as session:
+            return set(session.scalars(select(TopicRemoval.topic_id).where(TopicRemoval.series_id == series_id)))
+
+    def list_topics(self, series_id: str, *, include_removed: bool = True) -> tuple[Topic, ...]:
+        with self._session() as session:
+            statement = select(Topic).where(Topic.series_id == series_id)
+            if not include_removed:
+                statement = statement.where(Topic.id.not_in(select(TopicRemoval.topic_id)))
             return tuple(
                 session.scalars(
-                    select(Topic)
-                    .where(Topic.series_id == series_id)
-                    .order_by(Topic.position, Topic.created_at, Topic.id)
+                    statement.order_by(Topic.position, Topic.created_at, Topic.id)
                 )
             )
 
@@ -169,18 +181,22 @@ class ContentRepository:
         if not ordered_topic_ids or len(ordered_topic_ids) != len(set(ordered_topic_ids)):
             raise ValueError("ordered_topic_ids 必须是非空且不重复的完整列表。")
         with self._session() as session:
-            topics = list(
+            all_topics = list(
                 session.scalars(select(Topic).where(Topic.series_id == series_id))
             )
+            removed = set(session.scalars(select(TopicRemoval.topic_id).where(TopicRemoval.series_id == series_id)))
+            topics = [topic for topic in all_topics if topic.id not in removed]
             by_id = {topic.id: topic for topic in topics}
             if set(ordered_topic_ids) != set(by_id):
-                raise ValueError("调序必须包含该 Series 当前全部且仅包含其自身的 Topic。")
+                raise ValueError("调序必须包含该 Series 当前全部且仅包含未移除的 Topic。")
 
-            temporary_offset = len(topics)
+            # Reuse visible slots; archived rows retain their original positions.
+            positions = sorted(topic.position for topic in topics)
+            temporary_offset = max(topic.position for topic in all_topics)
             for temporary_position, topic_id in enumerate(ordered_topic_ids, start=1):
                 by_id[topic_id].position = temporary_offset + temporary_position
             session.flush()
-            for final_position, topic_id in enumerate(ordered_topic_ids, start=1):
+            for final_position, topic_id in zip(positions, ordered_topic_ids):
                 by_id[topic_id].position = final_position
             session.flush()
             return tuple(by_id[topic_id] for topic_id in ordered_topic_ids)
