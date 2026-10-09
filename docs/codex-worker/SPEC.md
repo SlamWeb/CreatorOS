@@ -1,5 +1,12 @@
 # CreatorOS ↔ Codex 最小通信协议
 
+## 2026-10-09：权威结果与可选记录的边界
+
+- 讨论完成/失败/中断以宿主持久化的 discussion record 为准，答复存于 record.reply；reply.txt、error.txt 和用量文件只是可选副本。终态先保存，副本 I/O 失败不能改判原结果。
+- 调研 SDK completed 后仍须校验 ResearchReceipt、数量与实际搜索证据；有效候选和状态由宿主保存到批次。response.txt、codex_trace.jsonl 和错误详情只是可选副本，不替代业务验收。
+- thread ID、任务/批次/worker 回执仍是权威记录，写失败严格报错；调研公开观察器会保存批次事实，不能整体当可选 Trace 忽略。讨论禁止工具守卫同样不可忽略。
+- 不重发 SDK turn、不自动重试失败任务，不改变查询/授权/生产/审批语义；没有全盘不可写时的第二套状态系统。隔离 HTTP 和故障注入证据见 `docs/reliability/SPEC.md`，不是新增真实模型产出验证。
+
 ## 2026-10-08：围绕产物续聊与统一职责
 
 本节覆盖下文旧版“不支持 Side Chat / 账号任务列表”的边界，不重写生产执行器。

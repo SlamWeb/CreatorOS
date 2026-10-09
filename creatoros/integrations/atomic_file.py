@@ -11,6 +11,17 @@ LOG = logging.getLogger(__name__)
 RETRY_DELAYS = (0.01, 0.02, 0.04)
 
 
+def write_diagnostic_text(path: Path, text: str) -> bool:
+    """Optional copies only; never use for authoritative task/receipt writes."""
+    try:
+        atomic_write_text(path, text)
+        return True
+    except OSError as error:
+        # Keep raw paths, model text and credentials out of the server warning.
+        LOG.warning("Optional Codex diagnostic copy unavailable (%s)", type(error).__name__)
+        return False
+
+
 def atomic_write_text(path: Path, text: str) -> None:
     # Unique, exclusively created sibling files inherit the destination ACL.
     # A fixed .tmp name can be overwritten by another writer.

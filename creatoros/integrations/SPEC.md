@@ -1,5 +1,16 @@
 # External Integrations SPEC
 
+## 讨论／调研收尾隔离（2026-10-09，完成）
+
+- 用户明确授权代写本步；范围仅讨论与调研的诊断/收尾，不接 CI、不修改正式记录、不自动重试模型、不改生产/审批。
+- 讨论 completed/failed/interrupted 的权威 record 先保存，再尽力保存 reply.txt/error.txt；用量副本同样是可选诊断。调研失败（含 preflight）先保存含失败状态的批次，再保存错误详情；Trace 与 response 副本不能遮蔽 SDK 成败。
+- 调研观察器还会保存 thread/任务状态，不能整体当可选日志吞 OSError；SDK collector 提供显式关键观察器模式，调研仅隔离其 Trace 文件写入。讨论禁止工具的 RuntimeError 保持原样传播，权威 job/thread/worker receipt 保存仍严格失败。
+- 验收：故障注入错误文件/回复/用量/Trace 拒写，确认原失败类型或成功结果保留、权威状态先落盘、单次 SDK 消费且不自动重提；额外注入权威保存错误必须传播。实际隔离 HTTP 读取/刷新验证同任务和原产物不变，随后统一可靠性基线。
+- `tests.test_worker_finalization` 7 条 unittest 通过；含 failed/interrupted、preflight 与运行期、成功答复、真实固定 SDK collector、无搜索/坏回执、禁止工具和权威写入故障。HTTP 走实际隔离服务，模型通知/磁盘故障采用受控注入，不调用付费模型或修改正式数据。
+- 新负例在进程内加载提交前的三个模块后出现 8 个失败子例与 1 个 error，确认能捕获旧实现；工作树没有回退。扩展为 15 组的统一基线全通过，证据 `tmp/reliability-20261009-125005-161671/report.json`。
+- 额外 `smoke_topic_research`（实际 loopback HTTP）与 `smoke_content_discussion_tools` 通过，编译/diff-check 通过；只读子 agent 复核未发现安全/验收回退，并独立复跑新 7 条单测通过。
+- TASK 的交付说明同步区分讨论 record.reply/调研 ResearchReceipt 与可选 reply.txt/response.txt。讨论副本降级仅服务日志提示；没有新增所有页面的 warning 展示、全盘不可写恢复或自动重试。
+
 ## SDK 执行与诊断故障边界（2026-10-09）
 
 - 实际 Skill 提炼因 progress JSON 原子替换 WinError 5 经 observer 冒泡而被宿主 interrupt；不是已证实的登录/额度或 SDK 服务错误。占用者未知，不通过扩大权限或自动重发模型规避。

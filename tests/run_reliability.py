@@ -12,6 +12,7 @@ from time import monotonic
 
 CASES = [
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
+    ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
     *[(name, ["-m", "tests." + name]) for name in (
         "smoke_codex_completed_turn", "smoke_production_progress", "smoke_extraction_activity",
         "smoke_codex_public_events", "smoke_skill_extraction", "smoke_skill_draft_files",

@@ -18,6 +18,7 @@ from creatoros.runs.artifacts import validate_artifact
 from creatoros.storage import ContentAttempt, ContentRun, ContentRunStatus, Series, Topic
 from .codex import CODEX_MODEL, PRODUCTION_CONFIG, _bounded_sdk, _production_client
 from .codex_turn_guard import require_completed_turn
+from .atomic_file import write_diagnostic_text
 from .extraction_activity import field, safe_text
 from .production_progress import collect_observed_turn
 from .worker_protocol import _write, record_task, record_thread
@@ -39,7 +40,7 @@ class DiscussionProgress:
     def record_usage(self, usage):
         # The collector receives a thread total, including inherited fork history.
         self.usage = {"scope": "thread_cumulative", **usage}
-        _write(self.directory / "usage.json", self.usage)
+        write_diagnostic_text(self.directory / "usage.json", json.dumps(self.usage))
 
     def finish_usage(self, token_usage):
         keys = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
@@ -51,7 +52,7 @@ class DiscussionProgress:
         self.usage = {"scope": "last_model_request" if last is not None else "unavailable",
                       "last_request": breakdown(last) if last is not None else None,
                       "thread_cumulative": breakdown(field(token_usage, "total")) if token_usage else None}
-        _write(self.directory / "usage.json", self.usage)
+        write_diagnostic_text(self.directory / "usage.json", json.dumps(self.usage))
         return self.usage
 
     def observe(self, method, payload):
@@ -255,7 +256,7 @@ class ContentDiscussionService:
                       "讨论不修改产物；若需要返工，给建议而不要执行。\n" + json.dumps(payload, ensure_ascii=False))
             (workspace / "discussion_request.txt").write_text(prompt, encoding="utf-8")
             record_task(workspace, kind="discussion", scope=payload["scope"],
-                        input_ref="discussion_request.txt", deliverable="reply.txt (只读讨论)")
+                        input_ref="discussion_request.txt", deliverable="Discussion record.reply; reply.txt is an optional copy")
             self._save(record)
             worker = Thread(target=self._execute, args=(record, workspace, prompt, images), daemon=True)
             self.workers[identifier] = worker
@@ -294,15 +295,15 @@ class ContentDiscussionService:
             with self.lock:
                 if self.cancel.is_set():
                     raise RuntimeError("讨论已中断，未修改产物。")
-                (workspace / "reply.txt").write_text(result, encoding="utf-8")
                 record.update(status="completed", reply=safe_text(result)[0], usage=usage, updated_at=now())
                 self._save(record)
+            write_diagnostic_text(workspace / "reply.txt", result)
         except Exception as error:
             with self.lock:
-                (workspace / "error.txt").write_text(str(error), encoding="utf-8")
                 record.update(status="interrupted" if self.cancel.is_set() or getattr(error, "error_type", "") == "codex_interrupted" else "failed",
                               error="讨论未完成，未修改原产物：" + safe_text(str(error))[0][:800], updated_at=now())
                 self._save(record)
+            write_diagnostic_text(workspace / "error.txt", str(error))
 
     def start(self):
         self.cancel.clear()

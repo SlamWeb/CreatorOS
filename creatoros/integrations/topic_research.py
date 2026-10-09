@@ -23,6 +23,7 @@ from .codex import (CODEX_MODEL, CODEX_EFFORT, PRODUCTION_CONFIG, CodexProducerE
                     CodexRun, CodexSdkProducer, ProductionModel, _bounded_sdk, _production_client)
 from .codex_executable import resolve_codex_executable
 from .codex_turn_guard import require_completed_turn
+from .atomic_file import atomic_write_text, write_diagnostic_text
 from .extraction_activity import field, safe_text
 from .production_progress import ProgressWriter, collect_observed_turn
 from .producer_skills import ProducerSkillCatalog, _digest, _write
@@ -104,7 +105,7 @@ class CodexTopicResearcher:
         (workspace / "research_request.txt").write_text(prompt, encoding="utf-8")
         from .worker_protocol import record_task
         record_task(workspace, kind="research", scope={"series": snapshot.get("series", {})},
-                    input_ref="research_request.txt", deliverable="response.txt (ResearchReceipt)")
+                    input_ref="research_request.txt", deliverable="ResearchReceipt returned to host; response.txt is an optional copy")
         return asyncio.run(self._research_async(prompt, count, workspace, cancel, public_observer))
 
     async def _research_async(self, prompt, count, workspace, cancel, public_observer):
@@ -115,8 +116,10 @@ class CodexTopicResearcher:
 
         def emit(event):
             # Only bounded, redacted public fields enter the trace/HTTP projection.
-            with (workspace / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+            def append_trace():
+                with (workspace / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+            progress.diagnostic("research_trace", append_trace)
             if public_observer is not None:
                 public_observer(event)
 
@@ -162,7 +165,8 @@ class CodexTopicResearcher:
                 turn = await _bounded_sdk(thread.turn([TextInput(prompt)], model=CODEX_MODEL, effort=CODEX_EFFORT,
                     sandbox=Sandbox.read_only, output_schema=ResearchReceipt.model_json_schema()), deadline, cancel)
                 try:
-                    result = await _bounded_sdk(collect_observed_turn(turn, progress, observe), deadline, cancel)
+                    result = await _bounded_sdk(collect_observed_turn(
+                        turn, progress, observe, public_observer_is_diagnostic=False), deadline, cancel)
                 except BaseException:
                     try:
                         await asyncio.wait_for(turn.interrupt(), timeout=5)
@@ -171,7 +175,7 @@ class CodexTopicResearcher:
                     raise
                 require_completed_turn(result)
             final_text = result.final_response or ""
-            (workspace / "response.txt").write_text(final_text, encoding="utf-8")
+            progress.diagnostic("response", lambda: atomic_write_text(workspace / "response.txt", final_text))
             usage = CodexSdkProducer._sdk_usage(result.usage)
             progress.record_usage(usage.model_dump())
             try:
@@ -358,11 +362,13 @@ class TopicResearchService:
 
     def _fail(self, record, error):
         kind, message = research_failure(error, self.cancel.is_set())
-        record.update(status="interrupted" if kind == "codex_interrupted" else "failed",
-                      note=message, error_type=kind, error=message)
-        self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / f"{record['id']}-error.txt").write_text(str(error), encoding="utf-8")
-        self._activity(record, "error", message, record["status"], stage=record["status"])
+        with self.lock:
+            record.update(status="interrupted" if kind == "codex_interrupted" else "failed",
+                          note=message, error_type=kind, error=message)
+            # _activity persists the complete authoritative batch, including
+            # terminal status. Never depend on error.txt for that persistence.
+            self._activity(record, "error", message, record["status"], stage=record["status"])
+        write_diagnostic_text(self.root / f"{record['id']}-error.txt", str(error))
 
     def _run(self, batch_id):
         record = self._load(batch_id)

@@ -149,7 +149,8 @@ class ProgressWriter:
         self.diagnostic("usage", lambda: atomic_write_text(path, json.dumps(usage)))
 
 
-async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=None):
+async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=None, *,
+                                public_observer_is_diagnostic=True):
     # SDK 0.157.1 is pinned. Its private collector is the sole compatibility seam;
     # retain final-answer selection, usage and failed-turn semantics instead of duplicating them.
     from openai_codex._run import _collect_async_turn_result
@@ -165,11 +166,11 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
         async for event in stream:
             capture.observe(event)
             if public_observer is not None:
-                if isinstance(progress, ProgressWriter):
+                if isinstance(progress, ProgressWriter) and public_observer_is_diagnostic:
                     progress.diagnostic("public_activity", lambda: public_observer(event))
                 else:
-                    # DiscussionProgress.public also enforces forbidden tools;
-                    # it is not merely an optional diagnostics callback.
+                    # Discussion guards and research task/thread persistence are
+                    # critical callbacks, not optional diagnostics.
                     public_observer(event)
             if event.method == "thread/tokenUsage/updated":
                 total = getattr(getattr(event.payload, "token_usage", None), "total", None)
