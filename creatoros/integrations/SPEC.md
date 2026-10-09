@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## Skill 文本专用读取与 StudioClient 错误语义（2026-10-09）
+
+- `ProducerSkillCatalog.read_skill_file(..., text_only=True)` 在既有登记/路径检查后、图片读取/解码前拒绝非文本后缀，专用 API 返回结构化 `skill_text_only`；默认 `False` 保持页面图片及既有编辑契约。
+- StudioClient 统一大写请求方法，GET/HEAD/OPTIONS 的连接中断返回 `studio_read_failed`；写方法返回 `studio_outcome_unknown`，保持零自动重试。非 JSON 仍为 `studio_invalid_response`，只有写方法文案提示可能已生效，读取失败不暗示写入。
+- 真实隔离 HTTP 验收见 `tests.smoke_producer_skill_read_tool`，覆盖正常文本、图片能力错误、页面原图片响应与 GET/PUT 非 JSON 区分；传输故障注入单独覆盖 GET/POST/PUT 响应丢失。
+- `smoke_producer_skill_read_tool`、`smoke_producer_skill_edit`、`smoke_producer_skill_files` 通过，页面原图片字节/MIME 读取与原子编辑均保持兼容；对应编译及 diff 检查通过。未调用真实模型、修改正式库或已登记 Skill。
+- 扩展回归 `smoke_agent_studio` 初次并行运行遇到其 CLI 子进程 10 秒超时，独立重跑进入第 90 行后因旧断言要求摘要不包含 `revisions` 失败；现行 2026-10-08 摘要契约已包含紧凑版本目录，此文本读取修复未改该契约或无关测试。
+
 ## Observation 公开 SDK 事件 · 2026-10-08（完成）
 
 - 在共用 SDK stream 单消费者处补本地公开事件记录；保留原进度/交付文件，不改变模型、线程、工具或生产状态语义。

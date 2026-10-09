@@ -8,6 +8,7 @@ import { Check, Copy } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
+import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditHandoff";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
@@ -21,6 +22,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   research_series_topics: "调研选题", get_topic_research: "查看调研候选", prepare_topic_selection: "准备选题预览",
   queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
+  get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
@@ -138,19 +140,23 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   }, [active, draftSeed, draftSeedId, scopeKey, updateDraft]);
   useEffect(() => {
     const nonce = params.get("skill_edit");
-    if (!nonce || consumedSkillHandoff.current === nonce) return;
+    if (!active || !nonce || consumedSkillHandoff.current === nonce) return;
     consumedSkillHandoff.current = nonce;
     const key = `creatoros.skill-edit-handoff:${nonce}`;
     try {
       const raw = window.sessionStorage.getItem(key);
       if (!raw) return;
-      const value = JSON.parse(raw) as { skillId?: string; skillName?: string; path?: string; request?: string };
+      const value = JSON.parse(raw) as SkillEditHandoff;
       if (!value.skillId || !value.skillName || !value.path || !value.request) return;
-      updateDraft(scopeKey, `请帮我修改 CreatorOS 本地 Skill「${value.skillName}」。\nSkill ID：${value.skillId}\n目标文件：${value.path}\n\n修改要求：\n${value.request}\n\n请先检查当前文件内容并给出具体修改；没有实际文件写入工具时，不要声称已经保存。`);
+      if ((value.creatorId ?? null) !== (requestedCreatorId ?? null)) {
+        updateError(scopeKey, "Skill 修改草稿的账号与当前对话不一致，请返回原账号重新打开。");
+        return;
+      }
+      updateDraft(scopeKey, skillEditPrompt(value));
       window.sessionStorage.removeItem(key);
       setParams(previous => { const next = new URLSearchParams(previous); next.delete("skill_edit"); return next; }, { replace: true });
     } catch { updateError(scopeKey, "无法读取 Skill 修改草稿，请返回 Skill 卡片重新提交。"); }
-  }, [params, scopeKey, setParams, updateDraft, updateError]);
+  }, [active, params, requestedCreatorId, scopeKey, setParams, updateDraft, updateError]);
   useEffect(() => {
     setConnected(false); follow.current = true;
     if (!active || !id || doc?.status !== "running") return;

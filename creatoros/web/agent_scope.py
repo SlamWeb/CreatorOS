@@ -30,7 +30,7 @@ _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 _PRODUCER_SKILL_FILES = re.compile(
-    r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/files(?:/content)?$"
+    r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/files(?:/(?:content|text))?$"
 )
 
 
@@ -67,7 +67,7 @@ class AgentScopeGuard:
             return None
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
-        if match and method in {"GET", "PUT"}:
+        if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
             return None if self._owns_skill(match.group(1), creator_id) else self._denied()
 
         if method == "GET" and path == "/api/creators":

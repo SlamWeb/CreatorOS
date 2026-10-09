@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## Agent Skill 文本 JSON 路由（2026-10-09）
+
+- 新增只读 `GET /api/producer-skills/{id}/files/text?path=...`，复用受管目录/路径/UTF-8/512 KiB 校验，仅返回 JSON 文本与整个 Skill digest/可编辑状态。图片及其他二进制在读取解码前返回 415 / `skill_text_only`，不向 Agent 返回图片。
+- 账号 scope 仅放行已绑定 Skill 的精确 GET 文本路径；跨账号与 PUT 文本路由均拒绝。浏览器的混合 `/files/content` 图片预览、既有 PUT 编辑和默认分页正文保持兼容。
+- 验收见 `tests.smoke_producer_skill_read_tool`，使用真实隔离 loopback HTTP/SQLite，包含 Markdown 正例、图片负例与跨账号 403；不改正式数据、不调用模型。
+- 新文本读取 smoke、原文件浏览 smoke、原子编辑 smoke 均通过；读取前后隔离数据库及 Skill 文件字节/修改时间不变，原混合路由正常返回 JPEG 字节，GET 错误不暗示写入。
+
 ## Observation 只读投影 · 2026-10-08（完成）
 
 - 新增按需树/详情 API，复用 SQLite、会话请求快照、调研/讨论记录与受管 worker 日志；不新增业务状态、不调用 SDK 查询全局会话、不重放工具。

@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import type { ProducerSkillFile, ProducerSkillItem } from "../api/types";
+import { skillEditPrompt, type SkillEditContext } from "./skillEditHandoff";
 import "./skill-inspector.css";
 
 type TreeNode = { name: string; path: string; file?: ProducerSkillFile; children: TreeNode[] };
@@ -54,8 +55,9 @@ function TreeItems({ nodes, selected, onSelect, disabled }: {
   </li>)}</ul>;
 }
 
-export function SkillInspector({ skill, onClose, onAdd }: {
+export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit }: {
   skill: ProducerSkillItem; onClose: () => void; onAdd?: () => void;
+  editContext?: SkillEditContext; onAgentEdit?: (prompt: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
@@ -131,12 +133,21 @@ export function SkillInspector({ skill, onClose, onAdd }: {
   };
   const handToAgent = () => {
     if (!agentRequest.trim() || save.isPending || !confirmDiscard()) return;
+    const payload = { ...editContext, skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
+    if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
     const nonce = crypto.randomUUID();
-    const payload = { skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
     try { window.sessionStorage.setItem(`creatoros.skill-edit-handoff:${nonce}`, JSON.stringify(payload)); }
     catch { setEditError("无法保存本次聊天草稿，请检查浏览器会话存储后重试。"); return; }
-    const existing = window.sessionStorage.getItem("creatoros.agent.selected-chat.v1:overview");
-    navigate(`/agent${existing ? `?chat=${encodeURIComponent(existing)}&` : "?"}skill_edit=${encodeURIComponent(nonce)}`);
+    const next = new URLSearchParams({ skill_edit: nonce });
+    if (editContext?.creatorId) {
+      next.set("creator", editContext.creatorId);
+      if (editContext.seriesId) next.set("series", editContext.seriesId);
+      navigate(`/?${next}`);
+    } else {
+      const existing = window.sessionStorage.getItem("creatoros.agent.selected-chat.v1:overview");
+      if (existing) next.set("chat", existing);
+      navigate(`/agent?${next}`);
+    }
   };
   const resolveReference = (value: string | undefined) => {
     if (!value || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return undefined;
@@ -197,7 +208,7 @@ export function SkillInspector({ skill, onClose, onAdd }: {
           <div className="skill-file-content" key={selected}>
             {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
               <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
-              <p>会把 Skill 名称、ID、当前文件路径和要求带入 Agent 草稿；检查后由你发送。</p>
+              <p>会带入 Skill、当前文件与作品信息；检查草稿后由你发送。</p>
               <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
             {file?.kind === "unsupported" && <p>此文件不支持预览。可以在本地 Skill 目录中查看；网页不会执行它。</p>}

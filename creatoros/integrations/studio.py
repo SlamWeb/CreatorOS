@@ -38,6 +38,8 @@ class StudioClient:
         self.client.close()
 
     def request(self, method: str, path: str, *, params=None, payload=None, timeout_seconds=None) -> dict:
+        method = method.upper()
+        is_write = method not in {"GET", "HEAD", "OPTIONS"}
         try:
             headers = {"x-creatoros-origin": self.origin}
             if self.agent_session_id:
@@ -52,9 +54,9 @@ class StudioClient:
             ) from error
         except httpx.RequestError as error:
             raise StudioClientError(
-                "请求结果尚不确定，请先在 Studio 查询任务；不要自动重新提交。" if method == "POST"
+                "写请求结果尚不确定，请先在 Studio 查询当前状态；不要自动重新提交。" if is_write
                 else "读取 Studio 超时或连接中断，可稍后重新查询。",
-                "studio_outcome_unknown" if method == "POST" else "studio_read_failed",
+                "studio_outcome_unknown" if is_write else "studio_read_failed",
             ) from error
         try:
             data = response.json()
@@ -62,7 +64,8 @@ class StudioClient:
                 raise ValueError("object required")
         except ValueError as error:
             raise StudioClientError(
-                "Studio 未返回有效 JSON；写请求可能已生效，请先查询任务。",
+                "Studio 未返回有效 JSON；写请求可能已生效，请先查询当前状态。" if is_write
+                else "Studio 未返回有效 JSON，读取失败；可稍后重新查询。",
                 "studio_invalid_response",
             ) from error
         if not response.is_success:

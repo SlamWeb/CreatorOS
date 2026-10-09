@@ -1,5 +1,14 @@
 # CreatorOS Tool Exposure SPEC
 
+## Skill 文本读取与图片能力边界（2026-10-09）
+
+- 默认分页正文仅供阅读，不提供写入 digest；编辑必须列文件并按 path 读取当前全文/digest。更新 schema 与宿主明确禁止猜摘要或使用 source_digest，用户明确修改保存不重复追问。真实中文隔离编辑验收及失败尝试记录见 web-chat SPEC。
+
+- `get_producer_skill(path=...)` 改走专用 `GET /api/producer-skills/{id}/files/text`，仅返回 Markdown/UTF-8 文本 JSON；图片与其他二进制返回 `skill_text_only`，明确文件路径/文件列表不代表实际看图。默认分页正文与 `list_files=true` 保持原契约。
+- 工具与参数说明同步能力边界；不向账号 Agent 注入图片字节或图像 token。页面图片预览继续走混合 `/files/content` 路由。
+- 验收使用 `tests.smoke_producer_skill_read_tool` 的隔离真实 SQLite/loopback HTTP：文本及 digest 正例、正常/损坏图片能力错误、跨账号 403、路径逃逸拒绝、读取前后字节/时间戳与数据库摘要不变。响应丢失仅用传输故障注入，不调用模型或改正式 Skill。
+- 验证通过：`smoke_producer_skill_read_tool`、`smoke_producer_skill_edit`、`smoke_producer_skill_files`、对应 Python 编译与 `git diff --check`。既有文件浏览 smoke 的旧完整 JSON 断言补齐现行 digest/editable 字段，测试异常时先关闭数据库，避免 Windows 清理错误掩盖真实断言。
+
 ## CreatorOS ↔ Codex 讨论和任务查询工具（2026-10-08，完成）
 
 - `discuss_content_run` 与 `get_content_discussion` 通过 Studio API 讨论指定已验收 Run/revision；创建任务需要 `request_id`、`revision_id`、`artifact_digest`、用户消息。模型工具不接受任意 thread ID 或产物路径，真实 SDK thread 与文件由宿主按版本定位。讨论只读，不改生产/批准状态。

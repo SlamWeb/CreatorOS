@@ -387,11 +387,11 @@ class ProducerSkillCatalog:
         return {**item, "name": skill.name, "description": skill.description,
                 "digest": _digest(directory), "files": files}
 
-    def read_skill_file(self, skill_id: str, relative_path: str) -> dict:
+    def read_skill_file(self, skill_id: str, relative_path: str, *, text_only: bool = False) -> dict:
         with _SKILL_EDIT_LOCK:
-            return self._read_skill_file_locked(skill_id, relative_path)
+            return self._read_skill_file_locked(skill_id, relative_path, text_only=text_only)
 
-    def _read_skill_file_locked(self, skill_id: str, relative_path: str) -> dict:
+    def _read_skill_file_locked(self, skill_id: str, relative_path: str, *, text_only: bool = False) -> dict:
         if (not isinstance(relative_path, str) or not relative_path or len(relative_path) > 512
                 or "\\" in relative_path or ":" in relative_path or "\x00" in relative_path):
             raise ValueError("Skill 文件路径无效。")
@@ -412,6 +412,9 @@ class ProducerSkillCatalog:
         if not path.is_file():
             raise ValueError("Skill 文件不存在。")
         suffix = path.suffix.lower()
+        if text_only and suffix not in self._TEXT_SUFFIXES:
+            raise TypeError("当前工具只能读取 Markdown/UTF-8 文本，不能读取图片或其他二进制文件；"
+                            "文件路径或列表不代表已实际看图。")
         if suffix in self._IMAGE_SUFFIXES:
             size = path.stat().st_size
             if size > self.MAX_IMAGE_BYTES:

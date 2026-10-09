@@ -71,6 +71,20 @@ def skill_routes(database, service):
                              "content": result["content"]},
                             headers={"Cache-Control": "no-store"})
 
+    @router.get("/producer-skills/{skill_id}/files/text")
+    def get_skill_text_file(skill_id: str, path: str = Query(min_length=1, max_length=512)):
+        try:
+            result = service.catalog.read_skill_file(skill_id, path, text_only=True)
+        except TypeError as error:
+            return JSONResponse(status_code=415, content={"error": {
+                "code": "skill_text_only", "message": str(error),
+            }}, headers={"Cache-Control": "no-store"})
+        except OverflowError as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except (ValueError, OSError, UnicodeError, KeyError) as error:
+            raise HTTPException(status_code=404, detail="Skill 文件不可用或路径无效。") from error
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
     @router.put("/producer-skills/{skill_id}/files/content")
     def update_skill_file(skill_id: str, request: UpdateSkillFileRequest):
         try:

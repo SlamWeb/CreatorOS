@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 from datetime import datetime
 from io import StringIO
@@ -92,11 +93,9 @@ def main():
 
             prompt = (
                 f"请修改名为 `{TARGET_NAME}` 的已安装 Skill，只编辑它的根目录 `SKILL.md`。"
-                "我明确授权你现在保存，不用再询问。先用已安装 Skill 列表定位它，再调用"
-                "get_producer_skill 的 list_files=true 找到文件，然后传 path 读取正文和 digest。"
+                f"Skill ID：{skill_id}。"
                 f"将 description 精确改为：{TARGET_DESCRIPTION}；在正文末尾增加一行：{BODY_MARKER}。"
-                "这是共享 Skill，保存会影响所有绑定栏目；我已理解并确认。只保存这一文件，"
-                "不要生产内容、安装 Skill 或调用其他工具。保存后简短确认。"
+                "请用中文回复。请检查当前文件，然后修改并保存。不要生产内容、安装 Skill 或修改其他文件。"
             )
             (root / "requested-edit.txt").write_text(prompt, encoding="utf-8")
             events = []
@@ -127,7 +126,6 @@ def main():
                           model_usage=usages)
 
             names = [call["name"] for call in calls]
-            assert "list_producer_skills" in names, names
             get_calls = [call["arguments"] for call in calls if call["name"] == "get_producer_skill"]
             assert any(call.get("list_files") is True for call in get_calls), get_calls
             assert any(call.get("path") == "SKILL.md" for call in get_calls), get_calls
@@ -135,6 +133,13 @@ def main():
                             if call["name"] == "update_producer_skill_file"]
             assert len(update_calls) == 1, update_calls
             assert not any(item.get("is_error") for item in results), report["tool_results"]
+            final_reply = next(m.get("content", "") for m in reversed(messages)
+                               if m.get("role") == "assistant" and not m.get("tool_calls"))
+            assert re.search(r"[\u4e00-\u9fff]", final_reply), "Expected a Chinese final reply."
+            assert not re.search(r"(?i)\b(?:I'll|I've|please confirm|do you confirm)\b", final_reply), final_reply
+            commentary = [m.get("content", "") for m in messages
+                          if m.get("role") == "assistant" and m.get("tool_calls") and m.get("content")]
+            assert all(re.search(r"[\u4e00-\u9fff]", text) for text in commentary), commentary
 
             current_text = (working / "SKILL.md").read_text(encoding="utf-8")
             current = app.state.skill_installs.catalog.describe(skill_id)
@@ -146,6 +151,7 @@ def main():
             assert (historical_snapshot / "SKILL.md").read_text(encoding="utf-8") == original_skill
             report.update(status="passed", after_digest=current["digest"],
                           description=current["description"], marker_present=True,
+                          chinese_reply=True, saved_without_second_confirmation=True,
                           source_unchanged=True, historical_snapshot_unchanged=True)
             (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2),
                                               encoding="utf-8")

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from contextlib import ExitStack
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -26,12 +27,13 @@ def snapshot_tree(directory: Path):
     }
 
 
-with TemporaryDirectory() as temporary:
+with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     root = Path(temporary)
     database_path = root / "skills.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
     upgrade_database(database_url)
     database = Database(database_url)
+    cleanup.callback(database.close)
     ContentRepository(database).create_creator(creator_id="creator-files", display_name="Files",
                                                platform=CreatorPlatform.XIAOHONGSHU)
     app = create_app(database=database, chat_root=root / "sessions")
@@ -78,7 +80,8 @@ with TemporaryDirectory() as temporary:
         full_skill = client.get(f"/api/producer-skills/{skill_id}/files/content",
                                 params={"path": "SKILL.md"})
         assert full_skill.status_code == 200 and full_skill.json() == {
-            "path": "SKILL.md", "kind": "markdown", "content": skill_text
+            "path": "SKILL.md", "kind": "markdown", "content": skill_text,
+            "digest": body["digest"], "editable": True,
         }, (full_skill.status_code, full_skill.text[:500])
         script = client.get(f"/api/producer-skills/{skill_id}/files/content",
                             params={"path": "scripts/example.py"})

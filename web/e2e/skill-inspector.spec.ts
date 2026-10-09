@@ -211,6 +211,75 @@ test("Skill change request enters the existing Agent composer as a draft without
   expect(writes).toEqual([]);
 });
 
+test("workspace Skill editing stays in the account drawer and survives refresh without sending", async ({ page, request }, info) => {
+  const seed = await request.post("/test/skill-files", { data: {} });
+  const fixture = await seed.json() as { mind: { id: string }; production: { id: string } };
+  const created = await request.post("/api/creators", { data: { display_name: `改稿账号-${crypto.randomUUID()}` } });
+  const account = await created.json() as { id: string; display_name: string };
+  const composed = await request.post("/api/series", { data: { name: "账号内改稿", creator_id: account.id,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id,
+    description: "", audience: "", request_id: crypto.randomUUID().replaceAll("-", "") } });
+  expect(composed.ok(), await composed.text()).toBeTruthy();
+  const { series } = await composed.json() as { series: { id: string } };
+  let posts = 0;
+  page.on("request", req => { if (req.url().includes("/api/agent/sessions") && req.method() !== "GET") posts++; });
+  await page.goto(`/?creator=${account.id}&series=${series.id}`);
+  await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind" });
+  await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill" }).click();
+  await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("不要额外标题，保留现有参考。请保存。");
+  await dialog.getByRole("button", { name: "在 Agent 中继续" }).click();
+  await expect(dialog).not.toBeAttached();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  const composer = panel.getByRole("textbox", { name: "给 Agent 的消息" });
+  await expect(composer).toHaveValue(new RegExp(`账号 ID：${account.id}[\\s\\S]*栏目 ID：${series.id}`));
+  await expect(composer).toHaveValue(/不要额外标题/);
+  expect(new URL(page.url()).pathname).toBe("/");
+  await page.screenshot({ path: info.outputPath("account-skill-edit-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("account-skill-edit-mobile.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.reload();
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(composer).toHaveValue(/不要额外标题/);
+  expect(posts).toBe(0);
+});
+
+test("Run Skill editing carries the displayed revision into its account, not the global Agent", async ({ page, request }) => {
+  const fixture = await (await request.post("/test/skill-files", { data: {} })).json() as { mind: { id: string }; production: { id: string } };
+  const account = await (await request.post("/api/creators", { data: { display_name: "作品改稿账号" } })).json() as { id: string };
+  const composed = await request.post("/api/series", { data: { name: "作品改稿栏目", creator_id: account.id,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id,
+    description: "", audience: "", request_id: crypto.randomUUID().replaceAll("-", "") } });
+  expect(composed.ok(), await composed.text()).toBeTruthy();
+  const { series } = await composed.json() as { series: { id: string } };
+  await page.route("**/api/runs/run-edit-context", route => route.fulfill({ json: {
+    id: "run-edit-context", creator_id: account.id, creator_name: "作品改稿账号", series_id: series.id, series_name: "作品改稿栏目",
+    topic_id: "example", topic_title: "检查历史作品", status: "approved", version: 3, active_revision_number: 2,
+    allowed_actions: [], input_snapshot: { skill_name: fixture.mind.id }, publication: null, partial_cards: [],
+    revisions: [{ id: "revision-one", revision_number: 1, cards: [], attempts: [] },
+      { id: "revision-two", revision_number: 2, cards: [], attempts: [] }],
+  } }));
+  await page.route("**/api/runs/run-edit-context/events?*", route => route.fulfill({ json: { items: [], next_after_id: 0 } }));
+  await page.route("**/api/runs/run-edit-context/discussion*", route => route.fulfill({ json: { items: [] } }));
+  let posts = 0;
+  page.on("request", req => { if (req.url().includes("/api/agent/sessions") && req.method() !== "GET") posts++; });
+  await page.goto("/runs/run-edit-context?revision=revision-one");
+  await page.getByRole("button", { name: "打开当前库版本 ↗" }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind" });
+  await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill" }).click();
+  await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("看这一版图片再改 Skill。");
+  await dialog.getByRole("button", { name: "在 Agent 中继续" }).click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue(/作品 Run ID：run-edit-context[\s\S]*Revision ID：revision-one/);
+  expect(new URL(page.url()).searchParams.get("creator")).toBe(account.id);
+  expect(new URL(page.url()).searchParams.get("series")).toBe(series.id);
+  await expect.poll(() => new URL(page.url()).searchParams.has("skill_edit")).toBe(false);
+  expect(posts).toBe(0);
+});
+
 test("Run detail shows its frozen Skill and opens the current local card", async ({ page, request }, info) => {
   const seeded = await request.post("/test/skill-files", { data: {} });
   expect(seeded.ok(), await seeded.text()).toBeTruthy();

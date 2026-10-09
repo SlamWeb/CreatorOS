@@ -166,7 +166,8 @@ class ProducerSkillArgs(BaseModel):
     offset: int = Field(default=0, ge=0, description="正文字符分页起点；有更多内容时按 page.has_more 继续。")
     limit: int = Field(default=2000, ge=1, le=4000, description="本页最多字符数，最大 4000。")
     path: str | None = Field(default=None, max_length=512,
-                             description="读取指定 Markdown/文本文件；路径须先从 list_files=true 的结果取得。")
+                             description="只读取指定 Markdown/UTF-8 文本；路径须先从 list_files=true 的结果取得。"
+                                         "图片路径返回能力错误，文件列表不代表实际看图。")
     list_files: bool = Field(default=False, description="true 时列出受管工作副本文件；不读取正文。")
 
 
@@ -177,7 +178,8 @@ class UpdateProducerSkillFileArgs(BaseModel):
     path: str = Field(min_length=1, max_length=512, description="从文件列表返回的相对路径。")
     content: str = Field(max_length=512 * 1024, description="完整的新 UTF-8 文本。一次只更新一个已列出的文件。")
     expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$",
-                                 description="读取 Skill 文件时返回的整个 Skill digest，用于并发保护。")
+                                 description="get_producer_skill(path=目标文件) 返回的当前工作副本 digest。"
+                                             "分页正文不提供该值；禁止猜测或使用 source_digest。")
 
 
 class NoArgs(BaseModel):
@@ -203,7 +205,7 @@ def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=Fal
             "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files"), context)
     if path is not None:
         return _call(lambda c: c.request(
-            "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
+            "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files/text",
             params={"path": path}), context)
     return _call(lambda c: c.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/content",
                                      params={"offset": offset, "limit": limit}), context)

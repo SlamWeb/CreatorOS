@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreators } from "../api/hooks";
@@ -38,6 +38,9 @@ export function WorkspacePage() {
   const [chatSeed, setChatSeed] = useState<{text:string; id:number} | null>(null);
   const chatOpener = useRef<HTMLButtonElement>(null);
   const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
+  useEffect(() => {
+    if (params.has("skill_edit")) setChatOpen(true);
+  }, [params]);
 
   const refresh = async () => {
     await Promise.all([
@@ -249,7 +252,11 @@ export function WorkspacePage() {
       onClick={() => {setChatSeed(null);setChatOpen(!chatOpen);}}><BrandMark /></button>
     <AccountChatPanel creatorId={account?.id ?? null} accountName={account?.display_name ?? "全部账号"} open={chatOpen && !!account}
       onClose={() => {setChatOpen(false);setChatSeed(null);}} openerRef={chatOpener} draftSeed={chatSeed?.text} draftSeedId={chatSeed?.id} />
-    {inspectedSkill && <SkillInspector skill={inspectedSkill} onClose={() => setInspectedSkill(null)} />}
+    {inspectedSkill && <SkillInspector skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
+      editContext={{ creatorId: account?.id, seriesId: series?.id }}
+      onAgentEdit={account ? prompt => {
+        setInspectedSkill(null); setChatSeed({ text: prompt, id: Date.now() }); setChatOpen(true);
+      } : undefined} />}
   </div>;
 }
 
