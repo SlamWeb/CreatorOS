@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## SDK 执行与诊断故障边界（2026-10-09）
+
+- 实际 Skill 提炼因 progress JSON 原子替换 WinError 5 经 observer 冒泡而被宿主 interrupt；不是已证实的登录/额度或 SDK 服务错误。占用者未知，不通过扩大权限或自动重发模型规避。
+- ProgressWriter 对进度、用量、元数据 Trace 和可选公开活动的 OSError 记录安全降级警告；独立临时文件 + 有限 Windows sharing/access 替换重试。诊断记录不能决定业务成功/失败，其他 RuntimeError（含讨论工具禁止规则）、权威 worker receipt、真正 SDK 错误不吞掉。
+- `require_completed_turn` 在 6 个适配器验收前统一检查：completed 才能继续解析/验收；interrupted 保留证据并投影中断，未知终态拒绝。尤其 native 的 interrupted 不进入 delivery repair，不重新生图。
+- 提炼/改稿/试产失败处理先保存权威终态再尽力记录错误；并未承诺所有服务的失败处理已经统一。其他待治理项与测试基线见 `docs/reliability/SPEC.md`。
+- 新 Windows 文件占用/故障注入 7 条单测、6 入口 completed 门槛、既有调研/讨论/生产/交付/执行器等 14 组基线末次通过；另同图真实无生图提炼通过。证据与首次失败保留，见 `docs/artifact-to-skill/SPEC.md` V6。不把注入测试视为真实产出质量评测。
+
 ## Skill 文本专用读取与 StudioClient 错误语义（2026-10-09）
 
 - `ProducerSkillCatalog.read_skill_file(..., text_only=True)` 在既有登记/路径检查后、图片读取/解码前拒绝非文本后缀，专用 API 返回结构化 `skill_text_only`；默认 `False` 保持页面图片及既有编辑契约。

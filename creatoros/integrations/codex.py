@@ -822,6 +822,8 @@ class CodexSdkProducer(CodexProducer):
                     message = "本地执行器已停止生产。" if interruption == "codex_interrupted" else "Codex 内容生产超时。"
                     raise CodexProducerError(message, error_type=interruption)
                 result = await task
+                from .codex_turn_guard import require_completed_turn
+                require_completed_turn(result)
         except CodexProducerError as error:
             progress.finish("interrupted" if error.error_type == "codex_interrupted" else "failed")
             trace({"type": "stage.failed", "error_type": error.error_type})

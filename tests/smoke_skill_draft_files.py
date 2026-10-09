@@ -206,7 +206,7 @@ def main():
 
 
 async def _completed_turn():
-    return SimpleNamespace(final_response="说明来自最终响应，不是 JSON", usage=None)
+    return SimpleNamespace(status="completed", final_response="说明来自最终响应，不是 JSON", usage=None)
 
 
 if __name__ == "__main__":

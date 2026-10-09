@@ -5,6 +5,7 @@ import asyncio
 import base64
 import io
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -81,11 +82,12 @@ class TrialProducer:
 
 
 def main():
-    with TemporaryDirectory() as temporary:
+    with TemporaryDirectory() as temporary, ExitStack() as cleanup:
         root = Path(temporary)
         url = f"sqlite:///{(root / 'test.db').as_posix()}"
         upgrade_database(url)
         database = Database(url)
+        cleanup.callback(database.close)
         catalog = ProducerSkillCatalog(root / "skills")
         producer = TrialProducer()
         service = SkillExtractionService(catalog, controlled, reviser=revise, producer_factory=lambda: producer)

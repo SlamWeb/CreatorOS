@@ -107,13 +107,11 @@ def revise(service, job_id, request_id, expected_digest, instruction):
                         retain_source_material(service._path("jobs", job_id), result)
                     service._publish(job_id, result, references(service, job))
             except Exception as error:
-                (directory / "error.txt").write_text(str(error), encoding="utf-8")
-                from .skill_extraction import extraction_failure
+                from .skill_extraction import extraction_failure, record_failure_details
                 kind, message = extraction_failure(error, service.cancel_event.is_set())
-                from .extraction_activity import ExtractionActivity
-                ExtractionActivity(directory).finish("interrupted" if service.cancel_event.is_set() else "failed", message)
                 service._update(job_id, operation=None, cancel_requested=False,
                     error="改稿未完成，原草稿保留。" + message, error_type=kind)
+                record_failure_details(directory, error, "interrupted" if kind == "codex_interrupted" else "failed", message)
 
         launch(service, job, "revise", key, directory, run)
         return service.get(job_id)
@@ -167,10 +165,12 @@ def trial(service, job_id, request_id, expected_digest, topic):
                 trial_cards(directory, job_id, key, complete=True)
                 update(status="completed")
             except Exception as error:
-                root.mkdir(parents=True, exist_ok=True)
-                (root / "error.txt").write_text(str(error), encoding="utf-8")
-                update(status="interrupted" if service.cancel_event.is_set() else "failed",
-                       error="试用已停止，已保存图片保留。" if service.cancel_event.is_set() else "试用失败，草稿与已保存图片保留；详情见本地试用记录。")
+                from .skill_extraction import extraction_failure, record_failure_details
+                kind, _ = extraction_failure(error, service.cancel_event.is_set())
+                status = "interrupted" if kind == "codex_interrupted" else "failed"
+                message = "试用已停止，已保存图片保留。" if status == "interrupted" else "试用失败，草稿与已保存图片保留；详情见本地试用记录。"
+                update(status=status, error=message)
+                record_failure_details(root, error, status, message)
             finally:
                 service._update(job_id, operation=None, cancel_requested=False)
 

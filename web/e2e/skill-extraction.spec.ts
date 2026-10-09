@@ -288,6 +288,34 @@ test("reuses the same request and uploads when the server accepted but the respo
   expect(creates[0].body).toEqual(creates[1].body);
 });
 
+test("keeps diagnostic degradation visible after refresh without resubmitting", async ({ page }, testInfo) => {
+  const api = await installControlledApi(page, "running");
+  const warning = "本次进度或执行记录曾保存失败，部分展示可能不完整；不代表任务执行失败。";
+  let running = true;
+  await page.route("**/api/skill-extractions/extract-e2e", async route => {
+    const body = fakeJob(running ? "running" : "ready", { observation_warning: warning, operation: running ? "extract" : null });
+    await route.fulfill({ json: body });
+  });
+  await submitOneImage(page);
+  await expect(page.getByText(warning, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "取消当前操作" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "确认加入 Skill 库" })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText(warning, { exact: true })).toBeVisible();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath(`diagnostic-warning-${viewport.width}.png`), fullPage: true });
+  }
+  running = false;
+  await page.reload();
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  await expect(page.getByText(warning, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "确认加入 Skill 库" })).toBeEnabled();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+});
+
 test("shows a server extraction failure without offering save", async ({ page }) => {
   const api = await installControlledApi(page);
   await submitOneImage(page, "模拟失败");

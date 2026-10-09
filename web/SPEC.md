@@ -1,5 +1,12 @@
 # CreatorOS Studio Web SPEC
 
+## 提炼诊断降级提示 · 2026-10-09（完成）
+
+- 提炼 Job 增加可选 `observation_warning`：诊断文件保存失败不等于提炼失败。选中任务显示固定安全提示并隐藏可能过时的“最近活动”；原任务成功/失败/取消状态、检查草稿、编辑/入库门槛不变。
+- Given 诊断降级但模型仍执行，When 查看/刷新，Then 能看见记录可能不完整、仍可显式取消，不自动重提；最终 ready 仍需实际 SDK 完成及草稿校验。受控 UI 注入是展示验收，不作为模型稳定证据；本轮只复用样式、不重做布局。
+- typecheck/build 通过（原 bundle >500kB 警告保留）；`skill-extraction` 定向 3/3 通过：上传/持久化任务/刷新/预览/确认、诊断降级刷新及 ready、实际失败无入库按钮。降级提示不把 running 改 failed，刷新只有一条提交，ready 后仍可正常检查并确认入库。
+- 实际检查 1440×900 与 390×844 全页截图 `web/test-results/skill-extraction-keeps-dia-bd992-efresh-without-resubmitting/diagnostic-warning-1440.png` / `diagnostic-warning-390.png`；长提示可换行，无页面水平溢出。新 warning 路径由受控 API 验证，后端实际隔离 HTTP 与同图真实提炼另列 V6，不混称真模型浏览器 E2E。
+
 ## 长期待选与 Skill 改稿作用域 · 2026-10-09（完成）
 
 - 真实坏例：待选显示“已过期”实际是 Skill/config digest 变化，不是日期；用户希望长期选题保留。ready 候选不因时间或配置变动失效，入队 Preview 使用当前栏目配置，确认时仍检查 CAS，生产仍冻结当前 Skill。

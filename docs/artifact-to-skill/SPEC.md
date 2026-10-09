@@ -1,5 +1,21 @@
 # Artifact → Skill Workbench
 
+## V6：诊断记录故障不能中断提炼（2026-10-09）
+
+- 真实任务 `f9ade851…d8a2b` 在 32 秒时替换 `production_progress.json.tmp` 被 Windows 拒绝；此 OSError 经 SDK 事件观察器冒泡，宿主主动 interrupt，草稿为空。不能将其归因于额度或 SDK，也没有证据确认占用者。
+- 本轮只隔离进度、用量、旧元数据 Trace 和可选公开活动的文件故障；使用独立临时文件、短且有上限的 Windows sharing/access 冲突重试。诊断记录降级要可见，不扩大目录权限，不重发模型、不自动重提正式任务。
+- 最终模型错误、取消/超时、权威 worker receipt、草稿写入/格式/版本校验仍严格失败；不得把残存文件或口头答复当作成功。失败旧证据不改写。
+- Given Windows 短占用，When 进度发布，Then 原子更新后继续；持续占用/磁盘故障时继续消费 SDK 并显示诊断警告；真实 SDK failure/timeout/cancel 仍终止，未通过草稿校验仍不可 ready。仅重试文件替换最多 4 次，总退避 70ms；非 Windows sharing/access 错误不重试。
+- 提炼/改稿/试产先保存权威终态，再尽力保存 error.txt 和活动。报告再次写失败不能让死 worker 继续显示 running，改稿失败保留当前有效版本。历史 WinError 失败只读分类为本地文件故障，原任务不重写、不自动重提。
+- 共用 completed 门槛覆盖提炼、调研、讨论、legacy/native 生产及组合检查。SDK 返回 interrupted 时即使有 final 或完整文件也不 ready；保留文件，不自动 repair、再生图或重试。
+
+### V6 验证结果
+
+- `tests.test_diagnostic_io` 7/7：真实 Windows CreateFileW 持有无 FILE_SHARE_DELETE 的句柄，短暂占用后重试成功、持续占用不杀 SDK stream；另覆盖磁盘故障、用量/Trace/活动失败、真实 SDK 错误保真、安全 guard/权威 receipt 错误仍抛出、失败报告再失败、改稿/试产保留版本、隔离 HTTP 只读警告。SDK 输出为故障注入，不宣称模型成功率。
+- `tests.smoke_codex_completed_turn` 覆盖所有 6 个入口的正常返回 interrupted + 合法 final/草稿/交付：不验收、不启动 repair，保存已有图并投影 interrupted。14 组后端统一基线末次全过；初次失败及执行器偶发问题如实记录在 `docs/reliability/SPEC.md`。
+- 同图、visual、原要求真实 `gpt-6-sol/high` 提炼成功，草稿名 visualize，11 条公开活动；原图、draft/assets、versions/v001/assets SHA256 相同。证据 `tmp/skill-extraction-live-ot6pldrw/report.json`，thread `01a1207a-860a-78f0-845f-95865ef279de`。阶段累计 input 151142 / cached 135808 / output 1835，不是上下文长度。未生图、搜索、入正式库或评价新主题试产质量，只证明此例完成。
+- 前端 3 条定向交互回归通过，诊断提示在刷新和 ready 后保留；取消与入库门槛、零重复 POST、桌面/手机截图见 `web/SPEC.md`。全目录不可写时健康提示本身也可能写不下，只能在服务日志报告；权威 job/receipt/版本写入仍严格失败。正式服务需要重启加载新代码。
+
 ## V5：多 Skill 融合草稿（2026-10-05，后端切片）
 
 - `POST /api/skill-extractions/merge` 接受 `{request_id, skill_ids, instruction}`；选择 2–8 个不同的已登记 Skill，返回普通提炼 Job，并额外投影 `task_kind: "merge"` 与 `source_skills: [{id,name,role,digest}]`。一个 Skill 直接沿用现有创建栏目路径，不调用融合接口。

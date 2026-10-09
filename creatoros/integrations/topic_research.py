@@ -22,6 +22,7 @@ from creatoros.storage import ContentRepository
 from .codex import (CODEX_MODEL, CODEX_EFFORT, PRODUCTION_CONFIG, CodexProducerError,
                     CodexRun, CodexSdkProducer, ProductionModel, _bounded_sdk, _production_client)
 from .codex_executable import resolve_codex_executable
+from .codex_turn_guard import require_completed_turn
 from .extraction_activity import field, safe_text
 from .production_progress import ProgressWriter, collect_observed_turn
 from .producer_skills import ProducerSkillCatalog, _digest, _write
@@ -168,6 +169,7 @@ class CodexTopicResearcher:
                     except Exception:
                         pass
                     raise
+                require_completed_turn(result)
             final_text = result.final_response or ""
             (workspace / "response.txt").write_text(final_text, encoding="utf-8")
             usage = CodexSdkProducer._sdk_usage(result.usage)
@@ -184,7 +186,7 @@ class CodexTopicResearcher:
             progress.finish("completed")
             return CodexRun(thread.id, receipt, usage)
         except Exception as error:
-            progress.finish("interrupted" if cancel.is_set() else "failed")
+            progress.finish("interrupted" if cancel.is_set() or getattr(error, "error_type", "") == "codex_interrupted" else "failed")
             if isinstance(error, CodexProducerError):
                 emit({"type": "stage.failed", "error_type": error.error_type})
                 raise
@@ -202,7 +204,7 @@ def _public_text(value):
 
 
 def research_failure(error, cancelled=False):
-    if cancelled:
+    if cancelled or getattr(error, "error_type", "") == "codex_interrupted":
         return "codex_interrupted", "调研已中断，候选未入队；未自动重试。"
     kind = getattr(error, "error_type", "research_failed")
     message = str(error)
@@ -356,7 +358,7 @@ class TopicResearchService:
 
     def _fail(self, record, error):
         kind, message = research_failure(error, self.cancel.is_set())
-        record.update(status="interrupted" if self.cancel.is_set() else "failed",
+        record.update(status="interrupted" if kind == "codex_interrupted" else "failed",
                       note=message, error_type=kind, error=message)
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / f"{record['id']}-error.txt").write_text(str(error), encoding="utf-8")

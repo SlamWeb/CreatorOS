@@ -23,6 +23,7 @@ from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAM
                     ProductionSession, _bounded_sdk, _production_client)
 from .producer_skills import ProducerSkillCatalog, _digest, freeze_skill
 from .production_progress import ProgressWriter, collect_observed_turn
+from .codex_turn_guard import require_completed_turn
 from .visual_production import atomic_json, input_digest
 from .worker_protocol import record_task, record_thread, completed_delivery_turn
 
@@ -345,6 +346,7 @@ async def review_composition(thread, producer, directory, refs, request, progres
         except Exception:
             pass
         raise
+    require_completed_turn(result)
     if result.usage is not None:
         progress.record_usage(producer._sdk_usage(result.usage).model_dump())
     text = result.final_response or ""
@@ -424,6 +426,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                             pass  # incomplete writes are not a production failure
                         await asyncio.wait({collector}, timeout=0.5)
                     result = await collector  # SDK failed turn must never look completed
+                    require_completed_turn(result)
                     if result.usage is not None:
                         progress.record_usage(producer._sdk_usage(result.usage).model_dump())
                     (directory / ("production_repair_response.txt" if repair else "production_response.txt")).write_text(

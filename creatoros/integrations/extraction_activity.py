@@ -8,7 +8,11 @@ from pathlib import Path
 from time import monotonic
 
 from ..session.request_trace import redact
-from .producer_skills import _write
+from .atomic_file import atomic_write_text
+
+
+def _write(path, value):
+    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2))
 
 MAX_TEXT = 64 * 1024
 PREVIEW = 500

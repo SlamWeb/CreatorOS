@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
+import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +10,23 @@ from time import monotonic
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .atomic_file import atomic_write_text
+
+LOG = logging.getLogger(__name__)
+OBSERVATION_WARNING = "本次进度或执行记录曾保存失败，部分展示可能不完整；不代表任务执行失败。"
+HEALTH_FILE = "observation_health.json"
+
+
+def read_observation_warning(directory: Path) -> str | None:
+    path = directory / HEALTH_FILE
+    try:
+        if path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()) or path.stat().st_size > 4096:
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return OBSERVATION_WARNING if value.get("degraded") is True else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 class ProductionProgress(BaseModel):
@@ -26,6 +43,7 @@ class ProductionProgress(BaseModel):
     current_page: int | None = Field(default=None, ge=1)
     completed_pages: int = Field(default=0, ge=0)
     page_attempt: int = Field(default=0, ge=0, le=2)
+    observation_warning: str | None = None
 
 
 TOOLS = {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "webSearch", "imageGeneration", "collabAgentToolCall"}
@@ -40,14 +58,39 @@ class ProgressWriter:
                                         last_activity_at=now, last_event="thread.started",
                                         activity="waiting", completed_tool_calls=0, total_pages=total_pages)
         self.last_write = 0.0
+        self.diagnostic_failures: set[str] = set()
         self.save()
+
+    def warning(self, component: str, error: OSError):
+        self.state.observation_warning = OBSERVATION_WARNING
+        if component in self.diagnostic_failures:
+            return
+        self.diagnostic_failures.add(component)
+        # Never log arbitrary exception text, paths or SDK/model payloads.
+        LOG.warning("Codex diagnostic %s unavailable (%s); execution continues", component, type(error).__name__)
+        try:
+            atomic_write_text(self.directory / HEALTH_FILE,
+                              json.dumps({"degraded": True, "components": sorted(self.diagnostic_failures)}))
+        except OSError:
+            LOG.warning("Codex diagnostic health could not be saved; see server log")
+
+    def diagnostic(self, component, action):
+        try:
+            action()
+            return True
+        except OSError as error:
+            self.warning(component, error)
+            return False
 
     def save(self):
         target = self.directory / "production_progress.json"
-        temporary = target.with_suffix(".json.tmp")
-        temporary.write_text(self.state.model_dump_json(), encoding="utf-8")
-        os.replace(temporary, target)
+        self.diagnostic("progress", lambda: atomic_write_text(target, self.state.model_dump_json()))
+        # Throttle even failed writes, rather than retry on every output delta.
         self.last_write = monotonic()
+
+    def _append_trace(self, value):
+        with (self.directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(value, ensure_ascii=False) + "\n")
 
     def observe(self, method: str, payload: dict):
         # Deliberately discard all model text, command arguments, tool output and errors.
@@ -80,10 +123,9 @@ class ProgressWriter:
                 item_id = str(item.get("id", ""))
                 if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", item_id):
                     identity["item_id"] = item_id
-            with (self.directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"stage": self.state.stage, "type": self.state.last_event,
-                                         "activity": self.state.activity,
-                                         "at": self.state.last_activity_at.isoformat(), **identity}, ensure_ascii=False) + "\n")
+            self.diagnostic("metadata_trace", lambda: self._append_trace({
+                "stage": self.state.stage, "type": self.state.last_event, "activity": self.state.activity,
+                "at": self.state.last_activity_at.isoformat(), **identity}))
         if self.state.last_event != "delta" or monotonic() - self.last_write >= 0.75:
             self.save()
 
@@ -104,7 +146,7 @@ class ProgressWriter:
 
     def record_usage(self, usage: dict):
         path = self.directory / f"{self.state.stage}_usage.json"
-        path.write_text(json.dumps(usage), encoding="utf-8")
+        self.diagnostic("usage", lambda: atomic_write_text(path, json.dumps(usage)))
 
 
 async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=None):
@@ -123,7 +165,12 @@ async def collect_observed_turn(turn, progress: ProgressWriter, public_observer=
         async for event in stream:
             capture.observe(event)
             if public_observer is not None:
-                public_observer(event)
+                if isinstance(progress, ProgressWriter):
+                    progress.diagnostic("public_activity", lambda: public_observer(event))
+                else:
+                    # DiscussionProgress.public also enforces forbidden tools;
+                    # it is not merely an optional diagnostics callback.
+                    public_observer(event)
             if event.method == "thread/tokenUsage/updated":
                 total = getattr(getattr(event.payload, "token_usage", None), "total", None)
                 if total is not None:

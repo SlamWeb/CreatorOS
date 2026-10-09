@@ -371,7 +371,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           {activeJob.note && <span>{activeJob.note}</span>}
         </div>
         {activeJob.task_kind === "merge" && <p className="extraction-help">来源：{activeJob.source_skills?.map(skill => skill.name).join(" + ")}。原 Skill 未修改；请检查融合的取舍与资源。</p>}
-        {activeJob.progress && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
+        {activeJob.observation_warning && <p role="status" className="extraction-error">{activeJob.observation_warning}</p>}
+        {activeJob.progress && !activeJob.observation_warning && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
         <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
           active={activeJob.status === "running" || Boolean(activeJob.operation)} />

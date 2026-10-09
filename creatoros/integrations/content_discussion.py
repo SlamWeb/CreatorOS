@@ -17,6 +17,7 @@ from creatoros.runs import ContentRunError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.storage import ContentAttempt, ContentRun, ContentRunStatus, Series, Topic
 from .codex import CODEX_MODEL, PRODUCTION_CONFIG, _bounded_sdk, _production_client
+from .codex_turn_guard import require_completed_turn
 from .extraction_activity import field, safe_text
 from .production_progress import collect_observed_turn
 from .worker_protocol import _write, record_task, record_thread
@@ -116,6 +117,7 @@ class CodexDiscussionReviewer:
                 except Exception:
                     pass
                 raise
+            require_completed_turn(result)
             if not result.final_response or not result.final_response.strip():
                 raise ValueError("Codex 未返回讨论答复。")
             return result.final_response, progress.finish_usage(result.usage)
@@ -298,7 +300,7 @@ class ContentDiscussionService:
         except Exception as error:
             with self.lock:
                 (workspace / "error.txt").write_text(str(error), encoding="utf-8")
-                record.update(status="interrupted" if self.cancel.is_set() else "failed",
+                record.update(status="interrupted" if self.cancel.is_set() or getattr(error, "error_type", "") == "codex_interrupted" else "failed",
                               error="讨论未完成，未修改原产物：" + safe_text(str(error))[0][:800], updated_at=now())
                 self._save(record)
 
