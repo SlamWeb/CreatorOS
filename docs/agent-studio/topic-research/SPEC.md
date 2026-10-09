@@ -1,5 +1,17 @@
 # 栏目选题调研与选择
 
+## 待选候选长期保留 · 2026-10-09
+
+- UI 待选卡片不再展示“已过期”；当前栏目/Skill 不可用时给出配置错误而不是要求重新调研。浏览器候选筛选、选择、编辑、Preview 零写与直接确认通过；桌面/手机真实渲染截图已检查，截图不代替状态断言。
+
+- 实际旧行为没有日期/TTL 限制；`stale` 来自调研时的栏目字段或 Skill digest 与当前配置不一致，Web 将其显示为“已过期”。用户要求待选题长期可选，本节替代下文“配置变化后旧候选不可选/需重新调研”的历史约定。
+- `ready` 候选不会因创建日期、栏目定位/受众或 Skill 改动自动失效。历史快照、来源、切入点和 JSON 工件保留；选择/入队时读取当前栏目配置，新建 Run 沿用既有服务读取当前栏目与 Skill，不回写旧调研证据。
+- 选题入队 Preview 的 `expected_series` 绑定准备时的当前配置；准备后再次修改仍在确认事务中返回冲突，提示重新预览。版本/revision/confirmation token、确定性 Topic ID、重复选中/入队拒绝均保留。栏目/账号停用或当前 Skill 不可用仍明确拒绝选择；兼容响应 `stale` 仅表达当前不可用，不表达年龄或历史配置变化。
+- 运行中的配置变化有限重做、failed/interrupted 历史和重启不自动调用 Codex 均保持原契约；Run 执行 lease/heartbeat/期限未改。
+- 验证仅使用隔离 SQLite、保存的合成候选和真实 loopback HTTP；不触发正式调研、模型生产、生图或发布。配置竞争受控 researcher 属于本地故障注入，不代替真实联网调研质量验收。
+- 既有 `/topic-research/{id}/queue` 在重复请求到达 WriteReceipt 幂等读取前会拒绝已入队候选（422）；本轮保留该行为与零重复写入，不扩大到此原有重放接缝。通用 `queue_topics(source=research)` 不读取候选 stale，仍保留已有请求幂等。
+- 后端验证通过：`smoke_topic_research`（真实 loopback HTTP）、`smoke_topic_research_sdk`、`smoke_topic_research_observation`、`smoke_series_composition_service`、`smoke_studio_composition_tools`（真实 loopback HTTP）、`smoke_series_guards`、`smoke_pending_operation_service`，共 7 项。覆盖长久保存/改绑 Skill/编辑 Skill 后的选择、当前 Run 输入、原 Preview 竞争、重复确认与通用入队幂等、历史原件不改和运行中刷新/重启。未运行正式调研或图片生产。
+
 ## Python SDK 统一执行器 · 2026-10-06（完成）
 
 - 用户决定调研迁移 Python SDK，不做 CLI/SDK 对照实验。保留候选、查询、幂等、配置变更有限重做和人工入队契约，不迁移历史批次，不自动重试旧失败。

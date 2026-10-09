@@ -90,7 +90,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
         <footer className="content-card-footer">
-          {pending ? <span className="library-pending">{topic.stale ? "待选 · 已过期" : "待选"}</span>
+            {pending ? <span className="library-pending">待选</span>
             : <StatusPill status={topic.existing_run_status ?? topic.status} />}
           {!pending && topic.card_count ? <small>{topic.card_count} 张</small> : null}
           {!pending && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
@@ -160,6 +160,7 @@ function TopicDetail({ topic, onClose, onChoose, startButton, onDiscuss, onChang
       <div><button className="button button-primary" disabled={save.isPending || !title.trim()}>保存</button><button type="button" className="button button-secondary" onClick={() => setEditing(false)}>取消</button></div>
     </form> : <p className="library-brief">{pending ? topic.angle : topic.brief || "尚未补充内容要求。"}</p>}
     {pending && <><p>{topic.rationale}</p><ul>{topic.sources.map((s,i) => <li key={i}><a href={s.url} target="_blank" rel="noreferrer">{s.title} ↗</a></li>)}</ul></>}
+    {pending && topic.stale && <p className="form-error" role="alert">当前栏目或 Skill 不可用，请先修复配置；选题没有过期。</p>}
     <div className="topic-detail-actions">
       {pending ? <button type="button" className="button button-primary" disabled={topic.stale || !topic.available_actions.includes("prepare_topic_selection")} onClick={() => onChoose(topic)}>挑选本批次</button>
         : <>{topic.existing_run_id && <Link className="button button-secondary" to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(returnUrl)}`} onClick={onOpenRun}>查看内容与生产记录</Link>}

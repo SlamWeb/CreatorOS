@@ -411,7 +411,10 @@ class TopicResearchService:
                 record["error_type"], record["error"] = research_failure(error)
         record.setdefault("progress", {"stage": record["status"], "last_activity_at": None, "events": []})
         try:
-            stale = not self._same_config(record["snapshot"], self.snapshot(record["series_id"]))
+            # Saved candidates are durable suggestions, not a configuration lease.
+            # Only an unavailable current series/Skill prevents selecting them.
+            self.snapshot(record["series_id"])
+            stale = False
         except ValueError:
             stale = True
         candidates = [{**c, "queued": self.repository.get_topic(self.topic_id(batch_id, c["id"])) is not None}
@@ -461,8 +464,9 @@ class TopicResearchService:
         record = self._load(batch_id)
         if record["status"] != "ready":
             raise ValueError("该批次尚未就绪，不能入队。")
-        if not self._same_config(record["snapshot"], self.snapshot(record["series_id"])):
-            raise ValueError("栏目配置已改变，请按最新配置重新调研；不能沿用旧候选。")
+        # Choose historical ideas against today's column. A later configuration
+        # change still invalidates this Preview at transaction-time confirmation.
+        current = self.snapshot(record["series_id"])
         if not selections or len({s.candidate_id for s in selections}) != len(selections):
             raise ValueError("请选择不重复的候选。")
         candidates = {c["id"]: c for c in record["candidates"]}
@@ -483,7 +487,7 @@ class TopicResearchService:
             drafts.append(TopicDraft(topic_id=topic_id, title=selection.title or candidate["title"], brief=brief, source="research"))
         plan = OperationPlan(operations=[AddTopicsOperation(
             series_id=record["series_id"], topics=drafts,
-            expected_series=SeriesResearchContext(**record["snapshot"]["series"]))])
+            expected_series=SeriesResearchContext(**current["series"]))])
         return record, plan
 
     def prepare(self, batch_id, selections):

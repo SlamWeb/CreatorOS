@@ -88,7 +88,7 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
     {batchId && batch.isPending && <p role="status">正在读取候选…</p>}
     {data?.status === "researching" && <p className="research-notice" role="status">正在联网调研 · 第 {data.attempt || 1} 次尝试。可以离开，回来继续查看。</p>}
     {data && data.status !== "ready" && data.status !== "researching" && <p className="form-error" role="status">{labels[data.status]} · {data.note}</p>}
-    {data?.stale && <p className="form-error" role="alert">栏目配置已变化。请按最新配置重新调研，旧候选不会自动入队。</p>}
+    {data?.stale && <p className="form-error" role="alert">当前栏目或 Skill 不可用，请修复配置后再选择；已保存的候选不会过期。</p>}
     {data?.status === "ready" && !data.candidates.length && <p className="research-empty">{data.note || "本次未找到适合的候选，可调整偏好重新调研。"}</p>}
     {!batchId && !history.isError && <div className="research-empty"><CreativeMark /><h3>给下一篇内容找个好起点</h3><p>填写本次偏好，让 Codex 根据栏目定位和 Skill 提供候选。你决定哪些入队。</p></div>}
     {!controlsOnly && !!data?.candidates.length && <>

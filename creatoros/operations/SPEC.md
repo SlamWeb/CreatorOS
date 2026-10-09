@@ -1,5 +1,9 @@
 # CreatorOS Operations SPEC
 
+## 长期待选候选的当前 Preview · 2026-10-09
+
+- 旧调研候选按当前栏目准备 `expected_series`；确认时原配置/版本/revision/confirmation token 守卫保留。配置冲突提示重新预览后再确认，不再要求付费重新调研。长期有效边界与隔离 HTTP 验收见 `docs/agent-studio/topic-research/SPEC.md`。
+
 ## 调研候选计划（2026-09-09）
 
 - AddTopicsOperation 可携带 expected_series，在 Preview 与事务内确认时校验定位/受众/Skill；旧计划省略该字段时保持原 confirmation token 算法兼容。

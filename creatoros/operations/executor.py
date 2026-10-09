@@ -95,7 +95,7 @@ class OperationExecutor:
                         and operation.expected_series is not None):
                     expected = operation.expected_series.model_dump()
                     if any(getattr(series, key) != value for key, value in expected.items()):
-                        raise OperationConflictError("栏目定位、受众或 Skill 已变化，请按最新配置重新调研。")
+                        raise OperationConflictError("栏目定位、受众或 Skill 已变化，请按最新配置重新预览后再确认。")
             current_topics = repository.list_topics(series_id)
             orders[series_id] = [topic.id for topic in current_topics]
             topic_snapshots[series_id] = {

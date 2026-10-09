@@ -20,6 +20,8 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await expect(page.getByRole("button", { name: "待选", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "开始生产" })).toHaveCount(0);
   await expect(page.locator(".content-card")).toHaveCount(2);
+  await expect(page.locator(".library-pending")).toHaveText(["待选", "待选"]);
+  await expect(page.getByText("已过期", { exact: false })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("library-desktop.png"), fullPage: true });
   const firstPending = page.getByTestId(`library-research-${batch.id}-c1`);
   await firstPending.getByRole("button", { name: /查看选题/ }).click();
