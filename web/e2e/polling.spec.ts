@@ -49,7 +49,7 @@ test("a terminal run keeps its history but does not poll run or event endpoints"
 
   await page.goto(`/runs/${runId}`);
   await expect(page.getByRole("heading", { name: "已结束运行" })).toBeVisible();
-  await page.locator(".inspector-details > summary").click();
+  await page.getByRole("button", { name: /^生产记录 ·/ }).click();
   await expect(page.getByText("执行中断")).toBeVisible();
   expect(requests).toEqual({ run: 1, events: 1, stream: 0 });
 

@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { Activity, ArrowDown, ChevronDown, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUpRight, ExternalLink, Minus, Plus, RefreshCw } from "lucide-react";
 import { observationApi, type ObservationDetail, type ObservationNode } from "../api/observation";
 import { ApiError } from "../api/client";
 import "./observation.css";
@@ -50,7 +50,7 @@ function LongText({ text, code = false }: { text: string; code?: boolean }) {
   const preview = text.slice(0, 200).split("\n").slice(0, 8).join("\n");
   return <div className="observation-long-text">
     <pre className={`${code ? "observation-code" : "observation-prose"} ${long && !expanded ? "observation-text-preview" : ""}`}>{long && !expanded ? `${preview}\n…` : text || "（空正文）"}</pre>
-    {long && <button type="button" className="observation-text-action" onClick={() => setExpanded(value => !value)}>{expanded ? "收起全文" : "展开全文"}<span className="observation-character-count">{text.length.toLocaleString()} 字符</span></button>}
+    {long && <button type="button" className="observation-text-action" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "收起全文" : "展开全文"}<span className="observation-character-count">{text.length.toLocaleString()} 字符</span></button>}
   </div>;
 }
 
@@ -63,10 +63,21 @@ function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number })
   return <dl className="observation-fields">{Object.entries(value).map(([key, entry]) => <div key={key}><dt>{fields[key] ?? key}</dt><dd><ReadableValue value={entry} depth={depth + 1} /></dd></div>)}</dl>;
 }
 
+function Reveal({ label, className, children }: { label: string; className: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return <div className={className} data-open={open}>
+    <button className="observation-reveal" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <span>{label}</span>{open ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+    </button>
+    <div id={id} hidden={!open}>{open && children}</div>
+  </div>;
+}
+
 function EventContent({ value }: { value: unknown }) {
   if (value !== null && typeof value === "object") {
     const publicText = !Array.isArray(value) && "text" in value && typeof value.text === "string" ? value.text : null;
-    return <>{publicText && <LongText text={publicText} />}<details className="observation-event-payload"><summary>查看输入 / 输出</summary><ReadableValue value={value} /></details></>;
+    return <>{publicText && <LongText text={publicText} />}<Reveal className="observation-event-payload" label="查看输入 / 输出"><ReadableValue value={value} /></Reveal></>;
   }
   return <ReadableValue value={value} />;
 }
@@ -118,7 +129,7 @@ function TreeBranch({ parent, selected, expanded, toggle, select, depth = 0, pat
     {query.isSuccess && !nodes.length && <p className="observation-tree-note">{parent ? "暂无下级记录" : "暂无可观察记录。创建账号或产生任务后会出现在这里。"}</p>}
     <ul>{nodes.map(node => <li key={node.id}>
       <div className={`observation-tree-row ${selected === node.id ? "selected" : ""}`} style={{ paddingLeft: Math.min(depth, 8) * 13 + 5 }}>
-        {node.has_children ? <button className="observation-node-toggle" type="button" aria-label={`${expanded.has(node.id) ? "收起" : "展开"}${node.label}`} aria-expanded={expanded.has(node.id)} onClick={() => toggle(node.id, !expanded.has(node.id))}>{expanded.has(node.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button> : <span className="observation-node-leaf" />}
+        {node.has_children ? <button className="observation-node-toggle" type="button" aria-label={`${expanded.has(node.id) ? "收起" : "展开"}${node.label}`} aria-expanded={expanded.has(node.id)} onClick={() => toggle(node.id, !expanded.has(node.id))}>{expanded.has(node.id) ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}</button> : <span className="observation-node-leaf" />}
         <button className="observation-node-select" type="button" aria-current={selected === node.id ? "true" : undefined} onKeyDown={event => onKey(event, node)} onClick={() => select(node.id)} title={node.label}><span className="observation-node-label">{node.label}</span><span className="observation-node-kind">{kinds[node.kind] ?? node.kind}</span></button>
         {node.status && <span className={`observation-tree-dot ${/failed|error/.test(node.status) ? "danger" : /running|pending/.test(node.status) ? "active" : ""}`} title={statuses[node.status] ?? node.status} aria-label={statuses[node.status] ?? node.status} />}
       </div>
@@ -159,22 +170,21 @@ function DetailContent({ detail, select }: { detail: ObservationDetail; select: 
   }, []);
   const goLatest = () => { followLatest.current = true; endRef.current?.scrollIntoView({ block: "end" }); };
   return <>
-    <nav className="observation-breadcrumbs" aria-label="记录路径">{(detail.breadcrumbs ?? detail.ancestors)?.filter(item => item.id !== detail.id).map(item => <span key={item.id}><button type="button" onClick={() => select(item.id)}>{item.label}</button><ChevronRight size={12} aria-hidden="true" /></span>)}</nav>
-    <header className="observation-detail-header"><div><p className="observation-eyebrow">{kinds[detail.kind] ?? detail.kind}</p><h2>{detail.label}</h2></div><Status status={detail.status} kind={detail.kind} /></header>
+    <nav className="observation-breadcrumbs" aria-label="记录路径">{(detail.breadcrumbs ?? detail.ancestors)?.filter(item => item.id !== detail.id).map(item => <span key={item.id}><button type="button" onClick={() => select(item.id)}>{item.label}</button><span aria-hidden="true">/</span></span>)}</nav>
+    <header className="observation-detail-header"><h2>{detail.label}</h2><div className="observation-detail-meta"><span>{kinds[detail.kind] ?? detail.kind}</span><Status status={detail.status} kind={detail.kind} /></div></header>
     {!!detail.warnings.length && <div className="observation-warnings" role="note">{detail.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</div>}
-    {!!detail.links.length && <nav className="observation-links" aria-label="关联记录">{detail.links.map((link, index) => link.node_id ? <button key={index} type="button" onClick={() => select(link.node_id!)}>{link.label}<ChevronRight size={13} /></button> : safeBusinessHref(link.href) ? <Link key={index} to={safeBusinessHref(link.href)!}>{link.label}<ExternalLink size={13} /></Link> : <span key={index}>{link.label}（无可用入口）</span>)}</nav>}
+    {!!detail.links.length && <nav className="observation-links" aria-label="关联记录">{detail.links.map((link, index) => link.node_id ? <button key={index} type="button" onClick={() => select(link.node_id!)}>{link.label}<ArrowUpRight size={13} aria-hidden="true" /></button> : safeBusinessHref(link.href) ? <Link key={index} to={safeBusinessHref(link.href)!}>{link.label}<ExternalLink size={13} aria-hidden="true" /></Link> : <span key={index}>{link.label}（无可用入口）</span>)}</nav>}
     <section className="observation-timeline-section" aria-label="公开时间线">
       <div className="observation-section-title"><h3>公开时间线</h3><button type="button" className="observation-text-action" onClick={goLatest}><ArrowDown size={13} />回到最新</button></div>
-      <p className="observation-timeline-hint">在底部跟随更新，往上阅读时保持位置。</p>
-      {!timeline.length && <p className="observation-empty-timeline">该对象暂无已保存的时间线。可展开下级记录或查看原始记录。</p>}
+      {!timeline.length && <p className="observation-empty-timeline">暂无时间线，可查看下级记录或原始记录。</p>}
       <ol className="observation-timeline">{timeline.map((item, index) => <li key={item.id || `${item.kind}-${index}`} className={item.status === "failed" ? "failed" : ""}><span className="observation-timeline-marker" aria-hidden="true" /><article>
         <header><span className="observation-event-kind">{kinds[item.kind] ?? item.kind}</span>{item.at && <time dateTime={item.at}>{new Date(item.at).toString() === "Invalid Date" ? item.at : new Date(item.at).toLocaleString("zh-CN", { hour12: false })}</time>}<Status status={item.status} kind={item.kind} /></header>
-        <h4>{item.node_id ? <button className="observation-event-link" type="button" onClick={() => select(item.node_id!)}>{item.label}<ChevronRight size={13} /></button> : item.label}</h4>
+        <h4>{item.node_id ? <button className="observation-event-link" type="button" onClick={() => select(item.node_id!)}>{item.label}<ArrowUpRight size={13} aria-hidden="true" /></button> : item.label}</h4>
         {item.content !== undefined && <EventContent value={item.content} />}
       </article></li>)}</ol><div ref={endRef} className="observation-timeline-end" />
     </section>
-    <section className="observation-records" aria-label="原始记录"><h3>原始记录</h3><p className="observation-timeline-hint">按需展开已保存的输入、输出与元数据。</p>{detail.sections.map((section, index) => <details key={`${detail.id}-${section.title}-${index}`} className="observation-record"><summary>{section.title}</summary><div className="observation-record-content"><ReadableValue value={section.content} /><details className="observation-raw-json"><summary>查看 JSON</summary><LongText text={JSON.stringify(section.content, null, 2) ?? "null"} code /></details></div></details>)}</section>
-    <details className="observation-identifiers"><summary>记录标识</summary><code>{detail.id}</code></details>
+    <section className="observation-records" aria-label="原始记录"><h3>原始记录</h3>{detail.sections.map((section, index) => <Reveal key={`${detail.id}-${section.title}-${index}`} className="observation-record" label={section.title}><div className="observation-record-content"><ReadableValue value={section.content} /><Reveal className="observation-raw-json" label="查看 JSON"><LongText text={JSON.stringify(section.content, null, 2) ?? "null"} code /></Reveal></div></Reveal>)}</section>
+    <Reveal className="observation-identifiers" label="记录标识"><code>{detail.id}</code></Reveal>
   </>;
 }
 
@@ -206,12 +216,12 @@ export function ObservationPage() {
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["observation-tree"] }); if (selected) void detail.refetch(); };
   const path = detail.data ? [...(detail.data.breadcrumbs ?? detail.data.ancestors ?? []).map(item => item.id), detail.data.id] : [];
   return <div className="observation-page">
-    <header className="observation-page-header"><div><h1>Observation</h1><p>只读查看任务、模型请求与工具的公开记录。</p></div><button type="button" className="observation-refresh" onClick={refresh} disabled={detail.isFetching}><RefreshCw size={14} />刷新记录</button></header>
+    <header className="observation-page-header"><h1>Observation</h1><button type="button" className="observation-refresh" onClick={refresh} disabled={detail.isFetching}><RefreshCw size={14} />刷新记录</button></header>
     <div className="observation-workbench">
-      <aside className={`observation-tree-panel ${showTree ? "" : "mobile-collapsed"}`} aria-label="记录导航"><div className="observation-tree-heading"><h2>记录树</h2><button className="observation-mobile-toggle" type="button" aria-expanded={showTree} onClick={() => setShowTree(value => !value)}>{showTree ? "收起目录" : "展开目录"}</button></div><div className="observation-tree"><TreeBranch selected={selected} expanded={expanded} toggle={toggle} select={select} path={path} /></div><p className="observation-tree-help">展开层级查看记录 · ↑↓ 切换焦点，Enter 查看</p></aside>
+      <aside className={`observation-tree-panel ${showTree ? "" : "mobile-collapsed"}`} aria-label="记录导航"><div className="observation-tree-heading"><h2>记录树</h2><button className="observation-mobile-toggle" type="button" aria-expanded={showTree} onClick={() => setShowTree(value => !value)}>{showTree ? "收起目录" : "展开目录"}</button></div><div className="observation-tree"><TreeBranch selected={selected} expanded={expanded} toggle={toggle} select={select} path={path} /></div></aside>
       <section className="observation-detail-panel" aria-label="观察详情" aria-busy={detail.isFetching}>
-        {!selected ? <div className="observation-welcome"><Activity size={28} strokeWidth={1.4} /><h2>选择一条记录</h2><p>展开账号，查看栏目任务或 Agent 对话。</p></div> : <>
-          <div className="observation-live-status" role="status"><span className={`observation-live-dot ${detail.data?.active ? "active" : ""}`} />{detail.isPending ? "正在读取记录…" : detail.data?.active ? visible ? "进行中 · 每 4 秒自动更新" : "页面已隐藏 · 暂停自动更新" : "只读记录 · 手动刷新可查询最新状态"}{detail.isFetching && !detail.isPending && <span>读取中…</span>}</div>
+        {!selected ? <div className="observation-welcome"><h2>选择一条记录</h2><p>查看账号任务或 Agent 对话。</p></div> : <>
+          <div className="observation-live-status" role="status"><span className={`observation-live-dot ${detail.data?.active ? "active" : ""}`} />{detail.isPending ? "正在读取记录…" : detail.data?.active ? visible ? "进行中 · 自动更新" : "页面已隐藏 · 暂停更新" : "已保存记录"}{detail.isFetching && !detail.isPending && <span>读取中…</span>}</div>
           {detail.isError && <ReadError error={detail.error} retry={() => { void detail.refetch(); }} />}
           {detail.data && <DetailContent key={detail.data.id} detail={detail.data} select={select} />}
         </>}

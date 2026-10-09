@@ -8,12 +8,20 @@
   -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 ::selection { background: var(--accent-soft); }
 body { margin: 0; min-width: 320px; background: var(--canvas); }
 button, a { font: inherit; }
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .42; }
+/* Native disclosures remain keyboard-operable, without browser triangle markers. */
+summary { list-style: none; cursor: pointer; }
+summary::-webkit-details-marker { display: none; }
+summary::marker { content: ""; }
+details > summary:not(:has(svg)) { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+details > summary:not(:has(svg))::after { content: "+"; font-size: 1rem; font-weight: 500; }
+details[open] > summary:not(:has(svg))::after { content: "−"; }
 
 /* Shell */
 .studio-shell { display: flex; min-height: 100vh; background: var(--canvas); }
@@ -432,7 +440,7 @@ dialog.command-drawer::backdrop { background: rgb(29 29 31 / .36); }
 .saved-plan:hover { background: #ececf0; }
 .saved-plan b { min-width: 0; overflow-wrap: anywhere; }
 .saved-plan small { color: var(--muted); }
-.operation-request { padding: 12px 14px; border-left: 2px solid var(--accent); background: var(--surface); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 13px; line-height: 1.7; }
+.operation-request { padding: 12px 14px; background: var(--surface); border-radius: var(--radius-sm); font-size: 13px; line-height: 1.7; }
 .topic-brief { display: block; color: var(--muted); }
 .final-queue { margin-top: 14px; padding: 14px; border: 0; border-radius: var(--radius-md); background: var(--surface); line-height: 1.8; }
 .final-queue h3 { font-size: 14px; margin: 0; }

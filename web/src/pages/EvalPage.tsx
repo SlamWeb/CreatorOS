@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { Copy, RefreshCw } from "lucide-react";
+import { Copy, Minus, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "../api/client";
 import { evalApi, type EvalCase, type EvalReadError, type EvalReport, type EvalRunSummary } from "../features/eval/api";
 import "./eval.css";
@@ -28,11 +28,22 @@ function ReadError({ error, onRetry, label = "重新读取" }: { error: unknown;
   return <div className="eval-error" role="alert"><p>{message(error)}</p><button type="button" onClick={onRetry}>{label}</button></div>;
 }
 
+function Reveal({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return <div className={className} data-open={open}>
+    <button className="eval-reveal" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+      <span>{label}</span>{open ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+    </button>
+    <div id={id} hidden={!open}>{open && children}</div>
+  </div>;
+}
+
 function SavedErrors({ errors }: { errors?: EvalReadError[] }) {
   if (!errors?.length) return null;
-  return <details className="eval-saved-errors"><summary>{errors.length} 份历史报告无法读取</summary>
+  return <Reveal className="eval-saved-errors" label={`${errors.length} 份历史报告无法读取`}>
     <ul>{errors.map(item => <li key={item.run_id}><code>{item.run_id}</code>：{item.message}</li>)}</ul>
-  </details>;
+  </Reveal>;
 }
 
 function LongText({ text, code = false }: { text: string; code?: boolean }) {
@@ -45,7 +56,7 @@ function LongText({ text, code = false }: { text: string; code?: boolean }) {
 }
 
 function CaseDefinition({ definition }: { definition: EvalCase["definition"] }) {
-  return <details className="eval-case-definition"><summary>题目与验收标准</summary>
+  return <Reveal className="eval-case-definition" label="题目与验收标准">
     {!definition ? <p className="eval-muted">题目定义未记录。</p> : <div className="eval-definition-content">
       <section><h3>测试步骤</h3><ol>{definition.steps.map((step, index) => <li key={index}>
         <h4>{step.kind === "user" ? "用户输入" : step.kind === "event" ? "控制事件" : step.kind}{step.name ? ` · ${step.name}` : ` · ${index + 1}`}</h4>
@@ -57,21 +68,25 @@ function CaseDefinition({ definition }: { definition: EvalCase["definition"] }) 
       </li>)}</ul></section>
       <section><h3>人工检查标准</h3>{definition.manual_checks.length ? <ul>{definition.manual_checks.map((item, index) => <li key={index}><LongText text={item} /></li>)}</ul> : <p className="eval-muted">未记录人工检查标准。</p>}</section>
     </div>}
-  </details>;
+  </Reveal>;
 }
 
 function Evidence({ runId, digest, file, open, onToggle }: {
   runId: string; digest: string; file: { name: string; label: string }; open: boolean; onToggle: (open: boolean) => void;
 }) {
+  const id = useId();
   const query = useQuery({ queryKey: ["eval", "evidence", runId, digest, file.name], queryFn: ({ signal }) => evalApi.evidence(runId, file.name, signal), enabled: open, ...readOptions });
   const content = query.data ? typeof query.data.content === "string" ? query.data.content : JSON.stringify(query.data.content, null, 2) : "";
-  return <details className="eval-evidence" open={open} onToggle={event => onToggle(event.currentTarget.open)}>
-    <summary>{file.label || file.name}<span>{file.name}</span></summary>
-    {open && <div className="eval-evidence-content">
+  return <div className="eval-evidence" data-open={open}>
+    <button className="eval-reveal" type="button" aria-expanded={open} aria-controls={id} onClick={() => onToggle(!open)}>
+      <span>{file.label || file.name}{file.label && file.label !== file.name && <small>{file.name}</small>}</span>
+      {open ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+    </button>
+    <div id={id} className="eval-evidence-content" hidden={!open}>{open && <>
       {query.isPending && <p className="eval-muted" role="status">正在读取原始证据…</p>}
       {query.isError ? <ReadError error={query.error} onRetry={() => void query.refetch()} /> : query.data && <LongText text={content} code />}
-    </div>}
-  </details>;
+    </>}</div>
+  </div>;
 }
 
 function Review({ report, readFailed, onSaved, onReload }: { report: EvalReport; readFailed: boolean; onSaved: (report: EvalReport) => void; onReload: () => Promise<EvalReport | undefined> }) {
@@ -149,7 +164,7 @@ function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport;
     <section className="eval-evidence-section" aria-label="原始证据"><div className="eval-section-heading"><h3>原始证据</h3><span>{report.evidence_files.length} 份文件</span></div>
       {report.evidence_files.length === 0 && <p className="eval-muted">未记录可读取的证据文件，不能据此认定通过。</p>}
       {report.evidence_files.map(file => <Evidence key={`${report.run_id}:${file.name}`} runId={report.run_id} digest={report.report_digest} file={file} open={opened.has(file.name)} onToggle={open => setOpen(file.name, open)} />)}
-      <details className="eval-evidence"><summary>报告原文<span>report.json</span></summary><div className="eval-evidence-content"><LongText text={JSON.stringify(report, null, 2)} code /></div></details>
+      <Reveal className="eval-evidence" label="报告原文"><div className="eval-evidence-content"><LongText text={JSON.stringify(report, null, 2)} code /></div></Reveal>
     </section>
   </div>;
 }
@@ -183,7 +198,7 @@ export function EvalPage() {
     catch { setCopyNotice("复制失败，可直接选择并复制命令文本。"); }
   }
   return <div className="eval-page">
-    <header className="eval-page-header"><div><h1>账号 Agent Eval</h1><p>按题目查看执行、判分与证据。</p></div><button className="eval-secondary eval-refresh" type="button" onClick={refresh} disabled={overview.isFetching || runs.isFetching || report.isFetching}><RefreshCw size={13} />刷新记录</button></header>
+    <header className="eval-page-header"><h1>Eval</h1><button className="eval-secondary eval-refresh" type="button" onClick={refresh} disabled={overview.isFetching || runs.isFetching || report.isFetching}><RefreshCw size={14} />刷新记录</button></header>
     {overview.isPending && <p className="eval-muted" role="status">正在读取题集…</p>}
     {overview.isError ? <ReadError error={overview.error} onRetry={() => void overview.refetch()} /> : overview.data && <>
       <div className="eval-dataset-line"><span>{overview.data.cases.length} 题 · {categories.length} 类</span><span>{overview.data.cases.filter(item => item.status === "not_run").length} 未运行 · {overview.data.cases.filter(item => item.status === "needs_review").length} 待复核</span></div>
@@ -196,9 +211,9 @@ export function EvalPage() {
           </button></li>)}</ul></section>)}</nav>
       </aside><section className="eval-detail" aria-label="评测详情" aria-busy={runs.isFetching || report.isFetching}>
         {!selected ? <p className="eval-muted">题目不存在，请从列表中选择。</p> : <>
-          <header className="eval-case-detail-heading"><span className="eval-case-id">{selected.id} · {selected.split === "dev" ? "开发题" : "阶段验收题"}</span><h2>{selected.title}</h2></header>
+          <header className="eval-case-detail-heading"><h2>{selected.title}</h2><span className="eval-case-id">{selected.id} · {selected.split === "dev" ? "开发题" : "阶段验收题"}</span></header>
           <CaseDefinition key={selected.id} definition={selected.definition} />
-          <div className="eval-executor">{selected.id === "E01" ? <><div><span className="eval-muted">CLI 执行</span><code>python -m creatoros.evaluation.run --case E01</code></div><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={13} /></button></> : <p>执行器尚未接线。当前可查看题目定义，不能运行此题。</p>}</div>
+          <div className="eval-executor">{selected.id === "E01" ? <><code>python -m creatoros.evaluation.run --case E01</code><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={14} /></button></> : <p>本题尚未开放执行。</p>}</div>
           {copyNotice && <p className="eval-muted" role="status">{copyNotice}</p>}
           <section className="eval-history" aria-label="历史运行"><div className="eval-section-heading"><h3>历史运行</h3><span>{runs.data?.items.length ?? selected.run_count} 次</span></div>
             {runs.isPending && <p className="eval-muted" role="status">正在读取历史运行…</p>}
@@ -209,7 +224,7 @@ export function EvalPage() {
           {runId && <>{report.isPending && <p className="eval-muted" role="status">正在读取运行报告…</p>}{report.isError && <ReadError error={report.error} onRetry={() => void report.refetch()} />}{report.data && (report.data.case_id !== caseId ? <p className="eval-review-error" role="alert">链接中的运行属于其他题目，请重新选择本题运行。</p> : <Report key={report.data.run_id} report={report.data} readFailed={report.isError} onSaved={saved} onReload={reload} />)}</>}
         </>}
       </section></div>
-      <details className="eval-dataset-details"><summary>题集说明</summary><p>题集：<code>{overview.data.dataset_id}</code></p><p>阶段验收题暂缓执行；12 题结果不代表通用 Agent 成功率。页面刷新和选择题目只读取报告。</p></details>
+      <Reveal className="eval-dataset-details" label="题集说明"><p>题集：<code>{overview.data.dataset_id}</code></p><p>阶段验收题暂缓执行；12 题结果不代表通用 Agent 成功率。页面刷新和选择题目只读取报告。</p></Reveal>
     </>}
   </div>;
 }

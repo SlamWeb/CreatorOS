@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, MoreHorizontal, RefreshCw, X } from "lucide-react";
@@ -21,6 +21,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const location = useLocation();
   const client = useQueryClient();
   const [researchOpen, setResearchOpen] = useState(false);
+  const researchPanelId = useId();
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
   const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
   const removeRequestIds = useRef(new Map<string, string>());
@@ -88,10 +89,13 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
     className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
     <header className="library-heading">{!compact && <h2>内容</h2>}
+      {!compact && <button type="button" className="button button-secondary library-research-trigger" aria-expanded={researchOpen}
+        aria-controls={researchPanelId} onClick={() => setResearchOpen(value => !value)}>{researchOpen ? "收起调研" : "调研选题"}</button>}
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
     </header>
     {!compact && <LibraryFilters />}
+    {!compact && researchOpen && <div id={researchPanelId} className="library-research"><TopicResearchPanel seriesId={seriesId} controlsOnly /></div>}
     {query.isPending && <p role="status">正在读取内容…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
     {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "queued" ? "还没有已入队选题。" : state === "pending" ? "暂无待选建议。" : "还没有选题。"}</p>}
@@ -127,9 +131,6 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       <span>{Math.floor(offset / 20) + 1} / {Math.max(1, Math.ceil(query.data.page.total / 20))}</span>
       <button aria-label="下一页" disabled={query.isFetching || offset + 20 >= query.data.page.total} onClick={() => change(offsetKey, String(offset + 20))}><ChevronRight size={15} /></button>
     </nav>}
-    {!compact && <details className="library-research" open={researchOpen} onToggle={e => setResearchOpen(e.currentTarget.open)}>
-      <summary>调研选题</summary>{researchOpen && <TopicResearchPanel seriesId={seriesId} controlsOnly />}
-    </details>}
     {detail && <TopicDetail key={detail.id} topic={detail} onClose={() => closeDetail(detail.id)}
       onRemoved={() => { removeRequestIds.current.delete(detail.id); closeDetail(detail.id, true); }}
       requestId={() => {

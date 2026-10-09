@@ -1,5 +1,21 @@
 # CreatorOS Studio Web SPEC
 
+## 前端操作层级重构（2026-10-10，完成）
+
+- 用户明确授权本轮代写、前端大幅调整；保留颜色、字体、Logo、后端/API/业务状态，不改变生产 Skill 或已生成图片。目标是看作品→讨论/返工→批准/删除，不再让说明型文案挤走动作。
+- 改前 `e8c4e44` 完整流程 1/1 通过；基线截图保存在 `web/tmp/ui-before-20261010/`。远端 `codex/ui-before-refactor-20261010` 保留原版本，不改写历史。
+- 使用项目本地 Impeccable 4.5.2（engine 0.1.14），按 distill/layout/clarify 的 Operate 原则调整结构；安装 `npx --yes impeccable skills install --providers=codex --scope=project --no-hooks`。仅开发参考，目录忽略，不进 CreatorOS 生产库，不启用自动 Hook。
+- Run 图片主区 + 文案/讨论面板；返回栏目是按钮，批准/返工/删除置于顶部；Skill 名直接打开原 Inspector。重复摘要、成功文件检查、审批/讨论常驻说明删除。冻结摘要、Attempt、来源、Prompt 等按需查看，不删除诊断证据。
+- 删除调用既有 remove API，二次确认且保留同一 request_id，失败不自动重试；生产活跃时仍由原服务拒绝，图片与历史保留。审批携带原所见 Revision/review_digest，返工仅保存要求；不自动执行或发布。
+- Eval 名称简化且独立平铺；Observation 树、文件树、提炼、调研等用可访问按钮替代三角。真正的错误、缺失、旧版本、冲突、未知请求结果保持；切换讨论/文案保留未发送草稿。
+- 验收：隔离 8877 的现有真实 API、受控 Producer 及故障注入，新增 Run 首屏动作/讨论草稿/查看 Observation/实际删除归档回归；全量浏览器回归 + 桌面/手机截图。受控产物不代表真实 Codex 质量，不调用模型、生图或正式数据写入。
+- 首轮全量 75/76；讨论面板新默认是文案，旧用例刷新后未切回讨论。补显式切换并按原路径重跑，不改变讨论存储/幂等逻辑。审计补三处前端保护：无效版本深链不显示当前任务写入口；展开返工/删除表单时取消吸顶；已离开详情后的删除迟到成功只更新缓存、不强行导航。追加无效版本与迟到响应用例，手机同时展开两表单有截图与布局断言。
+- Impeccable 单次机械检测发现旧运营请求块的厚蓝色侧边装饰，已移除；其余按批次桌面/手机验收，不进行无限截图打磨。保留既有 Vite 主包 >500 kB 提示，没有趁机更换框架或拆后端。
+- CUA 在正式 8765 只读复用已有 `afraid` 图片，实测打开 Skill 完整文件卡片、讨论切换及 390px；没有发送消息/批准/返工/删除，正式服务未停止。验收图 `web/tmp/ui-after-20261010/real-workbench-desktop.jpg`、`real-workbench-mobile.jpg`；手机 DOM scrollWidth=innerWidth=390。隔离截图补 Eval/Observation/提炼/Skill 文件树与内容操作栏。
+- 第二轮全量 77/78，原完整流程走到手机 Skill 组合表单时发现 grid 的自动最小轨道被输入框/账号选项撑宽，实际右边界 432 > 390。将表单、fieldset、label 限为 minmax(0,1fr)，控件 min-width:0；保留原无溢出断言。定向组合/Run 7 条通过，完整流程另暴露初始空态依赖共享夹具的数据顺序；改为创建并明确选中本用例的新账号验证空态，不改服务或清空其他用例数据。
+- 最终 `npm run typecheck`、`npm run build` 通过；完整 `npx playwright test` **78/78**（3.7 分钟）。新增 3 条 Run 操作/草稿/实际归档、无效版本、删除迟到回归；既有生成进度、讨论未知请求、审批 CAS、发布数据登记、Skill 编辑/冲突/作用域、提炼、调研、Trace、Eval 复核与只读 Observation 均通过。`git diff --name-only -- creatoros tests production-skills` 为空，没有后端或生产 Skill 改动；不以浏览器通过替代真实模型质量评测。
+- 手机布局为浏览器响应式验收，未进行真机软键盘验收；没有以受控 Producer/提炼结果声称真实 Codex 产出质量提高。
+
 ## Eval 可视化（2026-10-10，完成）
 
 - 左侧新增 Eval，沿用既有主题；题目按账号边界/会话持久化/状态/工具分四组。右侧默认折叠题目输入和验收标准，显示历史 Run、模型/用量/耗时、四维自动判分、人工复核、可展开原始证据。URL 保存 case/run；未知题/运行、空态、读取错误均有真实提示。

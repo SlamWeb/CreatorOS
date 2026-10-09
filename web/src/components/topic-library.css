@@ -5,6 +5,7 @@
 .library-count { color:var(--muted); font-size:12px; }
 .library-refresh { display:grid; place-items:center; padding:6px; border:0; background:transparent; color:var(--muted); border-radius:6px; }
 .library-refresh:hover { background:var(--surface); color:var(--ink); }
+.library-research-trigger { min-height:34px; padding:7px 13px; font-size:12px; }
 .library-filters { display:flex; gap:8px; margin:16px 0 22px; }
 .library-filters button { border:0; border-radius:980px; padding:8px 18px; background:var(--surface); color:var(--muted); font-size:13px; }
 .library-filters button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); font-weight:550; }
@@ -33,9 +34,7 @@
 .library-pagination { display:flex; align-items:center; justify-content:center; gap:12px; margin:18px 0; }
 .library-pagination button { display:grid; place-items:center; width:30px; height:30px; border:0; border-radius:50%; background:var(--surface); color:var(--ink); }
 .library-pagination span { color:var(--muted); font-size:12px; }
-.library-research { margin-top:20px; border-top:1px solid var(--line); padding-top:16px; }
-.library-research > summary { display:inline-flex; gap:6px; list-style:none; cursor:pointer; padding:8px 14px; border-radius:980px; background:var(--surface); font-size:12px; }
-.library-research > summary::-webkit-details-marker { display:none; }
+.library-research { margin:0 0 24px; }
 .compact-library { margin:0; }
 .topic-detail-dialog { width:min(600px,calc(100vw - 32px)); max-height:85dvh; overflow:auto; margin:auto; padding:24px; border:1px solid var(--line); border-radius:18px; color:var(--ink); background:white; }
 .topic-detail-dialog::backdrop { background:#10111466; }

@@ -104,7 +104,7 @@ export function SkillsPage() {
       client.setQueryData(["skill-extraction", job.id], job);
       setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
       mergeRequest.current = undefined; storeComposer();
-      setNotice({ kind: "ok", text: "融合任务已提交。请在上方工作台检查草稿，确认入库后再用于栏目。" });
+      setNotice({ kind: "ok", text: "融合任务已提交。" });
       await client.invalidateQueries({ queryKey: ["skill-extractions"] });
     },
     onError: error => setNotice({ kind: "error", text: error.message }),
@@ -272,7 +272,6 @@ export function SkillsPage() {
             <button className="composer-create" disabled={selectedIds.length > 1 ? busy || missingSkills || workbenchDirty : !canCreate}>
               {merge.isPending ? "提交中…" : compose.isPending ? "创建中…" : selectedIds.length > 1 ? "生成融合草稿" : "创建栏目"}
             </button>
-            {selectedIds.length > 1 && <p className="space-note">先检查、修改融合草稿并确认入库，再创建栏目。原 Skill 保持不变。</p>}
             {selectedIds.length > 1 && workbenchDirty && <p role="alert">请先保存上方工作台的草稿修改。</p>}
           </form>
           {storageError && <p className="space-error" role="alert">{storageError}</p>}

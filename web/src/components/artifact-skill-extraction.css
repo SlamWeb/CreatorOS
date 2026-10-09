@@ -1,11 +1,12 @@
 .artifact-extraction { margin: 0 0 22px; }
 .extraction-toggle { min-height: 40px; }
-.extraction-panel { margin-top: 14px; padding: 18px; border-radius: var(--radius-lg); background: var(--surface); color: var(--ink); }
+.extraction-panel { margin-top:18px; padding:0; color:var(--ink); }
 .extraction-panel h2 { margin: 0 0 16px; font-size: 16px; font-weight: 650; }
-.extraction-new-work { margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
-.extraction-new-work > summary { padding: 10px 12px; cursor: pointer; color: var(--ink); font-size: 13px; font-weight: 600; }
-.extraction-new-work[open] > summary { border-bottom: 1px solid var(--line); }
-.extraction-new-work > form { padding: 12px; }
+.extraction-new-work { margin-bottom:20px; }
+.extraction-new-trigger { display:flex; justify-content:space-between; align-items:center; gap:16px; width:100%; padding:12px 0; border:0; border-bottom:1px solid var(--line); color:var(--ink); background:transparent; font:inherit; font-size:14px; font-weight:600; cursor:pointer; }
+.extraction-new-trigger span { color:var(--accent); font-size:12px; font-weight:400; }
+.extraction-new-work > form { padding:16px 0; }
+.extraction-new-work > form[hidden] { display:none; }
 .extraction-panel h3 { margin: 0 0 8px; font-size: 13px; }
 .extraction-panel form { display: grid; gap: 12px; max-width: 720px; }
 .extraction-panel fieldset { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -24,11 +25,12 @@
 .extraction-thumbnails img { display: block; width: 92px; height: 76px; object-fit: cover; }
 .extraction-thumbnails figcaption { padding: 5px 7px; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .extraction-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
-.extraction-jobs { display: grid; gap: 6px; margin-top: 18px; }
-.extraction-job { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-width: 0; padding: 9px 11px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--ink); background: var(--canvas); text-align: left; font: inherit; cursor: pointer; }
+.extraction-jobs { display:grid; gap:4px; margin-top:18px; }
+.extraction-job { display:flex; justify-content:space-between; align-items:center; gap:12px; width:100%; min-width:0; padding:11px 12px; border:0; border-radius:8px; color:var(--ink); background:transparent; text-align:left; font:inherit; cursor:pointer; }
 .extraction-job span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .extraction-job strong { flex: none; font-size: 11px; font-weight: 600; }
-.extraction-job.selected { border-color: var(--accent); }
+.extraction-job:hover { background:var(--surface); }
+.extraction-job.selected { background:var(--accent-soft); }
 .extraction-detail { display: grid; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .extraction-status { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; font-size: 13px; }
 .extraction-status span { color: var(--muted); font-size: 12px; }
@@ -40,11 +42,15 @@
 .extraction-saved { color: var(--success); }
 .extraction-saved code { display: inline-block; max-width: 100%; color: var(--ink); overflow-wrap: anywhere; }
 .extraction-workbench { display: grid; grid-template-columns: minmax(170px, 230px) minmax(0, 1fr); gap: 12px; min-width: 0; }
-.extraction-file-tree, .extraction-file-viewer { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
+.extraction-file-tree, .extraction-file-viewer { min-width:0; background:var(--canvas); }
+.extraction-workbench { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+.extraction-file-tree { border-right:1px solid var(--line); background:var(--surface); }
 .extraction-file-tree { display: grid; align-content: start; gap: 10px; padding: 10px; }
 .extraction-file-group { display: grid; align-content: start; gap: 3px; min-width: 0; }
 .extraction-file-group > strong { padding: 4px 7px; font-size: 11px; overflow-wrap: anywhere; }
-.extraction-file { min-width: 0; padding: 6px 7px; border: 0; border-radius: var(--radius-sm); color: var(--ink); background: transparent; text-align: left; font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; cursor: pointer; }
+.extraction-file { display:flex; align-items:center; gap:7px; min-width:0; padding:8px 7px; border:0; border-radius:6px; color:var(--ink); background:transparent; text-align:left; font:12px/1.4 var(--font-mono); cursor:pointer; }
+.extraction-file svg { flex:0 0 auto; }
+.extraction-file span { min-width:0; overflow-wrap:anywhere; }
 .extraction-file:hover, .extraction-file.selected { background: var(--surface); color: var(--accent); }
 .extraction-file:focus-visible, .extraction-viewer-heading button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .extraction-file-viewer { display: grid; align-content: start; min-height: 260px; overflow: hidden; }
@@ -73,20 +79,20 @@
 .extraction-conflict { color: var(--danger); }
 .extraction-trials { display: grid; gap: 10px; }
 .extraction-trials h3 { margin: 0; }
-.extraction-trial { display: grid; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--canvas); }
+.extraction-trial { display:grid; gap:12px; min-width:0; padding:16px 0; border-top:1px solid var(--line); background:var(--canvas); }
 .extraction-trial-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
 .extraction-trial-cards figure { min-width: 0; margin: 0; overflow: hidden; border-radius: var(--radius-sm); background: var(--surface); }
 .extraction-trial-cards img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: #e9e8e4; }
 .extraction-trial-cards figcaption { padding: 7px; font-size: 11px; }
-.extraction-trial-cards details { margin-top: 5px; }
-.extraction-trial-cards summary { color: var(--accent); cursor: pointer; }
+.extraction-trial-prompt { margin-top:6px; }
+.extraction-trial-prompt > button { min-height:28px; padding:0; border:0; color:var(--accent); background:transparent; font:inherit; cursor:pointer; }
 .extraction-trial-cards pre { max-height: 220px; margin: 6px 0 0; }
 .extraction-old-digest { padding: 2px 6px; border-radius: 999px; color: var(--danger) !important; background: color-mix(in srgb, var(--danger) 10%, transparent); }
 @media (max-width: 700px) {
-  .extraction-panel { padding: 14px; }
   .extraction-skill pre { max-height: 320px; }
   .extraction-workbench { grid-template-columns: minmax(0, 1fr); }
   .extraction-file-tree { grid-template-columns: minmax(0, 1fr); max-height: 190px; overflow: auto; }
+  .extraction-file-tree { border-right:0; border-bottom:1px solid var(--line); }
   .extraction-file-viewer { min-height: 230px; }
   .extraction-markdown, .extraction-markdown-editor { max-height: 380px; }
   .extraction-draft-actions > span { flex-basis: 100%; }

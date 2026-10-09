@@ -60,9 +60,9 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await expect(page.getByRole("heading", { name: "已经完成的真实文件卡片" })).toBeVisible();
   await page.getByRole("button", { name: "查看第 2 张", exact: true }).click();
   await expect(page.locator(".carousel-nav")).toContainText("2 / 3");
-  await page.locator(".inspector-details > summary").click();
+  await page.getByRole("button", { name: /^生产记录 ·/ }).click();
   await expect(page.getByText("文件检查通过", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "← 返回栏目" }).click();
+  await page.getByRole("link", { name: "返回栏目", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued`));
   await expect(page.locator(`#topic-card-${data.topicIds[0]}`)).toBeFocused();
   await page.reload();
@@ -70,7 +70,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await produced.locator("summary").click();
   await produced.getByRole("button", {name:"详情与编辑"}).click();
   await page.getByRole("link", {name:"查看内容与生产记录"}).click();
-  await page.getByRole("link", {name:"← 返回栏目"}).click();
+  await page.getByRole("link", {name:"返回栏目", exact:true}).click();
   await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued$`));
   await expect(page.getByRole("dialog", {name:"选题详情"})).toHaveCount(0);
   await expect(page.locator(`#topic-card-${data.topicIds[0]}`)).toBeFocused();

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { FileImage, FileText } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
@@ -82,6 +83,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const [instruction, setInstruction] = useState("");
   const [open, setOpen] = useState(false);
   const [newWorkOpen, setNewWorkOpen] = useState(!selectedId);
+  const newWorkId = useId();
   const [panelError, setPanelError] = useState("");
   const [draftSkills, setDraftSkills] = useState<ExtractedSkillDraft[]>([]);
   const [draftBaseDigest, setDraftBaseDigest] = useState("");
@@ -305,10 +307,11 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
     <button type="button" className="button button-secondary extraction-toggle" aria-expanded={open}
       onClick={() => setOpen(value => !value)}>{open ? "收起提炼" : "从作品提炼"}</button>
     {open && <div className="extraction-panel">
-      <h2>{activeJob?.task_kind === "merge" ? "Skill 融合草稿" : "从作品提炼 Skill"}</h2>
-      <details className="extraction-new-work" open={newWorkOpen} onToggle={event => setNewWorkOpen(event.currentTarget.open)}>
-        <summary>新作品</summary>
-        <form onSubmit={event => { event.preventDefault(); setPanelError(""); create.mutate(); }}>
+      {activeJob?.task_kind === "merge" && <h2>Skill 融合草稿</h2>}
+      <div className="extraction-new-work">
+        <button type="button" className="extraction-new-trigger" aria-expanded={newWorkOpen} aria-controls={newWorkId}
+          onClick={() => setNewWorkOpen(value => !value)}>新作品<span>{newWorkOpen ? "收起" : "添加"}</span></button>
+        <form id={newWorkId} hidden={!newWorkOpen} onSubmit={event => { event.preventDefault(); setPanelError(""); create.mutate(); }}>
         <fieldset disabled={create.isPending}>
           <label className="extraction-label">参考图片（可选）
             <input ref={fileInputRef} aria-label="参考图片" type="file" accept="image/png,image/jpeg,image/webp" multiple
@@ -324,7 +327,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           </div>}
           <label className="extraction-label">参考文案（可选）
             <textarea aria-label="参考文案" rows={5} maxLength={20000} value={sourceText}
-              onChange={event => { resetCreateAttempt(); setSourceText(event.target.value); }} placeholder="粘贴作品文案；可与图片一起提交。最多 20,000 字符。" />
+              onChange={event => { resetCreateAttempt(); setSourceText(event.target.value); }} placeholder="粘贴作品文案" />
           </label>
           <p className="extraction-help">{sourceText.length.toLocaleString()} / 20,000 字符</p>
           <label className="extraction-label">提炼方式
@@ -342,7 +345,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           {create.isPending ? "上传并提交中…" : "开始提炼"}
         </button>
         </form>
-      </details>
+      </div>
       {panelError && <p role="alert" className="extraction-error">{panelError}</p>}
       {create.isError && !panelError && <p role="alert" className="extraction-error">{create.error.message}</p>}
       {jobs.isError && <p role="alert" className="extraction-error">任务列表读取失败：{jobs.error.message}</p>}
@@ -370,7 +373,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && <span>{activeJob.note}</span>}
         </div>
-        {activeJob.task_kind === "merge" && <p className="extraction-help">来源：{activeJob.source_skills?.map(skill => skill.name).join(" + ")}。原 Skill 未修改；请检查融合的取舍与资源。</p>}
+        {activeJob.task_kind === "merge" && <p className="extraction-help">{activeJob.source_skills?.map(skill => skill.name).join(" + ")}</p>}
         {activeJob.observation_warning && <p role="status" className="extraction-error">{activeJob.observation_warning}</p>}
         {activeJob.progress && !activeJob.observation_warning && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
@@ -388,8 +391,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
                 <strong>{skill.name} · {roleLabels[skill.role] ?? "Skill"}</strong>
                 {skillFiles.length ? skillFiles.map(file => <button key={roleFileKey(file)} type="button"
                   className={`extraction-file ${selectedFile && roleFileKey(selectedFile) === roleFileKey(file) ? "selected" : ""}`}
-                  onClick={() => selectFile(file)}>{file.kind === "image" ? "▧" : "▤"} {file.path}</button>) : <button type="button" className="extraction-file selected"
-                  onClick={() => { setActiveFileKey(""); setViewerMode("preview"); }}>▤ SKILL.md</button>}
+                  onClick={() => selectFile(file)}>{file.kind === "image" ? <FileImage size={14} /> : <FileText size={14} />}<span>{file.path}</span></button>) : <button type="button" className="extraction-file selected"
+                  onClick={() => { setActiveFileKey(""); setViewerMode("preview"); }}><FileText size={14} /><span>SKILL.md</span></button>}
               </div>;
             })}
           </nav>
@@ -404,7 +407,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
             {selectedFile?.kind === "image" ? <img className="extraction-asset-preview" src={apiUrl(selectedFile.url)} alt={selectedFile.path} />
               : selectedFile?.path.toLowerCase() === "skill.md" && selectedSkill ? <>
                 {activeJob.status === "ready" && <div className="extraction-skill-fields">
-                  <label>Frontmatter 名称
+                  <label>Skill 名称
                     <input aria-label={`${roleLabels[selectedSkill.role]} Frontmatter 名称`} value={selectedSkill.name}
                       onChange={event => editSkill(selectedSkillIndex, {
                         name: event.target.value, skill_md: withFrontmatterName(selectedSkill.skill_md, event.target.value),
@@ -416,7 +419,6 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
                       <option value="image-carousel">图片轮播</option><option value="text">纯文本</option>
                     </select>
                   </label>
-                  <p className="extraction-help">角色固定为 {roleLabels[selectedSkill.role]}；目标产物决定是否开放图片试产。</p>
                 </div>}
                 {viewerMode === "edit" && activeJob.status === "ready" ? <textarea className="extraction-markdown-editor" aria-label="编辑 SKILL.md" disabled={Boolean(activeJob.operation) || create.isPending}
                   value={selectedSkill.skill_md} onChange={event => editSkill(selectedSkillIndex, { skill_md: event.target.value })} />
@@ -473,11 +475,20 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
             {item.error && <p role="alert" className="extraction-error">{item.error}</p>}
             {item.cards.length > 0 && <div className="extraction-trial-cards">{item.cards.map(card => <figure key={card.order}>
               <img src={apiUrl(card.url)} alt={`试产第 ${card.order} 张图片`} />
-              <figcaption>第 {card.order} 张 · <details><summary>生图提示词</summary><pre>{card.image_prompt || "无提示词记录"}</pre></details></figcaption>
+              <figcaption>第 {card.order} 张<TrialPrompt prompt={card.image_prompt} /></figcaption>
             </figure>)}</div>}
           </article>)}
         </div>}
       </div>}
     </div>}
   </section>;
+}
+
+function TrialPrompt({ prompt }: { prompt: string | null }) {
+  const [open, setOpen] = useState(false);
+  const contentId = useId();
+  return <div className="extraction-trial-prompt">
+    <button type="button" aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(value => !value)}>{open ? "收起提示词" : "生图提示词"}</button>
+    <pre id={contentId} hidden={!open}>{prompt || "无提示词记录"}</pre>
+  </div>;
 }

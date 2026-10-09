@@ -46,7 +46,7 @@
 .basket-remove strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
 .basket-remove:hover > span { color: var(--danger); }
 .basket-remove:focus-visible, .skill-slot-view:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.composer-fields { display: grid; gap: 12px; padding: 0; border: 0; margin: 0; min-width: 0; }
+.composer-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0; border: 0; margin: 0; min-width: 0; }
 .slot { position: relative; width: 100%; min-height: 76px; border: 1.5px dashed var(--line-strong); border-radius: var(--radius-md); background: transparent; padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
 .slot > span { color: var(--muted); font-size: 13px; }
 .slot strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
@@ -55,8 +55,9 @@
 .slot.can-drop { border-color: var(--accent); }
 .slot.drop-ok { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
 .slot-plus { text-align: center; font-size: 17px; color: var(--muted); padding: 8px 0; }
-.composer-form { display: grid; gap: 12px; margin-top: 16px; }
-.composer-form label { display: grid; gap: 6px; font-size: 12px; font-weight: 450; color: var(--muted); margin: 0; }
+.composer-form { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; margin-top: 16px; }
+.composer-form label { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 6px; font-size: 12px; font-weight: 450; color: var(--muted); margin: 0; }
+.composer-form input, .composer-form textarea, .composer-form select { min-width: 0; max-width: 100%; width: 100%; }
 .composer-form input, .composer-form textarea { display: block; width: 100%; color: var(--ink); background: var(--canvas); border: 1px solid transparent; border-radius: var(--radius-sm); outline: none; padding: 10px 12px; font: 13px/1.5 inherit; margin: 0; resize: vertical; transition: border-color .15s, box-shadow .15s; }
 .composer-form input:focus, .composer-form textarea:focus { border-color: var(--accent); box-shadow: var(--ring); }
 .composer-create { width: 100%; margin-top: 4px; border: 0; border-radius: 980px; padding: 11px 18px; background: var(--accent); color: #fff; font: 550 13px inherit; cursor: pointer; transition: background .15s; }

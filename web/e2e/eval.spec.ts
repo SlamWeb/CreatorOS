@@ -22,7 +22,7 @@ function watchWrites(page: Page) {
   return writes;
 }
 const caseButton = (page: Page, id: string) => page.getByRole("complementary", { name: "评测题目" }).getByRole("button", { name: new RegExp(id) });
-const evidenceBlock = (page: Page) => page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.locator("summary").filter({ hasText: "完整请求与工具结果" }) });
+const evidenceBlock = (page: Page) => page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: /完整请求与工具结果/ }) });
 
 test("real isolated empty eval: twelve not-run cases, four categories and refresh never execute", async ({ page, request }, info) => {
   const result = await request.get("/api/eval");
@@ -33,7 +33,8 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   const writes = watchWrites(page);
   await page.goto("/");
   await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "Eval", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "账号 Agent Eval", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Eval", exact: true })).toBeVisible();
+  await expect(page.locator(".eval-page summary")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "Eval", exact: true })).toHaveClass(/active/);
   const nav = page.getByRole("navigation", { name: "题目分类" });
   await expect(nav.getByRole("button")).toHaveCount(12);
@@ -44,20 +45,20 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   await expect(page.getByRole("button", { name: /启动|开始执行|运行评测/ })).toHaveCount(0);
   const definition = page.locator(".eval-case-definition");
   const firstCase = dataset.cases.find(item => item.id === "E01")!;
-  await expect(definition).not.toHaveAttribute("open", "");
-  await definition.locator("summary").click();
+  await expect(definition.getByRole("button", { name: "题目与验收标准", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await definition.getByRole("button", { name: "题目与验收标准", exact: true }).click();
   await expect(definition.getByText(firstCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
   await expect(definition.getByText(firstCase.definition.manual_checks[0], { exact: true })).toBeVisible();
   await expect(definition.getByRole("heading", { name: "程序检查标准", exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("eval-definition-1440.png"), fullPage: true });
-  await definition.locator("summary").click();
+  await definition.getByRole("button", { name: "题目与验收标准", exact: true }).click();
   await page.screenshot({ path: info.outputPath("eval-empty-1440.png"), fullPage: true });
   await caseButton(page, "E02").click();
-  await expect(definition).not.toHaveAttribute("open", "");
-  await definition.locator("summary").click();
+  await expect(definition.getByRole("button", { name: "题目与验收标准", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await definition.getByRole("button", { name: "题目与验收标准", exact: true }).click();
   const secondCase = dataset.cases.find(item => item.id === "E02")!;
   await expect(definition.getByText(secondCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
-  await expect(page.getByText("执行器尚未接线。当前可查看题目定义，不能运行此题。", { exact: true })).toBeVisible();
+  await expect(page.getByText("本题尚未开放执行。", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "收起题目", exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -65,7 +66,7 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   await page.getByRole("button", { name: "展开题目", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
   await caseButton(page, "E12").click();
-  await expect(page.getByText("执行器尚未接线。当前可查看题目定义，不能运行此题。", { exact: true })).toBeVisible();
+  await expect(page.getByText("本题尚未开放执行。", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
   await page.reload();
   expect(new URL(page.url()).searchParams.get("case")).toBe("E12");
@@ -98,8 +99,8 @@ test("real isolated recorded report: evidence on demand, long content, history, 
   await expect(page.locator(".eval-run-meta")).toContainText("用量未记录");
   expect(evidenceReads).toEqual([]);
   const evidence = evidenceBlock(page);
-  await expect(evidence).not.toHaveAttribute("open", "");
-  await evidence.locator("summary").click();
+  await expect(evidence.getByRole("button", { name: /完整请求与工具结果/ })).toHaveAttribute("aria-expanded", "false");
+  await evidence.getByRole("button", { name: /完整请求与工具结果/ }).click();
   await expect(evidence.locator("pre")).toContainText("受控请求与工具结果原文");
   await expect(evidence.locator("pre")).not.toContainText("证据末尾验收标记。");
   await evidence.getByRole("button", { name: /展开全文/ }).click();
@@ -130,7 +131,7 @@ test("real isolated recorded report: evidence on demand, long content, history, 
   expect(new URL(page.url()).searchParams.get("run")).toBe(fixture.run_id);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  await evidenceBlock(page).locator("summary").click();
+  await evidenceBlock(page).getByRole("button", { name: /完整请求与工具结果/ }).click();
   await evidenceBlock(page).getByRole("button", { name: /展开全文/ }).click();
   await expect(evidenceBlock(page).locator("pre")).toContainText("证据末尾验收标记。");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -205,7 +206,7 @@ test("controlled HTTP failures on real reports: explicit GET recovery, evidence 
   await page.getByRole("button", { name: "重新读取", exact: true }).click();
   await expect(page.locator(".eval-report-heading")).toContainText("待复核");
   const evidence = evidenceBlock(page);
-  await evidence.locator("summary").click();
+  await evidence.getByRole("button", { name: /完整请求与工具结果/ }).click();
   await expect(evidence.getByRole("alert")).toContainText("受控证据读取失败");
   await evidence.getByRole("button", { name: "重新读取", exact: true }).click();
   await expect(evidence.locator("pre")).toContainText("受控请求与工具结果原文");

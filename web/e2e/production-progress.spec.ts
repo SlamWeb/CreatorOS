@@ -198,7 +198,7 @@ test("final verified cards replace the unreviewed preview instead of duplicating
       cards: [{ order: 1, headline: "最终卡片样例", url: `/api/runs/${runId}/cards/1?checksum=${checksum}`,
         width: 1, height: 1, page_spec: null, image_prompt: null }] }],
   }));
-  await expect(page.getByText("最终产物", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "放大第 1 张图片" })).toBeVisible();
   await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toHaveCount(0);
 });
 

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, ChevronRight, File, FileCode, FileImage, FileText, Folder, X } from "lucide-react";
+import { BookOpen, File, FileCode, FileImage, FileText, Folder, FolderOpen, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
@@ -49,10 +49,22 @@ function TreeItems({ nodes, selected, onSelect, disabled }: {
       disabled={disabled} aria-current={selected === node.path ? "page" : undefined} onClick={() => onSelect(node.path)}>
       <FileIcon file={node.file} /><span>{node.name}</span>
     </button>
-    : <details open className="skill-file-folder"><summary><ChevronRight size={13} /><Folder size={16} /><span>{node.name}</span></summary>
-      <TreeItems nodes={node.children} selected={selected} onSelect={onSelect} disabled={disabled} />
-    </details>}
+    : <TreeFolder node={node} selected={selected} onSelect={onSelect} disabled={disabled} />}
   </li>)}</ul>;
+}
+
+function TreeFolder({ node, selected, onSelect, disabled }: {
+  node: TreeNode; selected: string; onSelect: (path: string) => void; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  const contentId = useId();
+  return <div className="skill-file-folder">
+    <button type="button" className="skill-folder-trigger" aria-expanded={open} aria-controls={contentId}
+      disabled={disabled} onClick={() => setOpen(value => !value)}>
+      {open ? <FolderOpen size={16} /> : <Folder size={16} />}<span>{node.name}</span>
+    </button>
+    <div id={contentId} hidden={!open}><TreeItems nodes={node.children} selected={selected} onSelect={onSelect} disabled={disabled} /></div>
+  </div>;
 }
 
 export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit }: {
@@ -72,6 +84,10 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   const [latestContent, setLatestContent] = useState<string | null>(null);
   const [agentRequest, setAgentRequest] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const [latestOpen, setLatestOpen] = useState(false);
+  const fileListId = useId();
+  const latestId = useId();
   const files = useQuery({
     queryKey: ["producer-skill-files", skill.id],
     queryFn: ({ signal }) => studioApi.producerSkillFiles(skill.id, signal),
@@ -189,9 +205,11 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
       : files.isError ? <div className="skill-inspector-state" role="alert"><p>{files.error.message}</p>
         <button type="button" onClick={() => void files.refetch()}>重新读取</button></div>
       : <div className="skill-inspector-body">
-        <details open className="skill-inspector-sidebar"><summary>文件</summary>
-          <nav aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending} /></nav>
-        </details>
+        <aside className="skill-inspector-sidebar">
+          <button type="button" className="skill-files-trigger" aria-expanded={filesOpen} aria-controls={fileListId}
+            onClick={() => setFilesOpen(value => !value)}>文件<span>{filesOpen ? "收起" : "展开"}</span></button>
+          <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending} /></nav>
+        </aside>
         <section className="skill-inspector-preview" aria-label="文件预览">
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
             {files.data && <button type="button" className="skill-agent-trigger" aria-expanded={agentOpen}
@@ -208,17 +226,16 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
           <div className="skill-file-content" key={selected}>
             {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
               <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
-              <p>会带入 Skill、当前文件与作品信息；检查草稿后由你发送。</p>
               <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
-            {file?.kind === "unsupported" && <p>此文件不支持预览。可以在本地 Skill 目录中查看；网页不会执行它。</p>}
+            {file?.kind === "unsupported" && <p>不支持预览，请在本地查看。</p>}
             {file?.kind === "image" && <SkillImage key={imageUrl} url={imageUrl} path={file.path} />}
             {(file?.kind === "markdown" || file?.kind === "text") && <>
-              {files.data && !files.data.editable && <p className="skill-inspector-state">此 Skill 为只读版本；可在本地 Skill 目录中维护，网页不会写入。</p>}
+              {files.data && !files.data.editable && <p className="skill-inspector-state">只读 Skill</p>}
               {text.isPending && <p role="status">正在读取文件…</p>}
               {text.isError && <div role="alert"><p>{text.error.message}</p><button type="button" onClick={() => void text.refetch()}>重新读取文件</button></div>}
               {text.data && editing ? <div className="skill-file-editor"><textarea aria-label={`编辑 ${selected}`} disabled={save.isPending} value={draft} onChange={event => setDraft(event.target.value)} spellCheck={false} />
-                <p>保存会更新本地 Skill 文件，并影响后续新 Run；已创建 Run 使用的冻结版本不变。</p></div>
+                <p>修改只影响后续生产。</p></div>
                 : text.data && (file.kind === "text" || source
                 ? <pre className="skill-file-source">{text.data.content}</pre>
                 : <div className="skill-file-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
@@ -235,7 +252,11 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
                 }}>{markdown}</Markdown></div>)}
               {editError && <div className="skill-edit-feedback" role={save.isError ? "alert" : "status"}><p>{editError}</p>
                 {save.error instanceof ApiError && save.error.status === 409 && latestContent === null && <button type="button" onClick={() => void readLatest()}>读取当前版本并保留草稿</button>}
-                {latestContent !== null && <details><summary>查看服务器当前版本</summary><pre>{latestContent}</pre></details>}
+                {latestContent !== null && <div className="skill-current-version">
+                  <button type="button" aria-expanded={latestOpen} aria-controls={latestId} onClick={() => setLatestOpen(value => !value)}>
+                    {latestOpen ? "收起服务器当前版本" : "查看服务器当前版本"}</button>
+                  <pre id={latestId} hidden={!latestOpen}>{latestContent}</pre>
+                </div>}
               </div>}
             </>}
           </div>

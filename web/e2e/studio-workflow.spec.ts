@@ -6,14 +6,16 @@ test("workspace first use to revision and approval survives refresh", async ({ p
     body: JSON.stringify({ items: [{ id: "e2e-task", kind: "research", title: "Creator Routing 选题调研", status: "running", series_id: null, run_id: null, url: null, updated_at: "2026-10-08T08:00:00Z", last_activity_at: "2026-10-08T08:00:00Z" }], summary: { active: 1, awaiting_approval: 0, failed: 0 }, as_of: "2026-10-08T08:00:00Z" }),
   }));
   await page.goto("/");
-  await expect(page.getByText("还没有栏目")).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("01-first-use.png"), fullPage: true });
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 
   await page.getByRole("button", { name: "+ 新账号" }).click();
   await page.getByLabel("新账号名称").fill("E2E 知识实验室");
   await page.getByLabel("新账号标识").fill("e2e_lab");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "E2E 知识实验室", level: 2 })).toBeVisible();
+  await page.getByRole("button", { name: "查看账号 E2E 知识实验室", exact: true }).click();
+  await expect(page.getByText("这个账号还没有栏目。", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("01-first-use.png"), fullPage: true });
   await expect(page.getByRole("region", { name: "任务" })).toContainText("Creator Routing 选题调研");
   await expect(page.getByRole("region", { name: "任务" })).toContainText("进行中 1");
 
@@ -97,15 +99,16 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   });
   await page.getByRole("link", { name: "查看本次运行" }).click();
   await expect(page.getByText(/Codex 正在生产/)).toBeVisible();
+  await page.getByRole("button", { name: "讨论", exact: true }).click();
   const discussPanel = page.getByRole("region", { name: "第 1 版的 Codex 讨论" });
   await expect(discussPanel.getByLabel("想和 Codex 核对什么？")).toBeDisabled();
   let firstRevisionId = "";
   const firstRunId = new URL(page.url()).pathname.split("/").pop()!;
   const usedSkill = page.getByRole("region", { name: "本次运行使用的 Skill" });
   await expect(usedSkill).toBeVisible();
-  await expect(usedSkill).toContainText("Run 冻结摘要");
-  await expect(usedSkill).toContainText("编辑只影响新 Run");
-  await usedSkill.getByRole("button", { name: "打开当前库版本 ↗" }).click();
+  await expect(usedSkill).not.toContainText("Run 冻结摘要");
+  await expect(usedSkill).not.toContainText("编辑只影响新 Run");
+  await usedSkill.getByRole("button", { name: "knowledge-to-carousel", exact: true }).click();
   const skillCard = page.getByRole("dialog", { name: "knowledge-to-carousel" });
   await expect(skillCard).toBeVisible();
   await skillCard.getByRole("button", { name: "关闭 Skill 详情" }).click();
@@ -149,6 +152,7 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await expect(discussPanel.getByText("我会按已冻结的图片和 Skill 核对：未知结果测试：请确认服务端是否已经记录。")).toBeVisible();
   await page.reload();
   const recoveredDiscussion = page.getByRole("region", { name: "第 1 版的 Codex 讨论" });
+  await page.getByRole("button", { name: "讨论", exact: true }).click();
   await expect(recoveredDiscussion.getByRole("button", { name: "继续讨论" })).toBeVisible();
   await expect.poll(() => discussionPostCount).toBe(3);
   await expect(recoveredDiscussion.getByText("我会按已冻结的图片和 Skill 核对：未知结果测试：请确认服务端是否已经记录。")).toBeVisible();
@@ -170,7 +174,8 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await expect(page.getByRole("button", { name: "批准第 2 版" })).toBeVisible({ timeout: 15_000 });
   const secondDiscussion = page.getByRole("region", { name: "第 2 版的 Codex 讨论" });
   await expect(secondDiscussion).toBeVisible();
-  await expect(secondDiscussion.getByText("本版还没有讨论记录。")).toBeVisible();
+  await expect(secondDiscussion.locator(".discussion-entry")).toHaveCount(0);
+  await expect(secondDiscussion.getByLabel("想和 Codex 核对什么？")).toBeEnabled();
   await expect(secondDiscussion.getByText("请指出这张图里最需要核对的事实，不要修改产物。")).toHaveCount(0);
   const runId = firstRunId;
   await page.evaluate(url => {
@@ -185,6 +190,7 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await expect(page.getByText("✓ 已批准 · 尚未发布")).toBeVisible();
   await page.reload();
   await expect(page.getByText("✓ 已批准 · 尚未发布")).toBeVisible();
+  await page.getByRole("button", { name: "文案", exact: true }).click();
 
   // Isolated browser test: this link is deliberately not a real platform post.
   await expect(page.getByRole("link", { name: "下载已批准图片包" })).toBeVisible();

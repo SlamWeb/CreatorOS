@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Minus, Plus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { ApiError, studioApi } from "../api/client";
 import type { DiscussionContext, DiscussionEntry, RevisionView, RunDetail } from "../api/types";
@@ -114,41 +115,60 @@ export function RunDiscussion({ run, revision, focusId }: { run: RunDetail; revi
   const unknownOutcome = !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
 
   return <section className="run-discussion" aria-label={`第 ${revision.revision_number} 版的 Codex 讨论`}>
-    <header className="discussion-heading"><div><p>只讨论，不会修改图片、文案或审批状态</p><h2>与 Codex 讨论</h2></div><span>第 {revision.revision_number} 版</span></header>
     {blockedReason && <p className="discussion-note" role="status">{blockedReason}</p>}
     {!draftMatchesCurrent && <div className="discussion-note" role="status"><p>页面所显示的版本摘要已变化。旧请求不会自动改用新版本。</p><button type="button" className="text-link" onClick={startNewRequest}>确认当前版本并新建请求</button></div>}
     {discussions.isError && <p className="discussion-error" role="alert">讨论记录读取失败：{discussions.error.message} <button type="button" className="text-link" onClick={() => void discussions.refetch()}>重新读取</button></p>}
-    {visibleEntries.length ? <ol className="discussion-list">
-      {visibleEntries.map(entry => <li className="discussion-entry" id={`discussion-entry-${entry.id}`} key={entry.id}>
-        <div className="discussion-entry-head"><strong>你</strong><StatusText status={entry.status} /><time>{formatDate(entry.created_at)}</time></div>
-        <p className="discussion-message">{entry.message}</p>
-        {entry.reply && <div className="discussion-reply"><strong>Codex</strong><ReactMarkdown skipHtml disallowedElements={["img"]}>{entry.reply}</ReactMarkdown></div>}
-        {entry.error && <p className="discussion-error" role="alert">{entry.error}</p>}
-        {entry.events.length > 0 && <details className="discussion-events"><summary>执行活动 · {entry.events.length}</summary><ol>
-          {entry.events.map(event => <li key={event.id}><time>{formatDate(event.at)}</time><span>{eventLabels[event.kind] ?? "活动"}</span><p>{event.text}</p></li>)}
-        </ol></details>}
-        <details className="discussion-context"><summary>本次传入什么</summary><ContextSummary context={entry.context} /></details>
-      </li>)}
-    </ol> : !discussions.isPending && !discussions.isError ? <p className="discussion-empty">本版还没有讨论记录。</p> : null}
+    {discussions.isPending && <p className="discussion-note" role="status">读取讨论…</p>}
+    {visibleEntries.length > 0 && <ol className="discussion-list">
+      {visibleEntries.map(entry => <DiscussionMessage entry={entry} key={entry.id} />)}
+    </ol>}
 
     {draft.submitted ? <div className="discussion-pending-check">
-      {matchingRequest ? <><p role="status">这条请求已记录，当前状态：{labels[matchingRequest.status] ?? matchingRequest.status}。</p><button type="button" className="button button-quiet" onClick={continueDiscussion}>继续讨论</button></>
+      {matchingRequest ? <button type="button" className="button button-quiet" onClick={continueDiscussion}>继续讨论</button>
         : mutation.isError && !unknownOutcome ? <><p className="discussion-error" role="alert">{error?.message ?? "请求未被接受。"} 可以调整正文或稍后使用新请求编号重试。</p><button type="button" className="button button-secondary" onClick={startNewRequest}>编辑消息并新建请求</button></>
         : <><p role={mutation.isError ? "alert" : "status"}>{mutation.isError && unknownOutcome ? `${error?.message ?? "响应无法读取。"} 结果可能尚未返回。` : "上次提交状态尚未确认。"}先查询记录，再决定是否用同一请求编号重试。</p>
           <div className="discussion-actions"><button type="button" className="button button-secondary" disabled={discussions.isFetching || mutation.isPending} onClick={() => void checkOutcome()}>{mutation.isPending ? "提交中…" : discussions.isFetching ? "正在核对…" : "核对提交状态"}</button>
             {mayRetry && <button type="button" className="button button-primary" disabled={mutation.isPending} onClick={submit}>使用同一请求编号重试</button>}
           </div></>}
     </div> : <form className="discussion-form" onSubmit={event => { event.preventDefault(); submit(); }}>
-      <label htmlFor={`discussion-message-${revision.id}`}>想和 Codex 核对什么？</label>
-      <textarea id={`discussion-message-${revision.id}`} value={draft.message} maxLength={10_000} rows={3}
+      <textarea id={`discussion-message-${revision.id}`} aria-label="想和 Codex 核对什么？" value={draft.message} maxLength={10_000} rows={3}
         onChange={event => updateDraft({ ...draft, message: event.target.value })}
-        placeholder="例如：这页的解释是否准确？请指出依据；不要修改产物。" disabled={Boolean(blockedReason) || !draftMatchesCurrent || mutation.isPending} />
-      <div className="discussion-form-footer"><span>提交后会另开讨论任务；需要修改产物，请使用现有返工入口。</span>
+        placeholder="和 Codex 聊聊这份作品…" disabled={Boolean(blockedReason) || !draftMatchesCurrent || mutation.isPending} />
+      <div className="discussion-form-footer">
         <button type="submit" className="button button-primary" disabled={!draft.message.trim() || Boolean(blockedReason) || !draftMatchesCurrent || mutation.isPending}>{mutation.isPending ? "提交中…" : "发送讨论"}</button>
       </div>
     </form>}
     {mutation.isError && !matchingRequest && !draft.submitted && <p className="discussion-error" role="alert">{error?.message ?? "提交失败。"}{unknownOutcome ? " 结果可能尚未返回，请核对记录后再决定是否重试。" : " 请先核对服务端记录。"}</p>}
   </section>;
+}
+
+function DiscussionMessage({ entry }: { entry: DiscussionEntry }) {
+  const [showEvents, setShowEvents] = useState(false);
+  const [showContext, setShowContext] = useState(false);
+  const detailsId = useId();
+  return <li className="discussion-entry" id={`discussion-entry-${entry.id}`}>
+    <div className="discussion-entry-head"><strong>你</strong><time>{formatDate(entry.created_at)}</time></div>
+    <p className="discussion-message">{entry.message}</p>
+    <div className="discussion-reply">
+      <div className="discussion-entry-head"><strong>Codex</strong><StatusText status={entry.status} /></div>
+      {entry.reply && <ReactMarkdown skipHtml disallowedElements={["img"]}>{entry.reply}</ReactMarkdown>}
+      {entry.error && <p className="discussion-error" role="alert">{entry.error}</p>}
+    </div>
+    <div className="discussion-evidence-actions">
+      {entry.events.length > 0 && <button type="button" className="discussion-disclosure" aria-expanded={showEvents}
+        aria-controls={`${detailsId}-events`} onClick={() => setShowEvents(value => !value)}>
+        {showEvents ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}执行活动 · {entry.events.length}
+      </button>}
+      <button type="button" className="discussion-disclosure" aria-expanded={showContext}
+        aria-controls={`${detailsId}-context`} onClick={() => setShowContext(value => !value)}>
+        {showContext ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}本次传入什么
+      </button>
+    </div>
+    <div id={`${detailsId}-events`} className="discussion-events" hidden={!showEvents}>
+      <ol>{entry.events.map(event => <li key={event.id}><time>{formatDate(event.at)}</time><span>{eventLabels[event.kind] ?? "活动"}</span><p>{event.text}</p></li>)}</ol>
+    </div>
+    <div id={`${detailsId}-context`} className="discussion-context" hidden={!showContext}><ContextSummary context={entry.context} /></div>
+  </li>;
 }
 
 function StatusText({ status }: { status: string }) {

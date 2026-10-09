@@ -40,7 +40,7 @@ test("real files: full Markdown, source, script, image, local links; viewing nev
   await dialog.getByRole("button", { name: "返回正文", exact: true }).click();
   await expect(tree.getByRole("button", { name: "SKILL.md", exact: true })).toHaveAttribute("aria-current", "page");
   await tree.getByRole("button", { name: "manual.pdf", exact: true }).click();
-  await expect(dialog.getByText(/此文件不支持预览/)).toBeVisible();
+  await expect(dialog.getByText(/不支持预览/)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "inspector-mind", exact: true })).toBeFocused();
@@ -90,7 +90,7 @@ test("mobile: collapsible files, readable preview, no viewport overflow", async 
   const dialog = await openMind(page);
   await dialog.getByRole("navigation").getByRole("button", { name: "example.py", exact: true }).click();
   await expect(dialog.locator("pre")).toContainText("SCRIPT_MUST_NOT_EXECUTE");
-  await dialog.locator(".skill-inspector-sidebar > summary").click();
+  await dialog.locator(".skill-files-trigger").click();
   await expect(dialog.getByRole("navigation")).not.toBeVisible();
   await page.screenshot({ path: info.outputPath("skill-mobile.png") });
   const rect = await dialog.boundingBox();
@@ -266,7 +266,7 @@ test("Run Skill editing carries the displayed revision into its account, not the
   let posts = 0;
   page.on("request", req => { if (req.url().includes("/api/agent/sessions") && req.method() !== "GET") posts++; });
   await page.goto("/runs/run-edit-context?revision=revision-one");
-  await page.getByRole("button", { name: "打开当前库版本 ↗" }).click();
+  await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "inspector-mind" });
   await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill" }).click();
   await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("看这一版图片再改 Skill。");
@@ -299,11 +299,13 @@ test("Run detail shows its frozen Skill and opens the current local card", async
   await page.goto("/runs/run-skill-fixture");
   const used = page.getByRole("region", { name: "本次运行使用的 Skill" });
   await expect(used).toContainText("inspector-mind");
-  await expect(used).toContainText("aaaaaaaaaaaa…");
-  await expect(used).toContainText("编辑只影响新 Run");
-  await expect(used.getByRole("button", { name: "打开当前库版本 ↗" })).toBeVisible();
+  await expect(used).not.toContainText("aaaaaaaaaaaa…");
+  await expect(used).not.toContainText("编辑只影响新 Run");
+  await expect(used.getByRole("button", { name: "inspector-mind", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /^生产记录 ·/ }).click();
+  await expect(page.getByText("a".repeat(64), { exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("run-skill-desktop.png"), fullPage: true });
-  await used.getByRole("button", { name: "打开当前库版本 ↗" }).click();
+  await used.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const card = page.getByRole("dialog", { name: "inspector-mind" });
   await expect(card).toBeVisible();
   await expect(card.getByRole("button", { name: "编辑", exact: true })).toBeVisible();

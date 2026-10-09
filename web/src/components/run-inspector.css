@@ -1,0 +1,73 @@
+/* Content review: image first; actions and secondary panes stay within reach. */
+.run-workbench { min-width: 0; }
+.run-heading { margin-bottom: 1.25rem; }
+.run-breadcrumb { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; }
+.run-breadcrumb > span { color: #62626b; font-size: .8rem; overflow-wrap: anywhere; }
+.run-back { display: inline-flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+.run-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+.run-title-row h1 { margin: 0; font-size: 1.5rem; line-height: 1.4; font-weight: 650; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.run-title-row .status-pill { flex-shrink: 0; padding-top: .5rem; }
+.run-actionbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .75rem 0; margin-bottom: 1.5rem; background: var(--canvas); border-bottom: 1px solid var(--line); }
+.run-actionbar:has(form, .run-remove-confirm, .form-error, .run-live-progress) { position: static; }
+.run-actionbar select { max-width: 100%; padding: .6rem .75rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); font: inherit; font-size: .82rem; }
+.run-workbench .review-actions { display: contents; }
+.run-workbench .review-actions > .button { margin: 0; }
+.run-workbench .review-actions .approve-button { width: auto; display: inline-flex; padding: .65rem 1rem; font-size: .85rem; position: static; box-shadow: none; }
+.run-workbench .review-actions > form, .run-workbench .review-actions > .form-error { flex: 1 0 100%; margin: .5rem 0; }
+.run-workbench .review-actions .approval-receipt { margin: 0; padding: .5rem .75rem; font-size: .8rem; background: transparent; }
+.run-removal { margin-left: auto; }
+.run-removal > button { display: inline-flex; align-items: center; gap: .4rem; color: #62626b; }
+.run-removal > button:hover { color: var(--danger); background: var(--danger-soft); }
+.run-remove-confirm { padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); margin-top: .5rem; max-width: 25rem; }
+.run-remove-confirm > p { margin: 0; font-size: .85rem; line-height: 1.6; }
+.run-remove-confirm .button-danger { color: var(--danger); background: var(--danger-soft); }
+.run-workbench .run-controls { display: contents; }
+.run-controls > .form-actions { display: contents; }
+.run-controls > .form-error { flex: 1 0 100%; }
+.run-controls > .form-actions:empty { display: none; }
+.run-live-progress { display: flex; flex-wrap: wrap; flex: 1 0 100%; gap: .25rem 1rem; }
+.run-live-progress p { margin: .25rem 0; }
+.run-workbench .inspector-grid { grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); gap: 2rem; }
+.run-workbench .carousel-stage { border-radius: 12px; min-height: 0; background: var(--surface); }
+.run-workbench .image-open { padding: 1rem; }
+.run-workbench .image-open img { height: min(65vh, 760px); }
+.run-workbench .carousel-nav { padding: .75rem 0; }
+.carousel-paging { display: flex; align-items: center; gap: .75rem; font-variant-numeric: tabular-nums; }
+.run-workbench .carousel-nav button { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; padding: .5rem; background: transparent; }
+.run-workbench .carousel-nav button:hover { background: var(--surface); }
+.run-workbench .carousel-thumbnails button { border-radius: 8px; }
+.run-workbench .page-evidence { padding: 0; border: 0; }
+.run-workbench .page-evidence > div { padding: 1rem 0; }
+.run-skill-links { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+.run-skill-link { border: 1px solid var(--line); background: var(--canvas); color: var(--ink); border-radius: 8px; padding: .6rem .75rem; text-align: left; font-size: .8rem; overflow-wrap: anywhere; transition: background .15s, border-color .15s; }
+.run-skill-link:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.run-panel-tabs { display: flex; gap: 1.5rem; border-bottom: 1px solid var(--line); margin-bottom: 1.25rem; }
+.run-panel-tabs button { min-height: 44px; padding: .5rem 0; border: 0; border-bottom: 2px solid transparent; color: #62626b; background: transparent; font-size: .88rem; }
+.run-panel-tabs button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.run-workbench .publication { padding: 0; background: transparent; border-radius: 0; }
+.run-workbench .publication-head { justify-content: flex-end; }
+.run-workbench .publication h3 { margin-top: 1rem; font-size: 1rem; line-height: 1.6; }
+.run-workbench .publication-body { font-size: .92rem; line-height: 1.85; }
+.run-workbench .hashtags { font-size: .82rem; }
+.run-empty-copy { color: #62626b; font-size: .88rem; padding: .5rem 0 2rem; }
+.run-workbench .manual-publication { padding: 1.25rem 0 0; margin-top: 1.5rem; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
+.run-records { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.run-records > .stream-status { display: block; margin-top: .75rem; font-size: .75rem; }
+.run-records .inspector-history { margin-top: 1.5rem; }
+.run-records .technical-ids > div { margin-top: .75rem; }
+.run-workbench button:focus-visible, .run-workbench a:focus-visible, .run-workbench select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (min-width: 1100px) { .main-content:has(.run-workbench) > .page-container { width: min(1480px, 100%); padding-top: 1.5rem; } }
+@media (max-width: 900px) { .run-workbench .inspector-grid { grid-template-columns: minmax(0, 1fr); } .run-workbench .inspector-copy { padding-bottom: 0; } }
+@media (max-width: 620px) {
+  .run-breadcrumb { gap: .75rem; margin-bottom: 1rem; }
+  .run-title-row { gap: .75rem; }
+  .run-title-row h1 { font-size: 1.15rem; }
+  .run-actionbar { gap: .5rem; margin-bottom: 1rem; }
+  .run-actionbar .button { min-height: 44px; padding: .65rem .75rem; }
+  .run-removal { margin-left: 0; }
+  .run-removal > button span { display: none; }
+  .run-workbench .image-open { padding: .5rem; }
+  .run-workbench .image-open img { height: auto; max-height: 70vh; }
+  .run-workbench .carousel-nav button { min-width: 44px; min-height: 44px; }
+  .run-records { margin-top: 1.5rem; }
+}
