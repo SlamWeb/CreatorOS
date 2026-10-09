@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from time import monotonic, sleep
 
 from PIL import Image
@@ -112,9 +113,10 @@ def expect_error(code, action):
         raise AssertionError(f"Expected {code}")
 
 
-with TemporaryDirectory() as temporary:
+with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     root = Path(temporary)
     url, database = create_fixture(root)
+    cleanup.callback(database.close)
     producer = ControlledProducer(block_first=True)
     service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
                                 lease_seconds=0.6, production_protocol="legacy")
@@ -123,6 +125,7 @@ with TemporaryDirectory() as temporary:
     assert len(set(ids)) == 1
     first, second = service.get(ids[0]), service.create("topic-2")
     executor = ManagedRunExecutor(service)
+    cleanup.callback(executor.shutdown)
     executor.submit(first.id, expected_version=first.version)
     assert producer.started.wait(2)
     expect_error("already_running", lambda: executor.submit(first.id, expected_version=first.version))
@@ -152,16 +155,20 @@ with TemporaryDirectory() as temporary:
     expect_error("version_conflict", lambda: executor.submit(second.id, expected_version=99))
     executor.submit(second.id, expected_version=second.version)
     wait_until(lambda: not executor.is_submitted(second.id))
-    assert service.get(second.id).status is ContentRunStatus.AWAITING_APPROVAL
+    second_result = service.get(second.id)
+    assert second_result.status is ContentRunStatus.AWAITING_APPROVAL, (
+        second_result.status, second_result.error_type, second_result.error_message)
     executor.shutdown()
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="late")
+    cleanup.callback(database.close)
     late_producer = ControlledProducer(block_first=True)
     late_service = ContentRunService(database, producer_factory=lambda: late_producer, output_root=root / "late-outputs",
                                      production_protocol="legacy")
     late_run = late_service.create("topic-1")
     late_executor = ManagedRunExecutor(late_service)
+    cleanup.callback(late_executor.shutdown)
     late_executor.submit(late_run.id, expected_version=late_run.version)
     assert late_producer.started.wait(2)
     late_executor.shutdown()  # Producer returns a late result after cancellation.
@@ -170,6 +177,7 @@ with TemporaryDirectory() as temporary:
     assert late_service.get_active_revision(late_run.id).artifact_directory is None
     assert not late_service.guard.journal.exists()
     restarted = ManagedRunExecutor(late_service)
+    cleanup.callback(restarted.shutdown)
     restarted.start()
     assert late_producer.calls == 1
     restarted.submit(late_run.id, expected_version=interrupted.version)
@@ -180,6 +188,7 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="recovery")
+    cleanup.callback(database.close)
     recovery_service = ContentRunService(database, output_root=root / "recovery-outputs",
                                          production_protocol="legacy")
     recovery_run = recovery_service.create("topic-1")
@@ -200,10 +209,12 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="init-failure")
+    cleanup.callback(database.close)
     failed_service = ContentRunService(database, producer_factory=FailingProducer,
                                        output_root=root / "init-failure-outputs", production_protocol="legacy")
     failed_run = failed_service.create("topic-1")
     failed_executor = ManagedRunExecutor(failed_service)
+    cleanup.callback(failed_executor.shutdown)
     failed_executor.submit(failed_run.id, expected_version=failed_run.version)
     wait_until(lambda: not failed_executor.is_submitted(failed_run.id))
     failed = failed_service.get(failed_run.id)
@@ -213,9 +224,11 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="schedule-failure")
+    cleanup.callback(database.close)
     service = ContentRunService(database, production_protocol="legacy")
     run = service.create("topic-1")
     executor = ManagedRunExecutor(service)
+    cleanup.callback(executor.shutdown)
     executor.start()
     executor._pool.shutdown()  # Fault injection: claim succeeds but scheduler rejects.
     try:
@@ -230,6 +243,7 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     url, database = create_fixture(root, topic_count=1, name="validation-restart")
+    cleanup.callback(database.close)
     service = ContentRunService(database, output_root=root / "validation-outputs", production_protocol="legacy")
     run = service.create("topic-1")
     prepared = service._begin_attempt(run.id, owner_id="old-owner")
@@ -239,6 +253,7 @@ with TemporaryDirectory() as temporary:
     service._mark_produced(run.id, prepared["attempt_id"], produced, 0, owner_id="old-owner")
     database.close()
     database = Database(url)
+    cleanup.callback(database.close)
     service = ContentRunService(database, producer_factory=FailingProducer, production_protocol="legacy")
     assert service.recover_inflight() == (0, 1, 0)
     assert service.get(run.id).status is ContentRunStatus.AWAITING_APPROVAL

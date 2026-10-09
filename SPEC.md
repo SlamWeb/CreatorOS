@@ -1,5 +1,10 @@
 # CreatorOS Runtime SPEC
 
+## 本地执行可靠性基线（2026-10-09）
+
+- 当前真实提炼 WinError 5 已修复为诊断降级，不中断正常 SDK 执行；共同验收需 SDK completed + 实际产物校验。提炼/改稿/试产失败先写权威状态后写错误详情，详情再次失败不能留下假运行态。
+- 严格审计、14 组零付费统一回归入口、真实同图提炼及未解决风险统一记录于 [docs/reliability/SPEC.md](docs/reliability/SPEC.md)。不是所有历史测试或所有服务都已可靠性重构，不宣称全面稳定；下一步先接稳定基线/真实坏例，不扩展新功能掩盖缺陷。
+
 ## 当前职责与续聊入口（2026-10-08）
 
 - 当前 CreatorOS ↔ Codex 分工、上下文清单、任务状态与续聊统一以 [docs/codex-worker/SPEC.md](docs/codex-worker/SPEC.md) 为准；下方日期较早的切片是历史记录，不代表现行能力边界。
