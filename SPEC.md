@@ -1,5 +1,12 @@
 # CreatorOS Runtime SPEC
 
+## 账号 Agent Eval 重建（2026-10-09）
+
+- 用户明确退役旧运营、Studio、上下文对照与 A 策略模型评测；删除旧入口、专用题集/grader/报告，保留 Runtime、业务和可靠性回归。旧材料可从 Git 历史恢复，忽略目录原始证据与正式数据不动。
+- 新 12 题与检查标准见 [docs/agent-eval/SPEC.md](docs/agent-eval/SPEC.md)，四类各三题、8 开发/4 阶段验收。当前仅建立题集和本地结构校验，模型任务全部未运行；不继承旧成绩。
+- 下一步是 E01 的隔离夹具与判分正负例，不同时扩建 Memory、Eval UI 或自动生产。
+
+
 ## 内容卡片移除（2026-10-09）
 
 - 用户授权补齐待选/正式内容移除：未生产选题删除，有 Run 的归档退出工作区，图片/生产记录/Observation 保留；活跃生产、验收或讨论需先结束。移除事实与幂等回执存 SQLite，旧候选不会复活、旧 Run 不能再次启动生产。
@@ -53,12 +60,12 @@
 
 ## 上下文管理专项（2026-09-11）
 
-- 2026-09-13：C4第一版六类Context开发集、full/recent/compact三组、真实DeepSeek与隔离HTTP/SQLite评估已实现。v1全量运行后发现恢复夹具顺序错误，排除该题并以v1.1独立验证；不混版本宣称通过率。结果与候选/队列混淆badcase见 `docs/context-management/C4-RESULTS.md`，保留集/重复试验尚未做。
-- 2026-09-13：压缩优先完整用户 Turn，仅最新 Turn 超保留预算时回退完整 Step，原用户请求独立固定且不改 Session 索引；两次滚动摘要/恢复、同 query 内自动压缩循环及真实 DeepSeek 延续验证通过，详见专项 SPEC。C4质量评估尚未完成。
+- 旧 C4 三组上下文对照评测已于 2026-10-09 退役；当前账号任务集见 `docs/agent-eval/SPEC.md`。上下文实现与确定性隔离/恢复回归保留，不继承旧成绩。
+- 2026-09-13：压缩优先完整用户 Turn，仅最新 Turn 超保留预算时回退完整 Step，原用户请求独立固定且不改 Session 索引；两次滚动摘要/恢复、同 query 内自动压缩循环及真实 DeepSeek 延续验证通过，详见专项 SPEC。新的账号质量评测尚未运行。
 - 设计、现状、C1–C4 分阶段验收与面试问答集中于 [docs/context-management/SPEC.md](docs/context-management/SPEC.md)。
-- C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；C3已完成上下文Trace，C4已完成首版开发集对照，不以单次开发集结果替代泛化评估。
+- C1 已完成当前 Session 的工具原文回读；C2 已完成主/摘要预算保护及无收益摘要拒绝；C3已完成上下文Trace；旧 C4 对照退役，新账号 Eval 尚未运行。
 - 当前主模型近期工具结果保持完整；旧结果和硬预算兜底结果外置到会话归档目录，由受限 `read_file` 按需回读。实现边界和已知跳跃分页 badcase 见上下文专项 SPEC。
-- C3 已完成主/摘要 Context Trace：分项估算、实际usage、缓存、状态/耗时和检查点关联保存于会话相邻JSONL，Web可分页读取；真实DeepSeek与故障注入验收通过。C4保留集/重复试验和Trace页面展示仍待后续。
+- C3 已完成主/摘要 Context Trace：分项估算、实际usage、缓存、状态/耗时和检查点关联保存于会话相邻JSONL，Web可分页读取；真实DeepSeek与故障注入验收通过。旧 C4 保留集计划退役；当前 Trace 与账号 Eval 以最新专项 SPEC 为准。
 
 ## 栏目选题研究与入队（2026-09-09）
 

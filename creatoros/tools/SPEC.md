@@ -72,7 +72,7 @@
 - install_producer_skill 可声明 role（mind/production）；省略即未分类，可展示不可生产。
 - Web allowed_tools（STUDIO_TOOLS）与 AgentPage 中文名同步更新；CLI 使用同一 tool_registry。
 - 宿主指令补充 A 边界：明确给标题+栏目则直接入队（source=manual，不因库中不存在而追问）；查看/建议不写；删除/覆盖/发布不在入口内。
-- 验证：smoke_studio_composition_tools（真实本地 HTTP，跨入口一致性）与 live_a_boundary_eval（真实 DeepSeek，6 题）通过；详见 docs/studio/composition/SPEC.md P2 记录。
+- 验证：smoke_studio_composition_tools 的真实本地 HTTP 跨入口回归保留；旧 A 策略模型评测于 2026-10-09 退役。当前账号题集见 docs/agent-eval/SPEC.md，模型任务尚未运行，不继承旧成绩。
 
 ## 统一选题查询（2026-09-14）
 

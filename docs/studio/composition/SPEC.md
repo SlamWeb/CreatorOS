@@ -171,7 +171,7 @@ P4 先用受控生产器测试快照/中断/重复提交/缺工件，明确不�
   - `series_composition_service_smoke=passed`：创建/幂等重放/跨操作 request_id 复用 409/半套与全空 422/角色错槽/未装 Skill/未知账号 404/分配与撤回/revision CAS 冲突 409 零写/legacy 拒转/agent origin 记录/直入队。
   - `studio_composition_tools_smoke=passed`：真实本地 HTTP 服务，Agent 工具写入 + HTTP 读取跨入口一致；旧 revision 拒绝；四个新工具已暴露。
   - `live_composition_skills=passed`：真实 GitHub 安装 mind=`knowledge-to-storyboard-deep--039c5af915d13784`、production=`xiaobai--901ca2275bec0b70`（均不声明轮播契约 → 可组合、当前不可生产），组成 pair 栏目；未分配先拦"尚未分配账号"，分配后拦"双 Skill 尚未接入"（P4）。
-  - `live_a_boundary_eval`（真实 DeepSeek，6 题）：A1 明确入队、A2 查看不写、A3 歧义澄清、A4 删除拒绝、A5 历史 Preview 不授权均通过；**A6 初跑失败**——空库+明确标题下模型过度澄清未执行，宿主指令补"明确标题直接新建入队"后复跑通过（queue→生产链路，受控 Producer），按惯例不宣称单次通过即稳定消除。
+  - 旧独立 A 策略模型评测已于 2026-10-09 退役；宿主规则与确定性组合/直入队回归仍保留。当前账号任务集见 docs/agent-eval/SPEC.md，不继承旧成绩。
   - Playwright e2e 4 passed（topic-research 用例更新为 Preview 零写入 + 直接入队断言）；既有 smoke 回归与 compileall/typecheck/build 全绿。
 - 已知语义：同值重写不推进 revision（ORM 无变化不触发 version_id_col）；系列同名冲突与并发同 request_id 竞态由 IntegrityError 归一为 409；正式库由启动迁移升至 0006（只加表，无数据变更）。
 

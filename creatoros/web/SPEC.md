@@ -139,7 +139,7 @@
 ## Agent 展示范围规则（2026-09-14）
 
 - D05 开发评测发现：用户禁止重复已入队标题时，Agent 在正文正确筛选，却在补充说明重述排除项。
-- 新增 DISPLAY_SCOPE_RULE 并接入 WEB_INSTRUCTIONS，明确筛选与禁止重述约束同样适用于补充说明。运营 Eval 复用该规则，验证记录见 docs/agent-eval/RESULTS.md。
+- 新增 DISPLAY_SCOPE_RULE 并接入 WEB_INSTRUCTIONS，明确筛选与禁止重述约束同样适用于补充说明。该规则仍保留；旧运营 Eval 已于 2026-10-09 退役，当前账号任务与判分约定见 docs/agent-eval/SPEC.md，不继承旧成绩。
 - 只调整宿主说明；不改页面、API、队列或发布行为。
 
 ## 统一选题库 API（2026-09-14）

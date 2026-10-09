@@ -156,7 +156,7 @@ def live():
     from creatoros.storage import Database, upgrade_database
     from creatoros.web import create_app
     from tests.agent_studio_support import serve
-    from tests.eval_studio_tasks import send_turn, ForbiddenAction
+    from tests.agent_studio_support import send_turn, ForbiddenAction
 
     root = Path('tmp') / ('context-trace-' + uuid4().hex[:10])
     root.mkdir(parents=True)

@@ -196,7 +196,7 @@ CreatorOS 仍在持续开发。它已经能管理创作方法与生产任务，�
 - **账号隔离**：作用域用于本机防误操作，不是公网多租户认证；目前没有跨会话的自动长期偏好记忆。
 - **恢复与速度**：依赖可核验文件和检查点，不保证外部工具恰好执行一次；单 thread 生产不等于并发生图。
 
-已有小型运营任务与上下文评测，使用隔离数据库、真实模型调用及终态判分，也保留失败案例。它们不是整条调研—生图—发布链路的成功率证明：[运营保留集结果](docs/agent-eval/HOLDOUT-RESULTS.md) · [上下文对照结果](docs/context-management/C4-RESULTS.md)。
+旧运营与上下文评测已退役。目前重建了 [12 道账号 Agent 任务](docs/agent-eval/SPEC.md)，覆盖账号边界、会话持久化、状态更新与工具正确性；题集结构已校验，模型任务尚未运行，不宣称任务成功率或调研—生图—发布闭环。
 
 ## 📚 深入了解
 
@@ -204,7 +204,7 @@ CreatorOS 仍在持续开发。它已经能管理创作方法与生产任务，�
 - [栏目组合](docs/studio/composition/SPEC.md) / [原生单 thread 生产](docs/single-thread-production/SPEC.md)：Skill 协作、冲突处理、冻结与恢复。
 - [账号 Agent](docs/agent-studio/web-chat/SPEC.md)：会话绑定、作用域与账号上下文树。
 - [上下文管理](docs/context-management/SPEC.md)：预算、滚动摘要、完整记录与 Trace。
-- [人工发布与反馈](creatoros/publication/SPEC.md) / [运营评测](docs/agent-eval/SPEC.md)。
+- [人工发布与反馈](creatoros/publication/SPEC.md) / [账号 Agent 评测](docs/agent-eval/SPEC.md)。
 - [当前项目进展](SPEC.md) / [前端验证工作流](web/FRONTEND_WORKFLOW.md)。
 
 <details>

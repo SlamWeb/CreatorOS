@@ -37,7 +37,7 @@
 | D. 生产生命周期 | 聊天结束，为什么生成还能继续？ | [后台执行器](../../creatoros/runs/executor.py)、[Run服务](../../creatoros/runs/service.py) | 分布式调度 |
 | E. Codex生产 | topic和Skill进来，什么结果算可验收？ | [Codex适配器](../../creatoros/integrations/codex.py)、[产物验证](../../creatoros/runs/artifacts.py) | 把Codex内部当作自己写的Runtime |
 | F. 上下文 | 历史完整保存，为什么模型不必每次全看？ | [上下文SPEC](../context-management/SPEC.md)、[压缩器](../../creatoros/agent/compactor.py) | 长期向量记忆 |
-| G. 评测 | 回复“好了”和任务完成如何区分？ | [终态grader](../../tests/operating_eval_grader.py)、[真实结果](../agent-eval/HOLDOUT-RESULTS.md) | 通用榜单排名 |
+| G. 评测 | 回复“好了”和任务完成如何区分？ | [账号任务集](../agent-eval/cases.json)、[判分约定（尚未运行）](../agent-eval/SPEC.md) | 通用榜单排名 |
 
 ### 实际入口不是完全统一的万能聊天
 

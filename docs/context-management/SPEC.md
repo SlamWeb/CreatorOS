@@ -14,17 +14,9 @@
 - Trace 新增互斥 account_context 分项及实际注入树（含 as_of/omissions）。这是此前纯计数 Trace 的明确本机业务数据例外；仍不记录完整 Skill 正文、assets、模型内部思考或凭证。不新增 UI。
 - 测试与本阶段范围见 `docs/agent-studio/web-chat/SPEC.md` P2；已有压缩算法、输出预留和工具归档能力复用，不引入长期记忆或 embedding 历史检索。
 
-## C4 第一版开发集（已实现，2026-09-13）
+## 旧 C4 评测退役（2026-10-09）
 
-- 六类合成运营历史，三组 `full` 完整历史、`recent` 相同切点但无摘要、`compact` 真实累计摘要及原文回读；后两组原始账本不删除。固定模型、工具、数据 ID、当前请求和主调用上限；分组顺序轮换，单次试验不推断缓存/延迟优劣。
-- 使用现有 run_agent、compact_session、SQLite、Studio HTTP 工具、Context Trace。测试专用投影仅存在评估器，不改正式 Runtime。降低近期保留预算主动制造切分；不是百万 Token 压力测试。
-- 六题分别检查：早期只回答不建预览、改口后的候选/标题、同名栏目的准确归属、旧结果中指定标题回读、长循环已完成项不重复、落盘重载未确认预览。恢复测试重新加载 checkpoint 并调用宿主，未模拟进程强杀。按最终持久化 operation/queue 和准确字段判分，不要求固定工具顺序。禁止启动生产/安装/调研，并单独统计尝试，不能把宿主拦截算模型遵守约束。
-- 任务分与运行错误分开；摘要失败计失败，不悄悄降级 full 后报成功。主指标为逐题成功和全部已知 input/output（摘要也计费）；未知 usage 不补零，先按共同成功题比较费用。保留每次失败、原历史、请求视图、Trace、数据库和判分明细。
-- 首次6×3×1，不重跑到通过、不调整Prompt挑成绩。长循环/重启包含两次滚动压缩；`recent`复用同一切点和用户pin但无摘要。无正式数据或外部内容生产；先用本地反例验证评分器，真实 DeepSeek 验证任务表现。
-- 入口 `python -m tests.eval_context_tasks`，支持 `--case`；`--report tmp/.../report.json` 只生成可读 Markdown，不调用模型。测试参数与业务服务未混入正式 Runtime；各组从同一 seed 数据库/候选文件复制，除会话归档路径外历史与初始业务数据一致，三组都可读取本会话原账本。
-- 实际完成 v1 全18组（含两次摘要等多请求）和 v1.1 恢复题3组修正验证；没有更改模型 Prompt 或业务工具去追分。v1恢复题事件顺序自相矛盾，自动汇总排除该题；修正后另存结果，不与v1混成一次通过率。具体结果、原始报告路径和badcase见 [C4-RESULTS.md](C4-RESULTS.md)。
-- 评分器本地反例通过：错栏目/状态/标题/ID、缺失来源、空或重复预览、越权工具尝试、无usage、滚动切点、恢复题事件顺序。真实链路使用DeepSeek、run_agent、HTTP和隔离SQLite；历史与填充明确为合成数据。复用现有依赖，无生产/安装/调研/发布执行，无正式数据修改。
-- C4仍是开发集，不是独立测试集；重复背景、显眼测试ID、每格一次、自然语言只检查必要字段限制了结论。下一步先分析同名题的候选/队列混淆，再新增不同名称和真实形态ID的保留案例，不把本轮通过率写成泛化能力。
+用户要求删除过时评测，旧三组 Context 题集、运行器和成绩报告已移除。上下文预算、压缩、归档、Trace 与对应确定性回归保留。当前账号 Eval 的会话重载、隔离与状态任务见 [新 SPEC](../agent-eval/SPEC.md)；本轮没有运行模型，不继承旧成绩。
 
 ## 长 Turn 的 Step 回退（完成，2026-09-13）
 
@@ -38,7 +30,7 @@
 - `python -m tests.check_step_compaction` 通过：完整/超长 Turn、单个不可分割 Step、多结果乱序、未完批次、原文不变、连续 checkpoint/重载/新 Turn/旧格式兼容；真实 Loop 使用确定性 Provider 和工具夹具，单条 query 内 8 次工具调用、9 次主调用，触发自动压缩并完成，Trace 共用一个 turn_id，账本保留8份完整结果。
 - `python -m tests.check_step_compaction --live` 真实 DeepSeek 通过两次滚动摘要及重载后的继续回答，找回早期 `C7-ANCHOR-924` 并回复“仅草稿”。三次请求 input/output 分别为 663/521、1219/925、1822/12 tokens；总 input=3704、output=1458。测试使用合成历史、临时目录且无业务工具执行；这是单案例接线验证，不是约束保留率或压缩收益 Benchmark。一次早先运行的进程回执丢失，不计入上述已观测结果。
 - 7项隔离回归通过：smoke_compaction_plan、smoke_compaction_checkpoint、smoke_compact_session、smoke_compacted_model_context、smoke_auto_compaction、smoke_context_protection、check_context_trace。没有新增依赖、前端或正式业务库变更。
-- 面试口径：Turn 是一次用户请求，Step 是一次模型输出及对应工具结果；预算检查仍在每次主模型请求前。优先 Turn 保持完整语境，长循环才退到协议安全的 Step；原请求＋累计进度摘要承接语义，原始证据仍可回读。暂不做语义边界分类器、历史 embedding 或固定保留多条用户输入。下一步仍为 C4 Context Eval。
+- 面试口径：Turn 是一次用户请求，Step 是一次模型输出及对应工具结果；预算检查仍在每次主模型请求前。优先 Turn 保持完整语境，长循环才退到协议安全的 Step；原请求＋累计进度摘要承接语义，原始证据仍可回读。暂不做语义边界分类器、历史 embedding 或固定保留多条用户输入。下一步以新账号 Eval SPEC 为准，旧 C4 计划不再执行。
 
 ## C3 Context Trace（2026-09-12）
 
@@ -46,7 +38,7 @@
 - 主请求在所有压缩/外置结束后统计最终 ModelContext；摘要请求统计实际带输出上限的上下文。互斥分项为 system、tools、summary、recent_messages、tool_results、skills、summary_source 和 serialization_overhead，合计等于既有预算估算。不是厂商 tokenizer 或精确 HTTP 字节统计。
 - 实际 prompt/output/cache hit/cache miss 独立保存，缺失为 null；失败摘要即使被格式/收益校验拒绝也保留已知 usage。记录耗时、模型名、预算、压缩结果、外置数量、源消息位置；不存正文、工具参数、路径或异常原文。
 - 复用同一 Loop/Compactor，Web 提供当前 Session 的分页只读 Trace API；本切片先完成数据与查询，不修改页面布局、不把 ContentRun 当成 Agent Session。
-- 验收：隔离本地故障注入检查预算阻止、摘要格式/无收益失败、usage 缺失、中断、分项可加性、重启追加；真实 DeepSeek + 隔离 Web 验证主/摘要 usage 和请求关联。C4 质量对照另做。
+- 验收：隔离本地故障注入检查预算阻止、摘要格式/无收益失败、usage 缺失、中断、分项可加性、重启追加；真实 DeepSeek + 隔离 Web 验证主/摘要 usage 和请求关联。旧 C4 质量对照已退役。
 
 ## 最新决定：近期完整保留、旧结果外置（2026-09-11）
 
@@ -57,7 +49,7 @@
 - 不新增完整 Skill 加载能力：Web 虽允许 read_file，但只读归档，所以不得自动注入 Skill 目录。
 - 验收：近期正文完整、旧摘要输入无巨大正文、原文/索引可读、跨会话/路径逃逸拒绝、滚动摘要索引仍在、真实 DeepSeek 摘要后按 read_file 找回随机证据。不实现 L3/长期 Memory/外部观测平台。
 
-状态：2026-09-13；C1–C3 已完成，C4 已实现第一版开发集并真实运行，尚无保留集/重复试验。第 3 节保留 C2 前基线，当前变更以顶部决定和实施记录为准。
+状态：2026-10-09；C1–C3 实现与回归保留，旧 C4 题集和报告已退役，新账号评测尚未运行。第 3 节保留 C2 前基线，当前变更以顶部决定和实施记录为准。
 
 ## 1. 为什么做
 
@@ -131,21 +123,13 @@ system/developer 稳定前缀在前，摘要以 user 历史资料注入；tools 
 | C1 | 当前 Session 回读 | 上述隔离、分页、真实模型验证通过 |
 | C2 | 预算保护 | 摘要与主请求独立预算；超限不盲发；不可切单轮明确失败；摘要失败保留原数据 |
 | C3 | 最小上下文 Trace | 关联 session/turn/checkpoint；投影前后大小、摘要 usage、版本与耗时可审计 |
-| C4 | Context 任务评估 | 完整历史/仅近期/累计摘要加近期及回读三组对照，评最终业务行为与总Token |
+| Eval | 账号任务评估 | 当前 12 题见 docs/agent-eval/SPEC.md；题集定义，不是已运行成绩 |
 
 C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策略；不能声称估算阈值提供绝对 Token 上限保障。C3 不记录密钥，不把未经脱敏上下文上传外部观测平台；重放记录不等于重新执行有副作用工具。
 
-## 6. 小型 Context Eval
+## 6. 当前任务评测入口
 
-六类：早期“仅预览”约束、用户改口以后者为准、同名对象准确 ID、工具中间证据回读、连续两次压缩不复活取消任务、重启后继续。
-
-每题固定环境/多轮输入/允许结果/禁止变化。当前三组为完整上下文、仅近期、累计摘要加近期及回读；通过测试参数强制切分，不必消耗百万 Token 才测压缩。另用确定性边界测试验证自动触发。
-
-- 主指标：最终预览/Run/队列与约束是否正确；必要的澄清也可以成功。
-- 诊断：关键事实、决定、ID 是否遗失/变更，原证据能否回读；不以摘要好看或固定调用顺序评分。
-- 成本：摘要请求＋后续模型请求＋回读造成的输入，使用真实 usage；缓存命中是 input 子集。对共同成功案例比较成本，不奖励直接拒绝任务的低消耗。
-- 先六题开发集，所有失败保留；后续再增加不同情境保留集与重复试验，不宣称六题就是泛化 Benchmark。
-- 不评 PersonClone 生成质量，不重建长期 Memory 系统，不安装观测平台，不复制 Pi 源码。
+原独立 Context 对照已退役。账号 Agent 的持久化、原文回读隔离与最新状态分别进入新题集 E04–E07；当前只完成题集定义，没有新的模型成绩。详见 [账号 Eval](../agent-eval/SPEC.md)。未来若研究压缩效果，另建明确对照，不把确定性 smoke 当模型语义质量评分。
 
 ## 7. 面试问答
 
@@ -175,7 +159,7 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 本次 3 次模型请求累计 input 25,263 / output 257 / cache hit 13,440 tokens；缓存包含于输入。证据：`tmp/context-read-20260911-120743/report.json`。这是单次链路验收，不是泛化质量或优化收益。
 - 本地确定性验证：相同 ID 不串会话、其他会话独有 ID 不可读、缺失 ID、默认 CLI 兼容、Loop 覆盖错误绑定且不修改调用者对象、投影和原文保留。
 - 回归通过：smoke_web_agent、smoke_runtime_context、smoke_auto_compaction、smoke_tool_result_projection。受控模型只用于确定性接线/故障检查，真实回读使用 DeepSeek。无页面改动，未做视觉验收。
-- C2 完成记录见下；C3–C4 未完成，不以接线验收声称压缩后决策不退化。
+- C2/C3 实现记录见下；新账号 Eval 尚未运行，不以接线验收声称压缩后决策不退化。
 
 ### C2 完成与验证
 
@@ -186,8 +170,8 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - `tests.live_compact_session` 真实 DeepSeek 通过：input 786 / output 275 tokens，切分位置 5。小额协议与 checkpoint 保存验收，不是语义质量评估。
 - 回归通过：smoke_auto_compaction、smoke_compact_session、smoke_web_agent、smoke_model_context、smoke_compaction_summary、check_session_result_read。旧成功夹具依赖超限摘要/膨胀摘要，改为可摘要的大工具结果或足够旧历史；失败路径另有显式断言，不放宽预算规则。
 - 限制：估算非精确 tokenizer；不保证服务端永不报超限；摘要失败的 usage 尚待 C3 统一记录。没有正式库修改、内容生产/发布或前端改版。
-- 面试回答更新：累计摘要不会多份叠加，C2 还限制输出并拒绝无缩减替换，但保住语义需要 C4 业务对照，长度检查不能证明质量。
-- 下一步 C3：补投影与压缩轨迹；C4 再做业务质量与成本对照。
+- 面试回答更新：累计摘要不会多份叠加，C2 还限制输出并拒绝无缩减替换，但保住语义需要业务任务评测，长度检查不能证明质量。
+- 历史 C3 接线记录如下；当前任务质量评测以新账号 Eval SPEC 为准。
 
 ### 近期完整保留与旧结果外置记录（2026-09-11）
 
@@ -197,7 +181,7 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 本地验证 `python -m tests.check_archived_context`、`tests.check_session_result_read`、`tests.smoke_read_tool_result` 通过：近期正文完整、索引含原调用 ID、原文精确可读、两个会话互相隔离、路径逃逸拒绝、超长单行要求字符分页。
 - 真实 DeepSeek 隔离 Web 试验曾发现一个重要 badcase：模型读取开头/中部/末尾三个跳跃区间后漏掉位于约 18,000 字符处的随机标记，并错误声称资料没有该字段。该次结果保留为失败证据；因此当前实现只改善“可回读性”，不声称模型一定会穷尽搜索。另一次真实摘要返回缺少规定标题，被现有格式校验拒绝，旧 checkpoint 未被覆盖。
 - 更新后的真实 DeepSeek 隔离验收通过：模型按 `next_offset` 从 1 连续读取到标记所在页，6 次 `read_file` 后返回准确随机值；摘要 input/output 为 336/500 tokens，后续主请求合计 usage 为 34,414/1,328 tokens（含各请求的 cache hit 字段）。证据保存在本地临时 `tmp/archived-context-20260911-180558/report.json`，合成证据和临时 SQLite 均未进入正式库。
-- 这条链路仍不是 L3/长期 Memory，也没有语义检索、自动 grep/search 或完整上下文 Trace；下一步应在 C3/C4 记录归档读取轨迹并评估“连续分页能否找回证据”，而不是继续增加投影魔法。
+- 这条链路仍不是 L3/长期 Memory，也没有语义检索、自动 grep/search 或完整上下文 Trace；当前应利用 Trace 与新账号任务评估“连续分页能否找回证据”，而不是继续增加投影魔法。
 
 ### C3 完成与验证（2026-09-12）
 
@@ -210,4 +194,4 @@ C2 不直接更换 tokenizer 或窗口配置。先定义估算误差及保护策
 - 新增 `GET /api/agent/sessions/{session_id}/context-trace?after=0&limit=50`，按事件行分页，上限100；未知会话404、非法范围422、无记录返回空。返回计数/ID/类型，无正文或文件路径。页面尚无图表组件，ContentRun 不挂接为同一对象。
 - `tests.check_context_trace` 故障注入与纯变换通过：分项可加、压缩关联、失败摘要保留usage、硬预算/摘要预检不调用、外置后统计、流异常/中断、缺失usage、分页和重启残片。关联9项 Runtime/Web/归档回归通过，默认 Session 文件替换为临时目录以避免污染。
 - `tests.check_context_trace --live` 真实 DeepSeek + 隔离 Web 通过，`tmp/context-trace-b62735cedc/report.json`：摘要 input/output=9,176/215，主请求两次=3,215/63、3,314/135；主请求cache hit=2,688、3,072。实测与Web原usage逐项核对；最后请求估算3,393而实测3,314，明确显示估算误差。仅合成历史与查询空测试库，无生产/发布/正式库修改。
-- 下一步 C4：用约束保留、改口、ID、证据回读、滚动摘要和重启六类开发案例，对完整历史/摘要/摘要加证据回读做任务结果与总费用比较。此处的trace smoke不是质量Benchmark。
+- 当前下一步：接新账号 Eval 的隔离夹具与判分器，见 docs/agent-eval/SPEC.md。此处 Trace smoke 不是质量 Benchmark。

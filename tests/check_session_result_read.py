@@ -70,7 +70,7 @@ def local():
 def live():
     from creatoros.storage import Database, upgrade_database
     from creatoros.web import create_app
-    from tests.eval_studio_tasks import ForbiddenAction, send_turn, write_report
+    from tests.agent_studio_support import ForbiddenAction, send_turn, write_report
 
     root = Path("tmp") / ("context-read-" + datetime.now().strftime("%Y%m%d-%H%M%S"))
     root.mkdir(parents=True)
