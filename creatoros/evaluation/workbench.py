@@ -62,10 +62,12 @@ def frozen_hashes():
              *PROJECT_ROOT.joinpath("creatoros/skills/knowledge-to-carousel").rglob("*"),
              PROJECT_ROOT / "web/playwright.workbench.config.ts",
              PROJECT_ROOT / "web/playwright.workbench.read.config.ts",
+             PROJECT_ROOT / "web/playwright.workbench.progress.config.ts",
              PROJECT_ROOT / "tests/workbench_read_server.py",
              *PROJECT_ROOT.joinpath("web/live-workbench-reader").rglob("*"),
              PROJECT_ROOT / "web/live-eval/ui-assertions.ts",
              *PROJECT_ROOT.joinpath("web/live-workbench").rglob("*"),
+             *PROJECT_ROOT.joinpath("web/workbench-progress-tests").rglob("*"),
              *PROJECT_ROOT.joinpath("tests").glob("test_workbench_eval*.py")]
     result.update({path.relative_to(PROJECT_ROOT).as_posix(): digest(path)
                    for path in extra if path.is_file()})
@@ -416,7 +418,7 @@ def grade_slice(evidence, case_id):
                   ["execution.json", "requests.json", "transport.json", "snapshots.json", "trace.json", "messages.json"])
         check("tool_chain", "必需工具与复制/刷新结果可读", required <= calls
               and browser.get("trace_visible") is True
-              and browser.get("copied_reply", "").strip() == evidence.get("final_answer", "").strip()
+              and browser.get("copied_reply", "").replace("\r\n", "\n") == evidence.get("final_answer", "")
               and browser.get("restored_reply") == browser.get("visible_reply"),
               ["requests.json", "snapshots.json", "messages.json", "browser.json"])
         model_visible = json.dumps([evidence.get("requests"), evidence.get("messages")], ensure_ascii=False)

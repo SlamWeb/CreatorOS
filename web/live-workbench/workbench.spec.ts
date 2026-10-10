@@ -1,6 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readWorkbenchReport } from "./read-report";
+import { readProgress } from "./read-progress";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
   const response = await request.get("/__live_eval__/scenario");
@@ -126,7 +127,7 @@ test("real workbench: original GUI → real services → durable evidence → or
       const detail = page.locator(".extraction-detail");
       let terminal = "";
       await expect.poll(async () => {
-        const current = await (await request.get(`/api/skill-extractions/${job.id}`)).json();
+        const current = await readProgress(request, `/api/skill-extractions/${job.id}`, browser);
         terminal = current.status;
         return terminal;
       }, { timeout: 1_860_000, intervals: [1000, 3000, 5000] }).toMatch(/^(ready|failed|interrupted|cancelled|unknown)$/);
@@ -177,7 +178,7 @@ test("real workbench: original GUI → real services → durable evidence → or
         browser.production_visible_progress = await page.locator("main").innerText();
         let terminal = "";
         await expect.poll(async () => {
-          const current = await (await request.get(`/api/runs/${id}`)).json();
+          const current = await readProgress(request, `/api/runs/${id}`, browser);
           terminal = current.status;
           return terminal;
         }, { timeout: 1_860_000, intervals: [1000, 3000, 5000] }).toMatch(/^(awaiting_approval|failed|interrupted|cancelled|unknown)$/);

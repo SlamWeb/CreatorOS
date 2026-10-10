@@ -111,6 +111,19 @@ def grade_facts(case):
 
 
 class WorkbenchGraderTests(unittest.TestCase):
+    def test_clipboard_platform_newlines_only_not_markdown_or_missing_text(self):
+        evidence = grade_facts("A14")
+        # Real Windows clipboard adds CRLF; preserve every other byte.
+        evidence["final_answer"] = "已创建\n\n- 完整 Skill"
+        evidence["browser"]["copied_reply"] = "已创建\r\n\r\n- 完整 Skill"
+        def tool_chain():
+            result = workbench.grade_slice(evidence, "A14")
+            return next(row["status"] for row in result["checks"] if row["id"] == "tool_chain")
+        self.assertEqual(tool_chain(), "passed")
+        for broken in ("已创建\n\n完整 Skill", "已创建\n\n- 完整", "已创建\r\r- 完整 Skill", " 已创建\n\n- 完整 Skill"):
+            evidence["browser"]["copied_reply"] = broken
+            self.assertEqual(tool_chain(), "failed")
+
     def test_all_fact_chains_remain_pending_independent_quality(self):
         for case in sorted(workbench.CASES):
             with self.subTest(case=case):
