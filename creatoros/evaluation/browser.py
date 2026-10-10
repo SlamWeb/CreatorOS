@@ -433,6 +433,12 @@ class BrowserEvaluation:
             self.report["error"] = self.report["error"] or {"kind": "browser_or_model",
                 "message": browser.get("error") or doc.get("error") or "浏览器/模型结束断言未全部通过。"}
         self.report["session_id"] = doc.get("id")
+        if browser.get("delivery", {}).get("protocol") == "host-links-v1":
+            from .navigation import navigation_result
+            delivered = navigation_result(doc, browser["delivery"], self.case["id"], completed)
+            write_json(self.root / "delivery.json", delivered)
+            self.report["delivery"] = {"protocol": "host-links-v1", "status": delivered["status"],
+                "evidence": "delivery.json", "model_prose_changed": False}
         self.chain_status = self.report["auto_status"]
         self.chain_task_status = self.report["dimensions"]["task_success"]
         self.report["checks"].append({"id": "browser_eval_view", "label": "浏览器 Eval 末端结果显示",

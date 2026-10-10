@@ -132,6 +132,66 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
     browser.trace_visible = true;
     steps.push("点击回复 Trace：真实请求快照可读取");
     await page.getByRole("button", { name: "关闭 Trace" }).click();
+    // New delivery protocol: actual host references and clicks, not a Markdown
+    // string comparison. The original answer/grader still retain model prose.
+    if (process.env.CREATOROS_EVAL_MANIFEST) {
+      const docResponse = await request.get(`/api/agent/sessions/${browser.session_id}`);
+      expect(docResponse.ok()).toBe(true);
+      const doc = await docResponse.json();
+      const answer = doc.entries.filter((entry: { kind: string; complete?: boolean }) => entry.kind === "assistant" && entry.complete).at(-1);
+      const links = (answer?.links ?? []) as Array<{ url: string; label: string; source_tool: string }>;
+      const navigation = page.locator(".account-chat-panel .chat-reply").last().getByRole("navigation", { name: "本轮任务入口" });
+      const hrefs = await navigation.getByRole("link").evaluateAll(elements => elements.map(element => element.getAttribute("href")));
+      expect(hrefs).toEqual(links.map(link => link.url));
+      const reads: Array<Record<string, unknown>> = [];
+      const delivery = { protocol: "host-links-v1", host_links: links, displayed_hrefs: hrefs,
+        checked: reads, additional_turn_posts: 0 };
+      browser.delivery = delivery;
+      const postsBefore = Number(browser.turn_posts);
+      for (const link of links) {
+        const target = new URL(link.url, page.url());
+        const [kind, resourceId] = target.pathname.slice(1).split("/");
+        expect(["series", "runs"]).toContain(kind);
+        const response = await request.get(`/api/${kind}/${resourceId}`);
+        expect(response.ok()).toBe(true);
+        const resource = await response.json();
+        expect(resource.creator_id).toBe(scenario.creator_id);
+        const researchId = target.searchParams.get("research");
+        let research: { series_id: string; status: string; candidates: Array<{ id: string; title: string }> } | null = null;
+        if (researchId) {
+          const batchResponse = await request.get(`/api/topic-research/${researchId}`);
+          expect(batchResponse.ok()).toBe(true);
+          research = await batchResponse.json();
+          expect(research!.series_id).toBe(resourceId);
+        }
+        await navigation.getByRole("link").nth(links.indexOf(link)).click();
+        await expect(page).toHaveURL(url => kind === "series"
+          ? url.pathname === "/" && url.searchParams.get("series") === resourceId
+            && Array.from(target.searchParams).every(([key, value]) => url.searchParams.get(key) === value)
+          : url.href === target.href);
+        await expect(page.getByRole("heading", { name: kind === "series" ? resource.name : resource.topic_title, exact: true })).toBeVisible();
+        if (research) {
+          const result = page.getByRole("region", { name: "选题候选" });
+          await expect(result).toBeVisible();
+          await expect(result.getByLabel("调研记录")).toHaveValue(researchId!);
+          for (const candidate of research.candidates) {
+            await expect(result.getByTestId(`candidate-${candidate.id}`).getByRole("heading", { name: candidate.title, exact: true })).toBeVisible();
+          }
+          if (["failed", "interrupted", "stale"].includes(research.status)) await expect(result.locator(".form-error").first()).toBeVisible();
+          if (research.status === "researching") await expect(result.getByRole("status")).toContainText("正在联网调研");
+        }
+        reads.push({ url: link.url, object_id: resourceId, creator_id: resource.creator_id, clicked: true,
+          destination_matches: true, destination_url: page.url(), resource_readable: true, research_id: researchId,
+          research_record_visible: !researchId || !!research, research_status: research?.status,
+          visible_candidate_count: research?.candidates.length });
+        await page.goBack();
+        // Returning restores the same lazy panel; it never sends a query.
+        if (!(await page.locator(".account-chat-panel").isVisible())) await page.getByRole("button", { name: "打开账号对话" }).click();
+        await expect(navigation.getByRole("link")).toHaveCount(links.length);
+      }
+      delivery.additional_turn_posts = Number(browser.turn_posts) - postsBefore;
+      steps.push("宿主入口实际点击、目标归属/对象/批次核对，返回同一对话零重提");
+    }
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath("reply-mobile.png"), fullPage: true });

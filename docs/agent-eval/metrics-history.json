@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-10-11",
+  "policy": "Separate program checks, delivery reading and host navigation. Do not claim a comparable success-rate uplift when collector/grader/protocol changed. Null means not evaluated.",
+  "records": [
+    {
+      "batch_id": "account-v2-20261011",
+      "phase": "baseline",
+      "protocol": "account-baseline-v2",
+      "source_commit": "57d331a",
+      "cases": 12,
+      "executions": 13,
+      "repeats_per_slot": 1,
+      "model": "deepseek-v4-flash",
+      "entrypoint": "real_frontend",
+      "program": {"passed": 6, "failed": 5, "needs_review": 2, "missing": 0, "passed_fraction": "6/13"},
+      "complete_delivery": null,
+      "deepseek_requests": 35,
+      "deepseek_total_tokens": 266781,
+      "cost_cny": null,
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654},
+      "local_summary": "data/agent-eval/batches/account-v2-20261011/baseline/summary.json",
+      "summary_sha256": "7f013bec85ff1cd399dfbf097845f3b604e1eb6ab9af127dad9726872cf2a6a4",
+      "report": "BASELINE-2026-10-11.md"
+    },
+    {
+      "batch_id": "account-v2-20261011",
+      "phase": "regression",
+      "protocol": "account-baseline-v2-errata1",
+      "source_commit": "127290f",
+      "cases": 12,
+      "executions": 13,
+      "repeats_per_slot": 1,
+      "model": "deepseek-v4-flash",
+      "entrypoint": "real_frontend",
+      "program": {"passed": 10, "failed": 3, "needs_review": 0, "missing": 0, "passed_fraction": "10/13"},
+      "delivery_reading": {
+        "evaluator": "Codex independent evidence reading",
+        "user_signed": false,
+        "passed": 8,
+        "failed": 5,
+        "passed_fraction": "8/13",
+        "passed_slots": ["E01", "E02", "E03", "E04", "E07", "E08", "E11", "E12"],
+        "failed_slots": ["E05", "E06", "E09:failed", "E09:unknown", "E10"],
+        "scope": "Main task conformity; E03/E12 copy blemishes separately noted. Not a calibrated semantic benchmark or user acceptance."
+      },
+      "host_navigation": null,
+      "deepseek_requests": 37,
+      "deepseek_total_tokens": 287691,
+      "cost_cny": null,
+      "codex_usage_included": false,
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654},
+      "comparable_to_baseline_for_resume_uplift": false,
+      "incomparability_reason": "Collector/grader errata changed between rounds; complete delivery was not assessed under an identical frozen protocol in both rounds.",
+      "local_summary": "data/agent-eval/batches/account-v2-20261011/regression/summary.json",
+      "summary_sha256": "ddb2f02180dc11353d4188596972ef8ca78713b9f3097d5d5a902fe6fef597cf",
+      "report": "REGRESSION-2026-10-11.md"
+    }
+  ]
+}

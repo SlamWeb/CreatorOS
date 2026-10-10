@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -15,6 +16,11 @@ MANIFEST = PROJECT_ROOT / "docs/agent-eval/freeze-manifest.json"
 
 
 def manifest_path(phase):
+    name = os.environ.get("CREATOROS_EVAL_MANIFEST")
+    if name:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}\.json", name):
+            raise ValueError("非法独立冻结清单名称。")
+        return MANIFEST.parent / "manifests" / name
     amended = MANIFEST.with_name("regression-manifest.json")
     return amended if phase == "regression" and amended.is_file() else MANIFEST
 
@@ -54,7 +60,7 @@ def freeze():
 
 def verify(phase):
     manifest = json.loads(manifest_path(phase).read_text(encoding="utf-8"))
-    if manifest_path(phase) != MANIFEST:
+    if manifest.get("parent_manifest_sha256") is not None:
         parent = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
         if manifest.get("parent_manifest_sha256") != parent:
             raise ValueError("勘误清单的原冻结来源不一致。")
@@ -66,6 +72,25 @@ def verify(phase):
     if mismatches:
         raise ValueError("冻结来源发生改变，拒绝付费执行：" + ", ".join(mismatches[:10]))
     return manifest
+
+
+def freeze_round(revision):
+    """A new protocol/source snapshot, not an overwrite of a historical round."""
+    if not isinstance(revision, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", revision):
+        raise ValueError("非法新轮版本。")
+    destination = MANIFEST.parent / "manifests" / f"{revision}.json"
+    if destination.exists():
+        raise ValueError("新轮冻结已存在；不得覆盖或复用旧槽。")
+    parent = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    source = hashes()
+    result = {"schema_version": 1, "revision": revision, "frozen_at": now(),
+        "source_hashes": source, "evaluator_hashes": {name: value for name, value in source.items() if evaluator_path(name)},
+        "execution_keys": parent["execution_keys"],
+        "historical_manifest_sha256": hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
+        "policy": "独立新轮，原题和历史程序判分保留；导航交付证据与模型原文分列，不追溯改判，不宣称与旧执行器严格可比。"}
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    write_json(destination, result)
+    return result
 
 
 def freeze_regression(batch_id):
@@ -130,8 +155,9 @@ def summarize(output_root, batch_id, phase):
             "execution_status": report.get("execution_status", "failed"), "usage": report.get("usage"),
             "error": report.get("error"), "checks": report.get("checks", []),
             "url": f"/eval?case={claim_record['key'].split(':')[0]}&run={claim_record['run_id']}"})
-    result = {"batch_id": batch_id, "phase": phase, "expected_executions": 13, "recorded": len(rows),
-        "missing": sorted(set(json.loads(MANIFEST.read_text(encoding="utf-8"))["execution_keys"]) - {row["key"] for row in rows}),
+    expected_keys = json.loads(manifest_path(phase).read_text(encoding="utf-8"))["execution_keys"]
+    result = {"batch_id": batch_id, "phase": phase, "expected_executions": len(expected_keys), "recorded": len(rows),
+        "missing": sorted(set(expected_keys) - {row["key"] for row in rows}),
         "counts": {status: sum(row["status"] == status for row in rows) for status in ("passed", "failed", "needs_review", "evidence_missing")},
         "runs": rows}
     write_json(directory / "summary.json", result)
@@ -179,7 +205,8 @@ def formal_guard(batch_id, snapshot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["freeze", "freeze-regression", "verify", "summary", "guard"])
+    parser.add_argument("action", choices=["freeze", "freeze-regression", "freeze-round", "verify", "summary", "guard"])
+    parser.add_argument("--revision")
     parser.add_argument("--phase", choices=["baseline", "regression"], default="baseline")
     parser.add_argument("--batch-id")
     parser.add_argument("--snapshot", choices=["before", "after"])
@@ -190,6 +217,9 @@ def main():
     elif args.action == "freeze-regression":
         result = freeze_regression(args.batch_id)
         print("另存回归勘误冻结：", result["revision"], "；原基线不重判。")
+    elif args.action == "freeze-round":
+        result = freeze_round(args.revision)
+        print("新轮独立冻结：", result["revision"])
     elif args.action == "verify":
         verify(args.phase)
         print("冻结来源校验通过：", args.phase)

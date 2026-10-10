@@ -9,6 +9,31 @@ from creatoros.evaluation import batch
 
 
 class FrozenBatchTests(unittest.TestCase):
+    def test_independent_round_preserves_old_manifest_and_claims_once(self):
+        with TemporaryDirectory() as root:
+            path, source = self.manifest(root)
+            original = path.read_bytes()
+            with patch.dict("os.environ", {"CREATOROS_EVAL_MANIFEST": "new-round.json"}), \
+                 patch.object(batch, "MANIFEST", path), patch.object(batch, "hashes", return_value=source):
+                created = batch.freeze_round("new-round")
+                self.assertEqual(created["execution_keys"], ["E01"])
+                batch.verify("baseline")
+                batch.claim(root, "fresh-batch", "baseline", "E01", None, "run")
+                with self.assertRaises(FileExistsError):
+                    batch.claim(root, "fresh-batch", "baseline", "E01", None, "retry")
+                with self.assertRaisesRegex(ValueError, "不得覆盖"):
+                    batch.freeze_round("new-round")
+                source["creatoros/web/chat.py"] = "changed"
+                with self.assertRaisesRegex(ValueError, "冻结来源"):
+                    batch.verify("baseline")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_independent_manifest_path_cannot_escape(self):
+        for name in ("../outside.json", "C:/file.json", "bad\\file.json", "bad file.json"):
+            with self.subTest(name=name), patch.dict("os.environ", {"CREATOROS_EVAL_MANIFEST": name}):
+                with self.assertRaisesRegex(ValueError, "非法独立"):
+                    batch.manifest_path("baseline")
+
     def manifest(self, root):
         path = Path(root) / "freeze-manifest.json"
         source = {"creatoros/web/chat.py": "old", "creatoros/evaluation/grader.py": "fixed"}
