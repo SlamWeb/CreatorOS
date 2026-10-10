@@ -1,5 +1,17 @@
 # 账号 Agent Eval v1
 
+## 全量基线结束与统一修复（2026-10-11，准备全量回归）
+
+- 冻结提交 `57d331a` 完成 13 个独占 baseline 槽，无缺项、无重试。原自动汇总：6 passed / 5 failed / 2 needs_review。12 项首批浏览器流程 9 passed / 3 failed；独立 E09 unknown 流程通过但任务链接失败。程序数不是语义正确率。
+- 正式数据 before/after 对账：14 表、654 文件完全不变。原报告、题目与 `freeze-manifest.json` 不改，不把自动 needs_review 改成成功。
+- 业务事实：E08 请求 10，但 Codex 原文、落盘、raw 工具与模型投影实际均为 8 条；最终开头“共 10 条”与末尾“8 条”矛盾，不是投影截断。原进度判断已向用户更正。契约需明确 requested_count 与 returned_count；E09 两变体最终目的地址不是工具真实 URL。E07 新值正确但叙述“与上次一致／修改尚未体现”矛盾，需要独立语义评估而非程序通过即正确。
+- 展示根因：E03 手机 Eval 横溢出。采集器缺口：E02 页面验收 POST 500，browser 已写而 report 未提交；错误栈缺失，不能确诊 Windows 共享冲突。E09 failed 将预期工具错误提示当作会话失败，未发第二 query。判分器缺口：E10 加粗失败标题未切段；E05 将已被实际 path_out_of_scope 拒绝的外会话路径误计为本会话归档。
+- 修复分为生产工具契约、排版、评测器勘误三组；原题意/数据库/安全标准不放宽。勘误另冻结 `regression-manifest.json`，逐项保存相对原 manifest 的改动哈希；原基线不重判，因此不做严格同执行器成功率提升声明。
+- 修复与最小回归完成并提交后，用同一 12 题／13 槽真实前端 DeepSeek 全量 regression，无自动模型重试。继续保存各轮 query、请求、工具、前后 DB/文件、公开 Codex item、最终答复与独立阅读评估。
+- 勘误版本：共享 grader e01-v4-denied-archive-targets、E10 e10-v4-counted-sections、suite account-suite-v2-denied-archive-targets；仅豁免同一实际拒绝调用的外归档目标，成功读取或其他错误不豁免。E08 原 10 条标准不放宽。
+- 采集协议 browser-evidence-v2：独立页面确认回执／诊断＋浏览器证据，主报告提交后才确认成功；报告写失败保留旧状态并返回明确 503。唯一临时文件及 WinError 5／32／33 的有界共享冲突重试不重试模型或业务动作。新增真实 Windows 共享锁释放验证，不用它倒推 E02 历史原因。
+- 本地联合 Python 168/168（135.3 秒）＋独立写证据／研究契约／宿主工具 10/10（3.3 秒）；Eval 页面与告警选择器 15/15（40.7 秒）、build/typecheck、diff check 通过。普通 UI 样本与故障注入不是模型质量成绩；正式业务库未修改。完整真实回归仍待执行。
+
 ## 12 题冻结门槛已完成（2026-10-11）
 
 - 题集 revision `account-baseline-v2`：12 题，E09 `failed/unknown` 独立执行，整轮 13 次；8 dev/4 公开阶段验收，并非盲测。

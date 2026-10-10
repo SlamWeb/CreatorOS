@@ -135,7 +135,7 @@ def set_answer(evidence, answer):
 class E10GraderTests(unittest.TestCase):
     def test_complete_pages_projection_and_scoped_failed_task_pass(self):
         result = grade_e10(e10_evidence())
-        self.assertEqual(result["grader_version"], "e10-v3-list-scope")
+        self.assertEqual(result["grader_version"], "e10-v4-counted-sections")
         self.assertEqual(result["auto_status"], "passed", result["checks"])
         for identifier in ("tool_protocol", "correct_object", "complete_filter", "failed_tasks", "task_answer"):
             self.assertEqual(check(result, identifier), "passed", identifier)
@@ -152,6 +152,27 @@ class E10GraderTests(unittest.TestCase):
         result = grade_e10(evidence)
         self.assertEqual(check(result, "complete_filter"), "passed")
         self.assertEqual(check(result, "task_answer"), "passed")
+
+    def test_counted_failed_heading_does_not_extend_the_pending_section(self):
+        for label in ("**失败任务（2 条）**", "## 失败任务(2项)", "2. 失败任务（2个）："):
+            with self.subTest(label=label):
+                evidence = e10_evidence()
+                answer = evidence["final_answer"].replace("失败任务：production failed-run（failed）",
+                    label + "\n- 生产任务「失败作品」")
+                set_answer(evidence, answer)
+                result = grade_e10(evidence)
+                self.assertEqual(check(result, "complete_filter"), "passed")
+                self.assertEqual(check(result, "task_answer"), "passed")
+                # A heading is not a permission to list arbitrary queued work.
+                set_answer(evidence, answer + "\n- 已入队排除项")
+                self.assertEqual(check(grade_e10(evidence), "task_answer"), "failed")
+
+    def test_counted_pending_heading_still_rejects_a_linked_queued_title(self):
+        evidence = e10_evidence()
+        answer = evidence["final_answer"].replace("待选标题：", "**待选标题（21 条）**").replace(
+            "待选标题 20", "待选标题 20\n失败作品 [查看运行](/runs/failed-run)")
+        set_answer(evidence, answer)
+        self.assertEqual(check(grade_e10(evidence), "complete_filter"), "failed")
 
     def test_same_failed_title_must_not_be_mixed_into_pending_list(self):
         evidence = e10_evidence()

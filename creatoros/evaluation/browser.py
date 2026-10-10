@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import logging
 from pathlib import Path
 import subprocess
 from time import monotonic
@@ -29,6 +30,9 @@ from creatoros.tools.studio import get_content_run, get_topic_research, list_cre
 from creatoros.tools.content_discussion import get_creator_tasks
 from creatoros.tools.definitions import tool_registry
 from creatoros.web.chat import ACCOUNT_TOOLS, AgentChatService
+
+
+VIEW_PROTOCOL = "browser-evidence-v2"
 
 
 class BrowserCapturedProvider(CapturedProvider):
@@ -95,11 +99,13 @@ class BrowserEvaluation:
             "dimensions": {key: "needs_review" for key in ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")},
             "evidence_files": [{"name": "source_hashes.json", "label": "Source hashes"}]}
         self.report.update(dataset_revision=dataset.get("revision"), batch_id=batch_id,
-                           phase=phase, variant=variant)
+                           phase=phase, variant=variant, collection_protocol=VIEW_PROTOCOL)
         if batch_id:
             self.report["freeze_claim"] = self.claim
         # Even environment/setup failures leave a discoverable report.
         write_json(self.root / "report.json", self.report)
+        write_json(self.root / "view_confirmation.json", {"protocol": VIEW_PROTOCOL,
+            "run_id": self.root.name, "status": "pending", "authority": "report.json.view_confirmation"})
         try:
             self.fixture = E01Fixture(self.root / "fixture", self.provider, case_id=case_id, eval_root=self.root.parent)
             self.before = self.fixture.state()
@@ -457,18 +463,44 @@ class BrowserEvaluation:
             if self.view_confirmed:
                 return redact(self.report)[0]
             ok = payload.get("completed") is True and payload.get("posts_after_refresh") == 0
-            browser = json.loads((self.root / "browser.json").read_text(encoding="utf-8"))
-            browser["eval_view"] = payload
-            write_json(self.root / "browser.json", browser)
-            check = next(row for row in self.report["checks"] if row["id"] == "browser_eval_view")
+            # Build a candidate, so a failed write cannot upgrade in-memory state
+            # or mark an uncommitted view as confirmed. The report is authoritative.
+            candidate = deepcopy(self.report)
+            check = next(row for row in candidate["checks"] if row["id"] == "browser_eval_view")
             check.update(status="passed" if ok else "failed", detail="实际打开 Eval、读取完整链路及数据库结果；刷新仍为同一 Run。" if ok else "Eval 页面验收失败：" + str(payload.get("error", "未完成")))
-            self.report["auto_status"] = self.chain_status if ok else "failed"
-            self.report["dimensions"]["task_success"] = self.chain_task_status if ok else "failed"
+            candidate["auto_status"] = self.chain_status if ok else "failed"
+            candidate["dimensions"]["task_success"] = self.chain_task_status if ok else "failed"
             if not ok:
-                self.report["execution_status"] = "failed"
-                self.report["error"] = {"kind": "browser_eval_view", "message": str(payload.get("error", "末端页面未完成"))}
-            self.report.update(finished_at=now(), elapsed_seconds=round(monotonic() - self.clock, 3))
-            write_json(self.root / "report.json", self.report)
+                candidate["execution_status"] = "failed"
+                candidate["error"] = {"kind": "browser_eval_view", "message": str(payload.get("error", "末端页面未完成"))}
+            candidate.update(finished_at=now(), elapsed_seconds=round(monotonic() - self.clock, 3))
+            candidate["view_confirmation"] = {"protocol": VIEW_PROTOCOL, "status": "committed",
+                "payload": payload, "confirmed_at": now()}
+            receipt = {"protocol": VIEW_PROTOCOL, "run_id": self.root.name,
+                "status": "submitted", "received_at": now(), "payload": payload,
+                "authority": "report.json.view_confirmation"}
+            stage = "receipt"
+            try:
+                write_json(self.root / "view_confirmation.json", receipt)
+                stage = "browser_evidence"
+                browser = json.loads((self.root / "browser.json").read_text(encoding="utf-8"))
+                browser["eval_view"] = payload
+                write_json(self.root / "browser.json", browser)
+                stage = "report_commit"
+                write_json(self.root / "report.json", candidate)
+            except Exception as error:
+                diagnostic = {**receipt, "status": "failed", "stage": stage,
+                    "error_type": type(error).__name__, "errno": getattr(error, "errno", None),
+                    "winerror": getattr(error, "winerror", None), "message": redact(str(error))[0],
+                    "failed_at": now()}
+                try:
+                    write_json(self.root / "view_confirmation.json", diagnostic)
+                except Exception as diagnostic_error:
+                    logging.getLogger(__name__).error("Eval view persistence diagnostic unavailable: %s", type(diagnostic_error).__name__)
+                return JSONResponse({"error": "eval_view_persistence_failed", "run_id": self.root.name,
+                    "stage": stage, "error_type": type(error).__name__,
+                    "message": "页面验收未提交；原报告保留，不能记为成功。"}, status_code=503)
+            self.report = candidate
             self.view_confirmed = True
             return redact(self.report)[0]
 

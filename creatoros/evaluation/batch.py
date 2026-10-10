@@ -14,20 +14,27 @@ from .run import now, write_json
 MANIFEST = PROJECT_ROOT / "docs/agent-eval/freeze-manifest.json"
 
 
+def manifest_path(phase):
+    amended = MANIFEST.with_name("regression-manifest.json")
+    return amended if phase == "regression" and amended.is_file() else MANIFEST
+
+
 def hashes(root=PROJECT_ROOT):
     paths = set(root.joinpath("creatoros").rglob("*.py"))
     for directory in ("web/src", "web/dist", "web/live-eval"):
         paths.update(path for path in root.joinpath(directory).rglob("*") if path.is_file())
     paths.update(root.joinpath("tests").glob("*account*eval*.py"))
     paths.update(root / name for name in ("docs/agent-eval/cases.json", "web/playwright.live.config.ts",
-        "web/package.json", "web/package-lock.json"))
+        "web/package.json", "web/package-lock.json", "web/e2e/eval.spec.ts",
+        "web/e2e/live-eval-alerts.spec.ts", "tests/studio_e2e_server.py"))
     return {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(paths) if path.is_file()}
 
 
 def evaluator_path(name):
     return (name.startswith(("creatoros/evaluation/", "web/live-eval/"))
-        or name.startswith("tests/") or name in {"docs/agent-eval/cases.json", "web/playwright.live.config.ts"})
+        or name.startswith("tests/") or name in {"docs/agent-eval/cases.json", "web/playwright.live.config.ts",
+            "web/e2e/eval.spec.ts", "web/e2e/live-eval-alerts.spec.ts"})
 
 
 def freeze():
@@ -46,7 +53,11 @@ def freeze():
 
 
 def verify(phase):
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = json.loads(manifest_path(phase).read_text(encoding="utf-8"))
+    if manifest_path(phase) != MANIFEST:
+        parent = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
+        if manifest.get("parent_manifest_sha256") != parent:
+            raise ValueError("勘误清单的原冻结来源不一致。")
     expected = manifest["source_hashes" if phase == "baseline" else "evaluator_hashes"]
     actual = hashes()
     if phase == "regression":
@@ -54,6 +65,36 @@ def verify(phase):
     mismatches = sorted(name for name in set(expected) | set(actual) if expected.get(name) != actual.get(name))
     if mismatches:
         raise ValueError("冻结来源发生改变，拒绝付费执行：" + ", ".join(mismatches[:10]))
+    return manifest
+
+
+def freeze_regression(batch_id):
+    """Version executor errata, never replace/regrade the original baseline."""
+    destination = MANIFEST.with_name("regression-manifest.json")
+    if destination.exists():
+        raise ValueError("已有回归勘误清单，不能覆盖。")
+    parent = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    result = summarize(PROJECT_ROOT / "data/agent-eval", batch_id, "baseline")
+    if result["missing"] or result["recorded"] != len(parent["execution_keys"]):
+        raise ValueError("完整原基线尚未结束，不能冻结勘误。")
+    for row in result["runs"]:
+        report_path = PROJECT_ROOT / "data/agent-eval" / row["run_id"] / "report.json"
+        if not json.loads(report_path.read_text(encoding="utf-8")).get("finished_at"):
+            raise ValueError("存在尚未结束的原基线槽。")
+    source = hashes()
+    case_path = "docs/agent-eval/cases.json"
+    if source.get(case_path) != parent["source_hashes"].get(case_path):
+        raise ValueError("不得修改冻结题目或其预期标准。")
+    evaluator = {name: digest for name, digest in source.items() if evaluator_path(name)}
+    changes = {name: {"before": parent["evaluator_hashes"].get(name), "after": evaluator.get(name)}
+               for name in sorted(set(parent["evaluator_hashes"]) | set(evaluator))
+               if parent["evaluator_hashes"].get(name) != evaluator.get(name)}
+    manifest = {"schema_version": 1, "revision": parent["revision"] + "-errata1", "frozen_at": now(),
+        "parent_manifest_sha256": hashlib.sha256(MANIFEST.read_bytes()).hexdigest(),
+        "source_hashes": source, "evaluator_hashes": evaluator, "execution_keys": parent["execution_keys"],
+        "evaluator_changes": changes, "baseline_batch_id": batch_id,
+        "policy": "原题目及预期标准不变；执行器/判分软件勘误另存。原基线不重判，不做严格同执行器成功率比较。"}
+    write_json(destination, manifest)
     return manifest
 
 
@@ -67,7 +108,8 @@ def claim(output_root, batch_id, phase, case_id, variant, run_id):
     directory = Path(output_root) / "batches" / batch_id / phase
     directory.mkdir(parents=True, exist_ok=True)
     record = {"batch_id": batch_id, "phase": phase, "key": key, "run_id": run_id, "started_at": now(),
-              "manifest_sha256": hashlib.sha256(MANIFEST.read_bytes()).hexdigest()}
+              "manifest_sha256": hashlib.sha256(manifest_path(phase).read_bytes()).hexdigest(),
+              "protocol_revision": manifest.get("revision")}
     # Exclusive creation: reconnecting the same server is fine, restarting the
     # paid runner for this slot is not. Abandoned attempts remain visible.
     with (directory / (key.replace(":", "-") + ".json")).open("x", encoding="utf-8") as stream:
@@ -76,6 +118,8 @@ def claim(output_root, batch_id, phase, case_id, variant, run_id):
 
 
 def summarize(output_root, batch_id, phase):
+    if not isinstance(batch_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", batch_id) or phase not in {"baseline", "regression"}:
+        raise ValueError("非法批次/阶段。")
     directory = Path(output_root) / "batches" / batch_id / phase
     rows = []
     for path in sorted(directory.glob("E*.json")):
@@ -135,7 +179,7 @@ def formal_guard(batch_id, snapshot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["freeze", "verify", "summary", "guard"])
+    parser.add_argument("action", choices=["freeze", "freeze-regression", "verify", "summary", "guard"])
     parser.add_argument("--phase", choices=["baseline", "regression"], default="baseline")
     parser.add_argument("--batch-id")
     parser.add_argument("--snapshot", choices=["before", "after"])
@@ -143,6 +187,9 @@ def main():
     if args.action == "freeze":
         result = freeze()
         print("已冻结：", result["revision"], "13 executions")
+    elif args.action == "freeze-regression":
+        result = freeze_regression(args.batch_id)
+        print("另存回归勘误冻结：", result["revision"], "；原基线不重判。")
     elif args.action == "verify":
         verify(args.phase)
         print("冻结来源校验通过：", args.phase)

@@ -32,9 +32,22 @@ def now():
 
 
 def write_json(path, value):
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(redact(value)[0], ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    temporary.replace(path)
+    # Independent temporary files cannot collide when evidence writers overlap.
+    # Windows readers may briefly deny replacement even though writing succeeded;
+    # retry only those file-sharing errors, never model/tool execution.
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(json.dumps(redact(value)[0], ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        for attempt in range(5):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError as error:
+                if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == 4:
+                    raise
+                sleep(0.01 * (2 ** attempt))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class CapturedProvider:

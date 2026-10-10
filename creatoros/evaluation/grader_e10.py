@@ -7,7 +7,7 @@ import re
 from .grader import grade_read_only
 
 
-GRADER_VERSION = "e10-v3-list-scope"
+GRADER_VERSION = "e10-v4-counted-sections"
 _FAILED_WORDS = {"failed": ("failed", "失败"), "interrupted": ("interrupted", "中断")}
 
 
@@ -84,7 +84,7 @@ def _reply_filter_scopes(answer, e10):
             label = re.sub(r"^[\d一二三四五六七八九十]+[、.．)）]\s*", "", text).strip()
             if re.match(r"^(?:全部|所有|本栏目|当前栏目)?待选(?:选题|标题|列表|内容)?(?:[（(].*?[）)])?\s*(?:[:：]|$)", label):
                 mode = explicit_mode = "pending"
-            elif re.match(r"^(?:全部|所有)?失败(?:的)?任务\s*(?:[:：]|$)", label):
+            elif re.match(r"^(?:全部|所有)?失败(?:的)?任务(?:[（(]\s*\d+\s*(?:条|项|个)?\s*[）)])?\s*(?:[:：]|$)", label):
                 mode = explicit_mode = "failed"
             has_pending_title = any(title in text for title in pending_titles)
             if has_pending_title:

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { conversationErrorAlerts, toolResultAlerts } from "./chat-alerts";
 
 test("real account Agent: frozen steps → GUI turns → state evidence → Trace → Eval", async ({ page, request }, info) => {
   const scenarioResponse = await request.get("/__live_eval__/scenario");
@@ -100,7 +101,14 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
       expect((await sent).status()).toBe(202);
     // Waiting on actual UI completion, not backend polling as the acceptance endpoint.
     await expect(panel.locator(".agent-composer [role=status]")).toContainText("可以继续对话", { timeout: scenario.case_id === "E08" ? 1_860_000 : 180_000 });
-    await expect(panel.getByRole("alert")).toHaveCount(0);
+    await expect(conversationErrorAlerts(panel)).toHaveCount(0);
+    const resultAlerts = toolResultAlerts(panel);
+    if (scenario.case_id === "E09" && scenario.variant === "failed") {
+      // Verify the error card was not hidden to make the evaluator pass.
+      await expect(resultAlerts.first()).toBeVisible();
+    }
+    const alertEvidence = (browser.tool_result_alerts ??= []) as Array<{ query: string; texts: string[] }>;
+    alertEvidence.push({ query: step.text, texts: await resultAlerts.allTextContents() });
     const final = panel.locator(".chat-answer").last();
     await expect(final).toBeVisible();
     browser.visible_reply = await final.innerText();
@@ -163,8 +171,11 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
       }
       const view = await request.post("/__live_eval__/view", { data: { run_id: report.run_id,
         completed: !viewError, error: viewError, posts_after_refresh: browser.posts_after_refresh } });
-      expect(view.ok()).toBe(true);
-      const finalReport = await view.json();
+      const viewBody = await view.text();
+      await info.attach("view-confirmation-response.json", { body: JSON.stringify({
+        status: view.status(), body: viewBody }, null, 2), contentType: "application/json" });
+      expect(view.ok(), viewBody).toBe(true);
+      const finalReport = JSON.parse(viewBody);
       await info.attach("final-report.json", { body: JSON.stringify(finalReport, null, 2), contentType: "application/json" });
       expect(viewError).toBe("");
       // A completed browser flow can reveal a failed model task. Preserve that

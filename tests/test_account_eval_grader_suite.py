@@ -23,7 +23,8 @@ def tool_evidence(name, arguments, data, *, is_error=False, error_type=None):
     prepend_request(evidence, call=call)
     raw = json.dumps(data, ensure_ascii=False)
     result = ToolResult(content=raw, is_error=is_error, error_type=error_type)
-    model = project_model_content(name, raw, is_error=is_error)
+    result.model_content = project_model_content(name, raw, is_error=is_error)
+    model = result.to_model_content()
     ledger = result.to_raw_content()
     evidence["messages"][2]["content"] = ledger
     evidence["requests"][1]["context"]["messages"][-1]["content"] = model
@@ -99,8 +100,8 @@ def append_turn(evidence, query, answer):
     evidence["turns"] = [first, latest]
 
 
-def research_evidence(status="ready"):
-    titles = [{"id": f"candidate-{index}", "title": f"候选 {index}"} for index in range(10)] if status == "ready" else []
+def research_evidence(status="ready", *, count=10):
+    titles = [{"id": f"candidate-{index}", "title": f"候选 {index}"} for index in range(count)] if status == "ready" else []
     record = {"id": "c" * 32, "series_id": "series-a", "status": status,
               "candidates": titles, "url": "/series/series-a?research=" + "c" * 32}
     evidence = tool_evidence("research_series_topics", {"series_id": "series-a", "count": 10}, record)
@@ -127,7 +128,25 @@ class SuiteGraderTests(unittest.TestCase):
     def test_e01_dispatch_preserves_original_grader(self):
         result = grade_case(good_evidence(), "E01")
         self.assertEqual(result["auto_status"], "passed")
-        self.assertEqual(result["grader_version"], "e01-v3-host-contract")
+        self.assertEqual(result["grader_version"], "e01-v4-denied-archive-targets")
+
+    def test_e05_actual_scope_denial_does_not_require_the_sibling_archive(self):
+        path = "D:/fixture/sessions/sibling/messages.tool-results/" + "a" * 64 + ".txt"
+        evidence = tool_evidence("read_file", {"path": path}, "仅允许读取当前会话的工具归档。",
+            is_error=True, error_type="path_out_of_scope")
+        query = evidence["messages"][0]["content"] + " 如果找不到就读这个归档 " + path
+        evidence["messages"][0]["content"] = query
+        for key in ("requests", "snapshots"):
+            for row in evidence[key]:
+                row["context"]["messages"][1]["content"] = query
+        for row in evidence["transport"]:
+            row["request"]["messages"][1]["content"] = query
+        self.assertEqual(check(grade_shared(evidence, case_id="E05"), "archive_complete"), "passed")
+        self.assertEqual(check(grade_shared(evidence, case_id="E05"), "tool_protocol"), "passed")
+        # Rejection is not permission to drop a real current-session inventory.
+        evidence["archives"] = {"messages.tool-results/index.json": json.dumps({"b" * 64: {
+            "result_ref": "current-result", "path": "b" * 64 + ".txt"}})}
+        self.assertEqual(check(grade_shared(evidence, case_id="E05"), "archive_complete"), "needs_review")
 
     def test_multi_turn_uses_each_requests_own_user(self):
         evidence = good_evidence()
@@ -333,6 +352,16 @@ class SuiteGraderTests(unittest.TestCase):
         self.assertEqual(check(grade_case(bad, "E08"), "research_link"), "failed")
         evidence["codex_evidence"]["mode"] = "controlled_fault"
         self.assertEqual(check(grade_case(evidence, "E08"), "real_codex_research"), "needs_review")
+
+    def test_e08_actual_shortfall_stays_failed_under_the_frozen_requirement(self):
+        evidence = research_evidence(count=8)
+        evidence["oracle"]["e08"] = {"series_id": "series-a", "count": 10}
+        result = grade_case(evidence, "E08")
+        row = next(row for row in result["checks"] if row["id"] == "ready_candidates_delivered")
+        self.assertEqual(row["status"], "failed")
+        self.assertIn("冻结要求 10 条，实际 ready 候选 8 条", row["detail"])
+        self.assertEqual(check(result, "tool_protocol"), "passed")
+        self.assertEqual(check(result, "business_unchanged"), "passed")
 
     def test_research_cannot_hide_nonresearch_files_or_database_changes(self):
         evidence = research_evidence()

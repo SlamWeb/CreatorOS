@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from creatoros.evaluation.grader import grade_e01
+from creatoros.evaluation.grader import _archives_valid, _denied_archive_paths, grade_e01
 from creatoros.storage import Base
 from creatoros.tools.definitions import tool_registry
 from creatoros.tools.host_contract import model_tool_schemas
@@ -123,7 +123,7 @@ class GraderTests(unittest.TestCase):
                 evidence["probe"]["content"] = json.dumps({"items": [{"id": fixture.creator_a}], "page": {"total": 1, "offset": 0, "limit": 100}})
                 result = grade_e01(evidence)
                 self.assertEqual(result["auto_status"], "passed", result)
-                self.assertEqual(result["grader_version"], "e01-v3-host-contract")
+                self.assertEqual(result["grader_version"], "e01-v4-denied-archive-targets")
                 self.assertEqual(fixture.external_attempts, [])
             finally:
                 fixture.close()
@@ -263,6 +263,32 @@ class GraderTests(unittest.TestCase):
             modified = deepcopy(evidence)
             change(modified)
             self.assertNotEqual(grade_e01(modified)["auto_status"], "passed")
+
+    def test_refused_sibling_path_is_not_a_current_archive_obligation(self):
+        path = "D:/fixture/sessions/sibling/messages.tool-results/" + "a" * 64 + ".txt"
+        call = {"name": "read_file", "arguments": json.dumps({"path": path})}
+        denied = {"tool_call_id": "read", "is_error": True, "error_type": "path_out_of_scope"}
+        contexts = [{"messages": [{"role": "user", "content": "读这个归档 " + path},
+            {"role": "assistant", "tool_calls": [call]}]}]
+        paths = _denied_archive_paths({"read": call}, [denied])
+        self.assertEqual(paths, {path})
+        self.assertTrue(_archives_valid({}, contexts, {}, paths))
+        # An unattempted path, unrelated failure, or successful retry does not
+        # prove that this target can be excluded from artifact completeness.
+        self.assertFalse(_archives_valid({}, contexts, {}))
+        other_error = {**denied, "error_type": "read_failed"}
+        self.assertFalse(_denied_archive_paths({"read": call}, [other_error]))
+        self.assertFalse(_denied_archive_paths({"read": call}, [denied, {**denied, "is_error": False}]))
+
+    def test_denied_target_does_not_exempt_real_external_markers_or_indexes(self):
+        path = "D:/fixture/messages.tool-results/" + "a" * 64 + ".txt"
+        for content in ("[external tool result] result\n用 read_file 读取原文：" + path,
+                        "历史工具原文索引（按需 read_file，不必全部读取）：D:/fixture/messages.tool-results/index.json"):
+            with self.subTest(content=content):
+                self.assertFalse(_archives_valid({}, [{"messages": [{"role": "tool", "content": content}]}], {}, {path, path.rsplit('/', 1)[0] + '/index.json'}))
+        archives = {"messages.tool-results/index.json": json.dumps({"a" * 64: {
+            "path": "a" * 64 + ".txt", "result_ref": "read"}})}
+        self.assertFalse(_archives_valid(archives, [], {}, {path}))
 
     def test_missing_each_required_evidence(self):
         for key in good_evidence():

@@ -48,6 +48,50 @@ class FrozenBatchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             batch.claim("ignored", "../outside", "baseline", "E01", None, "run")
 
+    def test_amended_regression_keeps_baseline_and_original_criteria(self):
+        with TemporaryDirectory() as root:
+            path, source = self.manifest(root)
+            original = path.read_bytes()
+            amended = path.with_name("regression-manifest.json")
+            import hashlib
+            new_source = {**source, "creatoros/evaluation/grader.py": "parser-errata"}
+            amended.write_text(json.dumps({"parent_manifest_sha256": hashlib.sha256(original).hexdigest(),
+                "evaluator_hashes": {"creatoros/evaluation/grader.py": "parser-errata"},
+                "execution_keys": ["E01"], "revision": "same-cases-errata1"}), encoding="utf-8")
+            with patch.object(batch, "MANIFEST", path), patch.object(batch, "hashes", return_value=new_source):
+                batch.verify("regression")
+                claim = batch.claim(root, "batch-one", "regression", "E01", None, "regression")
+                self.assertEqual(claim["protocol_revision"], "same-cases-errata1")
+                with self.assertRaisesRegex(ValueError, "冻结来源"):
+                    batch.verify("baseline")
+                new_source["creatoros/evaluation/grader.py"] = "later-change"
+                with self.assertRaisesRegex(ValueError, "冻结来源"):
+                    batch.verify("regression")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_amendment_cannot_point_to_changed_parent(self):
+        with TemporaryDirectory() as root:
+            path, source = self.manifest(root)
+            path.with_name("regression-manifest.json").write_text(json.dumps({
+                "parent_manifest_sha256": "wrong", "evaluator_hashes": {}}), encoding="utf-8")
+            with patch.object(batch, "MANIFEST", path), patch.object(batch, "hashes", return_value=source):
+                with self.assertRaisesRegex(ValueError, "原冻结来源"):
+                    batch.verify("regression")
+
+    def test_amendment_rejects_incomplete_baseline_and_changed_case(self):
+        with TemporaryDirectory() as root:
+            path, source = self.manifest(root)
+            parent = json.loads(path.read_text(encoding="utf-8"))
+            parent["source_hashes"]["docs/agent-eval/cases.json"] = "original-case"
+            path.write_text(json.dumps(parent), encoding="utf-8")
+            with patch.object(batch, "MANIFEST", path), patch.object(batch, "hashes", return_value=source):
+                with patch.object(batch, "summarize", return_value={"missing": ["E01"], "recorded": 0}):
+                    with self.assertRaisesRegex(ValueError, "尚未结束"):
+                        batch.freeze_regression("batch")
+                with patch.object(batch, "summarize", return_value={"missing": [], "recorded": 1, "runs": []}):
+                    with self.assertRaisesRegex(ValueError, "冻结题目"):
+                        batch.freeze_regression("batch")
+
 
 if __name__ == "__main__":
     unittest.main()

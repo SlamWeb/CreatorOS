@@ -14,12 +14,67 @@ from fastapi.testclient import TestClient
 from creatoros.evaluation.browser import BrowserEvaluation
 from creatoros.evaluation.fixture import E01Fixture
 from creatoros.evaluation.store import EvalStore
+from creatoros.evaluation.run import write_json
 from tests.agent_studio_support import serve
 import httpx
 from time import monotonic, sleep
 
 
 class BrowserEvaluationLifecycleTests(unittest.TestCase):
+    def test_view_report_write_failure_preserves_report_and_keeps_diagnostic(self):
+        with TemporaryDirectory() as temporary:
+            host = BrowserEvaluation("E02", temporary)
+            try:
+                with TestClient(host.app) as client:
+                    host.finish({"session_id": "", "completed": False}, "http://127.0.0.1:1")
+                    original = (host.root / "report.json").read_bytes()
+                    original_memory = json.loads(json.dumps(host.report))
+                    def reject_report(path, value):
+                        if path.name == "report.json":
+                            raise PermissionError("controlled permanent report replacement failure")
+                        return write_json(path, value)
+                    with patch("creatoros.evaluation.browser.write_json", side_effect=reject_report):
+                        response = client.post("/__live_eval__/view", json={"run_id": host.root.name,
+                            "completed": True, "posts_after_refresh": 0})
+                    self.assertEqual(response.status_code, 503)
+                    self.assertEqual(response.json()["stage"], "report_commit")
+                    self.assertEqual((host.root / "report.json").read_bytes(), original)
+                    self.assertEqual(host.report, original_memory)
+                    self.assertFalse(host.view_confirmed)
+                    diagnostic = json.loads((host.root / "view_confirmation.json").read_text(encoding="utf-8"))
+                    self.assertEqual(diagnostic["status"], "failed")
+                    self.assertEqual(diagnostic["error_type"], "PermissionError")
+                    detail = EvalStore(host.root.parent).detail(host.root.name)
+                    self.assertIn("view_confirmation.json", {row["name"] for row in detail["evidence_files"]})
+                    # Explicit retry is evidence persistence only, not a user/model resubmission.
+                    response = client.post("/__live_eval__/view", json={"run_id": host.root.name,
+                        "completed": True, "posts_after_refresh": 0})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertTrue(host.view_confirmed)
+                    self.assertEqual(response.json()["view_confirmation"]["status"], "committed")
+                    self.assertIsNone(host.captured)
+            finally:
+                host.fixture.close()
+
+    def test_view_submission_is_committed_in_report_before_confirmed(self):
+        with TemporaryDirectory() as temporary:
+            host = BrowserEvaluation("E01", temporary)
+            try:
+                with TestClient(host.app) as client:
+                    host.finish({"session_id": "", "completed": False}, "http://127.0.0.1:1")
+                    response = client.post("/__live_eval__/view", json={"run_id": host.root.name,
+                        "completed": False, "posts_after_refresh": 0, "error": "controlled UI failure"})
+                    self.assertEqual(response.status_code, 200)
+                    saved = json.loads((host.root / "report.json").read_text(encoding="utf-8"))
+                    self.assertEqual(saved["view_confirmation"]["protocol"], "browser-evidence-v2")
+                    self.assertEqual(saved["view_confirmation"]["payload"]["completed"], False)
+                    self.assertEqual(saved["view_confirmation"]["status"], "committed")
+                    self.assertTrue(host.view_confirmed)
+                    self.assertEqual(saved["auto_status"], "failed")
+                    self.assertIsNone(host.captured)
+            finally:
+                host.fixture.close()
+
     def test_extra_evidence_fault_keeps_terminal_failed_report(self):
         with TemporaryDirectory() as temporary:
             host = BrowserEvaluation("E09", temporary)

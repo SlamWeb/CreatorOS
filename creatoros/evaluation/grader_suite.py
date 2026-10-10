@@ -17,7 +17,7 @@ from .grader_e02 import grade_e02
 from .grader_e10 import _decode_call, _decode_result, _markdown_link_destinations, grade_e10
 
 
-GRADER_VERSION = "account-suite-v1"
+GRADER_VERSION = "account-suite-v2-denied-archive-targets"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 QUEUE_TABLES = {"topics", "pending_operations", "operation_events", "write_receipts"}
 
@@ -404,7 +404,8 @@ def _grade_details(result, evidence, case_id, case):
             candidates = ready[-1].get("candidates", []) if ready else []
             titles = [row.get("title") for row in candidates]
             add("ready_candidates_delivered", "ready 后交付真实完整候选", len(candidates) == case.get("count", 10)
-                and all(isinstance(title, str) and title in answer for title in titles), "候选与实际 ready 原文逐项核对，不预置模型应该找出的答案。")
+                and all(isinstance(title, str) and title in answer for title in titles),
+                f"冻结要求 {case.get('count', 10)} 条，实际 ready 候选 {len(candidates)} 条；标题须逐项交付。实际不足也未满足原任务，数量解释是否准确另由独立阅读核对。")
             codex = evidence.get("codex_evidence")
             add("real_codex_research", "正常调研确实使用 Codex SDK", "passed" if isinstance(codex, dict)
                 and isinstance(codex.get("thread_id"), str) and codex.get("thread_id") and codex.get("items")

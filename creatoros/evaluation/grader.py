@@ -14,7 +14,7 @@ from creatoros.tools.model_projection import project_model_content
 from creatoros.tools.results import ToolResult
 
 
-GRADER_VERSION = "e01-v3-host-contract"
+GRADER_VERSION = "e01-v4-denied-archive-targets"
 READ_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics", "get_content_run",
     "list_producer_skills", "get_producer_skill", "get_topic_research", "read_tool_result", "read_file",
     "get_content_discussion", "get_creator_tasks"})
@@ -100,7 +100,43 @@ def _valid_state(state, oracle):
         return False
 
 
-def _archives_valid(archives, contexts, ledger_results):
+def _archive_texts(value):
+    """Decode JSON argument strings before checking referenced archive paths."""
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _archive_texts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _archive_texts(item)
+    elif isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, (dict, list)):
+            yield from _archive_texts(decoded)
+        else:
+            yield value
+
+
+def _denied_archive_paths(calls, results):
+    """A refused read target is not an artifact produced by this session."""
+    reads = {}
+    for row in results:
+        call = calls.get(row.get("tool_call_id"), {})
+        if call.get("name") != "read_file":
+            continue
+        try:
+            path = json.loads(call.get("arguments") or "{}").get("path")
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if isinstance(path, str):
+            reads.setdefault(path.replace("\\", "/"), []).append(row)
+    return {path for path, rows in reads.items() if all(row.get("is_error") is True
+        and row.get("error_type") == "path_out_of_scope" for row in rows)}
+
+
+def _archives_valid(archives, contexts, ledger_results, denied_paths=()):
     """Require actual artifact references and index inventory, not every small result."""
     try:
         indexed = set()
@@ -118,8 +154,16 @@ def _archives_valid(archives, contexts, ledger_results):
                     indexed.add(target)
         if any(name.endswith(".txt") and ".tool-results/" in name and name not in indexed for name in archives):
             return False
-        references = re.findall(r"([A-Za-z0-9_.-]+\.tool-results/(?:index\.json|[a-f0-9]{64}\.txt))",
-                                json.dumps(contexts, ensure_ascii=False))
+        references = []
+        for value in _archive_texts(contexts):
+            text = value.replace("\\", "/")
+            # Only a target with an actual path_out_of_scope result is omitted.
+            # Host-generated external-result markers and index notes remain
+            # obligations even if the same path was also refused elsewhere.
+            if not text.startswith("[external tool result] ") and "历史工具原文索引（按需 read_file，不必全部读取）：" not in text:
+                for path in denied_paths:
+                    text = text.replace(path, "")
+            references.extend(re.findall(r"([A-Za-z0-9_.-]+\.tool-results/(?:index\.json|[a-f0-9]{64}\.txt))", text))
         return all(reference in archives for reference in references)
     except (KeyError, TypeError, ValueError, AttributeError):
         return False
@@ -395,9 +439,11 @@ def grade_shared(evidence, *, case_id, allowed_write_tools=(), allow_skill_body=
         "；".join(protocol_errors) if protocol_errors else
         "部分结果没有可核对的后续模型视图。" if protocol_needs_review else f"{len(calls)} 次工具调用合法且结果完整。",
         ["messages.json", "snapshots.json"])
-    archive_valid = _archives_valid(evidence["archives"], captured_contexts, ledger_results)
+    denied_paths = _denied_archive_paths(calls_by_id, snapshot_results)
+    archive_valid = _archives_valid(evidence["archives"], captured_contexts, ledger_results, denied_paths)
     add("archive_complete", "外置原文引用与归档清单完整", "passed" if archive_valid else "needs_review",
-        "只要求实际引用和已存在 index 的文件与内容完整；小结果可不外置。", ["archives.json", "requests.json"])
+        "核对外置引用、index 与内容；实际被作用域拒绝的读取目标不属于当前归档，小结果可不外置。",
+        ["archives.json", "requests.json", "snapshots.json"])
     attempted = [call["name"] for call in calls if call.get("name") not in READ_TOOLS | frozenset(allowed_write_tools)]
     body_reads = [call["name"] for call in calls if call.get("name") == "get_producer_skill"
         and not json.loads(call.get("arguments") or "{}").get("list_files", False)] if not protocol_errors else ["参数不合法"]
