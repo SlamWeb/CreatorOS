@@ -1,5 +1,6 @@
 """Local-only v1 task-set validation; never runs an Agent or assigns eval scores."""
 from collections import Counter
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ EVENTS = {
     "concurrent_skill_edit", "replay_queue_receipt",
 }
 TOKEN = re.compile(r"\{\{([a-z_]+)\}\}")
+FAULT_CASES = {"E06", "E09", "E12"}
 
 
 def _require(condition, message):
@@ -52,8 +54,30 @@ def validate_dataset(dataset):
 
     _require(dataset.get("schema_version") == 1, "unsupported schema version")
     _require(dataset.get("dataset_id") == "creatoros-account-agent-v1", "wrong dataset id")
-    _require(dataset.get("status") == "draft_not_run" and dataset.get("scope") == "creator",
+    _require(dataset.get("status") in {"definitions_ready_not_run", "frozen_not_run"}
+             and dataset.get("scope") == "creator",
              "task-set status/scope mismatch")
+    _require(isinstance(dataset.get("revision"), str)
+             and re.fullmatch(r"account-baseline-v[2-9][0-9]*", dataset["revision"]),
+             "dataset revision missing")
+    freeze = dataset.get("freeze")
+    _require(isinstance(freeze, dict) and freeze.get("manifest") == "freeze-manifest.json",
+             "freeze metadata missing")
+    if dataset["status"] == "definitions_ready_not_run":
+        _require(freeze.get("status") == "pending_executor_validation"
+                 and freeze.get("frozen_at") is None, "premature freeze claim")
+    else:
+        try:
+            frozen_at = datetime.fromisoformat(freeze["frozen_at"].replace("Z", "+00:00"))
+        except (KeyError, TypeError, AttributeError, ValueError):
+            raise ValueError("frozen dataset needs explicit timestamp") from None
+        _require(freeze.get("status") == "frozen" and frozen_at.tzinfo is not None,
+                 "invalid freeze state")
+    policy = dataset.get("grading_policy", {})
+    _require(set(policy) == {"program", "reply", "probes", "faults", "paths", "baseline"},
+             "grading layers missing")
+    for value in policy.values():
+        _text(value, "grading policy")
     cases = dataset.get("cases")
     _require(isinstance(cases, list) and len(cases) == 12, "exactly 12 cases required")
     _require([case.get("id") for case in cases] == [f"E{i:02}" for i in range(1, 13)],
@@ -71,8 +95,25 @@ def validate_dataset(dataset):
         label = case["id"]
         _text(case.get("title"), label)
         _require(case.get("status") == "not_run", label + ": fabricated result")
+        execution = case.get("execution", {})
+        _require(set(execution) == {"entrypoint", "agent_provider", "dependency", "fault_injection", "variants"}
+                 and execution["entrypoint"] == "real_frontend"
+                 and execution["agent_provider"] == "real_deepseek", label + ": real browser/model entry missing")
+        expected_dependency = ("controlled_fault" if label in FAULT_CASES else
+                               "real_codex_research" if label == "E08" else "isolated_business")
+        _require(execution["dependency"] == expected_dependency, label + ": wrong execution layer")
+        faults = execution["fault_injection"]
+        _require(isinstance(faults, list) and bool(faults) == (label in FAULT_CASES),
+                 label + ": fault injection not explicit")
+        for fault in faults:
+            _text(fault, label + " fault")
+        _require(execution["variants"] == (["failed", "unknown"] if label == "E09" else ["default"]),
+                 label + ": variant coverage missing")
         selected = case.get("fixtures", [])
         _require(selected and all(name in fixtures for name in selected), label + ": unknown fixture")
+        if label == "E08":
+            _require("real_codex_research" in selected and "controlled_research_ready" not in selected,
+                     "E08: normal research must be real Codex")
         steps = case.get("steps", [])
         _require(steps and any(step.get("kind") == "user" for step in steps), label + ": no user input")
         for step in steps:
@@ -83,6 +124,8 @@ def validate_dataset(dataset):
                 _require(set(step) == {"kind", "name", "details"} and step["kind"] == "event"
                          and step["name"] in EVENTS, label + ": invalid control event")
                 _text(step["details"], label)
+                _require(label != "E08" or step["name"] != "release_research",
+                         "E08: cannot replace live research with controlled ready")
         checks = case.get("assertions", [])
         _require(len(checks) >= 3, label + ": incomplete checks")
         _require(len({check["id"] for check in checks}) == len(checks), label + ": duplicate assertion")
@@ -117,7 +160,9 @@ def load_dataset(path=DATASET_PATH):
 
 def main():
     dataset = load_dataset()
-    print(json.dumps({"dataset_id": dataset["dataset_id"], "cases": len(dataset["cases"]),
+    print(json.dumps({"dataset_id": dataset["dataset_id"], "revision": dataset["revision"],
+                      "freeze_status": dataset["freeze"]["status"], "cases": len(dataset["cases"]),
+                      "baseline_executions": sum(len(case["execution"]["variants"]) for case in dataset["cases"]),
                       "structure_valid": True, "model_runs": 0, "case_status": "not_run"},
                      ensure_ascii=False))
     for case in dataset["cases"]:

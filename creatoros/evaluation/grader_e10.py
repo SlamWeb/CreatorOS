@@ -7,7 +7,7 @@ import re
 from .grader import grade_read_only
 
 
-GRADER_VERSION = "e10-v2"
+GRADER_VERSION = "e10-v3-list-scope"
 _FAILED_WORDS = {"failed": ("failed", "失败"), "interrupted": ("interrupted", "中断")}
 
 
@@ -62,6 +62,54 @@ def _markdown_link_destinations(answer):
             destination = destination[1:-1]
         destinations.add(destination)
     return destinations
+
+
+def _reply_filter_scopes(answer, e10):
+    """Check list membership, not a whole-answer ban on queued-title text.
+
+    Explicit pending/failed headings give deterministic scopes. A failed title
+    associated with its authoritative link also has a valid task context. Other
+    ambiguous occurrences require reading assessment; never guess them passed.
+    No particular headings, formatting, or tool-call order are required.
+    """
+    pending_titles = {row["title"] for row in e10["pending"]}
+    failed = {row["title"]: row["url"] for row in e10["failed_tasks"]}
+    pending_status = task_status = "passed"
+    mode = None
+    explicit_mode = None
+    for paragraph in re.split(r"\n\s*\n", answer):
+        for line in paragraph.splitlines():
+            text = re.sub(r"\*\*|__|`|^\s*#+\s*", "", line).strip()
+            # Only section labels select a mode; a real title can contain these words.
+            label = re.sub(r"^[\d一二三四五六七八九十]+[、.．)）]\s*", "", text).strip()
+            if re.match(r"^(?:全部|所有|本栏目|当前栏目)?待选(?:选题|标题|列表|内容)?(?:[（(].*?[）)])?\s*(?:[:：]|$)", label):
+                mode = explicit_mode = "pending"
+            elif re.match(r"^(?:全部|所有)?失败(?:的)?任务\s*(?:[:：]|$)", label):
+                mode = explicit_mode = "failed"
+            has_pending_title = any(title in text for title in pending_titles)
+            if has_pending_title:
+                # Works for plain lists without requiring an explicit section label.
+                mode = "pending"
+            linked_failed_title = any(
+                    title in text and url in _markdown_link_destinations(line)
+                    for title, url in failed.items())
+            if linked_failed_title and has_pending_title and explicit_mode != "pending":
+                pending_status = _merge(pending_status, "needs_review")
+            if explicit_mode != "pending" and linked_failed_title and not has_pending_title:
+                mode = "failed"
+            for title in e10["excluded_queued_titles"]:
+                if title not in text:
+                    continue
+                if mode == "pending":
+                    pending_status = "failed"
+                elif mode == "failed":
+                    if title not in failed:
+                        task_status = "failed"
+                elif title in failed and failed[title] in _markdown_link_destinations(paragraph):
+                    continue
+                else:
+                    pending_status = _merge(pending_status, "needs_review")
+    return pending_status, task_status
 
 
 def _valid_oracle(evidence):
@@ -119,7 +167,7 @@ def grade_e10(evidence):
     e10 = _valid_oracle(evidence) if isinstance(evidence, dict) else None
     if e10 is None:
         add("e10_oracle", "E10 独立 oracle 完整", "needs_review",
-            "缺少合法 oracle.e10；需有超过一页的 pending、排除的 queued 标题、失败及非失败任务 ID。",
+            "缺少合法 oracle.e10；需有超过默认二十条的 pending、queued 对照、失败及非失败任务 ID。",
             ["oracle.json"])
         for key in ("task_success", "protocol_valid"):
             result.setdefault("dimensions", {})[key] = _merge(result.get("dimensions", {}).get(key, "needs_review"), "needs_review")
@@ -187,11 +235,12 @@ def grade_e10(evidence):
     answer_text = answer if isinstance(answer, str) else ""
     readable_answer = re.sub(r"\*\*|__|`", "", answer_text)
     all_titles = all(title in readable_answer for title in expected_pending.values())
-    excludes_queued = all(title not in readable_answer for title in e10["excluded_queued_titles"])
-    complete &= all_titles and excludes_queued
-    add("complete_filter", "待选标题完整翻页且未混入已入队标题",
-        "passed" if complete else "failed",
-        f"目标 {len(expected_pending)} 条；返回 {len(indexes)} 条；答复覆盖全部标题={all_titles}；未复述排除标题={excludes_queued}。",
+    pending_scope, reply_task_scope = _reply_filter_scopes(readable_answer, e10)
+    complete &= all_titles
+    filter_status = _merge("passed" if complete else "failed", pending_scope)
+    add("complete_filter", "待选标题完整覆盖且列表未混入已入队标题",
+        filter_status,
+        f"目标 {len(expected_pending)} 条；返回 {len(indexes)} 条；答复覆盖全部标题={all_titles}；待选列表范围={pending_scope}。失败任务允许使用其已入队标题；合法一次全量或分页均可。",
         ["messages.json", "snapshots.json", "answer.txt", "oracle.json"])
     task_call_ids = []
     task_rows = []
@@ -243,6 +292,7 @@ def grade_e10(evidence):
     # This evidence does not capture the test host base_url, so never infer a host.
     task_answer_ok = all(row["url"] in link_destinations for row in e10["failed_tasks"])
     task_answer_ok &= all(identifier not in answer_text for identifier in e10["nonfailed_task_ids"])
+    task_answer_ok &= reply_task_scope != "failed"
     add("failed_tasks", "读取了真实且限定栏目的失败任务", "passed" if task_scope_ok else "failed",
         f"目标失败任务 {len(failed_by_id)}；观察到 {len(observed_failed)} 个失败项；非失败对照全部存在={nonfailed_present}。",
         ["messages.json", "snapshots.json", "oracle.json"])
@@ -251,8 +301,8 @@ def grade_e10(evidence):
         ["answer.txt", "snapshots.json", "oracle.json"])
 
     dimensions = result.setdefault("dimensions", {})
-    dimensions["task_success"] = _merge(dimensions.get("task_success", "needs_review"),
-        "passed" if complete and task_scope_ok and task_answer_ok else "failed")
+    dimensions["task_success"] = _merge(dimensions.get("task_success", "needs_review"), filter_status,
+        "passed" if task_scope_ok and task_answer_ok else "failed")
     dimensions["protocol_valid"] = _merge(dimensions.get("protocol_valid", "needs_review"),
         "failed" if any(check["status"] == "failed" for check in checks
                         if check["id"] in {"correct_object", "complete_filter", "failed_tasks"}) else "passed")

@@ -20,6 +20,36 @@ from time import monotonic, sleep
 
 
 class BrowserEvaluationLifecycleTests(unittest.TestCase):
+    def test_extra_evidence_fault_keeps_terminal_failed_report(self):
+        with TemporaryDirectory() as temporary:
+            host = BrowserEvaluation("E09", temporary)
+            try:
+                with TestClient(host.app) as client:
+                    session = client.post("/api/agent/sessions", json={"creator_id": host.fixture.creator_a}).json()
+                    with patch.object(host.fixture.controls, "research_results", side_effect=ValueError("truncated SDK JSON")):
+                        report = host.finish({"session_id": session["id"], "completed": False}, "http://127.0.0.1:1")
+                    self.assertTrue(host.finished)
+                    self.assertEqual(report["execution_status"], "failed")
+                    self.assertEqual(client.get("/__live_eval__/result").status_code, 200)
+                    errors = json.loads((host.root / "collection_errors.json").read_text(encoding="utf-8"))
+                    self.assertEqual(errors[0]["error_type"], "ValueError")
+                    self.assertIsNone(host.captured)
+            finally:
+                host.fixture.close()
+
+    def test_all_frozen_scenarios_resolve_and_abandoned_runs_remain_failed(self):
+        for number in range(1, 13):
+            with self.subTest(case=number), TemporaryDirectory() as temporary:
+                host = BrowserEvaluation(f"E{number:02}", temporary)
+                try:
+                    self.assertNotIn("{{", json.dumps(host.scenario()))
+                    report = host.finish({"session_id": "", "completed": False}, "http://127.0.0.1:1")
+                    self.assertEqual(report["auto_status"], "failed")
+                    self.assertIsNone(host.captured)
+                    self.assertEqual(EvalStore(host.root.parent).detail(host.root.name)["status"], "failed")
+                finally:
+                    host.fixture.close()
+
     def test_e10_seed_is_real_paged_storage_and_failed_records(self):
         with TemporaryDirectory() as temporary:
             host = BrowserEvaluation("E10", temporary)
@@ -55,7 +85,7 @@ class BrowserEvaluationLifecycleTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.headers["content-type"], "application/json")
                     data = response.json()
-                    self.assertEqual(set(data), {"case_id", "run_id", "creator_name", "creator_id", "query"})
+                    self.assertEqual(set(data), {"case_id", "run_id", "creator_name", "creator_id", "query", "steps", "variant"})
                     self.assertEqual(data["case_id"], "E01")
                     self.assertNotIn("B_PRIVATE", json.dumps(data))
                     self.assertIsNone(host.captured)

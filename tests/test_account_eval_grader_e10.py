@@ -9,7 +9,7 @@ from creatoros.tools.model_projection import project_model_content
 from tests.test_account_eval_grader import good_evidence
 
 
-def e10_evidence():
+def e10_evidence(*, limit=20):
     evidence = good_evidence()
     series_id = "series-a"
     pending = [{"id": f"pending-{index:02}", "title": f"待选标题 {index:02}"} for index in range(21)]
@@ -23,7 +23,7 @@ def e10_evidence():
     answer = "待选标题：\n" + "\n".join(row["title"] for row in pending) + \
         "\n失败任务：production failed-run（failed）[查看运行](/runs/failed-run)；" + \
         "research failed-batch（failed）[查看调研](/series/series-a?research=failed-batch)。"
-    query = "只列当前账号四格词汇栏目的全部待选标题和失败任务；不要重复已入队标题。"
+    query = "只列当前账号四格词汇栏目的全部待选标题和失败任务；待选列表不要混入已入队标题，失败任务保留原题并给出查看入口。"
     user = {"role": "user", "content": query}
     evidence["messages"] = [user]
     first_context = deepcopy(evidence["requests"][0]["context"])
@@ -31,7 +31,7 @@ def e10_evidence():
     first_calls = [
         {"id": "series-call", "name": "list_creator_series", "arguments": "{}"},
         {"id": "pending-first", "name": "list_series_topics", "arguments": json.dumps(
-            {"series_id": series_id, "state": "pending", "offset": 0, "limit": 20})},
+            {"series_id": series_id, "state": "pending", "offset": 0, "limit": limit})},
         {"id": "pending-second", "name": "list_series_topics", "arguments": json.dumps(
             {"series_id": series_id, "state": "pending", "offset": 20, "limit": 20})},
         {"id": "tasks-call", "name": "get_creator_tasks", "arguments": json.dumps({"series_id": series_id})},
@@ -40,7 +40,7 @@ def e10_evidence():
         {"creator_id": "creator-a", "creator_name": "词汇实验室",
          "items": [{"id": series_id, "name": "四格词汇"}]},
         {"items": [{**row, "series_id": series_id, "selection_state": "pending", "status": "pending_selection"}
-                    for row in pending[:20]], "page": {"offset": 0, "limit": 20, "total": len(pending)}},
+                    for row in pending[:limit]], "page": {"offset": 0, "limit": limit, "total": len(pending)}},
         {"items": [{**row, "series_id": series_id, "selection_state": "pending", "status": "pending_selection"}
                     for row in pending[20:]], "page": {"offset": 20, "limit": 20, "total": len(pending)}},
         {"items": [
@@ -53,6 +53,10 @@ def e10_evidence():
              "series_id": series_id, "title": "仍在队列", "url": "/runs/queued-run"}],
          "summary": {"active": 1, "awaiting_approval": 0, "failed": 2}},
     ]
+    if limit >= len(pending):
+        # A legal larger page is a complete read, not proof of multi-page resume.
+        first_calls.pop(2)
+        first_results.pop(2)
     assistant_call_message = {"role": "assistant", "content": None, "tool_calls": first_calls}
     evidence["messages"].append(assistant_call_message)
     tool_messages, snapshot_results = [], []
@@ -119,13 +123,61 @@ def check(result, identifier):
     return next(row["status"] for row in result["checks"] if row["id"] == identifier)
 
 
+def set_answer(evidence, answer):
+    """Keep all recorded views consistent while changing only answer semantics."""
+    evidence["final_answer"] = answer
+    evidence["messages"][-1]["content"] = answer
+    evidence["requests"][1]["events"][0]["content"] = answer
+    evidence["snapshots"][1]["response"]["content"] = answer
+    evidence["transport"][1]["public_outputs"][0]["choices"][0]["output"]["content"] = answer
+
+
 class E10GraderTests(unittest.TestCase):
     def test_complete_pages_projection_and_scoped_failed_task_pass(self):
         result = grade_e10(e10_evidence())
-        self.assertEqual(result["grader_version"], "e10-v2")
+        self.assertEqual(result["grader_version"], "e10-v3-list-scope")
         self.assertEqual(result["auto_status"], "passed", result["checks"])
         for identifier in ("tool_protocol", "correct_object", "complete_filter", "failed_tasks", "task_answer"):
             self.assertEqual(check(result, identifier), "passed", identifier)
+
+    def test_legal_one_page_limit_100_has_same_complete_coverage(self):
+        result = grade_e10(e10_evidence(limit=100))
+        self.assertEqual(result["auto_status"], "passed", result["checks"])
+        self.assertEqual(check(result, "complete_filter"), "passed")
+
+    def test_queued_failed_title_is_allowed_in_failed_task_section(self):
+        evidence = e10_evidence()
+        set_answer(evidence, evidence["final_answer"].replace(
+            "production failed-run（failed）", "失败作品（failed）"))
+        result = grade_e10(evidence)
+        self.assertEqual(check(result, "complete_filter"), "passed")
+        self.assertEqual(check(result, "task_answer"), "passed")
+
+    def test_same_failed_title_must_not_be_mixed_into_pending_list(self):
+        evidence = e10_evidence()
+        set_answer(evidence, evidence["final_answer"].replace("待选标题 20", "待选标题 20\n失败作品"))
+        result = grade_e10(evidence)
+        self.assertEqual(check(result, "complete_filter"), "failed")
+        self.assertEqual(result["dimensions"]["task_success"], "failed")
+
+    def test_plain_task_line_with_real_link_needs_no_fixed_heading(self):
+        evidence = e10_evidence()
+        set_answer(evidence, evidence["final_answer"].replace("待选标题：\n", "").replace(
+            "失败任务：production failed-run（failed）", "失败作品（failed）"))
+        self.assertEqual(check(grade_e10(evidence), "complete_filter"), "passed")
+
+    def test_unscoped_queued_mention_is_reviewed_not_whole_answer_banned(self):
+        evidence = e10_evidence()
+        set_answer(evidence, "背景：已入队排除项。\n" + evidence["final_answer"])
+        result = grade_e10(evidence)
+        self.assertEqual(check(result, "complete_filter"), "needs_review")
+        self.assertEqual(result["dimensions"]["task_success"], "needs_review")
+
+    def test_queued_title_under_pending_heading_fails_even_with_task_link(self):
+        evidence = e10_evidence()
+        set_answer(evidence, evidence["final_answer"].replace(
+            "待选标题 20", "待选标题 20\n失败作品 [查看运行](/runs/failed-run)"))
+        self.assertEqual(check(grade_e10(evidence), "complete_filter"), "failed")
 
     def test_bad_raw_and_projected_views_fail_shared_tool_protocol(self):
         for field in ("raw_content", "content"):

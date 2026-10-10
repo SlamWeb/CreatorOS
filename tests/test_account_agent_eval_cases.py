@@ -18,6 +18,45 @@ class DatasetTests(unittest.TestCase):
     def test_canonical_twelve_cases(self):
         self.assertEqual(len(validate_dataset(self.dataset)), 12)
         self.assertTrue(all(c["status"] == "not_run" for c in self.dataset["cases"]))
+        self.assertEqual(sum(len(c["execution"]["variants"]) for c in self.dataset["cases"]), 13)
+        self.assertIn(self.dataset["freeze"]["status"], {"pending_executor_validation", "frozen"})
+
+    def test_revision_required_without_changing_historical_dataset_identity(self):
+        self.assertEqual(self.dataset["dataset_id"], "creatoros-account-agent-v1")
+        self.rejects(lambda d: d.pop("revision"))
+
+    def test_freeze_cannot_be_claimed_before_executor_validation(self):
+        def premature(d):
+            d.update(status="definitions_ready_not_run")
+            d["freeze"].update(status="frozen", frozen_at="2026-10-11T00:00:00Z")
+        self.rejects(premature)
+        def missing_timestamp(d):
+            d.update(status="frozen_not_run")
+            d["freeze"].update(status="frozen", frozen_at=None)
+        self.rejects(missing_timestamp)
+
+    def test_frozen_metadata_keeps_template_statuses_not_run(self):
+        changed = deepcopy(self.dataset)
+        changed.update(status="frozen_not_run")
+        changed["freeze"].update(status="frozen", frozen_at="2026-10-11T00:00:00Z")
+        self.assertEqual(len(validate_dataset(changed)), 12)
+        self.assertTrue(all(c["status"] == "not_run" for c in changed["cases"]))
+        self.rejects(lambda d: d.pop("grading_policy"))
+
+    def test_real_frontend_and_deepseek_are_required_for_every_case(self):
+        self.rejects(lambda d: d["cases"][0]["execution"].update(entrypoint="http_only"))
+        self.rejects(lambda d: d["cases"][0]["execution"].update(agent_provider="mock"))
+
+    def test_e08_must_not_use_controlled_research_ready(self):
+        self.rejects(lambda d: d["cases"][7]["execution"].update(dependency="controlled_fault"))
+        self.rejects(lambda d: d["cases"][7].update(fixtures=["base"]))
+        self.rejects(lambda d: d["cases"][7]["steps"].append({
+            "kind": "event", "name": "release_research", "details": "固定返回十条合成候选"}))
+
+    def test_fault_cases_and_both_e09_variants_are_explicit(self):
+        for index in (5, 8, 11):
+            self.rejects(lambda d, index=index: d["cases"][index]["execution"].update(fault_injection=[]))
+        self.rejects(lambda d: d["cases"][8]["execution"].update(variants=["failed"]))
 
     def test_missing_case(self):
         self.rejects(lambda d: d["cases"].pop())
