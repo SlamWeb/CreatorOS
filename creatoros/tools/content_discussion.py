@@ -1,5 +1,6 @@
 """Model-facing adapters for read-only discussion and explicit revision requests."""
 from urllib.parse import quote
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,6 +36,11 @@ class CreatorTasksArgs(BaseModel):
     creator_id: str = Field(min_length=1, max_length=80, description="当前账号的真实 ID。")
     series_id: str | None = Field(default=None, min_length=1, max_length=80,
                                   description="可选真实栏目 ID，用于缩小任务范围。")
+    statuses: list[Literal["queued", "researching", "running", "producing", "validating",
+                          "ready", "completed", "awaiting_approval", "approved",
+                          "interrupted", "failed", "cancelled", "unknown", "stale"]] | None = Field(
+        default=None, min_length=1, max_length=14,
+        description="只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。")
 
 
 def discuss_content_run(run_id, request_id, revision_id, artifact_digest, message, context=None):
@@ -64,7 +70,9 @@ def request_content_revision(run_id, instruction, expected_version, context=None
         "POST", f"/api/runs/{quote(run_id, safe='')}/revisions", payload=payload), context)
 
 
-def get_creator_tasks(creator_id, series_id=None, context=None):
-    params = {"series_id": series_id} if series_id is not None else None
+def get_creator_tasks(creator_id, series_id=None, statuses=None, context=None):
+    params = {"series_id": series_id} if series_id is not None else {}
+    if statuses is not None:
+        params["statuses"] = statuses
     return _call(lambda client: client.request(
-        "GET", f"/api/creators/{quote(creator_id, safe='')}/tasks", params=params), context)
+        "GET", f"/api/creators/{quote(creator_id, safe='')}/tasks", params=params or None), context)

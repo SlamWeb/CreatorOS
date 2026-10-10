@@ -147,6 +147,56 @@ class ChatLinksTests(unittest.TestCase):
                 "content": json.dumps({"run_id": RUN, "code": "producer_busy"}), "is_error": True}), ORIGIN)
             self.assertEqual(doc["entries"][-1]["links"], [])
 
+    def test_queue_real_scoped_receipt_has_identity_on_success_and_replay(self):
+        # Actual SQLite + guarded loopback HTTP DTO, no model or production.
+        from creatoros.context import RuntimeContext
+        from creatoros.runs import ContentRunService
+        from creatoros.storage import ContentRepository, Database, upgrade_database
+        from creatoros.tools.studio import queue_topics
+        from creatoros.web.app import create_app
+        from tests.agent_studio_support import serve
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database_url = f"sqlite:///{(root / 'queue-links.db').as_posix()}"
+            upgrade_database(database_url)
+            db = Database(database_url)
+            try:
+                repo = ContentRepository(db)
+                for identity in ("a", "b"):
+                    repo.create_creator(creator_id=f"creator-{identity}", display_name=identity)
+                    repo.create_series(series_id=f"series-{identity}", creator_id=f"creator-{identity}",
+                        name=identity, description="fixture", audience="fixture", skill_name="knowledge-to-carousel")
+                chat_root = root / "chat"
+                app = create_app(database=db, chat_root=chat_root, eval_root=root / "eval",
+                    run_service=ContentRunService(db, output_root=root / "outputs"))
+                with serve(app) as base:
+                    session_id = app.state.chat.create("creator-a")["id"]
+                    context = RuntimeContext(project_root=root, studio_url=base,
+                        session_file=chat_root / session_id / "messages.json", creator_id="creator-a",
+                        agent_session_id=session_id, user_request_id="queue-link-turn")
+                    first = queue_topics(SERIES, [{"title": "回执导航测试"}], context=context)
+                    replay = queue_topics(SERIES, [{"title": "回执导航测试"}], context=context)
+                    rows = [json.loads(result.content) for result in (first, replay)]
+                    for result, row in zip((first, replay), rows):
+                        self.assertFalse(result.is_error, result.content)
+                        self.assertEqual(row["series_id"], SERIES)
+                        self.assertEqual(tool_links("queue_topics", result.content, studio_url=base),
+                            [{"url": f"/series/{SERIES}", "label": "查看栏目", "source_tool": "queue_topics"}])
+                    self.assertTrue(rows[1]["deduplicated"])
+                    self.assertEqual(rows[0]["request_id"], rows[1]["request_id"])
+                    self.assertEqual(rows[0]["topic_ids"], rows[1]["topic_ids"])
+                    self.assertEqual(len(repo.list_topics(SERIES)), 1)
+                    mismatch = rows[0] | {"url": "/series/series-b"}
+                    self.assertEqual(tool_links("queue_topics", json.dumps(mismatch), studio_url=base), [])
+                    denied = queue_topics("series-b", [{"title": "不得跨账号"}], context=context)
+                    self.assertTrue(denied.is_error)
+                    self.assertEqual(tool_links("queue_topics", denied.content, is_error=True,
+                        error_type=denied.error_type, studio_url=base), [])
+                    self.assertEqual(repo.list_topics("series-b"), ())
+            finally:
+                db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

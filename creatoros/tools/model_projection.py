@@ -173,7 +173,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result.update(_error(data))
         return result
     if tool_name == "get_creator_tasks":
-        result = _items(data, _TASK) | _pick(data, ("as_of",))
+        result = _items(data, _TASK) | _pick(data, ("as_of", "filter"))
         if "summary" in data:
             result["summary"] = _pick(data["summary"], ("active", "awaiting_approval", "failed"))
         return result

@@ -164,14 +164,14 @@ def queue_topics(series_id, topics, summary=None, context=None):
                     return ToolResult(content=json.dumps({**data, "url": f"/series/{series_id}",
                         "message": "尚未查到该次入队的成功回执，结果仍不确定；本次未重新提交。"}, ensure_ascii=False),
                         is_error=True, error_type="studio_outcome_unknown")
-                return {**data, "url": f"/series/{series_id}"}
+                return {**data, "series_id": series_id, "url": f"/series/{series_id}"}
         try:
             data = client.request("POST", path, payload=payload)
         except StudioClientError as error:
             error.details.update(request_id=request_id, series_id=series_id,
                                  receipt_url=f"{path}/receipts/{request_id}")
             raise
-        return {**data, "url": f"/series/{series_id}",
+        return {**data, "series_id": series_id, "url": f"/series/{series_id}",
                 "message": "已入队。"}
     return _call(submit, context)
 

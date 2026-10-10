@@ -1,5 +1,6 @@
 """Read-only task summaries projected from existing CreatorOS records."""
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -29,7 +30,11 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
     router = APIRouter()
 
     @router.get("/api/creators/{creator_id}/tasks")
-    def list_creator_tasks(creator_id: str, series_id: str | None = Query(default=None, min_length=1)):
+    def list_creator_tasks(creator_id: str, series_id: str | None = Query(default=None, min_length=1),
+                          statuses: list[Literal["queued", "researching", "running", "producing", "validating",
+                                                 "ready", "completed", "awaiting_approval", "approved",
+                                                 "interrupted", "failed", "cancelled", "unknown", "stale"]]
+                          | None = Query(default=None, min_length=1, max_length=14)):
         with db.session() as session:
             creator = session.get(Creator, creator_id)
             if creator is None or not creator.is_active:
@@ -116,10 +121,13 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
                 "last_activity_at": _iso(record.get("last_activity_at")),
             })
 
+        if statuses is not None:
+            items = [item for item in items if item["status"] in statuses]
         items.sort(key=lambda item: item["updated_at"] or "", reverse=True)
-        statuses = [item["status"] for item in items]
+        item_statuses = [item["status"] for item in items]
         return {
             "items": items,
+            "filter": {"series_id": series_id, "statuses": statuses},
             "summary": {
                 # A production queued revision awaits an explicit Execute action;
                 # it is not a live worker and must not trigger endless UI polling.
@@ -127,8 +135,8 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
                               (item["kind"] != "production" and item["status"] == "queued")
                               for item in items),
                 "awaiting_approval": sum(status == ContentRunStatus.AWAITING_APPROVAL.value
-                                          for status in statuses),
-                "failed": sum(status in _FAILED for status in statuses),
+                                          for status in item_statuses),
+                "failed": sum(status in _FAILED for status in item_statuses),
             },
             "as_of": datetime.now(timezone.utc).isoformat(),
         }
