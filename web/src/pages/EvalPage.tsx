@@ -195,6 +195,7 @@ export function EvalPage() {
   const overview = useQuery({ queryKey: ["eval", "overview"], queryFn: ({ signal }) => evalApi.overview(signal), ...readOptions });
   const caseId = params.get("case") ?? overview.data?.cases[0]?.id ?? "";
   const selected = overview.data?.cases.find(item => item.id === caseId);
+  const command = selected ? `npm --prefix web run ${overview.data?.dataset_id === "creatoros-workbench-v1" ? "eval:workbench" : "eval:live"} -- --project ${selected.id}` : "";
   const runs = useQuery({ queryKey: ["eval", "runs", caseId], queryFn: ({ signal }) => evalApi.runs(caseId, signal), enabled: !!selected, ...readOptions });
   const runId = params.get("run") ?? runs.data?.items[0]?.run_id ?? "";
   const report = useQuery({ queryKey: ["eval", "run", runId], queryFn: ({ signal }) => evalApi.report(runId, signal), enabled: !!selected && !!runId, ...readOptions });
@@ -211,7 +212,7 @@ export function EvalPage() {
 
   async function copyCommand() {
     if (!selected) return;
-    try { await navigator.clipboard.writeText(`npm --prefix web run eval:live -- --project ${selected.id}`); setCopyNotice("命令已复制。"); }
+    try { await navigator.clipboard.writeText(command); setCopyNotice("命令已复制。"); }
     catch { setCopyNotice("复制失败，可直接选择并复制命令文本。"); }
   }
   return <div className="eval-page">
@@ -230,7 +231,7 @@ export function EvalPage() {
         {!selected ? <p className="eval-muted">题目不存在，请从列表中选择。</p> : <>
           <header className="eval-case-detail-heading"><h2>{selected.title}</h2><span className="eval-case-id">{selected.id} · {selected.split === "dev" ? "开发题" : "阶段验收题"}</span></header>
           <CaseDefinition key={selected.id} definition={selected.definition} />
-          <div className="eval-executor"><code>npm --prefix web run eval:live -- --project {selected.id}</code><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={14} /></button></div>
+          <div className="eval-executor"><code>{command}</code><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={14} /></button></div>
           {copyNotice && <p className="eval-muted" role="status">{copyNotice}</p>}
           <section className="eval-history" aria-label="历史运行"><div className="eval-section-heading"><h3>历史运行</h3><span>{runs.data?.items.length ?? selected.run_count} 次</span></div>
             {runs.isPending && <p className="eval-muted" role="status">正在读取历史运行…</p>}

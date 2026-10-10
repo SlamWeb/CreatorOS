@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "dataset_id": "creatoros-workbench-v1",
+  "revision": "workbench-slice-v1",
+  "status": "wired_not_run",
+  "cases": [
+    {
+      "id": "A14", "title": "用完整单 Skill 创建当前账号栏目", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "用「四格辨词」这个完整 Skill 建个栏目「每日辨词」，面向高中英语学习者。"}],
+      "assertions": [
+        {"id": "series_created", "pass": "只新增一个归属当前账号的每日辨词栏目，绑定指定完整 Skill，受众为高中英语学习者。", "evidence": ["before.json", "after.json", "oracle.json", "messages.json"]},
+        {"id": "gui_delivery", "pass": "原页面发送一次、完整回复、Trace、真实栏目入口与绑定 Skill详情、刷新零重提。", "evidence": ["browser.json", "network.json"]}
+      ],
+      "manual_checks": ["独立阅读最终答复与工具事实，不把创建栏目说成已调研或生产。"]
+    },
+    {
+      "id": "S13", "title": "多 Skill 融合保留资源与源件", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "把双语辨词方法与浅蓝漫画融合，先给草稿，保留来源资源，不直接入库。"}],
+      "assertions": [
+        {"id": "draft_and_sources", "pass": "原组合框提交一次真实 Codex融合；草稿可见可编辑、安全来源按命名空间保留、同名资产不覆盖、源件不变。", "evidence": ["sdk.json", "source_manifest.json", "before.json", "after.json", "browser.json"]},
+        {"id": "no_adoption", "pass": "确认前库、栏目、选题、Run不新增；刷新不重复提炼；没有生图或发布。", "evidence": ["before.json", "after.json", "network.json", "sdk.json"]}
+      ],
+      "manual_checks": ["独立阅读融合方法是否保留双方核心要求；文件合法不等于融合质量达标。"]
+    },
+    {
+      "id": "P01", "title": "单 Skill 一图真实端到端生产", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "给「每日辨词」新增 bring/take/fetch/carry 选题并生产，只要一张四格中英双语漫画，不额外标题，不发布。"}],
+      "assertions": [
+        {"id": "production_complete", "pass": "GUI真实 DeepSeek入队和委派真实 Codex；一条 Topic/Run/Revision，一张本轮生成且可解码真图，最终 awaiting_approval，未发布。", "evidence": ["messages.json", "before.json", "after.json", "sdk.json", "outputs.json", "browser.json"]},
+        {"id": "consistent_delivery", "pass": "thread/turn完成回执、native checkpoint、Prompt、Skill快照、图片摘要、网页终态一致；刷新/返回不重提。", "evidence": ["sdk.json", "outputs.json", "browser.json", "network.json"]}
+      ],
+      "manual_checks": ["看真实图片，独立检查四词双语准确、场景对应、无额外标题；与链路成功分列。"]
+    },
+    {
+      "id": "P02", "title": "双 Skill 三页连续内容真实生产", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "给「问题教学×小白图解」栏目新增选题：一次带幂等键的订单写入请求如何提交、重试和避免重复副作用。面向零基础读者，做三张连续图并生产，不发布。"}],
+      "assertions": [
+        {"id": "three_real_images", "pass": "原账号GUI真实DeepSeek→真实Codex单thread，三个有序新图均可解码，逐图HTTP与磁盘SHA一致，只有一条业务Run，待批准未发布。", "evidence": ["before.json", "after.json", "sdk.json", "outputs.json", "browser.json"]},
+        {"id": "pair_sources", "pass": "正确双绑定、冻结两源与组合协调；原前端逐图翻页、Prompt、刷新及栏目封面均可读。合成配色参考不是角色原图，不能虚称参考角色已核对。", "evidence": ["after.json", "outputs.json", "browser.json", "network.json"]}
+      ],
+      "manual_checks": ["独立阅读三页为什么/机制/边界、页间因果、角色一致性和事实；可读取与内容质量分列。"]
+    }
+  ]
+}
