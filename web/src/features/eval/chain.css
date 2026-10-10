@@ -10,6 +10,8 @@
 .eval-chain-step { position: relative; padding: 20px 0 24px 36px; border-top: 1px solid var(--line); min-width: 0; counter-increment: execution-step; }
 .eval-chain-step::before { content: counter(execution-step); position: absolute; left: 0; top: 21px; color: var(--muted); font-size: 11px; line-height: 1.7; font-variant-numeric: tabular-nums; }
 .eval-chain-step-heading { margin-bottom: 12px; }
+.eval-chain-step > ol { padding-left: 22px; font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+.eval-chain-step > ol > li { margin-bottom: 8px; }
 .eval-chain-step-heading h4 { font-size: 15px; font-weight: 600; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
 .eval-chain-text { min-width: 0; }
 .eval-chain-prose, .eval-chain-code { font-family: inherit; font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; min-width: 0; max-width: 100%; }

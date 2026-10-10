@@ -21,6 +21,7 @@ function watchWrites(page: Page) {
   });
   return writes;
 }
+
 const caseButton = (page: Page, id: string) => page.getByRole("complementary", { name: "评测题目" }).getByRole("button", { name: new RegExp(id) });
 const evidenceBlock = (page: Page) => page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: /完整请求与工具结果/ }) });
 
@@ -64,7 +65,7 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   await page.getByRole("button", { name: "展开题目", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
   await caseButton(page, "E12").click();
-  await expect(page.getByText("本题尚未开放执行。", { exact: true })).toBeVisible();
+  await expect(page.getByText("npm --prefix web run eval:live -- --project E12", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
   await page.reload();
   expect(new URL(page.url()).searchParams.get("case")).toBe("E12");
@@ -463,5 +464,21 @@ test("controlled compaction: complete response is separate from streamed request
   const final = chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: "最终回复", exact: true }) });
   await expect(final).toContainText("受控最终回复");
   await expect(final).not.toContainText("受控压缩摘要");
+  expect(writes).toEqual([]);
+});
+
+test("controlled layout only: long browser queries and URLs wrap on mobile without hiding evidence", async ({ page, request }, info) => {
+  const step = `原前端点击发送：读取这批候选 ${"abcdef0123456789".repeat(12)}，保留来源 https://dictionary.cambridge.org/${"source-".repeat(35)}，不要入队。`;
+  const fixture = await (await request.post("/test/eval-runs", { data: { browser_steps: [step] } })).json() as Fixture;
+  const writes = watchWrites(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
+  const chain = page.getByRole("region", { name: "执行链路" });
+  await expect(chain.getByText(step, { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload();
+  await expect(chain.getByText(step, { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("eval-long-browser-390.png"), fullPage: true });
   expect(writes).toEqual([]);
 });

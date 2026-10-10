@@ -112,7 +112,16 @@ function Database({ report, before, after, oracle, onEvidence, missing }: {
   const fileDifferences = compareFiles(before, after);
   const filesComplete = asRecord(asRecord(before)?.metadata)?.files_complete === true && asRecord(asRecord(after)?.metadata)?.files_complete === true;
   const expectedCounts = asRecord(asRecord(oracle)?.expected_row_counts);
-  const e01 = ["E01", "E02", "E10"].includes(report.case_id);
+  const e01 = ["E01", "E02", "E03", "E04", "E05", "E10"].includes(report.case_id);
+  const expectations: Record<string, string> = {
+    E06: "中断前授权入队仅落盘一次；恢复与同 request_id 重放不得新增选题或生产任务。",
+    E07: "控制事件更新受众与版本，页面新增一条选题；Agent 只查看，不覆盖或额外入队。",
+    E08: "仅新增同一调研批次与候选文件；不创建入队选题或生产任务，不自动重提。",
+    E09: "仅新增同一受控失败／未知调研批次；查询不重提，不入队、不生产。",
+    E11: "两条指定选题按用户顺序入队；精确核对正文、回执和实际 ID，重复请求零新增。",
+    E12: "仅修改授权 Skill 正文并保留并发段落；其他文件、数据库与历史 Run 冻结版本不变。",
+  };
+  const expected = asRecord(oracle);
   const changed = differences?.filter(item => item.same === false) ?? [];
   const unknown = differences?.filter(item => item.same === null) ?? [];
   const important = new Set(["creators", "series", "topics"]);
@@ -127,7 +136,9 @@ function Database({ report, before, after, oracle, onEvidence, missing }: {
     </tr>)}</tbody>
   </table></div>;
   return <section className="eval-chain-database" aria-label="数据库预期与实际">
-    <p className="eval-chain-expectation">{e01 ? "预期：只查看；全部业务表的完整行内容和受管业务文件应与执行前一致。会话与 Trace 的正常记录不属于业务变化。" : "本题尚未实现数据库预期投影。下面仅展示前后差异，不据此判定任务正确。"}</p>
+    <p className="eval-chain-expectation">{e01 ? "预期：只查看；全部业务表的完整行内容和受管业务文件应与执行前一致。会话与 Trace 的正常记录不属于业务变化。" : expectations[report.case_id] ? `预期：${expectations[report.case_id]}` : "未记录可识别的预期；前后差异不等于判分。"}</p>
+    {expected && !e01 && <Fold label="独立预期原文"><Text value={{ expected_mutations: expected.expected_mutations,
+      case_oracle: expected[report.case_id.toLowerCase()], expected_after: expected.expected_after }} code label="独立预期" /></Fold>}
     {!differences ? <>{missing("before.json")}{missing("after.json")}<p className="eval-chain-note">数据库前后快照缺失或结构不受支持，无法比较。</p></> : differences.length === 0 ? <p className="eval-chain-note">快照中没有表，不能据此确认业务零变化。</p> : <>
       <p className={changed.length ? "eval-chain-warning" : "eval-chain-note"}>实际：{differences.length} 张表{unknown.length ? `，${unknown.length} 张无法比较` : "已比较完整行内容"}；{changed.length ? `${changed.length} 张表存在变化。` : "可比较的表均无行内容变化。"}</p>
       {primary.length > 0 && table(primary)}
@@ -138,7 +149,7 @@ function Database({ report, before, after, oracle, onEvidence, missing }: {
     </>}
     {fileDifferences ? <p className={fileDifferences.changed.length ? "eval-chain-warning" : "eval-chain-note"}>受管业务文件：执行前 {fileDifferences.before} 份 / 执行后 {fileDifferences.after} 份；{fileDifferences.changed.length ? `${fileDifferences.changed.length} 个路径的文件 hash 有变化。` : "已记录文件的 hash 一致。"}{!filesComplete && "文件采集完整性未确认，不能证明全部文件未变。"}</p> : <p className="eval-chain-note">受管文件快照未完整记录，无法比较文件内容。</p>}
     {!!fileDifferences?.changed.length && <Fold label="查看变化的文件路径"><Text value={fileDifferences.changed} code /></Fold>}
-    <Sources report={report} names={["before.json", "after.json", ...(e01 ? ["oracle.json"] : [])]} onEvidence={onEvidence} />
+    <Sources report={report} names={["before.json", "after.json", "oracle.json"]} onEvidence={onEvidence} />
     <Assessments report={report} ids={["business_unchanged"]} onEvidence={onEvidence} />
   </section>;
 }

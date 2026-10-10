@@ -62,7 +62,7 @@ def seed_skill_files():
 
 
 @app.post("/test/eval-runs")
-def seed_eval_runs():
+def seed_eval_runs(payload: dict):
     """Synthetic reports for browser tests, kept in the isolated server's eval root."""
     import json
     from tests.test_eval_store import fixture_report, save_report
@@ -73,6 +73,12 @@ def seed_eval_runs():
     report["manual_checks"] = ["核对完整原始证据、账号作用域及回复是否准确；此记录为浏览器受控夹具。"]
     report["evidence_files"][0]["label"] = "完整请求与工具结果"
     directory = save_report(root / "eval-runs", report)
+    if payload.get("browser_steps"):
+        report["entrypoint"] = "browser"
+        report["evidence_files"].append({"name": "browser.json", "label": "受控长步骤排版"})
+        (directory / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+        (directory / "browser.json").write_text(json.dumps({"steps": payload["browser_steps"],
+            "session_posts": 1, "turn_posts": 1, "posts_after_refresh": 0}, ensure_ascii=False), encoding="utf-8")
     long_text = "受控请求与工具结果原文，仅验证界面读取。" * 180 + "证据末尾验收标记。"
     (directory / "trace.json").write_text(json.dumps({"messages": [{"role": "user", "content": long_text}],
                                                     "api_key": "synthetic-e2e-value"}, ensure_ascii=False), encoding="utf-8")
