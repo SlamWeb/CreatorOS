@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## Eval 真实浏览器闭环（2026-10-10，E01/E02）
+
+- 本轮新增显式付费 `eval:live`，独立 8878/8879 真服务/SQLite/会话与真实 DeepSeek。原工作区点击账号→浮动聊天发送→完整回复→刷新同一会话→Trace→Eval→刷新同一报告；普通确定性 `e2e` 不包含该入口，正式数据/生产 Runtime 不改。
+- Eval 区分“浏览器 E2E”“后台真实模型”“受控”；E01/E02 仅给复制命令，不自动启动，其他 10 题仍未接线。浏览器请求次数与刷新零重提、全链路证据和 E02 四个实际探针可展开；模型行为与宿主探针分开。
+- 在最终回复下展示已有 `assessment.md` 的 Codex 阅读结论，不冒称用户人工签署，不修改 grader 原程序结果。E02 安全通过但错判合法批次 ID，明确不计完整任务通过；两份报告整体仍待复核。详细结果及失败记录见 `docs/agent-eval/RESULTS.md`。
+- 真实浏览器链路 **2/2（41.4 秒）**；Eval 11 + Observation 4 确定性回归 **15/15（39.4 秒）**，Python 90/90、typecheck/build 通过。确定性轨迹/故障注入不算模型质量分。测试器修复 SPA 路由、空草稿禁用按钮等待、CRLF 对账和采集 POST 锁互等，不改生产中间件。
+- 正式 8765 只读验收 E01/E02；已查看 1440×900/390×844 评估区，`web/tmp/eval-browser-20261010/e02-assessment-desktop.png`、`e02-assessment-mobile.png`；手机无页面横溢出。此前 live 截图被普通回归清理，未来 paid 输出单独置 `web/tmp/live-eval-artifacts/`；报告证据仍完整。Impeccable harden/craft-floor 用于收纳真实阅读结论与失败状态，检测为空；保留主 bundle >500 kB 警告。
+
 ## Eval 执行链路（2026-10-10，完成）
 
 - 本轮仅改 Eval React/CSS 与 UI 回归，保留配色/Logo/后端 API、判分和原报告。详细契约与结果见 `docs/agent-eval/SPEC.md`、`RESULTS.md`。

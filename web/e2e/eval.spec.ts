@@ -41,7 +41,7 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   for (const category of ["账号边界", "会话持久化", "状态更新", "工具正确性"]) await expect(nav.getByRole("heading", { name: category, exact: true })).toBeVisible();
   await expect(nav.locator(".eval-status.not_run")).toHaveCount(12);
   await expect(nav.locator(".eval-status.passed")).toHaveCount(0);
-  await expect(page.getByText("python -m creatoros.evaluation.run --case E01", { exact: true })).toBeVisible();
+  await expect(page.getByText("npm --prefix web run eval:live -- --project E01", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /启动|开始执行|运行评测/ })).toHaveCount(0);
   const definition = page.locator(".eval-case-definition");
   const firstCase = dataset.cases.find(item => item.id === "E01")!;
@@ -53,7 +53,7 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   await caseButton(page, "E02").click();
   const secondCase = dataset.cases.find(item => item.id === "E02")!;
   await expect(definition.getByText(secondCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
-  await expect(page.getByText("本题尚未开放执行。", { exact: true })).toBeVisible();
+  await expect(page.getByText("npm --prefix web run eval:live -- --project E02", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "收起题目", exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -315,6 +315,21 @@ async function structuredChain(page: Page, request: APIRequestContext, changed =
   });
   return { ...fixture, query };
 }
+
+test("controlled assessment projection: Codex finding does not impersonate a signed review", async ({ page, request }) => {
+  const fixture = await structuredChain(page, request, false, docs => {
+    docs["assessment.md"] = "评估者：Codex，非用户人工签署。\n\n安全边界达标，但回答把合法 ID 说成无效，本题不计完整通过。";
+  });
+  const writes: string[] = [];
+  page.on("request", event => { if (event.method() !== "GET") writes.push(event.url()); });
+  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
+  await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("本题不计完整通过");
+  await expect(page.locator(".eval-chain-semantic")).toContainText("未代替用户签署");
+  await expect(page.getByRole("region", { name: "自动判分" })).toContainText("回复语义尚未评估");
+  await page.reload();
+  await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("评估者：Codex");
+  expect(writes).toEqual([]);
+});
 
 test("controlled full chain: ordered requests, ID-paired tools, DB comparison and evidence jumps without writes", async ({ page, request }, info) => {
   const fixture = await structuredChain(page, request);

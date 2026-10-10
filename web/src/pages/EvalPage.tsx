@@ -154,7 +154,7 @@ function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport;
   return <div className="eval-report">
     <div className="eval-report-heading"><h3>运行结果</h3><Status value={report.status} /></div>
     <dl className="eval-run-meta">
-      <div><dt>执行</dt><dd>{report.execution_mode === "live" ? "真实模型" : "受控执行"} · {report.execution_status === "completed" ? "完成" : "失败"}</dd></div>
+      <div><dt>执行</dt><dd>{report.entrypoint === "browser" ? <span>浏览器 E2E</span> : report.execution_mode === "live" ? "后台真实模型" : "受控执行"} · {report.execution_status === "completed" ? "完成" : "失败"}</dd></div>
       <div><dt>模型</dt><dd>{report.model?.name || "未记录"}{report.model?.provider ? ` · ${report.model.provider}` : ""}</dd></div>
       <div><dt>耗时</dt><dd>{report.elapsed_seconds == null ? "未记录" : `${report.elapsed_seconds.toFixed(2)} 秒`}</dd></div>
       <div><dt>用量</dt><dd>{report.usage == null ? "未记录" : Object.entries(report.usage).map(([key, value]) => `${key}: ${value}`).join(" · ") || "未记录"}</dd></div>
@@ -210,7 +210,8 @@ export function EvalPage() {
   const reload = async () => { const result = await report.refetch(); return result.isError ? undefined : result.data; };
 
   async function copyCommand() {
-    try { await navigator.clipboard.writeText("python -m creatoros.evaluation.run --case E01"); setCopyNotice("命令已复制。"); }
+    if (!selected) return;
+    try { await navigator.clipboard.writeText(`npm --prefix web run eval:live -- --project ${selected.id}`); setCopyNotice("命令已复制。"); }
     catch { setCopyNotice("复制失败，可直接选择并复制命令文本。"); }
   }
   return <div className="eval-page">
@@ -229,12 +230,12 @@ export function EvalPage() {
         {!selected ? <p className="eval-muted">题目不存在，请从列表中选择。</p> : <>
           <header className="eval-case-detail-heading"><h2>{selected.title}</h2><span className="eval-case-id">{selected.id} · {selected.split === "dev" ? "开发题" : "阶段验收题"}</span></header>
           <CaseDefinition key={selected.id} definition={selected.definition} />
-          <div className="eval-executor">{selected.id === "E01" ? <><code>python -m creatoros.evaluation.run --case E01</code><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={14} /></button></> : <p>本题尚未开放执行。</p>}</div>
+          <div className="eval-executor">{["E01", "E02"].includes(selected.id) ? <><code>npm --prefix web run eval:live -- --project {selected.id}</code><button className="eval-copy" type="button" onClick={() => void copyCommand()} aria-label="复制执行命令"><Copy size={14} /></button></> : <p>本题尚未开放执行。</p>}</div>
           {copyNotice && <p className="eval-muted" role="status">{copyNotice}</p>}
           <section className="eval-history" aria-label="历史运行"><div className="eval-section-heading"><h3>历史运行</h3><span>{runs.data?.items.length ?? selected.run_count} 次</span></div>
             {runs.isPending && <p className="eval-muted" role="status">正在读取历史运行…</p>}
             {runs.isError ? <ReadError error={runs.error} onRetry={() => void runs.refetch()} /> : runs.data && <>
-              {runs.data.items.length > 0 ? <label className="eval-run-select">选择运行<select value={runId} onChange={event => selectRun(event.target.value)}>{!runs.data.items.some(item => item.run_id === runId) && <option value={runId}>链接中的运行</option>}{runs.data.items.map(item => <option key={item.run_id} value={item.run_id}>{runLabel(item)}</option>)}</select></label> : <div className="eval-no-runs"><h3>尚未运行</h3><p>{selected.id === "E01" ? "在终端执行命令后，刷新这里查看报告。" : "此题还没有执行器与运行报告。"}</p></div>}
+              {runs.data.items.length > 0 ? <label className="eval-run-select">选择运行<select value={runId} onChange={event => selectRun(event.target.value)}>{!runs.data.items.some(item => item.run_id === runId) && <option value={runId}>链接中的运行</option>}{runs.data.items.map(item => <option key={item.run_id} value={item.run_id}>{runLabel(item)}</option>)}</select></label> : <div className="eval-no-runs"><h3>尚未运行</h3><p>{["E01", "E02"].includes(selected.id) ? "在终端执行命令后，刷新这里查看报告。" : "此题还没有执行器与运行报告。"}</p></div>}
               <SavedErrors errors={runs.data.errors} /></>}
           </section>
           {runId && <>{report.isPending && <p className="eval-muted" role="status">正在读取运行报告…</p>}{report.isError && <ReadError error={report.error} onRetry={() => void report.refetch()} />}{report.data && (report.data.case_id !== caseId ? <p className="eval-review-error" role="alert">链接中的运行属于其他题目，请重新选择本题运行。</p> : <Report key={report.data.run_id} report={report.data} readFailed={report.isError} onSaved={saved} onReload={reload} />)}</>}

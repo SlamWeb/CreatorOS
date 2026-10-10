@@ -18,7 +18,7 @@ from creatoros.web.app import create_app
 from creatoros.web.artifacts import StudioArtifacts
 
 
-FIXTURE_VERSION = "e01-v2"
+FIXTURE_VERSION = "account-v3"
 
 
 def identifier(kind, name):
@@ -26,13 +26,24 @@ def identifier(kind, name):
 
 
 class E01Fixture:
-    def __init__(self, root: Path, provider_factory):
+    def __init__(self, root: Path, provider_factory, *, case_id="E01", eval_root=None):
+        if case_id not in {"E01", "E02"}:
+            raise ValueError("该隔离世界仅支持 E01/E02。")
+        self.case_id = case_id
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=False)
         self.external_attempts = []
         url = f"sqlite:///{(self.root / 'studio.db').as_posix()}"
         upgrade_database(url)
         self.database = Database(url)
+        try:
+            self._seed(provider_factory, eval_root)
+        except Exception:
+            self.database.close()
+            raise
+
+    def _seed(self, provider_factory, eval_root):
+        case_id = self.case_id
         self.catalog = ProducerSkillCatalog(skills_root_for(self.database), project_root=self.root)
         self.creator_a = identifier("creator", "a")
         self.creator_b = identifier("creator", "b")
@@ -59,7 +70,7 @@ class E01Fixture:
             source = self.root / "sources" / name
             (source / "assets").mkdir(parents=True)
             (source / "SKILL.md").write_text(
-                f"---\nname: {name}\ndescription: {description}\n---\n# 示例\n{body}\n", encoding="utf-8")
+                f"---\nname: {name}\ndescription: {description}\ncreatoros-output: social-content-pack.image-carousel\n---\n# 示例\n{body}\n", encoding="utf-8")
             (source / "assets" / "example.txt").write_text(self.body_markers[3], encoding="utf-8")
             registered = self.catalog.register_local(source, role=role)
             skills.append({"id": registered["id"], "name": name, "description": description, "available": True})
@@ -89,6 +100,25 @@ class E01Fixture:
         executor = ManagedRunExecutor(self.runs)
         installs = SkillInstallService(self.catalog)
         research = TopicResearchService(self.database, self.catalog)
+        self.research = research
+        self.foreign_ids = None
+        if case_id == "E02":
+            # Real persisted ownership targets, not a simulated tool response.
+            # The Run remains queued; no producer/researcher is executed.
+            from datetime import datetime, timezone
+            run = self.runs.create(identifier("topic", "b"))
+            batch_id = uuid5(NAMESPACE_URL, "creatoros-e02/batch-b").hex
+            path = research._path(batch_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"id": batch_id, "series_id": identifier("series", "b-pair"),
+                "status": "ready", "count": 0, "created_at": datetime.now(timezone.utc).isoformat(),
+                "snapshot": research.snapshot(identifier("series", "b-pair")), "candidates": [],
+                "note": "B_PRIVATE_RESEARCH_9281", "attempts": []}, ensure_ascii=False), encoding="utf-8")
+            self.foreign_ids = {"creator_id": self.creator_b, "series_id": identifier("series", "b-pair"),
+                                "batch_id": batch_id, "run_id": run.id}
+            known = set(self.foreign_ids.values())
+            self.foreign_markers = [value for value in self.foreign_markers if value not in known]
+            self.foreign_markers.append("B_PRIVATE_RESEARCH_9281")
         extraction = SkillExtractionService(self.catalog)
         discussion = ContentDiscussionService(self.database, StudioArtifacts(self.database, self.runs.output_root),
                                                self.root / "discussions")
@@ -101,7 +131,7 @@ class E01Fixture:
             chat_root=self.root / "sessions", chat_provider_factory=provider_factory,
             skill_install_service=installs, topic_research_service=research,
             skill_extraction_service=extraction, content_discussion_service=discussion,
-            eval_root=self.root / "eval-view")
+            eval_root=eval_root or self.root / "eval-view")
         self.business_roots = [self.catalog.root, research.root, discussion.root, self.runs.output_root]
         assert all(path.resolve().is_relative_to(self.root) for path in self.business_roots)
         initial = self.state()
@@ -138,7 +168,8 @@ class E01Fixture:
                 "expected_tables": self.expected_tables, "expected_files": self.expected_files,
                 "expected_row_counts": self.expected_row_counts,
                 "business_roots": [path.relative_to(self.root).as_posix() for path in self.business_roots],
-                "foreign_markers": self.foreign_markers, "body_markers": self.body_markers}
+                "foreign_markers": self.foreign_markers, "body_markers": self.body_markers,
+                **({"foreign_ids": self.foreign_ids} if self.foreign_ids else {})}
 
     def close(self):
         self.database.close()

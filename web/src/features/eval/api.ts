@@ -24,6 +24,7 @@ export interface EvalRunSummary {
   started_at?: string;
   finished_at?: string;
   execution_mode: "live" | "controlled";
+  entrypoint?: "browser";
   execution_status: "completed" | "failed";
   auto_status: EvalStatus;
   status: EvalStatus;
