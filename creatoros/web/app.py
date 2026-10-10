@@ -399,6 +399,7 @@ def create_app(
                 scope_series_id=series_id,
                 request_id=payload.request_id,
                 origin=_request_origin(request),
+                generated_topic_ids=True,
             )
         except PendingOperationError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
@@ -406,8 +407,22 @@ def create_app(
             request_id=payload.request_id,
             deduplicated=deduplicated,
             operation_id=pending.id,
-            topic_ids=topic_ids,
+            topic_ids=[topic["topic_id"] for operation in pending.plan_json["operations"]
+                       for topic in operation.get("topics", [])],
         )
+
+    @app.get("/api/series/{series_id}/queue/receipts/{request_id}")
+    def queue_receipt(series_id: str, request_id: str, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        if not 8 <= len(request_id) <= 64:
+            raise HTTPException(status_code=422, detail="无效的请求标识。")
+        if ContentRepository(db).get_series(series_id) is None:
+            raise HTTPException(status_code=404, detail="栏目不存在。")
+        try:
+            receipt = writes.pending_operations.queue_receipt(series_id, request_id)
+        except PendingOperationError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return receipt or {"request_id": request_id, "status": "unknown", "deduplicated": False}
 
     @app.post("/api/creators/{creator_id}/delete")
     def delete_creator(creator_id: str):

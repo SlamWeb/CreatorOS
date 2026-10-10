@@ -4,6 +4,7 @@ from ..ai.types import ToolCall
 from ..context import RuntimeContext
 from .definitions import tool_registry
 from .results import ToolResult
+from .host_contract import AccountArgumentRejected, bind_account_arguments
 
 
 def execute_tool_call(
@@ -33,11 +34,21 @@ def execute_tool_call(
         )
 
     try:
-        arguments = tool.parse_arguments(tool_call.arguments)
+        raw_arguments = (bind_account_arguments(tool_name, tool_call.arguments, context)
+                         if model_requested else tool_call.arguments)
+        arguments = tool.parse_arguments(raw_arguments)
         result = tool.execute(context=context, **arguments)
-        if isinstance(result, ToolResult):
-            return result
-        return ToolResult(content=str(result))
+        result = result if isinstance(result, ToolResult) else ToolResult(content=str(result))
+        if model_requested:
+            from .model_projection import project_model_content
+            # Formatting must never turn a completed write into a failed action.
+            try:
+                result.model_content = project_model_content(tool_name, result.content, is_error=result.is_error)
+            except (TypeError, ValueError, KeyError, AttributeError) as error:
+                result.details["projection_error"] = type(error).__name__
+        return result
+    except AccountArgumentRejected as error:
+        return ToolResult(content=str(error), is_error=True, error_type="agent_scope_rejected")
     except ValidationError as error:
         return ToolResult(
             content=f"工具 {tool_name} 参数无效：{error}",

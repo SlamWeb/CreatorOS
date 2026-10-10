@@ -23,6 +23,8 @@ from ..session.checkpoint import (
 )
 from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
+from ..tools.host_contract import model_tool_schemas
+from ..tools.model_projection import project_tool_messages
 from ..context import RuntimeContext
 from ..terminal import Console
 from ..events import AgentEvent
@@ -74,7 +76,7 @@ def build_model_context(
     active_messages = (
         checkpoint.project_messages(messages) if checkpoint else messages
     )
-    projected_messages = list(active_messages)
+    projected_messages = project_tool_messages(list(active_messages))
     if skill_loader is not None:
         projected_messages = skill_loader.inject_available_skills(projected_messages)
     if context_data is not None:
@@ -120,7 +122,7 @@ def run_agent(
     # The loop owns the active ledger; a caller cannot redirect tool reads elsewhere.
     runtime_context = replace(runtime_context, session_file=Path(session_file or snapshot.SESSION_FILE).resolve())
     allowed = runtime_context.allowed_tools
-    model_tools = tools if allowed is None else [t for t in tools if t["function"]["name"] in allowed]
+    model_tools = model_tool_schemas(tools, runtime_context)
     skill_loader = SkillLoader.from_defaults() if not runtime_context.archive_only_reads and (allowed is None or "read_file" in allowed) else SkillLoader([])
     # Default call shapes remain compatible with CLI hosts and existing tests.
     persist = save_messages if session_file is None else lambda messages: save_messages(messages, session_file)
@@ -173,6 +175,7 @@ def run_agent(
             state.status = "running"
             task_start_turn = state.turn
             turn_id = user_request_id or uuid4().hex
+            runtime_context = replace(runtime_context, user_request_id=turn_id)
             context_data = deepcopy(context_factory()) if context_factory else None
             context_dirty = False
 
@@ -378,7 +381,7 @@ def run_agent(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
-                            "content": tool_result.to_model_content(),
+                            "content": tool_result.to_raw_content(),
                         }
                     )
                     persist(state.messages)

@@ -20,9 +20,10 @@ def controlled_provider(mode="read"):
         calls.append(kwargs)
         if mode == "error":
             raise RuntimeError("受控 SDK 连接故障，不应丢失已取得的证据。")
-        if len(calls) == 1 and mode == "read":
+        if len(calls) == 1 and mode in {"read", "bound_account"}:
             delta = {"tool_calls": [{"index": 0, "id": "call-read", "type": "function",
-                "function": {"name": "list_creators", "arguments": '{"offset":0,"limit":100}'}}]}
+                "function": {"name": "list_creator_series" if mode == "bound_account" else "list_creators",
+                             "arguments": '{}' if mode == "bound_account" else '{"offset":0,"limit":100}'}}]}
             reason = "tool_calls"
         else:
             delta = {"content": "词汇实验室包含四格词汇和双语速记；当前仅查询目录，不生产。"}
@@ -37,6 +38,21 @@ def controlled_provider(mode="read"):
 
 
 class AccountEvalRunnerTests(unittest.TestCase):
+    def test_actual_host_bound_tool_arguments_do_not_need_model_account_id(self):
+        with TemporaryDirectory() as temporary:
+            report = run_e01(temporary, provider_factory=lambda: controlled_provider("bound_account"),
+                             execution_mode="controlled")
+            self.assertEqual(report["execution_status"], "completed", report.get("error"))
+            self.assertEqual(report["auto_status"], "passed", report["checks"])
+            directory = Path(temporary) / report["run_id"]
+            requests = json.loads((directory / "requests.json").read_text(encoding="utf-8"))
+            schema = next(row for row in requests[0]["context"]["tools"]
+                          if row["function"]["name"] == "list_creator_series")
+            self.assertNotIn("creator_id", schema["function"]["parameters"]["properties"])
+            messages = json.loads((directory / "messages.json").read_text(encoding="utf-8"))
+            call = next(row["tool_calls"][0] for row in messages if row.get("tool_calls"))
+            self.assertEqual(json.loads(call["arguments"]), {})
+
     def test_actual_http_tool_loop_and_read_only_report(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary) / "reports"

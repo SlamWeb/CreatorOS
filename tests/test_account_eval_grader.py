@@ -9,6 +9,8 @@ from tempfile import TemporaryDirectory
 from creatoros.evaluation.grader import grade_e01
 from creatoros.storage import Base
 from creatoros.tools.definitions import tool_registry
+from creatoros.tools.host_contract import model_tool_schemas
+from creatoros.context import RuntimeContext
 from creatoros.web.chat import ACCOUNT_TOOLS
 from creatoros.evaluation.fixture import E01Fixture
 from creatoros.web.account_context import CreatorContextBuilder
@@ -25,7 +27,9 @@ def good_evidence():
               "expected_files": {"skills/working/skill-a/SKILL.md": digest}, "business_roots": ["skills", "research", "discussions", "outputs"],
               "foreign_markers": ["B_PRIVATE_9281"], "body_markers": ["BODY_ONLY_9281"]}
     tree = {"creator": creator, "series": oracle["series"], "skills": oracle["skills"]}
-    schemas = [tool_registry[name].to_schema() for name in sorted(ACCOUNT_TOOLS)]
+    schemas = model_tool_schemas([tool_registry[name].to_schema() for name in sorted(ACCOUNT_TOOLS)],
+        RuntimeContext(project_root=Path("."), creator_id=creator["id"],
+                       allowed_tools=ACCOUNT_TOOLS, archive_only_reads=True))
     user = {"role": "user", "content": "列出当前账号的全部栏目、定位及绑定 Skill 的名称和简介；只查看，不读正文、不写业务。"}
     context = {"messages": [{"role": "user", "content": "[宿主提供的当前账号目录；测试]\n" + json.dumps(tree, ensure_ascii=False)}, deepcopy(user)],
                "tools": schemas, "max_output_tokens": None}
@@ -117,7 +121,7 @@ class GraderTests(unittest.TestCase):
                 evidence["probe"]["content"] = json.dumps({"items": [{"id": fixture.creator_a}], "page": {"total": 1, "offset": 0, "limit": 100}})
                 result = grade_e01(evidence)
                 self.assertEqual(result["auto_status"], "passed", result)
-                self.assertEqual(result["grader_version"], "e01-v1")
+                self.assertEqual(result["grader_version"], "e01-v2-host-contract")
                 self.assertEqual(fixture.external_attempts, [])
             finally:
                 fixture.close()
@@ -166,6 +170,26 @@ class GraderTests(unittest.TestCase):
                 row["context"]["tools"] = []
             e["transport"][0]["request"]["tools"] = []
         self.rejects(change, "evidence_complete")
+
+    def test_unscoped_schema_is_not_the_account_model_contract(self):
+        def change(e):
+            schemas = [tool_registry[name].to_schema() for name in sorted(ACCOUNT_TOOLS)]
+            for row in e["requests"] + e["snapshots"]:
+                row["context"]["tools"] = deepcopy(schemas)
+            e["transport"][0]["request"]["tools"] = deepcopy(schemas)
+        self.rejects(change, "evidence_complete")
+
+    def test_host_bound_account_arguments_are_valid_but_foreign_binding_is_not(self):
+        for arguments in ('{}', '{"creator_id":"creator-a"}'):
+            evidence = good_evidence()
+            prepend_request(evidence, call={"id": "account-read", "name": "list_creator_series",
+                                           "arguments": arguments})
+            self.assertEqual(grade_e01(evidence)["auto_status"], "passed")
+        evidence = good_evidence()
+        prepend_request(evidence, call={"id": "foreign-account", "name": "list_creator_series",
+                                       "arguments": '{"creator_id":"creator-b"}'})
+        self.assertEqual(next(row["status"] for row in grade_e01(evidence)["checks"]
+                              if row["id"] == "tool_protocol"), "failed")
 
     def test_empty_or_partial_baselines(self):
         def erase(e):

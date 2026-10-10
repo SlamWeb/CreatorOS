@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 入队回执与账号工具契约（2026-10-11）
+
+- 原 POST queue 复用同一事务服务，重放的 topic_ids 改为读取首次成功计划，不返回本次未落库的随机 ID。
+- 新增只读 GET `/api/series/{series_id}/queue/receipts/{request_id}`：成功读取原回执，缺回执返回 unknown，不执行、不取消、不自动重试；Cache-Control=no-store。绑定账号同时核验栏目当前归属与回执冻结归属。
+- Web 账号模式对查询账号/创建栏目参数由宿主补齐；模型显式覆盖不同账号先拒绝，原 API Guard 继续逐资源检查。CLI 原参数兼容，未开放的账号工具不会因 Schema 投影增加。
+- 正常路径使用真实隔离 HTTP/SQLite，前端 DeepSeek 验收与故障注入分列；正式服务和正式数据未操作。验证细节见 `docs/agent-studio/web-chat/CONTRACT_RESULTS.md`。
+
 ## 账号 Agent Eval 只读接口（2026-10-10，完成）
 
 - `create_app(eval_root=...)` 注入独立报告根，默认 `data/agent-eval`；EvalStore 构造与 GET 不创建目录、不查 SDK、不调用模型/工具、不更新业务库。复用账号 guard 与本机写入限制，不引入公网权限系统。

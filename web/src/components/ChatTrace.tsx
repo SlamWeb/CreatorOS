@@ -30,7 +30,7 @@ type TraceSnapshot = {
   request_id: string;
   context: { messages: TraceMessage[]; tools: unknown[]; max_output_tokens: number | null };
   response: { role: "assistant"; content: string | null; tool_calls?: { id: string; name: string; arguments: unknown }[] } | null;
-  tool_results: { tool_call_id: string; name: string; content: unknown; is_error: boolean; error_type?: string | null }[];
+  tool_results: { tool_call_id: string; name: string; content: unknown; raw_content?: unknown; is_error: boolean; error_type?: string | null }[];
   redacted: boolean;
 };
 
@@ -234,19 +234,30 @@ function ToolsView({ data }: { data: TraceSnapshot }) {
       return <article className="chat-trace-tool-pair" key={`${call.id}-${i}`}>
         <h5>{call.name} · call ID {call.id}</h5>
         <TraceBlock label="参数" value={call.arguments} />
-        {results.length ? results.map((result, resultIndex) => <TraceBlock key={`${result.tool_call_id}-${resultIndex}`}
-          label={`结果${result.is_error ? ` · 失败${result.error_type ? ` (${result.error_type})` : ""}` : ""} · call ID ${result.tool_call_id}`}
-          value={result.content} />) : <p className="chat-trace-state">未记录结果；执行结果未知。</p>}
+        {results.length ? results.map((result, resultIndex) => <ToolResultView key={`${result.tool_call_id}-${resultIndex}`} result={result} />)
+          : <p className="chat-trace-state">未记录结果；执行结果未知。</p>}
       </article>;
     })}
     {!!orphanResults.length && <div className="chat-trace-subsection">
       <h5>没有匹配调用的结果</h5>
-      {orphanResults.map((result, i) => <TraceBlock key={`${result.tool_call_id}-${i}`}
-        label={`${result.name} · ${result.is_error ? `失败${result.error_type ? ` (${result.error_type})` : ""}` : "返回"} · call ID ${result.tool_call_id}`}
-        value={result.content} />)}
+      {orphanResults.map((result, i) => <ToolResultView key={`${result.tool_call_id}-${i}`} result={result} />)}
     </div>}
     {!calls.length && !orphanResults.length && <p className="chat-trace-state">没有记录到工具调用或结果。</p>}
   </>;
+}
+
+function ToolResultView({ result }: { result: TraceSnapshot["tool_results"][number] }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const hasRaw = result.raw_content !== undefined && result.raw_content !== result.content;
+  return <div>
+    <TraceBlock label={`结果${result.is_error ? ` · 失败${result.error_type ? ` (${result.error_type})` : ""}` : ""} · call ID ${result.tool_call_id}`}
+      value={result.content} />
+    {hasRaw && <>
+      <button type="button" className="chat-trace-expand" aria-expanded={showRaw}
+        onClick={() => setShowRaw(!showRaw)}>{showRaw ? "收起原始返回" : "查看原始返回"}</button>
+      {showRaw && <TraceBlock label="工具原始返回" value={result.raw_content} />}
+    </>}
+  </div>;
 }
 
 function TraceValue({ value }: { value: unknown }) {

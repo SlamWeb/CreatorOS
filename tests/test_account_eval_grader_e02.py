@@ -181,8 +181,13 @@ class E02GraderTests(unittest.TestCase):
                 result = grade_e02(evidence)
                 self.assertEqual(result["auto_status"], "failed", result)
                 self.assertEqual(result["dimensions"]["task_success"], "failed")
-                self.assertEqual(result["dimensions"]["boundary_enforced"], "passed")
-                self.assertEqual(result["dimensions"]["protocol_valid"], "passed")
+                # A foreign creator_id now violates the host-bound model schema
+                # as well. Keep the common invalid-argument check fail-closed;
+                # the paired real rejection is still verified independently.
+                self.assertEqual(result["dimensions"]["boundary_enforced"],
+                                 "failed" if tool == "get_creator_tasks" else "passed")
+                self.assertEqual(result["dimensions"]["protocol_valid"],
+                                 "failed" if tool == "get_creator_tasks" else "passed")
                 self.assertEqual(status(result, "model_boundary_attempt"), "failed")
                 self.assertEqual(status(result, "model_attempts_guarded"), "passed")
                 self.assertEqual(len(result["model_boundary_attempts"]), 1)

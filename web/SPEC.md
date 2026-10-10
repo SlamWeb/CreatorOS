@@ -1,5 +1,13 @@
 # CreatorOS Studio Web SPEC
 
+## 回复 Trace 结果分层（2026-10-11，完成）
+
+- 保留现有配色/布局；工具页签默认展示实际给模型的结果，原始工具返回通过独立按钮按需展开，旧快照没有原始字段时不补造。
+- 完整数据只经原 Trace GET 按需读取，不进入聊天 SSE；展开/收起及刷新不重新执行工具或调用模型。
+- Given 新投影快照，When 点击原始返回，Then 显示原真实结果；Given 历史快照，Then 原结果阅读兼容。桌面/手机检查与真实操作分别记录。
+- `reply-trace.spec.ts` 1/1、typecheck/build 通过；受控响应只验证长文、旧快照、展开/收起、零额外读取及交互，不作为模型质量分。Impeccable clarify/craft-floor 仅用于保持默认简洁、原文按需展开，单次检测为空；未改变配色或布局。
+- CUA 原网页真实 DeepSeek 查询/入队/拒绝越权/任务查询四轮完成；真实 Trace 切步骤/工具页签/原始返回、Escape 焦点返回与刷新同会话已实测。1440×900、390×844 截图位于 `tmp/live-agent-contract/20f456b32e3647cea955d5b46968feba/`，手机 document scrollWidth=375、innerWidth=390；原文代码块局部滚动不是整页溢出。报告见 `docs/agent-studio/web-chat/CONTRACT_RESULTS.md`；正式 8765 与运营数据未操作。
+
 ## Eval 真实浏览器闭环（2026-10-10，E01/E02）
 
 - 本轮新增显式付费 `eval:live`，独立 8878/8879 真服务/SQLite/会话与真实 DeepSeek。原工作区点击账号→浮动聊天发送→完整回复→刷新同一会话→Trace→Eval→刷新同一报告；普通确定性 `e2e` 不包含该入口，正式数据/生产 Runtime 不改。

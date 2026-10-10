@@ -11,13 +11,21 @@ class ToolResult:
     error_type: str | None = None
     retryable: bool = False
     details: dict[str, Any] = field(default_factory=dict)
+    model_content: str | None = None
 
     def __str__(self) -> str:
         return self.content
 
     def to_model_content(self) -> str:
+        content = self.model_content if self.model_content is not None else self.content
+        return self._with_error(content)
+
+    def to_raw_content(self) -> str:
+        return self._with_error(self.content)
+
+    def _with_error(self, content: str) -> str:
         if not self.is_error:
-            return self.content
+            return content
 
         error_type = self.error_type or "unknown_error"
-        return f"[tool_error type={error_type}]\n{self.content}"
+        return f"[tool_error type={error_type}]\n{content}"

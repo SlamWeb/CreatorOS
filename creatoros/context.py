@@ -23,6 +23,8 @@ class RuntimeContext:
     archive_only_reads: bool = False
     creator_id: str | None = None
     agent_session_id: str | None = None
+    # Host-owned user turn identity; never accepted as model tool arguments.
+    user_request_id: str | None = None
 
     @classmethod
     def from_defaults(cls):

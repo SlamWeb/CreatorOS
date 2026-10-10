@@ -156,6 +156,9 @@ def main():
                 assert snap_two["response"]["tool_calls"][0]["arguments"] == '{"offset":1,"limit":2}'
                 assert snap_one["tool_results"][0]["tool_call_id"] == REUSED_TOOL_CALL_ID
                 assert snap_two["tool_results"][0]["tool_call_id"] == REUSED_TOOL_CALL_ID
+                raw_result = snap_one["tool_results"][0]["raw_content"]
+                ledger = load_messages(chat_root / sid / "messages.json")
+                assert any(message.get("role") == "tool" and message.get("content") == raw_result for message in ledger)
                 assert snap_one["tool_results"][0]["content"] == snap_one_followup["context"]["messages"][-1]["content"]
                 assert snap_two["tool_results"][0]["content"] == client.get(snapshot_url(turn_two, rid_two_followup)).json()["context"]["messages"][-1]["content"]
 

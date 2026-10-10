@@ -326,18 +326,18 @@ class PendingOperationService:
         scope_series_id: str,
         request_id: str,
         origin: str,
+        generated_topic_ids: bool = False,
     ) -> tuple[PendingOperation, bool]:
         """A 策略：明确指令在一次事务里完成 校验→写入→审计，token 生成即消费。
 
         模型/客户端接触不到可复用的确认凭证；历史 Preview 不因"继续"获得授权。
-        同一 request_id 重放返回首次结果；执行中状态变化则整体回滚，调用方重试。
+        同一 request_id 及相同内容回放返回首次结果；执行中状态变化则整体回滚。
+        Agent 未知结果只查回执；新指令由用户另行授权，不自动重发。
         """
         with self.database.session() as session:
             existing = session.get(WriteReceipt, request_id)
             if existing is not None:
-                if existing.operation != "queue_topics":
-                    raise PendingOperationError("request_id 已被其他操作占用。")
-                return self._require(existing.response_json["operation_id"]), True
+                return self._replay_queue(existing, plan, scope_series_id, generated_topic_ids), True
 
         prepared = self._prepare(
             OperationParseResult(
@@ -354,7 +354,7 @@ class PendingOperationService:
             with self.database.session() as session:
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:
-                    return self._require(existing.response_json["operation_id"]), True
+                    return self._replay_queue(existing, plan, scope_series_id, generated_topic_ids), True
                 pending_repository = PendingOperationRepository(self.database, session=session)
                 content_repository = ContentRepository(self.database, session=session)
                 now = datetime.now(timezone.utc)
@@ -402,18 +402,59 @@ class PendingOperationService:
                     operation="queue_topics",
                     resource_id=scope_series_id,
                     origin=origin,
-                    response_json={"operation_id": pending.id, "topic_orders": receipt.topic_orders},
+                    response_json={"operation_id": pending.id, "topic_orders": receipt.topic_orders,
+                                   "creator_id": content_repository.get_series(scope_series_id).creator_id,
+                                   "generated_topic_ids": generated_topic_ids},
                 ))
                 session.flush()
                 return pending, False
         except IntegrityError:
             with self.database.session() as session:
                 existing = session.get(WriteReceipt, request_id)
-                if existing is not None and existing.operation == "queue_topics":
-                    return self._require(existing.response_json["operation_id"]), True
+                if existing is not None:
+                    return self._replay_queue(existing, plan, scope_series_id, generated_topic_ids), True
             raise PendingOperationError("写入冲突，请重试。")
         except OperationConflictError as error:
             raise PendingOperationError(f"状态已变化，请重新确认后再执行：{error}") from error
+
+    def _replay_queue(self, receipt: WriteReceipt, plan: OperationPlan, series_id: str,
+                      generated_topic_ids: bool) -> PendingOperation:
+        if receipt.operation != "queue_topics" or receipt.resource_id != series_id:
+            raise PendingOperationError("request_id 已用于其他操作或栏目，未重复写入。")
+        stored_mode = receipt.response_json.get("generated_topic_ids")
+        if stored_mode is None and generated_topic_ids:
+            # Old receipts do not prove that topic IDs were allocated by the HTTP host.
+            raise PendingOperationError("旧回执缺少入队身份模式，请查看原记录；未重新写入。")
+        if stored_mode is not None and stored_mode is not generated_topic_ids:
+            raise PendingOperationError("request_id 已用于另一种入队方式，未重新写入。")
+        pending = self._require(receipt.response_json["operation_id"])
+        original = OperationPlan.model_validate(pending.plan_json)
+        if self._queue_payload(original, generated_topic_ids) != self._queue_payload(plan, generated_topic_ids):
+            raise PendingOperationError("request_id 对应的入队内容不同，未写入新内容。")
+        return pending
+
+    @staticmethod
+    def _queue_payload(plan: OperationPlan, generated_topic_ids: bool) -> dict:
+        data = plan.model_dump(mode="json")
+        # HTTP allocates IDs before checking the receipt; those IDs are not user intent.
+        if generated_topic_ids:
+            for operation in data["operations"]:
+                for topic in operation.get("topics", []):
+                    topic.pop("topic_id", None)
+        return data
+
+    def queue_receipt(self, series_id: str, request_id: str) -> dict | None:
+        """Read an existing queue receipt only; absence is not proof of write failure."""
+        with self.database.session() as session:
+            receipt = session.get(WriteReceipt, request_id)
+            if receipt is None:
+                return None
+            if receipt.operation != "queue_topics" or receipt.resource_id != series_id:
+                raise PendingOperationError("request_id 不属于本栏目的入队操作。")
+            pending = self._require(receipt.response_json["operation_id"])
+            return {"request_id": request_id, "deduplicated": True, "operation_id": pending.id,
+                    "topic_ids": [topic["topic_id"] for operation in pending.plan_json["operations"]
+                                  for topic in operation.get("topics", [])]}
 
     @staticmethod
     def _check_research_edit(pending):

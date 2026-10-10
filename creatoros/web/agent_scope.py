@@ -20,6 +20,7 @@ _SERIES_TOPICS = re.compile(r"^/api/series/([^/]+)/(?:topics|topic-library)$")
 _SERIES_RESEARCH = re.compile(r"^/api/series/([^/]+)/topic-research$")
 _SERIES_COMPOSITION = re.compile(r"^/api/series/([^/]+)/composition$")
 _SERIES_QUEUE = re.compile(r"^/api/series/([^/]+)/queue$")
+_SERIES_QUEUE_RECEIPT = re.compile(r"^/api/series/([^/]+)/queue/receipts/([^/]+)$")
 _SERIES_DELETE = re.compile(r"^/api/series/([^/]+)$")
 _BATCH = re.compile(r"^/api/topic-research/([a-f0-9]{32})$")
 _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)$")
@@ -101,7 +102,19 @@ class AgentScopeGuard:
 
         match = _SERIES_QUEUE.fullmatch(path)
         if method == "POST" and match:
-            return None if self._owns_series(match.group(1), creator_id) else self._denied()
+            if not self._owns_series(match.group(1), creator_id):
+                return self._denied()
+            try:
+                payload = await request.json()
+            except Exception:
+                return None
+            request_id = payload.get("request_id") if isinstance(payload, dict) else None
+            return None if self._owns_queue_receipt(match.group(1), request_id, creator_id) else self._denied()
+
+        match = _SERIES_QUEUE_RECEIPT.fullmatch(path)
+        if method == "GET" and match:
+            return None if (self._owns_series(match.group(1), creator_id)
+                           and self._owns_queue_receipt(match.group(1), match.group(2), creator_id)) else self._denied()
 
         match = _SERIES_DELETE.fullmatch(path)
         if method == "DELETE" and match:
@@ -209,6 +222,16 @@ class AgentScopeGuard:
             series = session.scalars(select(Series).where(Series.creator_id == creator_id))
             return any(skill_id in {item.skill_name, item.mind_skill_id, item.production_skill_id}
                        for item in series)
+
+    def _owns_queue_receipt(self, series_id: str, request_id, creator_id: str) -> bool:
+        if not isinstance(request_id, str):
+            return True  # Route validation rejects malformed requests.
+        with self.db.session() as session:
+            receipt = session.get(WriteReceipt, request_id)
+            if receipt is None:
+                return True
+            return (receipt.operation == "queue_topics" and receipt.resource_id == series_id
+                    and receipt.response_json.get("creator_id") == creator_id)
 
     def _owns_deleted_series(self, series_id: str, request_id, creator_id: str) -> bool:
         if not isinstance(request_id, str):

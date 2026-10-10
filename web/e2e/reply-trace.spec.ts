@@ -39,7 +39,7 @@ test("reply copy and trace stay on the selected session and load one snapshot at
           { id: "call-2", name: "list_series", arguments: { creator_id: "creator-2" } },
         ] },
         tool_results: [
-          { tool_call_id: "call-1", name: "list_series", content: "结果文本", is_error: false },
+          { tool_call_id: "call-1", name: "list_series", content: "结果文本", raw_content: "结果文本 · 原始内部路径和技术回执", is_error: false },
           { tool_call_id: "call-orphan", name: "old_tool", content: "孤立返回仍保留", is_error: false },
         ], redacted: false } });
     }
@@ -86,6 +86,12 @@ test("reply copy and trace stay on the selected session and load one snapshot at
   await expect(dialog.getByRole("tabpanel").getByText("已完成")).toBeVisible();
   await dialog.getByRole("tab", { name: "工具" }).click();
   await expect(dialog.getByRole("tabpanel").getByText("结果文本")).toBeVisible();
+  await expect(dialog.getByText("结果文本 · 原始内部路径和技术回执", { exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "查看原始返回" }).click();
+  await expect(dialog.getByRole("button", { name: "收起原始返回" })).toHaveAttribute("aria-expanded", "true");
+  await expect(dialog.getByText("结果文本 · 原始内部路径和技术回执", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "收起原始返回" }).click();
+  await expect(dialog.getByText("结果文本 · 原始内部路径和技术回执", { exact: true })).toHaveCount(0);
   await expect(dialog.getByText("未记录结果；执行结果未知。", { exact: true })).toBeVisible();
   await expect(dialog.getByText("孤立返回仍保留")).toBeVisible();
   await dialog.getByRole("button", { name: /步骤 2 · 上下文压缩/ }).click();

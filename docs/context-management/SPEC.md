@@ -1,5 +1,13 @@
 # Context Management：设计、实现与面试复习
 
+## 工具原文与模型视图分离（2026-10-11）
+
+- 账本和 `.tool-results` 保留原始工具结果；build_model_context 仅在每次发送时按实际调用名称投影模型视图，不改原历史或 Checkpoint 算法。
+- 账号目录仍仅 name/description 级 Skill 元数据。按需读取的 Skill 全文、分页、来源、可行动状态及 CAS 依据保留，不为省 token 丢失后续操作必要字段。
+- 请求 Trace 同存模型结果 content 和 raw_content，下一次实际请求与 content 对账；凭证继续脱敏。read_tool_result/read_file 保留原文按需回读能力，不增加跨会话读取权限。
+- 工具调用 ID 在历史中复用时逐 Step 配对，避免用后面的同名 ID 投影前面的结果。格式失败回退原文，不反转既有业务写入事实。
+- 原文回读、归档、Trace、模型上下文、Checkpoint/压缩保护及账号目录回归通过；模型 E2E 与限制见契约报告。
+
 ## Web 请求正文快照 · 2026-10-05（完成）
 
 - 回复级 Trace 复用 C3 主/摘要计数，同时由 Web 显式开启逐请求 ModelContext、模型回复及工具结果的本地快照；CLI 默认仅元数据。原预算/压缩/外置算法不改，实际请求与账本仍分离。

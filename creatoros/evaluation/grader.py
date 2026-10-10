@@ -6,10 +6,13 @@ import hashlib
 import re
 
 from creatoros.tools.definitions import tool_registry
+from creatoros.tools.host_contract import bind_account_arguments, model_tool_schemas
+from creatoros.context import RuntimeContext
+from creatoros.config import PROJECT_ROOT
 from creatoros.web.chat import ACCOUNT_TOOLS
 
 
-GRADER_VERSION = "e01-v1"
+GRADER_VERSION = "e01-v2-host-contract"
 READ_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics", "get_content_run",
     "list_producer_skills", "get_producer_skill", "get_topic_research", "read_tool_result", "read_file",
     "get_content_discussion", "get_creator_tasks"})
@@ -154,7 +157,10 @@ def grade_read_only(evidence, *, case_id):
     complete = (len(finished) == len(requests) == len(snapshots) == len(transport)
         and all(isinstance(value, str) and value for value in trace_ids) and len(set(trace_ids)) == len(trace_ids)
         and evidence["collection_errors"] == [])
-    expected_tools = {name: tool_registry[name].to_schema() for name in ACCOUNT_TOOLS}
+    runtime_context = RuntimeContext(project_root=PROJECT_ROOT, allowed_tools=ACCOUNT_TOOLS,
+        creator_id=oracle["creator_id"], archive_only_reads=True)
+    expected_tools = {schema["function"]["name"]: schema for schema in model_tool_schemas(
+        [tool_registry[name].to_schema() for name in ACCOUNT_TOOLS], runtime_context)}
     for row, request, sent, snap in zip(finished, requests, transport, snapshots):
         try:
             method, context = request["method"], request["context"]
@@ -246,7 +252,8 @@ def grade_read_only(evidence, *, case_id):
                 if not call.get("id") or call["id"] in ids or call["name"] not in ACCOUNT_TOOLS:
                     raise ValueError("重复 ID 或未授权工具")
                 ids.add(call["id"])
-                tool_registry[call["name"]].parse_arguments(call["arguments"])
+                arguments = bind_account_arguments(call["name"], call["arguments"], runtime_context)
+                tool_registry[call["name"]].parse_arguments(arguments)
             except (ValueError, KeyError, TypeError):
                 protocol_errors.append("工具名/参数/ID 不合法")
     if sorted(result_ids, key=str) != sorted(ids):

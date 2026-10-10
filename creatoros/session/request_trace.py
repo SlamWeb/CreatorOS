@@ -111,5 +111,5 @@ class RequestSnapshots:
         doc = self.read(request_id)
         doc["tool_results"].append({"tool_call_id": call.id, "name": call.name,
             "content": result.to_model_content(), "is_error": result.is_error,
-            "error_type": result.error_type})
+            "error_type": result.error_type, "raw_content": result.content})
         self.write(request_id, doc)

@@ -1,5 +1,6 @@
 """Thin model-facing adapters over the same Studio API used by the browser."""
 import json
+from hashlib import sha256
 from typing import Literal
 from urllib.parse import quote
 from uuid import uuid4
@@ -91,16 +92,16 @@ class ComposeSeriesArgs(BaseModel):
     description: str = Field(default="", max_length=10_000, description="栏目定位。")
     audience: str = Field(default="", max_length=4_000, description="目标受众。")
     creator_id: str | None = Field(default=None, description="归属账号 ID；省略则暂不分配，生产前必须分配。")
-    skill_name: str | None = Field(default=None, description="单 Skill 目录条目或已安装 local_path，如 knowledge-to-carousel；与组合二选一。")
-    mind_skill_id: str | None = Field(default=None, description="内容 Skill 的目录条目或已安装 local_path；必须与 production_skill_id 同时提供。")
-    production_skill_id: str | None = Field(default=None, description="制作 Skill 的目录条目或已安装 local_path；必须与 mind_skill_id 同时提供。")
+    skill_name: str | None = Field(default=None, description="Skill 目录返回的完整制作 Skill ID；与双 Skill 组合二选一。")
+    mind_skill_id: str | None = Field(default=None, description="Skill 目录返回的内容 Skill ID；必须与 production_skill_id 同时提供。")
+    production_skill_id: str | None = Field(default=None, description="Skill 目录返回的呈现 Skill ID；必须与 mind_skill_id 同时提供。")
 
 
 class UpdateCompositionArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     series_id: str = Field(min_length=1, description="目标栏目 ID。")
-    mind_skill_id: str = Field(min_length=1, description="内容 Skill 目录条目或 list_producer_skills 返回的 local_path。")
-    production_skill_id: str = Field(min_length=1, description="制作 Skill 目录条目或 list_producer_skills 返回的 local_path。")
+    mind_skill_id: str = Field(min_length=1, description="list_producer_skills 返回的内容 Skill ID。")
+    production_skill_id: str = Field(min_length=1, description="list_producer_skills 返回的呈现 Skill ID。")
     expected_revision: int = Field(ge=1, description="当前栏目的 revision；先从 list_creator_series 查询取得，过期会被拒绝。")
 
 
@@ -145,13 +146,48 @@ def assign_series(series_id, creator_id, expected_revision, context=None):
 
 
 def queue_topics(series_id, topics, summary=None, context=None):
-    items = [t.model_dump() if isinstance(t, QueueTopicItem) else t for t in topics]
-    payload = {"topics": items, "summary": summary, "request_id": uuid4().hex}
+    items = [QueueTopicItem.model_validate(t).model_dump() for t in topics]
+    request_id, marker = _queue_identity(series_id, items, context)
+    payload = {"topics": items, "summary": summary, "request_id": request_id}
     def submit(client):
-        data = client.request("POST", f"/api/series/{quote(series_id, safe='')}/queue", payload=payload)
+        path = f"/api/series/{quote(series_id, safe='')}/queue"
+        if marker is not None:
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                # Reserve before POST. A crash/unknown result becomes a read, never a retry.
+                with marker.open("x", encoding="utf-8") as stream:
+                    json.dump({"request_id": request_id, "series_id": series_id}, stream)
+            except FileExistsError:
+                data = client.request("GET", f"{path}/receipts/{request_id}")
+                if data.get("status") == "unknown":
+                    return ToolResult(content=json.dumps({**data, "url": f"/series/{series_id}",
+                        "message": "尚未查到该次入队的成功回执，结果仍不确定；本次未重新提交。"}, ensure_ascii=False),
+                        is_error=True, error_type="studio_outcome_unknown")
+                return {**data, "url": f"/series/{series_id}"}
+        try:
+            data = client.request("POST", path, payload=payload)
+        except StudioClientError as error:
+            error.details.update(request_id=request_id, series_id=series_id,
+                                 receipt_url=f"{path}/receipts/{request_id}")
+            raise
         return {**data, "url": f"/series/{series_id}",
-                "message": "已直接入队并记录审计；deduplicated=true 表示该请求已执行过，未重复写入。"}
+                "message": "已入队。"}
     return _call(submit, context)
+
+
+def _queue_identity(series_id, topics, context):
+    """Same session + user turn + semantic action; summary is audit-only."""
+    turn_id = getattr(context, "user_request_id", None)
+    session_file = getattr(context, "session_file", None)
+    if not turn_id or session_file is None:
+        # Direct/internal calls without a host turn retain the existing new-write behavior.
+        return uuid4().hex, None
+    identity = {"version": 1, "tool": "queue_topics", "turn": turn_id,
+                "session": getattr(context, "agent_session_id", None) or str(session_file.resolve()),
+                "creator": getattr(context, "creator_id", None), "series": series_id, "topics": topics}
+    request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
+                                  separators=(",", ":")).encode("utf-8")).hexdigest()
+    return request_id, session_file.with_suffix(".actions") / f"{request_id}.json"
 
 
 class SkillJobArgs(BaseModel):
