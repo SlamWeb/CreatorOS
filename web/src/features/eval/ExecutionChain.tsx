@@ -1,10 +1,10 @@
 import { useId, useState, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Minus, Plus } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import { evalApi, type EvalReport } from "./api";
 import {
-  asRecord, asText, compareDatabase, compareFiles, displayValue, messageArray, projectRequests, recordArray, toolResults,
+  asRecord, asText, compareDatabase, compareFiles, displayValue, evidenceName, messageArray, projectRequests, recordArray, toolResults,
   type EvidenceRecord, type RecordedCall, type RecordedRequest,
 } from "./chainProjection";
 import "./chain.css";
@@ -29,13 +29,24 @@ function Fold({ label, children }: { label: string; children: ReactNode }) {
   </div>;
 }
 
-function Text({ value, code = false, label = "全文", markdown = false }: { value: unknown; code?: boolean; label?: string; markdown?: boolean }) {
+function Text({ value, code = false, label = "全文", markdown = false, evidence }: { value: unknown; code?: boolean; label?: string; markdown?: boolean; evidence?: { report: EvalReport; open: (name: string) => void } }) {
   const text = displayValue(value);
   const [expanded, setExpanded] = useState(false);
   const long = text.length > 600;
   const id = useId();
+  const files = evidence?.report.evidence_files.map(file => file.name) ?? [];
+  const marker = "#eval-evidence=";
   return <div className="eval-chain-text">
-    {markdown ? <div id={id} className="eval-chain-markdown"><ReactMarkdown skipHtml disallowedElements={["img"]}>{long && !expanded ? `${text.slice(0, 600)}…` : text}</ReactMarkdown></div> : <pre id={id} className={code ? "eval-chain-code" : "eval-chain-prose"}>{long && !expanded ? `${text.slice(0, 600)}…` : text}</pre>}
+    {markdown ? <div id={id} className="eval-chain-markdown"><ReactMarkdown skipHtml disallowedElements={["img"]}
+      urlTransform={url => {
+        const name = evidence && evidenceName(url, evidence.report.run_id, files);
+        if (name) return `${marker}${encodeURIComponent(name)}`;
+        return evidence && !/^(?:https?:|mailto:)/i.test(url) ? "" : defaultUrlTransform(url);
+      }} components={{ a: ({ href, children }) => {
+        const name = files.find(file => href === `${marker}${encodeURIComponent(file)}`);
+        if (name && evidence && files.includes(name)) return <button type="button" className="eval-chain-action" onClick={() => evidence.open(name)}>{children}</button>;
+        return href ? <a href={href}>{children}</a> : <span>{children}</span>;
+      } }}>{long && !expanded ? `${text.slice(0, 600)}…` : text}</ReactMarkdown></div> : <pre id={id} className={code ? "eval-chain-code" : "eval-chain-prose"}>{long && !expanded ? `${text.slice(0, 600)}…` : text}</pre>}
     {long && <button type="button" className="eval-chain-action" aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(!expanded)}>{expanded ? `收起${label}` : `展开${label}`}<span>{text.length.toLocaleString()} 字符</span></button>}
   </div>;
 }
@@ -236,7 +247,7 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
         <Assessments report={report} ids={["final_answer"]} onEvidence={onEvidence} />
         {report.case_id === "E10" && <Assessments report={report} ids={["complete_filter", "task_answer"]} onEvidence={onEvidence} />}
         <p className="eval-chain-semantic">回复语义：{report.review ? `已有复核结论（${checkLabels[report.review.decision]}）。` : asText(data("assessment.md")) ? "已有 Codex 阅读评估，未代替用户签署。" : "尚未评估。"}程序检查不等于内容准确。</p>
-        {available.has("assessment.md") && <section aria-label="本次回答评估"><h5>本次回答评估</h5>{asText(data("assessment.md")) ? <Text value={data("assessment.md")} markdown label="阅读评估" /> : missing("assessment.md")}<Sources report={report} names={["assessment.md"]} onEvidence={onEvidence} /></section>}
+        {available.has("assessment.md") && <section aria-label="本次回答评估"><h5>本次回答评估</h5>{asText(data("assessment.md")) ? <Text value={data("assessment.md")} markdown label="阅读评估" evidence={{ report, open: onEvidence }} /> : missing("assessment.md")}<Sources report={report} names={["assessment.md"]} onEvidence={onEvidence} /></section>}
         {report.case_id === "E01" && <Fold label="对照当前账号的预期事实（独立 oracle）">{oracle && asRecord(oracle.creator) && recordArray(oracle.series) && recordArray(oracle.skills) ? <ContextSummary context={oracle} /> : <>{missing("oracle.json")}<p className="eval-chain-note">独立预期事实缺失或结构不受支持，无法作内容对照。</p></>}<Sources report={report} names={["oracle.json"]} onEvidence={onEvidence} /></Fold>}
       </li>
     </ol>

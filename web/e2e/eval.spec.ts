@@ -261,7 +261,7 @@ test("controlled late GET cannot replace the newly selected case", async ({ page
 });
 
 // Controlled trace documents exercise the projection, not model quality.
-async function structuredChain(page: Page, request: APIRequestContext, changed = false, mutate?: (docs: Record<string, unknown>) => void) {
+async function structuredChain(page: Page, request: APIRequestContext, changed = false, mutate?: (docs: Record<string, unknown>, runId: string) => void) {
   const fixture = await seed(request);
   const report = await readReport(request, fixture.run_id);
   const query = "列出当前账号栏目，只查看，不修改。";
@@ -301,7 +301,7 @@ async function structuredChain(page: Page, request: APIRequestContext, changed =
     "answer.txt": messages.at(-1)!.content,
     "probe.json": { name: "list_creators", arguments: { limit: 100 }, content: '{"items":[{"id":"creator-a"}]}', is_error: false },
   };
-  mutate?.(docs);
+  mutate?.(docs, fixture.run_id);
   await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
     ...report, execution_mode: "controlled", evidence_files: Object.keys(docs).map(name => ({ name, label: name })),
     checks: [
@@ -332,6 +332,44 @@ test("controlled assessment projection: Codex finding does not impersonate a sig
   await expect(page.getByRole("region", { name: "自动判分" })).not.toContainText("回复语义尚未评估");
   await page.reload();
   await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("评估者：Codex");
+  expect(writes).toEqual([]);
+});
+
+test("controlled assessment evidence links: registered current Run only, keyboard and refresh are read-only", async ({ page, request }, info) => {
+  const fixture = await structuredChain(page, request, false, (docs, runId) => {
+    docs["assessment.md"] = [
+      `[读取原回复](D:/CreatorOS/data/agent-eval/${runId}/answer.txt)`,
+      `[读取工具账本](messages.json)`,
+      `[外部资料](https://example.com/docs)`,
+      `[别的运行](D:/CreatorOS/data/agent-eval/other-run/answer.txt)`,
+      `[任意文件](D:/private/answer.txt)`, `[未登记文件](missing.json)`,
+      `[危险协议](javascript:alert(1))`, `[坏编码](#eval-evidence=%broken)`,
+    ].join("\n\n");
+  });
+  const writes: string[] = [];
+  page.on("request", event => { if (event.method() !== "GET") writes.push(event.url()); });
+  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
+  const reading = page.getByRole("region", { name: "本次回答评估" });
+  await expect(reading.getByRole("button", { name: "读取原回复", exact: true })).toBeVisible();
+  await expect(reading.getByRole("link", { name: "外部资料" })).toHaveAttribute("href", "https://example.com/docs");
+  for (const name of ["别的运行", "任意文件", "未登记文件", "危险协议", "坏编码"]) {
+    await expect(reading.getByRole("link", { name, exact: true })).toHaveCount(0);
+    await expect(reading.getByRole("button", { name, exact: true })).toHaveCount(0);
+    await expect(reading.getByText(name, { exact: true })).toBeVisible();
+  }
+  await reading.getByRole("button", { name: "读取原回复", exact: true }).press("Enter");
+  const raw = page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: "answer.txt", exact: true }) });
+  await expect(raw.getByRole("button", { name: "answer.txt", exact: true })).toBeFocused();
+  await expect(raw.locator(".eval-evidence-content")).toContainText("受控最终回复：只查看了目录，没有修改业务数据。");
+  await page.screenshot({ path: info.outputPath("assessment-links-desktop.png"), fullPage: true });
+  await page.reload();
+  await reading.getByRole("button", { name: "读取工具账本", exact: true }).click();
+  const ledger = page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: "messages.json", exact: true }) });
+  await ledger.getByRole("button", { name: /展开全文/ }).click();
+  await expect(ledger).toContainText("栏目返回 A");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("assessment-links-mobile.png"), fullPage: true });
   expect(writes).toEqual([]);
 });
 

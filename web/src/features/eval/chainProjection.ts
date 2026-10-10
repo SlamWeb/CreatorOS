@@ -29,6 +29,17 @@ export function asRecord(value: unknown): EvidenceRecord | null {
 export const asText = (value: unknown) => typeof value === "string" ? value : "";
 export const displayValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "未记录";
 
+/** Resolve registered evidence only; never turn a Markdown path into a file read. */
+export function evidenceName(href: string, runId: string, names: readonly string[]): string | null {
+  if (names.includes(href)) return href;
+  const path = href.replaceAll("\\", "/");
+  if (!/^(?:[a-z]:)?\//i.test(path)) return null;
+  const prefix = path.match(/^(?:[a-z]:)?\/.*\/data\/agent-eval(?:-workbench)?\/([^/]+)\//i);
+  if (!prefix || prefix[1] !== runId) return null;
+  const name = path.slice(prefix[0].length);
+  return names.includes(name) ? name : null;
+}
+
 export function recordArray(value: unknown): EvidenceRecord[] | null {
   return Array.isArray(value) && value.every(item => asRecord(item)) ? value as EvidenceRecord[] : null;
 }
