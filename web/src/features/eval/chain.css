@@ -1,0 +1,90 @@
+.eval-execution-chain { min-width: 0; margin-top: 28px; color: var(--ink); }
+.eval-chain-heading, .eval-chain-step-heading, .eval-chain-tool-heading, .eval-chain-assessment-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.eval-chain-heading { margin-bottom: 8px; }
+.eval-chain-heading h3 { font-size: 16px; font-weight: 600; margin: 0; }
+.eval-chain-heading > span, .eval-chain-step-heading > span, .eval-chain-tool-heading > span { font-size: 11px; line-height: 1.7; color: var(--muted); text-align: right; }
+.eval-chain-intro, .eval-chain-note, .eval-chain-id, .eval-chain-semantic, .eval-chain-warning, .eval-chain-expectation { font-size: 12px; line-height: 1.85; margin: 8px 0; overflow-wrap: anywhere; }
+.eval-chain-intro, .eval-chain-note, .eval-chain-id { color: var(--muted); }
+.eval-chain-id code { font-family: var(--font-mono); font-size: 10px; }
+.eval-chain-list { list-style: none; margin: 20px 0 0; padding: 0; counter-reset: execution-step; }
+.eval-chain-step { position: relative; padding: 20px 0 24px 36px; border-top: 1px solid var(--line); min-width: 0; counter-increment: execution-step; }
+.eval-chain-step::before { content: counter(execution-step); position: absolute; left: 0; top: 21px; color: var(--muted); font-size: 11px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.eval-chain-step-heading { margin-bottom: 12px; }
+.eval-chain-step-heading h4 { font-size: 15px; font-weight: 600; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
+.eval-chain-text { min-width: 0; }
+.eval-chain-prose, .eval-chain-code { font-family: inherit; font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; min-width: 0; max-width: 100%; }
+.eval-chain-code { font-family: var(--font-mono); font-size: 11px; background: var(--surface); border-radius: 8px; padding: 12px; }
+.eval-chain-action { display: inline-flex; align-items: center; gap: 10px; background: transparent; border: 0; padding: 8px 0; min-height: 36px; color: var(--accent); text-align: left; font-size: 12px !important; line-height: 1.7; overflow-wrap: anywhere; max-width: 100%; }
+.eval-chain-action > svg { flex-shrink: 0; }
+.eval-chain-action > span { color: var(--muted); font-size: 10px; }
+.eval-chain-action:hover, .eval-chain-sources button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.eval-execution-chain button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.eval-execution-chain ::selection { background: var(--accent-soft); color: var(--ink); }
+.eval-chain-fold { min-width: 0; margin: 4px 0; }
+.eval-chain-fold > div:not([hidden]) { padding: 8px 0 12px; }
+.eval-chain-sources { display: flex; flex-wrap: wrap; gap: 0 14px; margin-top: 6px; }
+.eval-chain-sources button { min-width: 0; max-width: 100%; border: 0; padding: 5px 0; background: transparent; color: var(--accent); font-family: var(--font-mono); font-size: 10px !important; line-height: 1.6; text-align: left; overflow-wrap: anywhere; }
+.eval-chain-sources button:disabled { color: var(--muted); text-decoration: none; }
+.eval-chain-assessments { margin: 18px 0 0; }
+.eval-chain-assessments > ul { margin: 0; padding: 0; list-style: none; }
+.eval-chain-assessments > ul > li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.7; padding: 5px 0; }
+.eval-chain-assessment-detail { margin: 0 0 14px; }
+.eval-chain-assessment-detail > strong { font-size: 12px; font-weight: 500; }
+.eval-chain-assessment-heading { font-size: 12px; line-height: 1.7; }
+.eval-chain-assessments p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.eval-chain-verdict { white-space: nowrap; font-size: 11px; color: var(--muted); }
+.eval-chain-verdict.passed { color: var(--success); }
+.eval-chain-verdict.failed, .eval-chain-verdict.evidence_missing, .eval-chain-warning { color: var(--danger); }
+.eval-chain-verdict.needs_review { color: var(--warning); }
+.eval-chain-context > p { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 13px; line-height: 1.8; margin: 8px 0 16px; }
+.eval-chain-context > p > span { color: var(--muted); font-size: 12px; }
+.eval-chain-context > ul { list-style: none; padding: 0; margin: 0; }
+.eval-chain-context > ul > li { font-size: 13px; line-height: 1.8; margin: 0 0 16px; overflow-wrap: anywhere; }
+.eval-chain-context li > strong { font-weight: 550; }
+.eval-chain-context li > p { margin: 3px 0 6px; }
+.eval-chain-context li > p > span { color: var(--muted); }
+.eval-chain-context dl { margin: 0; font-size: 12px; }
+.eval-chain-context dl > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; margin-top: 5px; }
+.eval-chain-context dt { color: var(--muted); }
+.eval-chain-context dd { margin: 0; min-width: 0; }
+.eval-chain-context dd > span { font-weight: 500; }
+.eval-chain-context > .eval-chain-note { display: block; font-size: 11px; margin-bottom: 8px; }
+.eval-chain-context-details { display: flex; flex-wrap: wrap; gap: 0 20px; align-items: start; margin: 10px 0; }
+.eval-chain-context-details > .eval-chain-fold:has(> div:not([hidden])) { flex-basis: 100%; }
+.eval-chain-tool { margin-top: 18px; padding: 16px 0 0; border-top: 1px solid var(--surface); min-width: 0; }
+.eval-chain-tool h5 { font-family: var(--font-mono); font-size: 12px; font-weight: 500; margin: 0; overflow-wrap: anywhere; }
+.eval-chain-tool-data, .eval-chain-row-difference { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-top: 12px; }
+.eval-chain-tool-data > div, .eval-chain-row-difference > div { min-width: 0; }
+.eval-chain-tool-data h5, .eval-chain-tool-data h6, .eval-chain-row-difference h5 { font-family: inherit; font-size: 11px; font-weight: 500; color: var(--muted); margin: 0 0 8px; line-height: 1.7; }
+.eval-chain-expectation { margin: 0 0 16px; }
+.eval-chain-table-scroll { min-width: 0; overflow-x: auto; margin: 14px 0; }
+.eval-chain-database table { width: 100%; border-collapse: collapse; font-size: 11px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.eval-chain-database th, .eval-chain-database td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--surface); text-align: left; vertical-align: top; }
+.eval-chain-database thead th { color: var(--muted); font-weight: 500; border-bottom-color: var(--line); white-space: nowrap; }
+.eval-chain-database tbody th { font-weight: 500; }
+.eval-chain-database tbody th code { display: block; font-family: var(--font-mono); color: var(--muted); font-size: 9px; font-weight: 400; overflow-wrap: anywhere; }
+.eval-chain-database td small { display: block; font-size: 9px; color: var(--muted); }
+.eval-chain-semantic { padding-top: 12px; border-top: 1px solid var(--surface); color: var(--warning); }
+.eval-chain-markdown { font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+.eval-chain-markdown > :first-child { margin-top: 0; }
+.eval-chain-markdown p, .eval-chain-markdown ul, .eval-chain-markdown ol { margin: 0 0 12px; }
+.eval-chain-markdown ul, .eval-chain-markdown ol { padding-left: 22px; }
+.eval-chain-markdown pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.eval-chain-markdown code { font-family: var(--font-mono); font-size: 11px; }
+.eval-chain-probe { margin: 4px 0 16px; padding: 20px 0; border-top: 1px solid var(--line); }
+.eval-chain-probe .eval-chain-step-heading { margin-bottom: 8px; }
+.eval-chain-read-error { padding: 10px 0; }
+.eval-chain-read-error p { margin: 0; font-size: 12px; line-height: 1.8; color: var(--danger); overflow-wrap: anywhere; }
+.eval-chain-errors { border-top: 1px solid var(--line); margin-top: 12px; }
+@media (max-width: 1000px) {
+  .eval-chain-tool-data, .eval-chain-row-difference { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+}
+@media (max-width: 700px) {
+  .eval-chain-heading, .eval-chain-step-heading, .eval-chain-tool-heading { flex-wrap: wrap; gap: 4px 10px; }
+  .eval-chain-heading > span, .eval-chain-step-heading > span, .eval-chain-tool-heading > span { text-align: left; }
+  .eval-chain-step { padding-left: 24px; }
+  .eval-chain-context-details { display: block; }
+  .eval-chain-context dl > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .eval-chain-database th, .eval-chain-database td { padding-right: 7px; }
+  .eval-chain-assessment-heading { align-items: start; }
+}

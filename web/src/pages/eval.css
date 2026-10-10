@@ -40,7 +40,7 @@
 .eval-reveal > svg { flex: 0 0 auto; color: var(--muted); }
 .eval-case-definition { margin-bottom: 20px; border-bottom: 1px solid var(--line); }
 .eval-case-definition > .eval-reveal { color: var(--accent); }
-.eval-definition-content { padding: 12px 0 20px; }
+.eval-definition-content { padding: 0 0 20px; }
 .eval-definition-content section + section { margin-top: 24px; }
 .eval-definition-content h3 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
 .eval-definition-content h4 { font-size: 12px; font-weight: 500; color: var(--muted); margin: 0 0 8px; overflow-wrap: anywhere; }
@@ -99,6 +99,10 @@
 .eval-evidence-section { border-top: 1px solid var(--line); padding-top: 24px; }
 .eval-evidence-section > .eval-section-heading { margin-bottom: 12px; }
 .eval-evidence { border-bottom: 1px solid var(--line); }
+.eval-evidence { scroll-margin-top: 100px; }
+.eval-result-summary { font-size: 13px; line-height: 1.8; color: var(--ink); margin: 12px 0; }
+.eval-review-option { margin-top: 20px; }
+.eval-review-option .eval-review { margin-top: 0; border-top: 0; padding-top: 12px; }
 .eval-evidence .eval-reveal small { display: block; color: var(--muted); font-family: var(--font-mono); font-size: 11px; margin-top: 3px; }
 .eval-evidence-content:not([hidden]) { padding: 4px 0 16px; }
 .eval-error { background: var(--danger-soft); border-radius: 10px; padding: 12px; margin: 12px 0; }

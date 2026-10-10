@@ -1,9 +1,10 @@
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { Copy, Minus, Plus, RefreshCw } from "lucide-react";
 import { ApiError } from "../api/client";
 import { evalApi, type EvalCase, type EvalReadError, type EvalReport, type EvalRunSummary } from "../features/eval/api";
+import { ExecutionChain } from "../features/eval/ExecutionChain";
 import "./eval.css";
 
 const categories = [
@@ -28,14 +29,14 @@ function ReadError({ error, onRetry, label = "重新读取" }: { error: unknown;
   return <div className="eval-error" role="alert"><p>{message(error)}</p><button type="button" onClick={onRetry}>{label}</button></div>;
 }
 
-function Reveal({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
+function Reveal({ label, className = "", children, keepMounted = false }: { label: string; className?: string; children: ReactNode; keepMounted?: boolean }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return <div className={className} data-open={open}>
     <button className="eval-reveal" type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
       <span>{label}</span>{open ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
     </button>
-    <div id={id} hidden={!open}>{open && children}</div>
+    <div id={id} hidden={!open}>{(open || keepMounted) && children}</div>
   </div>;
 }
 
@@ -56,28 +57,23 @@ function LongText({ text, code = false }: { text: string; code?: boolean }) {
 }
 
 function CaseDefinition({ definition }: { definition: EvalCase["definition"] }) {
-  return <Reveal className="eval-case-definition" label="题目与验收标准">
+  return <section className="eval-case-definition" aria-label="测试步骤">
     {!definition ? <p className="eval-muted">题目定义未记录。</p> : <div className="eval-definition-content">
       <section><h3>测试步骤</h3><ol>{definition.steps.map((step, index) => <li key={index}>
         <h4>{step.kind === "user" ? "用户输入" : step.kind === "event" ? "控制事件" : step.kind}{step.name ? ` · ${step.name}` : ` · ${index + 1}`}</h4>
         {step.text && <LongText text={step.text} />}{step.details && <LongText text={step.details} />}
       </li>)}</ol></section>
-      <section><h3>程序检查标准</h3><ul>{definition.assertions.map(assertion => <li key={assertion.id}>
-        <h4>{assertion.id}</h4><LongText text={assertion.pass} />
-        <p className="eval-definition-evidence">所需证据：<code>{assertion.evidence.join(" · ")}</code></p>
-      </li>)}</ul></section>
-      <section><h3>人工检查标准</h3>{definition.manual_checks.length ? <ul>{definition.manual_checks.map((item, index) => <li key={index}><LongText text={item} /></li>)}</ul> : <p className="eval-muted">未记录人工检查标准。</p>}</section>
     </div>}
-  </Reveal>;
+  </section>;
 }
 
-function Evidence({ runId, digest, file, open, onToggle }: {
-  runId: string; digest: string; file: { name: string; label: string }; open: boolean; onToggle: (open: boolean) => void;
+function Evidence({ runId, digest, file, open, onToggle, onElement }: {
+  runId: string; digest: string; file: { name: string; label: string }; open: boolean; onToggle: (open: boolean) => void; onElement: (element: HTMLDivElement | null) => void;
 }) {
   const id = useId();
   const query = useQuery({ queryKey: ["eval", "evidence", runId, digest, file.name], queryFn: ({ signal }) => evalApi.evidence(runId, file.name, signal), enabled: open, ...readOptions });
   const content = query.data ? typeof query.data.content === "string" ? query.data.content : JSON.stringify(query.data.content, null, 2) : "";
-  return <div className="eval-evidence" data-open={open}>
+  return <div className="eval-evidence" data-open={open} ref={onElement}>
     <button className="eval-reveal" type="button" aria-expanded={open} aria-controls={id} onClick={() => onToggle(!open)}>
       <span>{file.label || file.name}{file.label && file.label !== file.name && <small>{file.name}</small>}</span>
       {open ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
@@ -122,7 +118,6 @@ function Review({ report, readFailed, onSaved, onReload }: { report: EvalReport;
   }
   return <section className="eval-review" aria-label="人工复核">
     <div className="eval-section-heading"><h3>人工复核</h3><span>{report.review ? `最近保存于 ${dateLabel(report.review.reviewed_at)}` : "尚未签署"}</span></div>
-    {report.manual_checks.length > 0 ? <ul className="eval-manual-checks">{report.manual_checks.map((item, index) => <li key={index}><LongText text={item} /></li>)}</ul> : <p className="eval-muted">报告未记录人工检查标准。</p>}
     {!canPass && <p className="eval-review-limit">自动判分未通过或执行失败，不能确认通过。</p>}
     <form onSubmit={event => void save(event)}>
       <label>复核结论<select value={decision} disabled={saving || reading} onChange={event => { setDecision(event.target.value as typeof decision); setNotice(""); }}>
@@ -140,7 +135,22 @@ function Review({ report, readFailed, onSaved, onReload }: { report: EvalReport;
 
 function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport; readFailed: boolean; onSaved: (report: EvalReport) => void; onReload: () => Promise<EvalReport | undefined> }) {
   const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [evidenceVisible, setEvidenceVisible] = useState(false);
+  const [jump, setJump] = useState<string | null>(null);
+  const evidenceElements = useRef<Record<string, HTMLDivElement | null>>({});
   const setOpen = (name: string, open: boolean) => setOpened(current => { const next = new Set(current); if (open) next.add(name); else next.delete(name); return next; });
+  const viewEvidence = (name: string) => {
+    if (!report.evidence_files.some(file => file.name === name)) return;
+    setEvidenceVisible(true); setOpen(name, true); setJump(name);
+  };
+  useEffect(() => {
+    if (!jump) return;
+    const element = evidenceElements.current[jump];
+    if (!element) return;
+    element.querySelector("button")?.focus({ preventScroll: true });
+    element.scrollIntoView({ block: "start" });
+    setJump(null);
+  }, [jump, evidenceVisible]);
   return <div className="eval-report">
     <div className="eval-report-heading"><h3>运行结果</h3><Status value={report.status} /></div>
     <dl className="eval-run-meta">
@@ -151,20 +161,26 @@ function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport;
     </dl>
     {report.error && <div className="eval-error"><LongText text={`${report.error.kind}：${report.error.message}`} /></div>}
     {report.execution_mode === "controlled" && <p className="eval-mode-note">受控执行用于验证接线与交互，不代表真实模型任务成绩。</p>}
-    <section className="eval-auto" aria-label="自动判分"><div className="eval-section-heading"><h3>自动判分</h3><Status value={report.auto_status} /></div>
+    <ExecutionChain report={report} onEvidence={viewEvidence} />
+    <section className="eval-auto" aria-label="自动判分"><div className="eval-section-heading"><h3>评估结果</h3><Status value={report.auto_status} /></div>
+      <p className="eval-result-summary">{report.checks.filter(check => check.status === "passed").length} / {report.checks.length} 项程序检查通过{!report.review && " · 回复语义尚未评估"}</p>
+      <Reveal label="检查明细">
       <div className="eval-dimensions">{Object.entries(report.dimensions).map(([key, value]) => <div key={key}><span>{dimensions[key] ?? key}</span><Status value={value} /></div>)}</div>
       <ul className="eval-checks">{report.checks.map(check => <li key={check.id}>
         <div className="eval-check-heading"><h4>{check.label}</h4><Status value={check.status} /></div>
         <LongText text={check.detail || "检查未记录说明。"} />
-        {check.evidence?.length > 0 && <div className="eval-check-evidence">{check.evidence.map(name => <button type="button" key={name} onClick={() => setOpen(name, true)} disabled={!report.evidence_files.some(file => file.name === name)}>{name}</button>)}</div>}
+        {check.evidence?.length > 0 && <div className="eval-check-evidence">{check.evidence.map(name => <button type="button" key={name} onClick={() => viewEvidence(name)} disabled={!report.evidence_files.some(file => file.name === name)}>{name}</button>)}</div>}
       </li>)}</ul>
-      {report.auto_status === "passed" && !report.review && <p className="eval-review-limit">自动检查通过，仍需人工核对后才能计为通过。</p>}
+      </Reveal>
     </section>
-    <Review report={report} readFailed={readFailed} onSaved={onSaved} onReload={onReload} />
+    <Reveal label="补充结论" className="eval-review-option" keepMounted><Review report={report} readFailed={readFailed} onSaved={onSaved} onReload={onReload} /></Reveal>
     <section className="eval-evidence-section" aria-label="原始证据"><div className="eval-section-heading"><h3>原始证据</h3><span>{report.evidence_files.length} 份文件</span></div>
+      <button className="eval-reveal" type="button" aria-expanded={evidenceVisible} aria-controls={`evidence-${report.run_id}`} onClick={() => setEvidenceVisible(!evidenceVisible)}><span>{evidenceVisible ? "收起文件" : "浏览文件"}</span>{evidenceVisible ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}</button>
+      <div id={`evidence-${report.run_id}`} hidden={!evidenceVisible}>
       {report.evidence_files.length === 0 && <p className="eval-muted">未记录可读取的证据文件，不能据此认定通过。</p>}
-      {report.evidence_files.map(file => <Evidence key={`${report.run_id}:${file.name}`} runId={report.run_id} digest={report.report_digest} file={file} open={opened.has(file.name)} onToggle={open => setOpen(file.name, open)} />)}
+      {report.evidence_files.map(file => <Evidence key={`${report.run_id}:${file.name}`} runId={report.run_id} digest={report.report_digest} file={file} open={opened.has(file.name)} onToggle={open => setOpen(file.name, open)} onElement={element => { evidenceElements.current[file.name] = element; }} />)}
       <Reveal className="eval-evidence" label="报告原文"><div className="eval-evidence-content"><LongText text={JSON.stringify(report, null, 2)} code /></div></Reveal>
+      </div>
     </section>
   </div>;
 }

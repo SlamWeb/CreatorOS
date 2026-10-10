@@ -1,5 +1,14 @@
 # CreatorOS Studio Web SPEC
 
+## Eval 执行链路（2026-10-10，完成）
+
+- 本轮仅改 Eval React/CSS 与 UI 回归，保留配色/Logo/后端 API、判分和原报告。详细契约与结果见 `docs/agent-eval/SPEC.md`、`RESULTS.md`。
+- 测试步骤常显；运行按实际 Query→请求上下文→工具参数/返回→数据库预期/实际→最终答复展开。每步显示已有程序判分，原文和依据折叠；人工检查清单移除，显式复核入口收纳且 CAS/失败门槛不变。完整回复存在与语义正确分开，强制探针不伪称模型工具调用。
+- 修复证据文件控制只在视窗外展开的问题：点击文件名定位、展开并聚焦；同 run/digest 的缓存共享，切换对象旧响应不覆盖。流式分片按 index 重组、返回按 call ID 配对，complete 压缩单列；缺证据/未知格式/GET 失败不伪造成功。
+- 数据库比较完整行多重集，不只看计数；账号/栏目/选题与所有异常表默认可见，其余一致表按需展开。未确认文件采集完整性时明确提示，不能从部分 hash 一致推出全部文件未变。
+- typecheck/build、diff 检查通过；Eval 10 + Observation 4 **14/14**（33.9 秒）。新增 5 条确定性投影/故障回归，不是模型质量评测。正式 8765 只读 CUA 验证真实 E01、蓝色入口定位/焦点及 390px 布局；`web/tmp/eval-chain-20261010/real-chain-desktop.jpg`、`real-chain-results.jpg`、`real-chain-mobile.jpg` 已目视检查。没有后端/生产 Skill/正式数据修改或新模型调用。
+- Impeccable 使用 distill/craft-floor 收纳重复判分依据与空表；机械检测为空。保留既有 Vite 主包 >500 kB 警告，不顺手更换框架。LangSmith/Phoenix 等仅调研，未安装或上传用户数据。
+
 ## 前端操作层级重构（2026-10-10，完成）
 
 - 用户明确授权本轮代写、前端大幅调整；保留颜色、字体、Logo、后端/API/业务状态，不改变生产 Skill 或已生成图片。目标是看作品→讨论/返工→批准/删除，不再让说明型文案挤走动作。

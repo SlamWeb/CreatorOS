@@ -2,6 +2,25 @@
 
 状态：12 题定义完成；2026-10-10 E01 的隔离运行、证据判分与 Eval 面板已接线。真实模型自动检查通过仍待人工复核；其余 11 题未接线/未运行。结果见 RESULTS.md，不继承退役题集成绩。
 
+## 执行链路视图（2026-10-10，完成）
+
+- 用户要看测试步骤 → 实际 query/模型请求/工具调用与返回 → 数据库预期与实际 → 最终回复与逐步评估，不要人工检查标准堆在主页面。保持现有颜色、Logo、后端 API、grader 与原报告不变。
+- 主视图从既有公开证据投影执行链；程序结论与未运行的语义评估分开，不能把“存在回复”解释为“内容完全正确”。强制 guard 探针单列为测试器动作，不伪称 Agent 工具调用。缺失、读取失败和非结构化旧证据明确标识。
+- 人工检查清单不再展示；原显式复核保存入口收纳到可选项，CAS/失败不可签通过的保护不变。只读页面不触发任何模型或外部上传；框架选型只调研。
+- 证据文件名点击应立即定位、展开并聚焦对应原文，不能只在视窗外改变状态。大块原文继续按需展开。切换 Run 后旧证据不能覆盖新对象。
+- Given 真实 E01，When 查看，Then 展示原 query、一次请求/零 Agent 工具、数据库前后及完整回复；Given 多工具受控轨迹，Then 按 call ID 展示参数/返回并分开探针；Given 缺证据或 GET 失败，Then 不显示假成功且可显式重读；Given 点击证据，Then 原文进入视窗并可键盘聚焦；Given 切换/刷新/手机查看，Then URL/对象一致、无写请求和横溢出。
+- 验收：复用真实 E01 只读 GET/浏览器；隔离 8877 做确定性轨迹、错误、迟到响应、复核 CAS 回归。受控轨迹不是模型质量成绩；不重跑模型、不改正式数据。
+- 实际实现：直接读取既有 requests/messages/trace/oracle/before/after/answer/probe；主请求与 complete 压缩分开，ToolCallDelta 分片重组后按 call ID 配对返回。逐步显示已有程序判分，依据与长原文折叠；未做语义判分不标内容准确。数据库全行多重集比较，默认展示账号/栏目/选题及全部异常表，其余一致表按需展开；文件采集不完整明确提示。
+- 验证：typecheck/build 通过；Eval 10 + Observation 4 浏览器回归 **14/14**（33.9 秒）。新增 5 条覆盖双工具乱序返回/分片参数/证据定位、同样行数但内容改变、after 503 显式重读、缺工具返回/未知流/不完整文件、complete 压缩与最终答复分离；原复核 CAS/失败/迟到响应保护仍通过。首轮 6/7 是测试定位到了两处相同文件按钮，限定到具体检查项后重跑，未改变功能迁就测试。
+- 正式 8765 的真实 E01 只读验收：1 次模型请求、0 次 Agent 工具、14 张表与 15 份业务文件不变；测试器探针单列。文件点击后 messages.json 原文已展开、获得焦点、顶部约 100px（视窗 675px），不再视窗外静默展开。390px DOM scrollWidth=375，无页面横溢出；桌面/手机图在 `web/tmp/eval-chain-20261010/`。Impeccable 检测为空，既有 Vite >500 kB 提示保留。
+- 原报告与 review 状态未改；只有 E01 接线，其余 11 题未运行。不把 14 条 UI 回归写成 12 道 Agent 题的通过率。本次未产生新模型成绩、未接语义 judge 或观测平台、未修改后端/正式业务数据。
+
+### 可选评测平台调研（尚未接入）
+
+- LangSmith 可通过 `traceable`/手动 span 接入自写 Runtime，无需迁移到 LangChain；支持轨迹匹配或 LLM judge，以及上传外部已完成的实验结果。轨迹分数不能代替数据库持久化断言。[接入](https://docs.langchain.com/langsmith/annotate-code)、[轨迹评测](https://docs.langchain.com/langsmith/trajectory-evals)、[既有实验](https://docs.langchain.com/langsmith/upload-existing-experiments)。
+- 本地单用户优先考虑可选 Phoenix：现成 trace/experiment UI，默认 SQLite；不把它作为 CreatorOS 启动依赖。主服务采用 ELv2，若将来托管分发需另行核对许可。[架构](https://arize.com/docs/phoenix/self-hosting/architecture)、[自托管](https://arize.com/docs/phoenix/self-hosting)、[许可](https://github.com/Arize-ai/phoenix/blob/main/LICENSE)。Langfuse 也支持自定义 evaluator 与实验，但自托管组件更多，当前暂缓。[实验](https://langfuse.com/docs/evaluation/experiments/experiments-via-sdk)。
+- 本轮仅调研，不安装/配置观测平台，不上传本地账号、聊天、证据或凭证。下一步如选框架，先用一份隔离既有报告验证 trace + grader 分数的可视化映射；历史未记录的步骤不能补造。
+
 ## 面板操作层级调整（2026-10-10）
 
 - 页面标题仅 `Eval`；题集导航、报告、复核和证据用平铺工作表呈现，不复制 Observation 的树形组件。长定义/证据用带展开状态的按钮按需读取，无三角标记。
