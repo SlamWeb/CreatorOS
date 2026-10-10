@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -222,6 +223,48 @@ class WorkbenchGraderTests(unittest.TestCase):
 
 
 class WorkbenchHostTests(unittest.TestCase):
+    def source_version(self, temporary):
+        """Real local files; neither a model stub nor a paid SDK turn."""
+        root = Path(temporary)
+        job = root / "extractions/jobs/merge"
+        files, sources = [], []
+        for index in (1, 2):
+            source = {"id": f"source-{index}", "directory": f"source-{index}", "files": []}
+            for relative in ("assets/reference.png", "scripts/example.py", "SOURCE-SKILL.md"):
+                # Same filenames from two sources must stay in separate namespaces.
+                path = job / "versions/v002/legacy_end_to_end/assets/fusion-sources" / source["directory"] / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(f"source={index}; path={relative}".encode())
+                source["files"].append({"path": relative, "digest": workbench.digest(path)})
+                files.append(path)
+            sources.append(source)
+        (job / "merge_context.json").write_text(json.dumps({"sources": sources}), encoding="utf-8")
+        host = object.__new__(workbench.WorkbenchEvaluation)
+        host.fixture = SimpleNamespace(root=root, extractions=SimpleNamespace(root=root / "extractions"))
+        return host, [{"id": "merge", "revision": 2}], files
+
+    def test_source_manifest_reads_role_version_not_generator_draft_folder(self):
+        with TemporaryDirectory() as temporary:
+            host, jobs, files = self.source_version(temporary)
+            manifest = host.source_manifest(jobs)
+            self.assertTrue(manifest["verified"])
+            self.assertEqual(len(manifest["files"]), 6)
+            self.assertTrue(all(row["matches"] for row in manifest["files"]))
+            self.assertTrue(all("v002/legacy_end_to_end/" in row["path"] for row in manifest["files"]))
+            self.assertNotEqual(workbench.digest(files[0]), workbench.digest(files[3]))
+
+    def test_source_manifest_rejects_missing_corrupt_and_only_old_version(self):
+        for fault in ("missing", "corrupt", "old_version"):
+            with self.subTest(fault=fault), TemporaryDirectory() as temporary:
+                host, jobs, files = self.source_version(temporary)
+                if fault == "missing":
+                    files[0].unlink()
+                elif fault == "corrupt":
+                    files[0].write_bytes(b"changed source")
+                else:
+                    jobs[0]["revision"] = 3
+                self.assertFalse(host.source_manifest(jobs)["verified"])
+
     def test_view_is_get_only_and_preserves_existing_db_report_claim_and_all_files(self):
         with TemporaryDirectory() as temporary:
             host = workbench.WorkbenchEvaluation("S13", output_root=temporary)

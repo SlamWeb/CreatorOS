@@ -658,8 +658,8 @@ class WorkbenchEvaluation:
                 verified = False
                 continue
             context = json.loads(context_path.read_text(encoding="utf-8"))
-            from creatoros.integrations.skill_draft_files import MODE_FOLDERS
-            version = directory / "versions" / f"v{job['revision']:03}" / MODE_FOLDERS["single"][0] / "assets/fusion-sources"
+            from creatoros.integrations.skill_extraction import MODE_ROLES
+            version = directory / "versions" / f"v{job['revision']:03}" / MODE_ROLES["single"][0] / "assets/fusion-sources"
             for source in context["sources"]:
                 for file in source["files"]:
                     path = version / source["directory"] / file["path"]
