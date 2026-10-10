@@ -425,12 +425,14 @@ class AgentChatService:
                               and e.get("name") in {"research_series_topics", "get_topic_research"}
                               and e.get("status") == "running"), None)
                 if entry is not None:
+                    entry["links"] = tool_links(entry["name"], json.dumps(data), studio_url=studio_url)
                     entry["research"] = deepcopy(data)
             elif kind == "discussion_progress":
                 entry = next((e for e in reversed(entries) if e.get("kind") == "tool"
                               and e.get("name") in {"discuss_content_run", "get_content_discussion"}
                               and e.get("status") == "running"), None)
                 if entry is not None:
+                    entry["links"] = tool_links(entry["name"], json.dumps(data), studio_url=studio_url)
                     entry["discussion"] = deepcopy(data)
             elif kind == "tool_result":
                 entry = entries[-1]
@@ -489,8 +491,8 @@ class AgentChatService:
                                                      archive_only_reads=True, creator_id=doc.get("creator_id"),
                                                      agent_session_id=doc["id"], stopping=self.stopping,
                                                      research_wait_timeout_seconds=self.research_wait_timeout_seconds,
-                                                     research_progress=lambda data: self._emit(doc, AgentEvent("research_progress", data)),
-                                                     discussion_progress=lambda data: self._emit(doc, AgentEvent("discussion_progress", data))),
+                                                     research_progress=lambda data: self._emit(doc, AgentEvent("research_progress", data), studio_url),
+                                                     discussion_progress=lambda data: self._emit(doc, AgentEvent("discussion_progress", data), studio_url)),
                       context_factory=(lambda: self.creator_context_factory(doc["creator_id"]))
                       if doc.get("scope_kind") == "creator" and self.creator_context_factory else None,
                       on_stream_event=lambda e: self._emit(doc, e) if isinstance(e, TextDelta) else None,

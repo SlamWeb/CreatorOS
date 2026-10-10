@@ -128,7 +128,6 @@ class StudioClient:
                                   payload={"expected_version": run["version"]})
         except StudioClientError as error:
             # Preserve the requested Run even when the response is lost; busy may point to another Run.
-            if error.run_id is None:
-                error.run_id = run["id"]
+            error.run_id = run["id"]
             raise
         return self.run_summary(result, accepted=True)

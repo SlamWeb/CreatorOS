@@ -11,6 +11,12 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   expect(seeded.ok(), await seeded.text()).toBeTruthy();
   const batch = await seeded.json();
   expect(batch.candidates).toHaveLength(2);
+  await page.goto(`/series/${series.id}?research=${batch.id}`);
+  await expect(page.getByRole("region", { name: "选题候选" })).toBeVisible();
+  await expect(page.getByLabel("调研记录")).toHaveValue(batch.id);
+  await expect(page.getByTestId("candidate-c1")).toBeVisible();
+  await page.getByRole("button", { name: "← 返回选题库" }).click();
+  expect(new URL(page.url()).searchParams.has("research")).toBe(false);
   await page.goto(`/series/${series.id}`);
   await expect(page.getByRole("heading", { name: "内容" })).toBeVisible();
   await page.getByRole("button", { name: "已入队", exact: true }).click();

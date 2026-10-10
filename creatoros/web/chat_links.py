@@ -87,6 +87,15 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             if data.get("status") not in {"ready", "researching", "queued", "failed", "unknown", "interrupted", "stale"}:
                 return []
             kind, rows = "research", [data]
+        elif name in {"discuss_content_run", "get_content_discussion"}:
+            kind, rows = "discussion", []
+            for row in data.get("items", [data]):
+                if not isinstance(row, dict) or row.get("status") not in {"queued", "running", "completed", "failed", "interrupted", "unknown"}:
+                    continue
+                run, identity, revision = row.get("run_id"), row.get("id"), row.get("revision_id")
+                if not all(isinstance(value, str) and re.fullmatch(_ID, value) for value in (run, identity, revision)):
+                    continue
+                rows.append({**row, "url": row.get("url") or f"/runs/{run}?discussion={identity}&revision={revision}"})
         elif is_error:
             return []
         elif name == "get_creator_tasks":
@@ -99,8 +108,6 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             kind, rows = "preview", [data]
         elif name in {"start_content_run", "get_content_run", "request_content_revision"}:
             kind, rows = "production", [data]
-        elif name in {"discuss_content_run", "get_content_discussion"}:
-            kind, rows = "discussion", data.get("items", [data])
         else:
             return []
         return [link for row in rows if (link := _receipt(row, kind, name, studio_url))]

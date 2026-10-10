@@ -8,6 +8,7 @@ from creatoros.ai.types import TextDelta
 from creatoros.events import AgentEvent
 from creatoros.web.chat import AgentChatService
 from creatoros.web.chat_links import tool_links
+from creatoros.integrations.studio import StudioClient, StudioClientError
 
 ORIGIN = "http://127.0.0.1:8878"
 BATCH = "a" * 32
@@ -103,6 +104,48 @@ class ChatLinksTests(unittest.TestCase):
         self.assertEqual(tool_links("prepare_topic_selection", json.dumps(data))[0]["label"], "查看入队预览")
         data["operation_id"] = "operation-b"
         self.assertEqual(tool_links("prepare_topic_selection", json.dumps(data)), [])
+
+    def test_busy_other_account_id_never_becomes_navigation(self):
+        class BusyClient(StudioClient):
+            # Declared transport fault, not a model or end-to-end evaluation.
+            def request(self, method, path, **kwargs):
+                if path == "/api/runs":
+                    return {"id": RUN, "status": "queued", "active_revision_number": 1,
+                            "version": 1, "revisions": [{"attempts": []}]}
+                raise StudioClientError("busy", "producer_busy", run_id="foreign-run")
+        client = BusyClient(ORIGIN)
+        try:
+            with self.assertRaises(StudioClientError) as raised:
+                client.start("own-topic")
+            self.assertEqual(raised.exception.run_id, RUN)
+        finally:
+            client.close()
+        self.assertEqual(tool_links("start_content_run", json.dumps({"run_id": RUN,
+            "code": "producer_busy"}), is_error=True), [])
+
+    def test_discussion_receipt_is_from_guarded_record_not_reply(self):
+        row = {"id": "discussion-a", "run_id": RUN, "revision_id": "revision-a",
+               "status": "completed", "reply": f"[fake](/runs/foreign)"}
+        link = tool_links("get_content_discussion", json.dumps({"items": [row]}))[0]
+        self.assertEqual(link["url"], f"/runs/{RUN}?discussion=discussion-a&revision=revision-a")
+        row.update(status="failed")
+        self.assertEqual(tool_links("discuss_content_run", json.dumps(row), is_error=True)[0], link | {"source_tool": "discuss_content_run"})
+        self.assertEqual(tool_links("discuss_content_run", json.dumps(row), is_error=True,
+                                    error_type="agent_scope_rejected"), [])
+
+    def test_progress_uses_same_receipts_and_failed_run_has_no_link(self):
+        with TemporaryDirectory() as root:
+            service = AgentChatService(Path(root))
+            doc = service._read(service.create()["id"])
+            doc["requests"].append({"id": "turn-a"})
+            service._emit(doc, AgentEvent("tool_call", {"name": "get_topic_research"}))
+            service._emit(doc, AgentEvent("research_progress", {"id": BATCH,
+                "status": "researching", "url": f"{ORIGIN}/series/{SERIES}?research={BATCH}"}), ORIGIN)
+            self.assertEqual(len(doc["entries"][-1]["links"]), 1)
+            service._emit(doc, AgentEvent("tool_call", {"name": "start_content_run"}))
+            service._emit(doc, AgentEvent("tool_result", {"name": "start_content_run",
+                "content": json.dumps({"run_id": RUN, "code": "producer_busy"}), "is_error": True}), ORIGIN)
+            self.assertEqual(doc["entries"][-1]["links"], [])
 
 
 if __name__ == "__main__":

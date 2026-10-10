@@ -29,7 +29,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const offsetKey = compact ? `offset-${seriesId}` : "offset";
   const rawOffset = Number(params.get(offsetKey) ?? 0);
   const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
-  const selecting = !compact && params.get("select") === "1" && !!params.get("research");
+  const selecting = !compact && !!params.get("research");
   const query = useQuery({ queryKey: ["topics", seriesId, "library", state, offset],
     queryFn: () => request<PageResponse<LibraryTopic>>(`/api/series/${encodeURIComponent(seriesId)}/topic-library?state=${state}&offset=${offset}&limit=20`),
     refetchInterval: q => q.state.data?.items.some(t => t.selection_state === "queued" &&
@@ -83,7 +83,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     } catch { /* Invalid/stale restoration data must not break the library. */ }
   }, [query.data, location.pathname, location.search]);
   if (selecting) return <section className="topic-library">
-    <button className="button button-secondary" onClick={() => setParams(p => { const next = new URLSearchParams(p); next.delete("select"); return next; })}>← 返回选题库</button>
+    <button className="button button-secondary" onClick={() => setParams(p => { const next = new URLSearchParams(p); for (const key of ["select", "research", "operation"]) next.delete(key); return next; })}>← 返回选题库</button>
     <TopicResearchPanel key={seriesId} seriesId={seriesId} />
   </section>;
   return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}

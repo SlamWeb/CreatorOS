@@ -305,9 +305,9 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
   if (entry.kind === "tool") return <div className="chat-tool" data-status={entry.status}>
     <span>{entry.status === "running" ? "◌" : entry.status === "done" ? "✓" : "!"} {tools[entry.name ?? ""] ?? entry.name}</span>
     <small>{entry.status === "running" ? (entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中") : entry.status === "done" ? "已返回" : "结果需检查"}</small>
-    {entry.run_id && <Link to={`/runs/${entry.run_id}`}>查看内容任务 ↗</Link>}
-    {entry.research && <ResearchActivity research={entry.research} />}
-    {entry.discussion && <DiscussionActivity discussion={entry.discussion} />}
+    {entry.links?.filter(link => link.label === "查看内容").map(link => <Link key={link.url} to={link.url}>查看内容任务 ↗</Link>)}
+    {entry.research && <ResearchActivity research={entry.research} links={entry.links ?? []} />}
+    {entry.discussion && <DiscussionActivity discussion={entry.discussion} links={entry.links ?? []} />}
   </div>;
   if (entry.kind === "usage") return <details className="chat-usage"><summary>本轮用量</summary>
     输入 {entry.input_tokens?.toLocaleString()} · 输出 {entry.output_tokens?.toLocaleString()} tokens</details>;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { chatHref, type ChatLink } from "./chatLinks";
 import "./research-activity.css";
 
 export type ResearchSnapshot = {
@@ -25,7 +26,7 @@ const stages: Record<string, string> = {
 const eventKinds: Record<string, string> = { message: "Codex", search: "搜索", tool: "工具", status: "状态" };
 const runningStates = new Set(["running", "queued", "starting", "researching"]);
 
-export function ResearchActivity({ research }: { research: ResearchSnapshot }) {
+export function ResearchActivity({ research, links }: { research: ResearchSnapshot; links: ChatLink[] }) {
   const running = runningStates.has(research.status);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -40,7 +41,8 @@ export function ResearchActivity({ research }: { research: ResearchSnapshot }) {
   const failed = ["failed", "interrupted", "stale"].includes(research.status);
   const error = research.error || research.message;
   const events = (research.progress?.events ?? []).filter(event => event.kind !== "reasoning").slice(-30);
-  const href = research.url && /^\/series\/[a-zA-Z0-9-]+(?:\?[^#]*)?$/.test(research.url) ? research.url : null;
+  const target = chatHref(research.url, links, window.location.origin);
+  const href = target?.kind === "internal" ? target.href : null;
   return <section className={`research-activity${failed ? " research-activity-failed" : ""}`} aria-label="选题调研活动">
     <div className="research-activity-heading">
       <strong>{stages[research.status] ?? (running ? "调研中" : research.status)}</strong>

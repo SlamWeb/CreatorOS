@@ -6,7 +6,7 @@ const longActivity = `正在核对词义和语境。${"公开工具输出。".re
 const running = () => ({ id: sessionId, title: "英语同义词调研", version: 1, status: "running", error: null,
   scope_kind: "overview", creator_id: null, updated_at: "2026-10-05T12:00:00Z", has_older: false,
   entries: [ { kind: "user", text: "为栏目找 10 组英语同义词。" },
-    { kind: "tool", name: "research_series_topics", status: "running", research: {
+    { kind: "tool", name: "research_series_topics", status: "running", links: [{ url: "/series/series-test?research=batch-one", label: "查看调研", source_tool: "research_series_topics" }], research: {
       id: batchId, status: "researching", note: "正在查找可核验的同义词资料。", url: "/series/series-test?research=batch-one",
       progress: { stage: "searching", last_activity_at: "2026-10-05T12:00:00Z", events: [
         { id: 1, kind: "message", text: "先查看栏目，再核对单词用法。" },
