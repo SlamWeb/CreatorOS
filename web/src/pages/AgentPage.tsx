@@ -9,10 +9,11 @@ import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
 import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditHandoff";
+import { chatHref, type ChatLink } from "../components/chatLinks";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
-  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot };
+  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[] };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
@@ -286,10 +287,15 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,
     a: ({ href, children }) => {
-      const runPath = href?.match(/^(?:http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?)?(\/runs\/[a-f0-9-]{36})$/)?.[1];
-      return runPath ? <Link to={runPath}>{children}</Link> : <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+      const target = chatHref(href, entry.links ?? [], window.location.origin);
+      return target?.kind === "internal" ? <Link to={target.href}>{children}</Link>
+        : target?.kind === "external" ? <a href={target.href} target="_blank" rel="noopener noreferrer">{children}</a>
+          : <span title="此地址未由工具确认；请使用回复下方的任务入口">{children}</span>;
     },
   }}>{entry.text}</Markdown></div>
+    {!!entry.links?.length && <nav className="chat-delivery-links" aria-label="本轮任务入口">
+      {entry.links.map(link => <Link key={link.url} to={link.url}>{link.label}</Link>)}
+    </nav>}
     {(entry.complete || entry.terminal || (entry.complete === undefined && entry.terminal === undefined && sessionStatus !== "running")) && <div className="chat-reply-actions">
       <CopyReply text={entry.text} />
       <ChatTrace sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}

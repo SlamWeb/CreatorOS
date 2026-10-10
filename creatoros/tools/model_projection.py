@@ -137,7 +137,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name == "list_creator_series":
         return _pick(data, ("creator_id", "creator_name")) | _items(data, _SERIES)
     if tool_name == "list_series_topics":
-        return _items(data, _TOPIC, item_projector=_topic)
+        return _items(data, _TOPIC, item_projector=_topic) | _pick(data, ("series_id", "url"))
     if tool_name == "list_producer_skills":
         return _items(data, _SKILL)
     if tool_name in {"get_producer_skill", "update_producer_skill_file"}:

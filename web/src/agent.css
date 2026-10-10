@@ -32,6 +32,8 @@
 .chat-answer p { margin: 8px 0 16px; }
 .chat-answer ul, .chat-answer ol { padding-left: 24px; }
 .chat-answer a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.chat-delivery-links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 10px; }
+.chat-delivery-links a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; padding-block: 6px; overflow-wrap: anywhere; }
 .chat-answer pre { overflow-x: auto; padding: 16px; background: var(--surface); border: 0; border-radius: var(--radius-md); }
 .chat-answer code { font-size: 12px; color: var(--ink); font-family: var(--font-mono); background: var(--surface); border-radius: 5px; padding: 2px 5px; }
 .chat-answer pre code { padding: 0; }

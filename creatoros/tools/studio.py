@@ -46,7 +46,8 @@ def prepare_topic_selection(batch_id, selections, context=None):
     items = [s.model_dump() if isinstance(s, CandidateSelection) else s for s in selections]
     def preview(client):
         data = client.request("POST", f"/api/topic-research/{batch_id}/preview", payload={"selections": items})
-        return {"operation_id": data["id"], "status": data["status"], "preview": data["preview"],
+        return {"operation_id": data["id"], "series_id": data['scope_series_id'], "batch_id": batch_id,
+                "status": data["status"], "preview": data["preview"],
                 "url": f"/series/{data['scope_series_id']}?research={batch_id}&operation={data['id']}",
                 "message": "仅生成待确认计划，尚未入队；请用户打开链接验收并确认。"}
     return _call(preview, context)
@@ -289,8 +290,11 @@ def list_creator_series(creator_id, context=None):
 
 
 def list_series_topics(series_id, offset=0, limit=20, context=None, state="all"):
-    return _call(lambda client: client.request("GET", f"/api/series/{quote(series_id, safe='')}/topic-library",
-                 params={"offset": offset, "limit": limit, "state": state}), context)
+    def query(client):
+        data = client.request("GET", f"/api/series/{quote(series_id, safe='')}/topic-library",
+                              params={"offset": offset, "limit": limit, "state": state})
+        return {**data, "series_id": series_id, "url": f"/series/{quote(series_id, safe='')}"}
+    return _call(query, context)
 
 
 def start_content_run(topic_id, context=None):

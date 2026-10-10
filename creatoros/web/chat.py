@@ -24,6 +24,7 @@ from creatoros.session.context_trace import read_trace
 from creatoros.session.request_trace import RequestSnapshots, redact
 from creatoros.terminal import Console
 from creatoros.events import AgentEvent
+from creatoros.web.chat_links import tool_links, turn_links
 
 STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics",
                           "start_content_run", "get_content_run", "install_producer_skill",
@@ -57,7 +58,8 @@ LANGUAGE_POLICY = (
 REPLY_POLICY = (
     "回复规范（适用于本轮全部可见输出）：默认简体中文，包括工具调用前的说明；必要时只用一句，不需要英文开场或解释打算调用什么。"
     "最终回复先说业务结论，只交付用户所问的结果和必要链接；答完即止，不加‘需要的话我可以…’、‘接下来你可以…’或未请求的建议。"
-    "例如用户只要求入队：‘已将这两条加入「四格词汇」，未生产。[查看栏目](工具返回的url)’，不列审计字段或下一步选项。"
+    "例如用户只要求入队：‘已将这两条加入「四格词汇」，未生产。’，不列审计字段或下一步选项。"
+    "栏目、调研、生产和讨论的导航入口由宿主在回复下提供，不需要在正文拼写内部 URL 或编造域名；外部资料来源仍可正常引用。"
     "对象用名称指代，链接用简短可读名称；不主动展示内部 ID、digest、原始状态码、版本字段、thread、调用参数或技术错误代码，完整细节在 Trace。"
     "用户明确询问技术细节、证据或完整内容时再按需展开；不删减用户要求的结果。"
     "只能依据实际目录或工具结果陈述事实；未验证不得声称 ID 格式错误、记录不存在或故障根因。"
@@ -392,7 +394,7 @@ class AgentChatService:
             thread.start()
             return self._view(doc)
 
-    def _emit(self, doc, event):
+    def _emit(self, doc, event, studio_url=None):
         with self.lock:
             if self.stopping.is_set():
                 raise ChatStopped()
@@ -413,8 +415,11 @@ class AgentChatService:
                                and e.get('turn_id') == data['turn_id']), None)
                 if answer is not None:
                     answer.update(complete=data['complete'], model_request_id=data['request_id'])
+                    if data['complete']:
+                        answer.update(links=turn_links(entries, data['turn_id']), delivery_version=1)
             elif kind == "tool_call":
-                entries.append({"kind": "tool", "name": data["name"], "status": "running"})
+                entries.append({"kind": "tool", "name": data["name"], "status": "running",
+                                "turn_id": doc["requests"][-1]["id"]})
             elif kind == "research_progress":
                 entry = next((e for e in reversed(entries) if e.get("kind") == "tool"
                               and e.get("name") in {"research_series_topics", "get_topic_research"}
@@ -430,6 +435,8 @@ class AgentChatService:
             elif kind == "tool_result":
                 entry = entries[-1]
                 entry["status"] = "failed" if data.get("is_error") else "done"
+                entry["links"] = tool_links(data["name"], data["content"],
+                    is_error=bool(data.get("is_error")), error_type=data.get("error_type"), studio_url=studio_url)
                 if data["name"] in {"research_series_topics", "get_topic_research"}:
                     try:
                         result = json.loads(data["content"])
@@ -487,7 +494,7 @@ class AgentChatService:
                       context_factory=(lambda: self.creator_context_factory(doc["creator_id"]))
                       if doc.get("scope_kind") == "creator" and self.creator_context_factory else None,
                       on_stream_event=lambda e: self._emit(doc, e) if isinstance(e, TextDelta) else None,
-                      on_agent_event=lambda e: self._emit(doc, e))
+                      on_agent_event=lambda e: self._emit(doc, e, studio_url))
             if doc["entries"] and doc["entries"][-1]["kind"] == "context_blocked":
                 status, error = "failed", doc["entries"][-1]["message"]
         except ChatStopped:
