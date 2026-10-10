@@ -20,6 +20,7 @@ from creatoros.integrations.studio import StudioClient
 from creatoros.storage import Database, upgrade_database
 from creatoros.tools import execute_tool_call, tools
 from creatoros.web import create_app
+from creatoros.web.chat_links import tool_links
 from tests.agent_studio_support import serve
 
 
@@ -74,6 +75,8 @@ def main() -> None:
                             mind_skill_id=mind["id"], production_skill_id=production["id"])
             assert not created.is_error, created.content
             series_id = json.loads(created.content)["series"]["id"]
+            assert tool_links("compose_series", created.content, studio_url=base) == [
+                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "compose_series"}]
             # HTTP 读取同一对象：字段一致。
             via_http = client.request("GET", f"/api/series/{series_id}")
             assert via_http["mind_skill_id"] == mind["id"] and via_http["creator_id"] is None
@@ -82,12 +85,16 @@ def main() -> None:
             # 半套组合被工具侧服务拒绝（不是静默成功）。
             half = _tool("compose_series", name="半套", mind_skill_id=mind["id"])
             assert half.is_error
+            assert tool_links("compose_series", half.content, is_error=True) == []
 
             # 分配账号：先拿旧 revision 会被拒，再取最新 revision 成功。
             stale = _tool("assign_series", series_id=series_id, creator_id=creator["id"], expected_revision=99)
             assert stale.is_error and "revision" in json.loads(stale.content)["error"]
+            assert tool_links("assign_series", stale.content, is_error=True) == []
             assigned = _tool("assign_series", series_id=series_id, creator_id=creator["id"], expected_revision=1)
             assert not assigned.is_error, assigned.content
+            assert tool_links("assign_series", assigned.content, studio_url=base) == [
+                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "assign_series"}]
             assert json.loads(assigned.content)["series"]["revision"] == 2
             assert client.request("GET", f"/api/series/{series_id}")["creator_id"] == creator["id"]
 
@@ -105,6 +112,8 @@ def main() -> None:
             moved = _tool("update_series_composition", series_id=series_id,
                           mind_skill_id=mind["id"], production_skill_id=other["id"], expected_revision=2)
             assert not moved.is_error, moved.content
+            assert tool_links("update_series_composition", moved.content, studio_url=base) == [
+                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "update_series_composition"}]
             assert json.loads(moved.content)["series"]["revision"] == 3
             assert json.loads(moved.content)["series"]["production_skill_id"] == other["id"]
             client.close()

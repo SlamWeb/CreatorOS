@@ -132,18 +132,27 @@ def compose_series(name, description="", audience="", creator_id=None, skill_nam
     payload = {"name": name, "description": description, "audience": audience, "creator_id": creator_id,
                "skill_name": skill_name, "mind_skill_id": mind_skill_id, "production_skill_id": production_skill_id,
                "request_id": uuid4().hex}
-    return _call(lambda c: c.request("POST", "/api/series", payload=payload), context)
+    return _call(lambda c: _series_receipt(c.request("POST", "/api/series", payload=payload)), context)
 
 
 def update_series_composition(series_id, mind_skill_id, production_skill_id, expected_revision, context=None):
     payload = {"mind_skill_id": mind_skill_id, "production_skill_id": production_skill_id,
                "expected_revision": expected_revision, "request_id": uuid4().hex}
-    return _call(lambda c: c.request("POST", f"/api/series/{quote(series_id, safe='')}/composition", payload=payload), context)
+    return _call(lambda c: _series_receipt(c.request("POST", f"/api/series/{quote(series_id, safe='')}/composition", payload=payload)), context)
 
 
 def assign_series(series_id, creator_id, expected_revision, context=None):
     payload = {"creator_id": creator_id, "expected_revision": expected_revision, "request_id": uuid4().hex}
-    return _call(lambda c: c.request("POST", f"/api/series/{quote(series_id, safe='')}/assignment", payload=payload), context)
+    return _call(lambda c: _series_receipt(c.request("POST", f"/api/series/{quote(series_id, safe='')}/assignment", payload=payload)), context)
+
+
+def _series_receipt(data):
+    """Navigation follows the guarded HTTP result, never a model-supplied ID."""
+    series = data.get("series") if isinstance(data, dict) else None
+    identity = series.get("id") if isinstance(series, dict) else None
+    if not isinstance(identity, str) or not identity:
+        return data
+    return {**data, "series_id": identity, "url": f"/series/{quote(identity, safe='')}"}
 
 
 def queue_topics(series_id, topics, summary=None, context=None):
