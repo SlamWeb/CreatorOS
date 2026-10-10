@@ -99,6 +99,7 @@ def create_app(
     skill_extraction_service=None,
     content_discussion_service=None,
     eval_root: Path | None = None,
+    eval_cases_path: Path | None = None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -172,7 +173,7 @@ def create_app(
     app.state.skill_extractions = extractions
     app.state.content_discussions = discussions
     app.state.observation = observations
-    app.state.evaluation = EvalStore(eval_root)
+    app.state.evaluation = EvalStore(eval_root, cases_path=eval_cases_path)
     app.include_router(eval_routes(app.state.evaluation))
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))

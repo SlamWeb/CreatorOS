@@ -85,7 +85,7 @@ class EvalStore:
                 raise ValueError()
             ids = set()
             for case in cases:
-                if (not isinstance(case, dict) or not re.fullmatch(r"E\d{2}", case["id"])
+                if (not isinstance(case, dict) or not re.fullmatch(r"[EASBP]\d{2}", case["id"])
                         or case["id"] in ids or not isinstance(case["title"], str)
                         or case["category"] not in {"security", "persistence", "state", "tools"}
                         or case["split"] not in {"dev", "acceptance"}):
