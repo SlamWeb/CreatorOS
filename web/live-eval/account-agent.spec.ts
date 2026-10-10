@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { conversationErrorAlerts, toolResultAlerts } from "./chat-alerts";
+import { expectEvalEvidence, expectProductionRecord, expectRenderedReply, readEvalViewEvidence } from "./ui-assertions";
 
 test("real account Agent: frozen steps → GUI turns → state evidence → Trace → Eval", async ({ page, request }, info) => {
   const scenarioResponse = await request.get("/__live_eval__/scenario");
@@ -32,7 +33,7 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
     await page.reload();
     await page.getByRole("button", { name: "打开账号对话" }).click();
     const panel = page.locator(".account-chat-panel");
-    await expect(panel.locator(".chat-answer").last()).toHaveText(String(browser.visible_reply));
+    await expectRenderedReply(panel.locator(".chat-answer").last(), String(browser.visible_reply));
     browser.restored_reply = await panel.locator(".chat-answer").last().innerText();
     const key = `creatoros.agent.selected-chat.v1:creator%3A${scenario.creator_id}`;
     browser.restored_session_id = await page.evaluate(key => sessionStorage.getItem(key), key);
@@ -144,7 +145,10 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
       const hrefs = await navigation.getByRole("link").evaluateAll(elements => elements.map(element => element.getAttribute("href")));
       expect(hrefs).toEqual(links.map(link => link.url));
       const reads: Array<Record<string, unknown>> = [];
-      const delivery = { protocol: "host-links-v1", host_links: links, displayed_hrefs: hrefs,
+      const expectation = await request.get("/__live_eval__/navigation-expectation");
+      expect(expectation.ok()).toBe(true);
+      const { urls: expectedTaskUrls } = await expectation.json();
+      const delivery = { protocol: "host-links-v2", host_links: links, displayed_hrefs: hrefs, expected_task_urls: expectedTaskUrls,
         checked: reads, additional_turn_posts: 0 };
       browser.delivery = delivery;
       const postsBefore = Number(browser.turn_posts);
@@ -170,6 +174,7 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
             && Array.from(target.searchParams).every(([key, value]) => url.searchParams.get(key) === value)
           : url.href === target.href);
         await expect(page.getByRole("heading", { name: kind === "series" ? resource.name : resource.topic_title, exact: true })).toBeVisible();
+        if (kind === "runs") await expectProductionRecord(page, resource);
         if (research) {
           const result = page.getByRole("region", { name: "选题候选" });
           await expect(result).toBeVisible();
@@ -183,6 +188,7 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
         reads.push({ url: link.url, object_id: resourceId, creator_id: resource.creator_id, clicked: true,
           destination_matches: true, destination_url: page.url(), resource_readable: true, research_id: researchId,
           research_record_visible: !researchId || !!research, research_status: research?.status,
+          production_record_visible: kind === "runs" ? true : undefined,
           visible_candidate_count: research?.candidates.length });
         await page.goBack();
         // Returning restores the same lazy panel; it never sends a query.
@@ -219,12 +225,15 @@ test("real account Agent: frozen steps → GUI turns → state evidence → Trac
         await expect(page.getByRole("heading", { name: "运行结果" })).toBeVisible();
         await expect(page.getByRole("region", { name: "执行链路" })).toBeVisible();
         await expect(page.getByText("浏览器 E2E", { exact: true })).toBeVisible();
-        await expect(page.getByRole("region", { name: "数据库预期与实际" })).toBeVisible();
+        const evidence = await readEvalViewEvidence(request, report.run_id, scenario.steps.filter(step => step.kind === "user").map(step => step.text));
+        const viewEvidence = await expectEvalEvidence(page, evidence);
+        await info.attach("eval-view-evidence.json", { body: JSON.stringify(viewEvidence, null, 2), contentType: "application/json" });
         await page.setViewportSize({ width: 390, height: 844 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: info.outputPath("eval-mobile.png"), fullPage: true });
         await page.reload();
         await expect(page.getByRole("heading", { name: "运行结果" })).toBeVisible();
+        await expectEvalEvidence(page, evidence);
         expect(new URL(page.url()).searchParams.get("run")).toBe(report.run_id);
       } catch (error) {
         viewError = error instanceof Error ? error.message : String(error);

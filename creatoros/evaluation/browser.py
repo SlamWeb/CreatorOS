@@ -130,6 +130,7 @@ class BrowserEvaluation:
         self.app = self.fixture.app
         router = APIRouter()
         router.get("/__live_eval__/scenario")(self.scenario)
+        router.get("/__live_eval__/navigation-expectation")(self.navigation_expectation)
         router.post("/__live_eval__/finish")(self.finish_request)
         router.get("/__live_eval__/result")(self.result)
         router.get("/__live_eval__/observation")(self.observation)
@@ -195,6 +196,12 @@ class BrowserEvaluation:
                 "creator_name": self.fixture.expected_creator["display_name"],
                 "creator_id": self.fixture.creator_a, "query": self.query,
                 "steps": self.steps, "variant": self.variant}
+
+    def navigation_expectation(self):
+        # Read by the browser judge only; never added to the model's messages.
+        world = self.fixture.e10
+        return {"urls": [f"/series/{world['series_id']}",
+                         *[task["url"] for task in world["failed_tasks"]]] if world else None}
 
     async def checkpoint_request(self, request: Request):
         payload = await request.json()
@@ -433,11 +440,12 @@ class BrowserEvaluation:
             self.report["error"] = self.report["error"] or {"kind": "browser_or_model",
                 "message": browser.get("error") or doc.get("error") or "浏览器/模型结束断言未全部通过。"}
         self.report["session_id"] = doc.get("id")
-        if browser.get("delivery", {}).get("protocol") == "host-links-v1":
+        if browser.get("delivery", {}).get("protocol") in {"host-links-v1", "host-links-v2"}:
             from .navigation import navigation_result
-            delivered = navigation_result(doc, browser["delivery"], self.case["id"], completed)
+            delivered = navigation_result(doc, browser["delivery"], self.case["id"], completed,
+                                          expected_urls=self.navigation_expectation()["urls"])
             write_json(self.root / "delivery.json", delivered)
-            self.report["delivery"] = {"protocol": "host-links-v1", "status": delivered["status"],
+            self.report["delivery"] = {"protocol": delivered["protocol"], "status": delivered["status"],
                 "evidence": "delivery.json", "model_prose_changed": False}
         self.chain_status = self.report["auto_status"]
         self.chain_task_status = self.report["dimensions"]["task_success"]

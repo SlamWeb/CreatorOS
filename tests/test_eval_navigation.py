@@ -42,6 +42,27 @@ class NavigationTests(unittest.TestCase):
         seen["checked"][0]["research_record_visible"] = True
         self.assertEqual(navigation_result(doc, seen, "E09", True)["status"], "passed")
 
+    def test_relevance_uses_independent_expectation_not_host_echo(self):
+        self.assertEqual(navigation_result(self.doc, self.seen, "E10", True,
+                         expected_urls=["/series/a"])["relevance_status"], "passed")
+        result = navigation_result(self.doc, self.seen, "E10", True,
+                                   expected_urls=["/series/a", "/runs/failed"])
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["relevance_status"], "failed")
+        self.assertEqual(navigation_result(self.doc, self.seen, "E10", True,
+                         expected_urls=[])["status"], "failed")
+
+    def test_correct_run_url_with_only_heading_is_not_readable_delivery(self):
+        doc, seen = deepcopy(self.doc), deepcopy(self.seen)
+        url = "/runs/a"
+        doc["entries"][0]["links"][0]["url"] = url
+        seen["host_links"] = doc["entries"][0]["links"]
+        seen["displayed_hrefs"] = [url]
+        seen["checked"][0]["url"] = url
+        self.assertEqual(navigation_result(doc, seen, "E10", True)["status"], "failed")
+        seen["checked"][0]["production_record_visible"] = True
+        self.assertEqual(navigation_result(doc, seen, "E10", True)["status"], "passed")
+
 
 if __name__ == "__main__":
     unittest.main()

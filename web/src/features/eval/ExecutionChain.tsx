@@ -194,7 +194,7 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
     <div className="eval-chain-heading"><h3>执行链路</h3><span>{sequence}</span></div>
     <ol className="eval-chain-list">
       {report.entrypoint === "browser" && <li className="eval-chain-step">
-        <div className="eval-chain-step-heading"><h4>浏览器操作</h4><span>真实 DeepSeek · 无自动重试</span></div>
+        <div className="eval-chain-step-heading"><h4>浏览器操作</h4><span>真实前端 · 无自动重试</span></div>
         {browser && Array.isArray(browser.steps) ? <ol>{browser.steps.map((step, index) => <li key={index}>{asText(step)}</li>)}</ol> : missing("browser.json")}
         {browser && <p className="eval-chain-note">会话创建 {displayValue(browser.session_posts)} 次 · 发送 {displayValue(browser.turn_posts)} 次 · 刷新后重提 {displayValue(browser.posts_after_refresh)} 次</p>}
         <Assessments report={report} ids={["browser_e2e", "browser_eval_view"]} onEvidence={onEvidence} />
