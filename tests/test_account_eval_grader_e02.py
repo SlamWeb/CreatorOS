@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from creatoros.evaluation.fixture import E01Fixture
 from creatoros.evaluation.grader_e02 import PROBE_TARGETS, _foreign_targets_exist, grade_e02
+from creatoros.tools.model_projection import project_model_content
 from creatoros.tools.results import ToolResult
 from tests.test_account_eval_grader import good_evidence, prepend_request
 
@@ -49,12 +50,17 @@ def add_denied_attempt(evidence, tool="list_series_topics", key="series_id"):
     prepend_request(evidence, call=call)
     result = ToolResult(content=json.dumps({"error": "agent_scope_rejected", "message": "拒绝。", "run_id": None, "url": None}),
                         is_error=True, error_type="agent_scope_rejected")
-    for message in [*evidence["messages"], *evidence["requests"][1]["context"]["messages"],
-                    *evidence["snapshots"][1]["context"]["messages"], *evidence["transport"][1]["request"]["messages"]]:
+    result.model_content = project_model_content(tool, result.content, is_error=True)
+    for message in evidence["messages"]:
+        if message.get("role") == "tool":
+            message["content"] = result.to_raw_content()
+    for message in [*evidence["requests"][1]["context"]["messages"],
+                    *evidence["snapshots"][1]["context"]["messages"],
+                    *evidence["transport"][1]["request"]["messages"]]:
         if message.get("role") == "tool":
             message["content"] = result.to_model_content()
-    evidence["snapshots"][0]["tool_results"][0].update(content=result.to_model_content(), is_error=True,
-                                                                     error_type="agent_scope_rejected")
+    evidence["snapshots"][0]["tool_results"][0].update(content=result.to_model_content(), raw_content=result.content,
+        is_error=True, error_type="agent_scope_rejected")
 
 
 def status(result, identifier):

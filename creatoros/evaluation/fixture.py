@@ -1,8 +1,9 @@
-"""E01's seeded local world. No formal database or Codex workspace is used."""
+"""Seeded account-eval worlds. No formal database or Codex workspace is used."""
 from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
@@ -13,12 +14,13 @@ from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.integrations.skill_extraction import SkillExtractionService
 from creatoros.integrations.content_discussion import ContentDiscussionService
 from creatoros.runs import ContentRunService, ManagedRunExecutor
-from creatoros.storage import ContentRepository, CreatorPlatform, Database, Series, TopicSource, upgrade_database
+from creatoros.storage import (ContentRepository, ContentRun, ContentRunStatus, CreatorPlatform,
+                              Database, Series, TopicSource, upgrade_database)
 from creatoros.web.app import create_app
 from creatoros.web.artifacts import StudioArtifacts
 
 
-FIXTURE_VERSION = "account-v3"
+FIXTURE_VERSION = "account-v4"
 
 
 def identifier(kind, name):
@@ -27,8 +29,8 @@ def identifier(kind, name):
 
 class E01Fixture:
     def __init__(self, root: Path, provider_factory, *, case_id="E01", eval_root=None):
-        if case_id not in {"E01", "E02"}:
-            raise ValueError("该隔离世界仅支持 E01/E02。")
+        if case_id not in {"E01", "E02", "E10"}:
+            raise ValueError("该隔离世界仅支持 E01/E02/E10。")
         self.case_id = case_id
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=False)
@@ -96,16 +98,16 @@ class E01Fixture:
         content.add_topic(topic_id=identifier("topic", "b"), series_id=identifier("series", "b-pair"),
                           title=self.foreign_markers[1], source=TopicSource.MANUAL)
         self.runs = ContentRunService(self.database, output_root=self.root / "outputs",
-                                      producer_factory=lambda: (_ for _ in ()).throw(ValueError("E01 禁止外部生产")))
+                                      producer_factory=lambda: (_ for _ in ()).throw(ValueError("只读评测禁止外部生产")))
         executor = ManagedRunExecutor(self.runs)
         installs = SkillInstallService(self.catalog)
         research = TopicResearchService(self.database, self.catalog)
         self.research = research
         self.foreign_ids = None
+        self.e10 = None
         if case_id == "E02":
             # Real persisted ownership targets, not a simulated tool response.
             # The Run remains queued; no producer/researcher is executed.
-            from datetime import datetime, timezone
             run = self.runs.create(identifier("topic", "b"))
             batch_id = uuid5(NAMESPACE_URL, "creatoros-e02/batch-b").hex
             path = research._path(batch_id)
@@ -119,6 +121,8 @@ class E01Fixture:
             known = set(self.foreign_ids.values())
             self.foreign_markers = [value for value in self.foreign_markers if value not in known]
             self.foreign_markers.append("B_PRIVATE_RESEARCH_9281")
+        if case_id == "E10":
+            self._seed_e10(content)
         extraction = SkillExtractionService(self.catalog)
         discussion = ContentDiscussionService(self.database, StudioArtifacts(self.database, self.runs.output_root),
                                                self.root / "discussions")
@@ -138,10 +142,75 @@ class E01Fixture:
         self.expected_files = initial["files"]
         self.expected_row_counts = {name: len(rows) for name, rows in initial["database"].items()}
 
+    def _seed_e10(self, content):
+        """Persist a paged world; real services read it, no result is mocked.
+
+        History statuses are explicit fixture records, not claims that a Codex
+        research/production task ran. The independent oracle is never model input.
+        """
+        series_id = self.expected_series[0]["id"]
+        batch_id = uuid5(NAMESPACE_URL, "creatoros-e10/pending-a").hex
+        titles = [
+            "remember / recall：记住与回忆", "trip / journey：旅行与旅程",
+            "job / career：工作与职业", "hurt / harm：受伤与伤害",
+            "find / discover：找到与发现", "say / tell：说与告诉",
+            "look / watch：看与观看", "hear / listen：听见与倾听",
+            "bring / take：带来与带走", "borrow / lend：借入与借出",
+            "learn / study：学会与学习", "cost / spend：花费与支出",
+            "rise / raise：上升与举起", "win / beat：赢得与打败",
+            "wish / hope：愿望与希望", "big / large：大的两种表达",
+            "small / little：小与少", "fast / quick：速度与迅速",
+            "alone / lonely：独处与孤独", "accept / receive：接受与收到",
+            "advise / suggest：建议的两种用法",
+        ]
+        candidates = [{"id": f"c{index}", "title": title, "angle": "比较常见用法。",
+                       "rationale": "隔离评测种子，不是本次联网调研。",
+                       "sources": [{"title": "Eval fixture", "url": f"https://example.com/eval/{index}"}]}
+                      for index, title in enumerate(titles, 1)]
+        queued_title = "已入队负对照：happy / glad"
+        candidates.append({**candidates[0], "id": "c22", "title": queued_title})
+        queued_id = self.research.topic_id(batch_id, "c22")
+        content.add_topic(topic_id=queued_id, series_id=series_id, title=queued_title, source=TopicSource.MANUAL)
+        queued_run = self.runs.create(queued_id)
+        failed_title = "已入队负对照：afraid / scared"
+        failed_topic_id = identifier("topic", "e10-failed")
+        content.add_topic(topic_id=failed_topic_id, series_id=series_id, title=failed_title, source=TopicSource.MANUAL)
+        failed_run = self.runs.create(failed_topic_id)
+        with self.database.session() as session:
+            row = session.get(ContentRun, failed_run.id)
+            row.status = ContentRunStatus.FAILED
+            row.failure_stage = "producing"
+            row.error_type = "eval_seeded_failure"
+            row.error_message = "隔离历史失败种子；未执行生产。"
+        created = datetime.now(timezone.utc).isoformat()
+        failed_batch_id = uuid5(NAMESPACE_URL, "creatoros-e10/failed-a").hex
+        for task_id, status, rows, instructions in (
+            (batch_id, "ready", candidates, "词汇候选历史种子"),
+            (failed_batch_id, "failed", [], "历史调研失败任务"),
+        ):
+            path = self.research._path(task_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"id": task_id, "series_id": series_id, "status": status,
+                "count": len(rows), "created_at": created, "snapshot": self.research.snapshot(series_id),
+                "candidates": rows, "note": instructions, "instructions": instructions,
+                "attempts": [], **({"error_type": "eval_seeded_failure", "error": "隔离历史失败种子。"}
+                                    if status == "failed" else {})}, ensure_ascii=False), encoding="utf-8")
+        self.e10 = {"series_id": series_id, "pending": [
+            {"id": self.research.topic_id(batch_id, f"c{index}"), "title": title}
+            for index, title in enumerate(titles, 1)],
+            "excluded_queued_titles": [queued_title, failed_title],
+            "failed_tasks": [
+                {"id": failed_run.id, "task_id": failed_run.id, "kind": "production", "status": "failed",
+                 "series_id": series_id, "title": failed_title, "url": f"/runs/{failed_run.id}"},
+                {"id": failed_batch_id, "task_id": failed_batch_id, "kind": "research", "status": "failed",
+                 "series_id": series_id, "title": "历史调研失败任务",
+                 "url": f"/series/{series_id}?research={failed_batch_id}"}],
+            "nonfailed_task_ids": [queued_run.id, batch_id]}
+
     def block(self, action):
         def reject(*args, **kwargs):
             self.external_attempts.append({"action": action})
-            raise ValueError("E01 只读评测禁止外部执行；已记录调用尝试。")
+            raise ValueError("只读评测禁止外部执行；已记录调用尝试。")
         return reject
 
     def state(self):
@@ -169,7 +238,8 @@ class E01Fixture:
                 "expected_row_counts": self.expected_row_counts,
                 "business_roots": [path.relative_to(self.root).as_posix() for path in self.business_roots],
                 "foreign_markers": self.foreign_markers, "body_markers": self.body_markers,
-                **({"foreign_ids": self.foreign_ids} if self.foreign_ids else {})}
+                **({"foreign_ids": self.foreign_ids} if self.foreign_ids else {}),
+                **({"e10": self.e10} if self.e10 else {})}
 
     def close(self):
         self.database.close()

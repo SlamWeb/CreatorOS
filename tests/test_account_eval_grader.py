@@ -75,7 +75,9 @@ def prepend_request(evidence, *, compaction=False, call=None, content=None):
         wire_response["tool_calls"] = [{"id": call["id"], "type": "function", "function": {
             "name": call["name"], "arguments": call["arguments"]}}]
         evidence["transport"][0]["request"]["messages"].extend([wire_response, deepcopy(result)])
-        snap["tool_results"] = [{"tool_call_id": call["id"], "name": call["name"], "content": result["content"], "is_error": False, "error_type": None}]
+        snap["tool_results"] = [{"tool_call_id": call["id"], "name": call["name"],
+            "content": result["content"], "raw_content": result["content"],
+            "is_error": False, "error_type": None}]
     snap["response"] = deepcopy(response)
     request["finish_reason"] = None if compaction else finish
     sent.update(finish_reason=finish, public_outputs=[{"choices": [{"index": 0, "finish_reason": finish,
@@ -121,7 +123,7 @@ class GraderTests(unittest.TestCase):
                 evidence["probe"]["content"] = json.dumps({"items": [{"id": fixture.creator_a}], "page": {"total": 1, "offset": 0, "limit": 100}})
                 result = grade_e01(evidence)
                 self.assertEqual(result["auto_status"], "passed", result)
-                self.assertEqual(result["grader_version"], "e01-v2-host-contract")
+                self.assertEqual(result["grader_version"], "e01-v3-host-contract")
                 self.assertEqual(fixture.external_attempts, [])
             finally:
                 fixture.close()

@@ -10,9 +10,11 @@ from creatoros.tools.host_contract import bind_account_arguments, model_tool_sch
 from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
 from creatoros.web.chat import ACCOUNT_TOOLS
+from creatoros.tools.model_projection import project_model_content
+from creatoros.tools.results import ToolResult
 
 
-GRADER_VERSION = "e01-v2-host-contract"
+GRADER_VERSION = "e01-v3-host-contract"
 READ_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics", "get_content_run",
     "list_producer_skills", "get_producer_skill", "get_topic_research", "read_tool_result", "read_file",
     "get_content_discussion", "get_creator_tasks"})
@@ -123,15 +125,66 @@ def _archives_valid(archives, contexts, ledger_results):
         return False
 
 
+def _externalized_view_matches(content, call_id, tool_name, ledger_content, archives):
+    """Validate a large-result marker against its indexed raw archive entry."""
+    if not isinstance(content, str) or not content.startswith("[external tool result] "):
+        return False
+    match = re.fullmatch(
+        r"\[external tool result\] ([^\r\n]+)\r?\nresult_ref=([^\r\n]+)\r?\n"
+        r"用 read_file 读取原文：([^\r\n]+)（unit=chars，可分页）", content)
+    if not match:
+        return False
+    actual_description, actual_ref, actual_path = match.groups()
+    if actual_ref != call_id:
+        return False
+    path_match = re.search(r"([A-Za-z0-9_.-]+\.tool-results)/([a-f0-9]{64})\.txt$", actual_path)
+    if not path_match or "/../" in actual_path.replace("\\", "/"):
+        return False
+    folder, digest = path_match.groups()
+    if hashlib.sha256((call_id + "\0" + ledger_content).encode()).hexdigest() != digest:
+        return False
+    try:
+        index = json.loads(archives[folder + "/index.json"])
+        entry = index[digest]
+        if entry.get("result_ref") != call_id or entry.get("path") != digest + ".txt":
+            return False
+        if archives[folder + "/" + entry["path"]] != ledger_content:
+            return False
+        facts = {}
+        try:
+            data = json.loads(ledger_content)
+            if isinstance(data, dict):
+                for key in ("status", "error", "run_id", "operation_id", "id", "series_id", "stale", "total"):
+                    value = data.get(key)
+                    if isinstance(value, (str, int, bool)):
+                        facts[key] = value[:180] if isinstance(value, str) else value
+                for key in ("items", "candidates", "topics"):
+                    if isinstance(data.get(key), list):
+                        facts[key + "_count"] = len(data[key])
+        except ValueError:
+            pass
+        description = f"{tool_name} 返回记录，{len(ledger_content)} 字符；历史字段={json.dumps(facts, ensure_ascii=False)}"
+        if ledger_content.startswith("[tool_error"):
+            description += "；工具报告错误"
+        return (entry.get("description") == description and actual_description == description
+                and actual_path.replace("\\", "/").endswith("/" + folder + "/" + digest + ".txt"))
+    except KeyError:
+        return None
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
 def grade_read_only(evidence, *, case_id):
     """Shared captured-evidence checks; each case keeps its own boundary probes."""
-    if case_id not in {"E01", "E02"}:
+    if case_id not in {"E01", "E02", "E10"}:
         raise ValueError("Unsupported read-only evaluation case")
     checks = []
     def add(identifier, label, status, detail, files):
         checks.append({"id": identifier, "label": label, "status": status,
                        "detail": detail, "evidence": files})
-    required = ("oracle", "requests", "transport", "snapshots", "messages", "trace", "before", "after", "probe", "execution", "archives", "external_attempts", "collection_errors", "final_answer")
+    required = ("oracle", "requests", "transport", "snapshots", "messages", "trace", "before", "after", "execution", "archives", "external_attempts", "collection_errors", "final_answer")
+    if case_id in {"E01", "E02"}:
+        required += ("probe",)
     missing = [name for name in required if name not in evidence or evidence[name] is None]
     if not missing and (not evidence["requests"] or not evidence["snapshots"] or not evidence["trace"]
                         or not evidence["messages"]):
@@ -264,13 +317,58 @@ def grade_read_only(evidence, *, case_id):
     snapshot_results = [row for snap in snapshots for row in snap.get("tool_results", [])]
     if sorted(row.get("tool_call_id", "") for row in snapshot_results) != sorted(ids):
         protocol_errors.append("快照缺工具结果")
-    ledger_results = {message["tool_call_id"]: message.get("content") for message in messages if message.get("role") == "tool"}
-    if any(row.get("content") != ledger_results.get(row.get("tool_call_id")) for row in snapshot_results):
-        protocol_errors.append("快照与原账本工具结果不一致")
+    ledger_tool_rows = [message for message in messages if message.get("role") == "tool"]
+    ledger_results = {message.get("tool_call_id"): message.get("content") for message in ledger_tool_rows}
+    if len(ledger_results) != len(ledger_tool_rows):
+        protocol_errors.append("账本存在重复工具结果 ID")
+    calls_by_id = {call.get("id"): call for call in calls}
+    request_tool_messages = []
+    for request in requests:
+        request_tool_messages.append({message.get("tool_call_id"): message.get("content")
+                                      for message in request.get("context", {}).get("messages", [])
+                                      if message.get("role") == "tool"})
+    protocol_needs_review = False
+    archives = evidence.get("archives", {})
+    for row in snapshot_results:
+        call_id = row.get("tool_call_id")
+        call = calls_by_id.get(call_id)
+        raw = row.get("raw_content")
+        if (call is None or not isinstance(raw, str) or not isinstance(row.get("content"), str)
+                or not isinstance(row.get("name"), str) or row.get("name") != (call or {}).get("name")):
+            protocol_errors.append("快照缺少原始/模型工具结果或调用名称")
+            continue
+        result = ToolResult(content=raw, is_error=bool(row.get("is_error")),
+                            error_type=row.get("error_type"))
+        if result.to_raw_content() != ledger_results.get(call_id):
+            protocol_errors.append("快照 raw_content 与原始账本不一致")
+        try:
+            result.model_content = project_model_content(row["name"], raw, is_error=result.is_error)
+        except (TypeError, ValueError, KeyError):
+            protocol_errors.append("工具结果模型投影无法重建")
+            continue
+        if result.to_model_content() != row["content"]:
+            protocol_errors.append("快照 content 与工具结果模型投影不一致")
+        # The next actual Provider request is the model-visible source of truth.
+        # Contexts are cumulative, so check every later occurrence of this call.
+        occurrences = [context.get(call_id) for context in request_tool_messages if call_id in context]
+        if not occurrences:
+            protocol_needs_review = True
+        else:
+            for content in occurrences:
+                if content == row["content"]:
+                    continue
+                externalized = _externalized_view_matches(
+                    content, call_id, row["name"], ledger_results.get(call_id, ""), archives)
+                if externalized is None:
+                    protocol_needs_review = True
+                elif not externalized:
+                    protocol_errors.append("快照模型视图与后续 Provider 请求不一致")
     if case_id == "E01" and any(row.get("is_error") for row in snapshot_results):
         protocol_errors.append("E01 工具返回错误，需核对原因")
-    add("tool_protocol", "工具参数、配对和真实结果一致", "failed" if protocol_errors else "passed",
-        "；".join(protocol_errors) if protocol_errors else f"{len(calls)} 次工具调用合法且结果完整。",
+    protocol_status = "failed" if protocol_errors else "needs_review" if protocol_needs_review else "passed"
+    add("tool_protocol", "工具参数、配对和真实结果一致", protocol_status,
+        "；".join(protocol_errors) if protocol_errors else
+        "部分结果没有可核对的后续模型视图。" if protocol_needs_review else f"{len(calls)} 次工具调用合法且结果完整。",
         ["messages.json", "snapshots.json"])
     archive_valid = _archives_valid(evidence["archives"], captured_contexts, ledger_results)
     add("archive_complete", "外置原文引用与归档清单完整", "passed" if archive_valid else "needs_review",

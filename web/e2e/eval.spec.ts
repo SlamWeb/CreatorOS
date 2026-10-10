@@ -54,6 +54,9 @@ test("real isolated empty eval: twelve not-run cases, four categories and refres
   const secondCase = dataset.cases.find(item => item.id === "E02")!;
   await expect(definition.getByText(secondCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
   await expect(page.getByText("npm --prefix web run eval:live -- --project E02", { exact: true })).toBeVisible();
+  await caseButton(page, "E10").click();
+  await expect(page.getByText("npm --prefix web run eval:live -- --project E10", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "收起题目", exact: true }).click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -328,6 +331,34 @@ test("controlled assessment projection: Codex finding does not impersonate a sig
   await expect(page.getByRole("region", { name: "自动判分" })).toContainText("回复语义尚未评估");
   await page.reload();
   await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("评估者：Codex");
+  expect(writes).toEqual([]);
+});
+
+test("controlled E10 projection: read-only expectations, result failures and no required probe", async ({ page, request }) => {
+  const fixture = await structuredChain(page, request, false, docs => { delete docs["probe.json"]; });
+  const report = await readReport(request, fixture.run_id);
+  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
+    ...report, case_id: "E10", execution_mode: "controlled", status: "failed", auto_status: "failed",
+    evidence_files: ["requests.json", "messages.json", "trace.json", "oracle.json", "before.json", "after.json", "execution.json", "answer.txt"].map(name => ({ name, label: name })),
+    checks: [
+      { id: "correct_object", label: "当前账号对象", status: "passed", detail: "受控展示。", evidence: ["requests.json"] },
+      { id: "complete_filter", label: "待选筛选完整", status: "failed", detail: "受控排除项失败。", evidence: ["answer.txt"] },
+      { id: "failed_tasks", label: "真实失败任务", status: "passed", detail: "受控展示。", evidence: ["messages.json"] },
+      { id: "task_answer", label: "任务链接准确", status: "failed", detail: "受控错误链接。", evidence: ["answer.txt"] },
+    ],
+  } }));
+  const writes = watchWrites(page);
+  await page.goto(`/eval?case=E10&run=${fixture.run_id}`);
+  const database = page.getByRole("region", { name: "数据库预期与实际", exact: true });
+  await expect(database).toContainText("预期：只查看");
+  await expect(database).toContainText("完整行一致");
+  await expect(database).not.toContainText("尚未实现数据库预期");
+  const chain = page.getByRole("region", { name: "执行链路", exact: true });
+  await expect(chain).toContainText(/待选筛选完整\s*失败/);
+  await expect(chain).toContainText(/任务链接准确\s*失败/);
+  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(chain).toContainText(/任务链接准确\s*失败/);
   expect(writes).toEqual([]);
 });
 

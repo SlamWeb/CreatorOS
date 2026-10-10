@@ -4,7 +4,7 @@ import path from "node:path";
 // Explicit paid opt-in. Ordinary e2e never discovers these tests.
 const python = process.env.CREATOROS_PYTHON ?? "python";
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const cases = ["E01", "E02"];
+const cases = ["E01", "E02", "E10"];
 const selected = process.argv.flatMap((arg, index, args) => arg === "--project" ? [args[index + 1]] : arg.startsWith("--project=") ? [arg.slice(10)] : []);
 export default defineConfig({
   testDir: "./live-eval", timeout: 240_000, workers: 1, retries: 0, reporter: "line",

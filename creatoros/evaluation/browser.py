@@ -32,8 +32,8 @@ from creatoros.web.chat import ACCOUNT_TOOLS, AgentChatService
 class BrowserEvaluation:
     def __init__(self, case_id, output_root=None):
         dataset = json.loads((PROJECT_ROOT / "docs/agent-eval/cases.json").read_text(encoding="utf-8"))
-        if case_id not in {"E01", "E02"}:
-            raise ValueError("浏览器真实评测目前只接线 E01/E02。")
+        if case_id not in {"E01", "E02", "E10"}:
+            raise ValueError("浏览器真实评测目前只接线 E01/E02/E10。")
         self.case = next(row for row in dataset["cases"] if row["id"] == case_id)
         self.root = Path(output_root or PROJECT_ROOT / "data/agent-eval").resolve() / uuid4().hex
         self.root.mkdir(parents=True, exist_ok=False)
@@ -167,7 +167,7 @@ class BrowserEvaluation:
                 result = list_creators(offset=0, limit=100, context=context)
                 probe = {"name": "list_creators", "arguments": {"offset": 0, "limit": 100},
                          "content": result.content, "is_error": result.is_error}
-            else:
+            elif self.case["id"] == "E02":
                 ids = self.fixture.foreign_ids
                 probe = []
                 for tool, arguments in (
@@ -188,6 +188,9 @@ class BrowserEvaluation:
         if self.case["id"] == "E02":
             from creatoros.evaluation.grader_e02 import grade_e02
             grade = grade_e02(evidence)
+        elif self.case["id"] == "E10":
+            from creatoros.evaluation.grader_e10 import grade_e10
+            grade = grade_e10(evidence)
         else:
             grade = grade_e01(evidence)
         self.report.update(grade)
@@ -277,7 +280,7 @@ class BrowserEvaluation:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", choices=["E01", "E02"], required=True)
+    parser.add_argument("--case", choices=["E01", "E02", "E10"], required=True)
     parser.add_argument("--port", type=int, default=8878)
     args = parser.parse_args()
     host = BrowserEvaluation(args.case)

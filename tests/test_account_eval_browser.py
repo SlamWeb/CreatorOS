@@ -20,6 +20,32 @@ from time import monotonic, sleep
 
 
 class BrowserEvaluationLifecycleTests(unittest.TestCase):
+    def test_e10_seed_is_real_paged_storage_and_failed_records(self):
+        with TemporaryDirectory() as temporary:
+            host = BrowserEvaluation("E10", temporary)
+            try:
+                oracle = host.fixture.oracle()["e10"]
+                with TestClient(host.app) as client:
+                    series_id = oracle["series_id"]
+                    url = f"/api/series/{series_id}/topic-library"
+                    first = client.get(url, params={"state": "pending", "offset": 0, "limit": 20}).json()
+                    second = client.get(url, params={"state": "pending", "offset": 20, "limit": 20}).json()
+                    self.assertEqual(first["page"]["total"], 21)
+                    self.assertEqual(len(first["items"]), 20)
+                    self.assertEqual(len(second["items"]), 1)
+                    self.assertEqual([{k: row[k] for k in ("id", "title")} for row in first["items"] + second["items"]], oracle["pending"])
+                    tasks = client.get(f"/api/creators/{host.fixture.creator_a}/tasks", params={"series_id": series_id}).json()
+                    self.assertEqual(tasks["summary"]["failed"], 2)
+                    self.assertEqual(tasks["summary"]["active"], 0)
+                    failed = [row for row in tasks["items"] if row["status"] == "failed"]
+                    self.assertEqual({row["id"] for row in failed}, {row["id"] for row in oracle["failed_tasks"]})
+                    self.assertEqual({row["kind"] for row in failed}, {"production", "research"})
+                    self.assertEqual(host.fixture.state(), host.before)
+                    self.assertIsNone(host.captured)
+                    self.assertEqual(host.fixture.external_attempts, [])
+            finally:
+                host.fixture.close()
+
     def test_test_only_route_precedes_spa_and_never_calls_model(self):
         with TemporaryDirectory() as temporary:
             host = BrowserEvaluation("E01", temporary)
