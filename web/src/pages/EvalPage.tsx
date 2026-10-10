@@ -163,7 +163,7 @@ function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport;
     {report.execution_mode === "controlled" && <p className="eval-mode-note">受控执行用于验证接线与交互，不代表真实模型任务成绩。</p>}
     <ExecutionChain report={report} onEvidence={viewEvidence} />
     <section className="eval-auto" aria-label="自动判分"><div className="eval-section-heading"><h3>评估结果</h3><Status value={report.auto_status} /></div>
-      <p className="eval-result-summary">{report.checks.filter(check => check.status === "passed").length} / {report.checks.length} 项程序检查通过{!report.review && " · 回复语义尚未评估"}</p>
+      <p className="eval-result-summary">{report.checks.filter(check => check.status === "passed").length} / {report.checks.length} 项程序检查通过</p>
       <Reveal label="检查明细">
       <div className="eval-dimensions">{Object.entries(report.dimensions).map(([key, value]) => <div key={key}><span>{dimensions[key] ?? key}</span><Status value={value} /></div>)}</div>
       <ul className="eval-checks">{report.checks.map(check => <li key={check.id}>

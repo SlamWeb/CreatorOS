@@ -93,7 +93,7 @@ test("real isolated recorded report: evidence on demand, long content, history, 
   const results = page.locator(".eval-report-heading");
   await expect(results).toContainText("待复核");
   await expect(page.getByRole("region", { name: "自动判分" }).locator(".eval-section-heading")).toContainText("通过");
-  await expect(page.locator(".eval-result-summary")).toContainText("回复语义尚未评估");
+  await expect(page.locator(".eval-result-summary")).toContainText("项程序检查通过");
   await expect(page.getByText("受控执行用于验证接线与交互，不代表真实模型任务成绩。", { exact: true })).toBeVisible();
   await expect(page.locator(".eval-run-meta")).toContainText("用量未记录");
   expect(evidenceReads).toEqual([]);
@@ -329,9 +329,26 @@ test("controlled assessment projection: Codex finding does not impersonate a sig
   await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
   await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("本题不计完整通过");
   await expect(page.locator(".eval-chain-semantic")).toContainText("未代替用户签署");
-  await expect(page.getByRole("region", { name: "自动判分" })).toContainText("回复语义尚未评估");
+  await expect(page.getByRole("region", { name: "自动判分" })).not.toContainText("回复语义尚未评估");
   await page.reload();
   await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("评估者：Codex");
+  expect(writes).toEqual([]);
+});
+
+test("controlled E06 projection: a case without boundary probes does not report missing probes", async ({ page, request }) => {
+  const fixture = await structuredChain(page, request, false, docs => { delete docs["probe.json"]; });
+  const report = await readReport(request, fixture.run_id);
+  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
+    ...report, case_id: "E06", execution_mode: "controlled",
+    evidence_files: ["requests.json", "messages.json", "trace.json", "oracle.json", "before.json", "after.json", "execution.json", "answer.txt"].map(name => ({ name, label: name })),
+    checks: [{ id: "final_answer", label: "最终回复", status: "passed", detail: "仅验证展示。", evidence: ["answer.txt"] }],
+  } }));
+  const writes = watchWrites(page);
+  await page.goto(`/eval?case=E06&run=${fixture.run_id}`);
+  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "数据库预期与实际", exact: true })).toContainText("中断前授权入队仅落盘一次");
+  await page.reload();
+  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
   expect(writes).toEqual([]);
 });
 

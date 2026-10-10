@@ -240,7 +240,7 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
         {report.case_id === "E01" && <Fold label="对照当前账号的预期事实（独立 oracle）">{oracle && asRecord(oracle.creator) && recordArray(oracle.series) && recordArray(oracle.skills) ? <ContextSummary context={oracle} /> : <>{missing("oracle.json")}<p className="eval-chain-note">独立预期事实缺失或结构不受支持，无法作内容对照。</p></>}<Sources report={report} names={["oracle.json"]} onEvidence={onEvidence} /></Fold>}
       </li>
     </ol>
-    {(report.case_id !== "E10" || probe || probes?.length) && <section className="eval-chain-probe" aria-label="测试器强制探针"><div className="eval-chain-step-heading"><h4>测试器强制探针</h4><span>独立于模型执行链</span></div>
+    {(report.checks.some(check => check.id === "guard_probe") || probe || probes?.length) && <section className="eval-chain-probe" aria-label="测试器强制探针"><div className="eval-chain-step-heading"><h4>测试器强制探针</h4><span>独立于模型执行链</span></div>
       <p className="eval-chain-note">测试器主动调用真实适配器检查边界；不计入模型工具调用次数，也不证明模型主动做出正确选择。</p>
       {probes?.length ? probes.map((item, index) => <Fold key={index} label={`${asText(item.tool)}：查看探针参数与返回`}><div className="eval-chain-tool-data"><div><h5>探针参数</h5><Text value={item.arguments} code /></div><div><h5>探针返回</h5><Text value={item.result} code /></div></div></Fold>) : probe && typeof probe.name === "string" && "arguments" in probe && "content" in probe ? <Fold label={`${probe.name}：查看探针参数与返回`}><div className="eval-chain-tool-data"><div><h5>探针参数</h5><Text value={probe.arguments} code /></div><div><h5>探针返回</h5><Text value={probe.content} code /></div></div></Fold> : <>{missing("probe.json")}<p className="eval-chain-note">探针缺失或结构不受支持，无法判断边界检查。</p></>}
       <Assessments report={report} ids={["guard_probe"]} onEvidence={onEvidence} />
