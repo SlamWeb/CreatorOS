@@ -46,6 +46,7 @@ class BrowserEvaluation:
         self.chain_task_status = None
         self.view_confirmed = False
         self.collection_task = None
+        self.network = []
         hashes, _ = source_fingerprint()
         # Include shipped frontend bytes, not just Python, in browser provenance.
         for path in sorted((PROJECT_ROOT / "web/dist").rglob("*")):
@@ -86,10 +87,28 @@ class BrowserEvaluation:
         router.get("/__live_eval__/scenario")(self.scenario)
         router.post("/__live_eval__/finish")(self.finish_request)
         router.get("/__live_eval__/result")(self.result)
+        router.get("/__live_eval__/observation")(self.observation)
         router.post("/__live_eval__/view")(self.confirm_view)
         # create_app already installed the SPA catch-all. Test-only routes must
         # precede it, or GET scenario silently returns index.html with HTTP 200.
         self.app.router.routes[0:0] = router.routes
+        self.app.middleware("http")(self.observe_http)
+
+    async def observe_http(self, request, call_next):
+        # Test host only: no body, headers, credentials or model-side injection.
+        if not request.url.path.startswith("/api/agent/"):
+            return await call_next(request)
+        with self.lock:
+            row = {"method": request.method, "path": request.url.path, "at": now()}
+            self.network.append(row)
+        response = await call_next(request)
+        row["status"] = response.status_code
+        return response
+
+    def observation(self):
+        with self.lock:
+            return {"sessions": self.app.state.chat.list(), "network": list(self.network),
+                    "model_requests": len(self.captured.requests) if self.captured else 0}
 
     def provider(self):
         files = list((self.fixture.root / "sessions").glob("*/messages.json"))
@@ -185,7 +204,19 @@ class BrowserEvaluation:
         browser["controller_checks"] = {"browser_ok": browser_ok, "exactly_one_real_user_turn":
             [row.get("content") for row in messages if row.get("role") == "user"] == [self.query],
             "clipboard_comparison": "仅将 Windows CRLF 归一为 LF；Markdown/正文不作改写。"}
+        write_json(self.root / "network.json", self.network)
+        session_posts = [row for row in self.network if row["method"] == "POST"
+                         and row["path"] == "/api/agent/sessions"]
+        turn_posts = [row for row in self.network if row["method"] == "POST"
+                      and row["path"].endswith("/turns")]
+        network_ok = (len(session_posts) == browser.get("session_posts") == 1
+                      and len(turn_posts) == browser.get("turn_posts") == 1)
+        browser_ok &= network_ok
+        browser["controller_checks"].update(browser_ok=browser_ok, actual_http_counts=network_ok)
         write_json(self.root / "browser.json", browser)
+        self.report["checks"].append({"id": "browser_http_counts", "label": "实际聊天 HTTP 与页面操作一致",
+            "status": "passed" if network_ok else "failed", "detail": "测试宿主观察实际请求，不读取正文或鉴权头。",
+            "evidence": ["network.json", "browser.json"]})
         self.report["checks"].append({"id": "browser_e2e", "label": "浏览器发送、完整回复、刷新与 Trace",
             "status": "passed" if browser_ok else "failed", "detail": "真实页面操作；复制原文与账本逐字对照，刷新零重提。",
             "evidence": ["browser.json", "messages.json", "answer.txt"]})
