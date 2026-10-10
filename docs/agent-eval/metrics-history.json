@@ -136,6 +136,38 @@
       "manifest_sha256": "c69eb32993c4ee1203b3284c3e748a3be6272cb13762d840afe7c3a437faeb1f",
       "run_ids": ["33b43c97a87b465cbb1d3f4c1414d322", "17a092e5451140fe8b226dbdbd8879ee", "5752da893b684d0eb15b2d348fa3c59d", "1c29014664934a66a3fc6e1a35877c9a"],
       "report": "WORKBENCH-BASELINE-2026-10-11.md"
+    },
+    {
+      "batch_id": "workbench-v2-20261011", "phase": "baseline",
+      "protocol": "workbench-gui-v2-20261011", "source_commit": "3955c22a4e9dc9ec4f875064574e10a67e4687de",
+      "cases": 4, "executions": 4, "repeats_per_slot": 1, "entrypoint": "real_frontend",
+      "model": {"outer": "deepseek-v4-flash", "fusion": "gpt-6-sol/high", "production": "gpt-6-luna/xhigh"},
+      "program": {"passed": 0, "failed": 1, "needs_review": 3, "missing": 0,
+        "scope": "Original scores preserved; no quality review is silently promoted to an automatic pass."},
+      "browser_suite": {"passed": 3, "failed": 1, "total": 4},
+      "independent_chain_reading": {"completed": 4, "total": 4,
+        "evaluator": "Codex independent full evidence reading", "user_signed": false,
+        "confirmed_grader_false_negative": ["S13 persisted role directory instead of generator draft directory"]},
+      "independent_image_reading": {"basic_goal_met": ["P01", "P02"], "delivered_images_read": 4,
+        "user_signed": false, "scope": "Individual content/visual samples; not a calibrated teaching benchmark or long-term identity stability result."},
+      "deepseek_requests": 9, "deepseek_tool_calls": 6,
+      "deepseek_input_tokens": 65236, "deepseek_output_tokens": 818, "deepseek_total_tokens": 66054,
+      "codex_usage": {
+        "S13": {"input_tokens": 351098, "cached_input_tokens": 326272, "output_tokens": 8212, "reasoning_output_tokens": 4118},
+        "P01": {"input_tokens": 469308, "cached_input_tokens": 420608, "output_tokens": 14303, "reasoning_output_tokens": 6684},
+        "P02": {"input_tokens": 500627, "cached_input_tokens": 420736, "output_tokens": 19315, "reasoning_output_tokens": 10793},
+        "scope": "Saved thread cumulative usage; cached/reasoning are subsets, P02 composition is not added again. Separate from DeepSeek."
+      },
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false,
+      "real_new_deliverable_images": 4, "completed_image_generation_events": 5, "discarded_images": 1,
+      "image_api_reference_parameters": "not_observable", "prompt_provenance": "producer_reported_not_image_service_verified",
+      "observation_transport": {"read_errors": 3, "recovered_gets": 3, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654},
+      "comparable_to_baseline_for_resume_uplift": false,
+      "incomparability_reason": "Collector retry and clipboard protocol changed; S13 has a confirmed grader false negative. Original scores retained, not a comparable success-rate uplift.",
+      "manifest_sha256": "8b2f5724085cfc658b9839350a528c14a2c517d5e39bd1fb6b953b2c022b357c",
+      "run_ids": ["c5a48af48614439c87e69933073c8e48", "8553b3d604ca47aab4a39b4656c6e86e", "491483f35f9f45eba67efc7af97a4aba", "9ec24dbcc77f401091d598a825dd0fd6"],
+      "report": "WORKBENCH-REGRESSION-2026-10-11.md"
     }
   ]
 }
