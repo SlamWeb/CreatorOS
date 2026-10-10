@@ -41,7 +41,7 @@ _REVISION = (
     "artifact_available", "artifact_error",
 )
 _RESEARCH = (
-    "id", "batch_id", "series_id", "count", "instructions", "status", "note",
+    "id", "batch_id", "series_id", "requested_count", "instructions", "status", "note",
     "stale", "error_type", "error", "last_known_status", "url",
 )
 _DISCUSSION = (
@@ -152,12 +152,18 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return _run(data)
     if tool_name in _RESEARCH_TOOLS:
         result = _pick(data, _RESEARCH)
+        # The stored count is a request limit, not proof of that many results.
+        # Count only the candidates actually returned; do not pad or truncate.
+        if "count" in data:
+            result["requested_count"] = deepcopy(data["count"])
         if is_error:
             result.update(_error(data))
         if "candidates" in data:
             result["candidates"] = _list(data["candidates"], lambda candidate:
                 _topic(candidate) | _pick(candidate, ("queued",))
                 if isinstance(candidate, dict) else deepcopy(candidate))
+            if isinstance(data["candidates"], list):
+                result["returned_count"] = len(data["candidates"])
         if "series_context" in data:
             result["series_context"] = _pick(data["series_context"], _SERIES)
         return result

@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 import unittest
 
-from creatoros.tools.model_projection import project_model_content, project_model_data
+from creatoros.tools.model_projection import project_model_content, project_model_data, project_tool_messages
 
 
 class ModelProjectionTests(unittest.TestCase):
@@ -48,12 +48,65 @@ class ModelProjectionTests(unittest.TestCase):
             "progress": {"events": ["完整诊断"]}, "url": "/series/series-a?research=aaa",
         })
         self.assertEqual(result["id"], "a" * 32)
-        self.assertEqual(result["count"], 10)
+        self.assertEqual(result["requested_count"], 10)
+        self.assertEqual(result["returned_count"], 1)
+        self.assertNotIn("count", result)
         self.assertEqual(result["candidates"][0]["queued"], False)
         self.assertEqual(result["candidates"][0]["rationale"], "常混淆")
         self.assertNotIn("thread_id", result)
         self.assertNotIn("attempts", result)
         self.assertNotIn("progress", result)
+
+    def test_research_candidate_cardinality_is_actual_and_never_truncated_or_padded(self):
+        for count in (0, 8, 10, 30):
+            for tool in ("research_series_topics", "get_topic_research"):
+                with self.subTest(count=count, tool=tool):
+                    candidates = [{"id": f"c{index}", "title": f"常用词组 {index}", "angle": "完整切入点" * 60,
+                        "rationale": "教学依据", "queued": False,
+                        "sources": [{"title": "词典", "url": f"https://example.com/entry/{index}"}]} for index in range(count)]
+                    original = {"id": "a" * 32, "count": 30, "status": "ready", "candidates": candidates,
+                                "url": "/series/series-a?research=" + "a" * 32, "thread_id": "raw-trace-only"}
+                    before = deepcopy(original)
+                    projected = project_model_data(tool, original)
+                    self.assertEqual(projected["requested_count"], 30)
+                    self.assertEqual(projected["returned_count"], count)
+                    self.assertEqual(projected["candidates"], candidates)
+                    self.assertEqual(projected["url"], original["url"])
+                    self.assertEqual(project_model_data(tool, projected), projected)
+                    self.assertEqual(original, before)
+
+    def test_research_outbound_view_preserves_raw_trace_and_same_batch_unknown_url(self):
+        url = "/series/series-a?research=" + "b" * 32
+        data = {"id": "b" * 32, "status": "unknown", "last_known_status": "researching",
+                "count": 10, "candidates": [], "error": "无法确认状态", "url": url, "thread_id": "raw-only"}
+        content = json.dumps(data, ensure_ascii=False)
+        for error in (False, True):
+            with self.subTest(error=error):
+                raw = "[tool_error type=research_wait_timeout]\n" + content if error else content
+                messages = [{"role": "assistant", "content": "", "tool_calls": [{"id": "call-a",
+                    "name": "get_topic_research", "arguments": json.dumps({"batch_id": data["id"]})}]},
+                    {"role": "tool", "tool_call_id": "call-a", "content": raw}]
+                original = deepcopy(messages)
+                result = project_tool_messages(messages)[-1]["content"]
+                model = json.loads(result.split("\n", 1)[1] if error else result)
+                self.assertEqual(model["id"], data["id"])
+                self.assertEqual(model["status"], "unknown")
+                self.assertEqual(model["last_known_status"], "researching")
+                self.assertEqual(model["requested_count"], 10)
+                self.assertEqual(model["returned_count"], 0)
+                self.assertEqual(model["url"], url)
+                self.assertNotIn("thread_id", model)
+                self.assertEqual(messages, original)
+
+    def test_research_description_explains_counts_unknown_and_original_url(self):
+        from creatoros.tools.definitions import tool_registry
+        for name in ("research_series_topics", "get_topic_research"):
+            description = tool_registry[name].description
+            self.assertIn("requested_count", description)
+            self.assertIn("returned_count", description)
+            self.assertIn("unknown", description)
+            self.assertIn("不等于失败或远端已停止", description)
+            self.assertIn("原样使用返回的 url", description)
 
     def test_run_summary_and_revision_cas_remain_usable(self):
         data = {"run_id": "run-a", "status": "awaiting_approval", "version": 7,
