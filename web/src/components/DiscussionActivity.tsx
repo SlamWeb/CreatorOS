@@ -23,7 +23,11 @@ const eventLabels: Record<string, string> = { status: "状态", message: "Codex"
 
 export function DiscussionActivity({ discussion, links }: { discussion: DiscussionSnapshot; links: ChatLink[] }) {
   const events = (discussion.events ?? []).slice(-10);
-  const href = links.find(link => link.label === "查看讨论")?.url;
+  const href = links.find(link => {
+    const url = new URL(link.url, window.location.origin);
+    return link.label === "查看讨论" && url.pathname === `/runs/${discussion.run_id}`
+      && url.searchParams.get("discussion") === discussion.id && url.searchParams.get("revision") === discussion.revision_id;
+  })?.url;
   const failure = ["failed", "interrupted", "unknown"].includes(discussion.status);
   return <section className={`discussion-activity${failure ? " discussion-activity-failed" : ""}`} aria-label="作品讨论进度">
     <header><strong>{statusLabels[discussion.status] ?? discussion.status}</strong>{discussion.updated_at && <time>{new Date(discussion.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>}</header>

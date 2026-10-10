@@ -7,7 +7,9 @@ const snapshot = {
   scope_kind: "overview", creator_id: null, updated_at: "2026-10-08T12:00:00Z", has_older: false,
   entries: [
     { kind: "user", text: "讨论这个作品的事实准确性。" },
-    { kind: "tool", name: "discuss_content_run", status: "done", links: [{ url: `/runs/${runId}?discussion=discussion-one&revision=revision-one`, label: "查看讨论", source_tool: "discuss_content_run" }], discussion: {
+    { kind: "tool", name: "discuss_content_run", status: "done", links: [
+      { url: `/runs/${runId}?discussion=discussion-older&revision=revision-older`, label: "查看讨论", source_tool: "get_content_discussion" },
+      { url: `/runs/${runId}?discussion=discussion-one&revision=revision-one`, label: "查看讨论", source_tool: "discuss_content_run" }], discussion: {
       id: "discussion-one", run_id: runId, revision_id: "revision-one", status: "completed",
       reply: "核对结果：\n\n- 关键术语定义清晰。\n- 第二页例子建议再核实来源。\n\n![外部图片](https://example.invalid/tracker.png)",
       error: null, updated_at: "2026-10-08T12:00:00Z",
