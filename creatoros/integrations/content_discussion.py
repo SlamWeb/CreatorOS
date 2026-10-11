@@ -65,6 +65,10 @@ class DiscussionProgress:
             item = field(event.payload, "item")
             item = field(item, "root", item)
             kind = field(item, "type", "")
+            if kind == "userMessage":
+                # The SDK echoes the submitted TextInput/LocalImageInput as an
+                # item start. It is input evidence, not a tool invocation.
+                return
             if kind not in {"reasoning", "agentMessage"}:
                 raise RuntimeError("讨论出现了非预期工具调用，已请求停止；请检查记录，不自动重试。")
             self.emit("activity", "正在分析图片与本版内容" if kind == "reasoning" else "Codex 正在回复")

@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 讨论 SDK 输入事件与工具守卫（2026-10-11）
+
+- 真实前端 V2 P06 已 fork 来源生产 thread 并实际发送 LocalImageInput，却在 SDK `item/started userMessage` 即被本地守卫中断；没有执行工具或开始答复。这是事件分类错误，不是模型越权或不能看图。
+- 最小修复仅忽略正常 userMessage 输入回显，不向讨论 UI 发出用户原文/本地图片路径；reasoning/agentMessage 仍发固定活动，assistant delta 仍展示。命令、文件变更、搜索、MCP、动态工具、子 Agent、生图和未知 item 保持拒绝，原错误前缀和 interrupt 契约不变。
+- 既有 SDK capture 的本地输入诊断不变；“不回显”只指 UI progress callback，不声称诊断文件没有输入。read-only 是文件边界，事件守卫不能撤销已经发生的远端副作用。
+- deepcode 环境定向 unittest 8/8（14.416秒）、真实隔离 HTTP discussion smoke 通过；SDK collector 序列及写入错误为声明故障注入，不算模型成绩。内存加载原提交证明旧版拒绝 userMessage、新版接受且两版工具负例均拒绝；没有回退工作树。首次子 Agent 用错误环境/脚本调用的导入失败保留，改用项目解释器与模块方式后通过。
+- 统一修复提交后另冻 V3，从真实前端 DeepSeek→Codex 两轮 fork/resume 验证；V1/V2 failed 不倒改，付费验收待完整新轮结束记录。
+
 ## 生产提交错误的对象归属（2026-10-11）
 
 - start 已成功创建/读取的 Run 是当前请求的授权对象；execute 的 producer_busy 错误可能携带另一账号全局 active Run ID，不能转发作当前任务。客户端错误句柄始终绑定已经创建的本 Run；不更改全局执行容量、自动恢复或重新提交。

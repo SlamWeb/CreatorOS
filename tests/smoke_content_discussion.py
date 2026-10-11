@@ -53,13 +53,25 @@ with TemporaryDirectory() as directory:
     assert usage["thread_cumulative"]["input_tokens"] == 999999
     assert usage["scope"] == "last_model_request"
     assert progress.finish_usage(None)["scope"] == "unavailable"
-    for kind in ("commandExecution", "imageGeneration", "mcpToolCall", "unknownFutureTool"):
+    emitted = []
+    progress = DiscussionProgress(root, lambda *args: emitted.append(args))
+    progress.public(SimpleNamespace(method="item/started", payload={"item": {
+        "type": "userMessage", "content": [
+            {"type": "text", "text": "PRIVATE_DISCUSSION_PROMPT"},
+            {"type": "localImage", "path": "PRIVATE_LOCAL_IMAGE_PATH"},
+        ],
+    }}))
+    assert emitted == []
+    for kind in ("commandExecution", "fileChange", "webSearch", "mcpToolCall",
+                 "dynamicToolCall", "collabAgentToolCall", "imageGeneration", "unknownFutureTool"):
         try:
             progress.public(SimpleNamespace(method="item/started", payload={"item": {"type": kind}}))
         except RuntimeError:
             pass
         else:
             raise AssertionError(f"unexpected tool was not rejected: {kind}")
+    assert "PRIVATE_DISCUSSION_PROMPT" not in json.dumps(emitted)
+    assert "PRIVATE_LOCAL_IMAGE_PATH" not in json.dumps(emitted)
     progress.public(SimpleNamespace(method="item/started", payload={"item": {"type": "reasoning"}}))
     db, runs, producer, app = make_fixture(root)
     run = runs.create("review-1")

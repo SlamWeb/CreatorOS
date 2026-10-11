@@ -18,7 +18,9 @@ from creatoros.integrations.content_discussion import ContentDiscussionService, 
 from creatoros.integrations.production_progress import collect_observed_turn, read_observation_warning
 from creatoros.integrations.topic_research import CodexTopicResearcher
 from tests.agent_studio_support import serve
-from tests.smoke_production_progress import FakeTurn, assistant_item, completed_item, token_update, turn_completed
+from tests.smoke_production_progress import (
+    FakeTurn, assistant_item, completed_item, token_update, turn_completed,
+)
 from tests.smoke_topic_research_sdk import ControlledSdk
 from tests.studio_review_fixtures import make_fixture
 
@@ -152,7 +154,41 @@ class WorkerFinalizationTests(unittest.TestCase):
             self.assertEqual(reviewer.calls, 1)
             self.assertEqual(producer.calls, 1)
 
-    def test_discussion_usage_is_optional_but_forbidden_tools_are_not(self):
+    def test_discussion_collector_ignores_input_echo_and_emits_only_assistant_activity(self):
+        emitted = []
+        progress = DiscussionProgress(self.root, lambda *args: emitted.append(args))
+        # The pinned SDK echoes the turn input (including local image paths) as
+        # userMessage/item/started. It must pass through the real SDK collector,
+        # but must never become public discussion activity or text.
+        turn = FakeTurn([
+            SimpleNamespace(method="item/started", payload=SimpleNamespace(item={
+                "type": "userMessage", "content": [
+                    {"type": "text", "text": "PRIVATE_DISCUSSION_PROMPT"},
+                    {"type": "localImage", "path": "PRIVATE_LOCAL_IMAGE_PATH"},
+                ],
+            })),
+            SimpleNamespace(method="item/started", payload=SimpleNamespace(item={"type": "reasoning"})),
+            SimpleNamespace(method="item/started", payload=SimpleNamespace(item={"type": "agentMessage"})),
+            SimpleNamespace(method="item/agentMessage/delta", payload=SimpleNamespace(delta="公开答复片段")),
+            completed_item(assistant_item("final", "真实 collector 的最终答复", "final_answer")),
+            token_update(12), turn_completed(),
+        ])
+        with deny_diagnostics(lambda p: p.name == "usage.json") as hits:
+            result = asyncio.run(collect_observed_turn(turn, progress, progress.public))
+            usage = progress.finish_usage(SimpleNamespace(last={"input_tokens": 42}, total={"input_tokens": 99}))
+        self.assertTrue(hits)
+        self.assertEqual(usage["last_request"]["input_tokens"], 42)
+        self.assertEqual(result.final_response, "真实 collector 的最终答复")
+        self.assertEqual(turn.stream_calls, 1)
+        self.assertEqual(emitted, [
+            ("activity", "正在分析图片与本版内容"),
+            ("activity", "Codex 正在回复"),
+            ("delta", "公开答复片段"),
+        ])
+        self.assertNotIn("PRIVATE_DISCUSSION_PROMPT", json.dumps(emitted))
+        self.assertNotIn("PRIVATE_LOCAL_IMAGE_PATH", json.dumps(emitted))
+
+    def test_discussion_usage_is_optional_but_all_tools_and_unknown_items_fail_closed(self):
         progress = DiscussionProgress(self.root, lambda *args: None)
         turn = FakeTurn([completed_item(assistant_item("final", "真实 collector 的最终答复", "final_answer")),
                          token_update(12), turn_completed()])
@@ -163,8 +199,10 @@ class WorkerFinalizationTests(unittest.TestCase):
         self.assertEqual(usage["last_request"]["input_tokens"], 42)
         self.assertEqual(result.final_response, "真实 collector 的最终答复")
         self.assertEqual(turn.stream_calls, 1)
-        with self.assertRaisesRegex(RuntimeError, "非预期工具"):
-            progress.public(SimpleNamespace(method="item/started", payload={"item": {"type": "commandExecution"}}))
+        for kind in ("commandExecution", "fileChange", "webSearch", "mcpToolCall",
+                     "dynamicToolCall", "collabAgentToolCall", "imageGeneration", "unknownFutureTool"):
+            with self.subTest(kind=kind), self.assertRaisesRegex(RuntimeError, "非预期工具"):
+                progress.public(SimpleNamespace(method="item/started", payload={"item": {"type": kind}}))
 
     def test_authoritative_discussion_save_error_is_not_best_effort(self):
         service = ContentDiscussionService(None, None, self.root, Reviewer())
