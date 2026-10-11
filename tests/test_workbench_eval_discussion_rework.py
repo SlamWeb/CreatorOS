@@ -156,6 +156,18 @@ class DiscussionReworkGraderTests(unittest.TestCase):
              "new_real_image", "old_revision_preserved")))
         self.assertEqual(result["auto_status"], "needs_review")
 
+    def test_p06_reusing_known_context_is_valid_but_missing_second_delegation_fails(self):
+        facts = {"agent_terminal": True, "request_capture": True, "tool_protocol": True, "final_answer": True}
+        calls = [{"name": "get_content_run"}, {"name": "discuss_content_run"}, {"name": "discuss_content_run"}]
+        with patch.object(workbench, "agent_protocol", return_value=(facts, calls)):
+            self.assertEqual(self._ids(discussion_rework_checks(_p06(), "P06"))["deepseek_chat_tools"], "passed")
+        with patch.object(workbench, "agent_protocol", return_value=(facts, calls[:-1])):
+            self.assertEqual(self._ids(discussion_rework_checks(_p06(), "P06"))["deepseek_chat_tools"], "failed")
+        evidence = _p06()
+        evidence["discussion_records"] = evidence["discussion_records"][:1]
+        with patch.object(workbench, "agent_protocol", return_value=(facts, calls)):
+            self.assertEqual(self._ids(discussion_rework_checks(evidence, "P06"))["two_real_discussions"], "failed")
+
     def test_p04_negative_receipt_database_and_saved_path_cases_fail(self):
         cases = []
         no_saved = _p04()

@@ -77,3 +77,15 @@ V2结果将在整轮结束后追加，不覆盖以上结果。
 ## V3 统一修复与续跑
 
 仅修讨论事件分类、夹具/数据库预期和失败证据读取。免费正负例/真实隔离HTTP/原失败GET-only复读后提交，再冻 `discussion-rework-gui-v3-20261011`；按P06→P04各一次，整轮结束前不再改源码。旧V1/V2均保留，模型/图片内容仍独立待评估。新轮运行完成后追加真实结果。
+
+## V3 整轮结束：首次看图恢复，续聊测试歧义与 Checkpoint 错误保留
+
+源码 `eee68b5` / 运行 `2514e69`，冻结 `discussion-rework-gui-v3-20261011`，批次 `discussion-rework-v3-20261011`。两题各一次结束、修改前验冻通过；正式14表/654文件不变。原程序0/2，7 passed/11 failed/2 needs_review，两个原Eval全量读取均成功；不因能够解释失败而追改分数。
+
+P06 `4d52f413431345d0a4a8294456b8933f`：74.437秒，第一轮真实fork/LocalImageInput/SDK completed并返回480字分析，讨论thread `01a12b62-5b08-7eb0-9632-6d794f74c290`。独立读图核对了四格位置、深红词标题、气泡位置差异、fetch往返箭头及抱箱carry，基本分析有图像依据，不等于完整教学质量通过。第二问“继续上一轮讨论”未明确让Codex再分析，DS直接依据上一轮tool result回答carry在右下并给短句；只有1条讨论/1个Codex turn，没有resume。输入与强制两轮Codex判据不一致；不因此强迫产品每次普通追问都调用工具。原4 passed/6 failed/1 needs_review保留。DS4请求/2工具，input30,909/output725/total31,634。Codex最后一次请求input59,087/output1,435/total60,522；fork线程累计input499,918/output13,369/total513,287含继承生产历史，不当本次费用。费用null。
+
+P04 `f68c2a1adaaa4af89968c0e0d1b9b075`：357.969秒。真实网页保存queued/零执行→显式生产→SDK生图completed→Checkpoint保存失败→Run/Attempt failed，原图保留。具体错误是 `native_checkpoint.json.tmp -> native_checkpoint.json` 的WinError5；NativeProgress.record_usage传播到collector，worker_receipt failed，不能拿已生成图片冒充SDK completed或整题交付。Checkpoint已保存真实partial图SHA `6308947aa81e4c5fe9210b412121e04f688e8e34c87a677f84ee4568a3c406f1`，本轮完整新交付0、完成生图1；原3 passed/5 failed/1 needs_review保留。
+
+最近SDK token更新input369,553/output12,896/total382,449（cache309,248/reasoning8,767为子集），是失败前观察到的累计值，不称最终成功用量；磁盘production_usage旧值input314,418/output11,885更早，因为后续Checkpoint写入先失败。DS0为手动网页入口。13次GET重置均有限恢复、零POST/模型重放。占用Checkpoint的进程未确认，未取消其他用户服务或扩权限。
+
+V4仅统一共享atomic_json到已有唯一临时文件/有限Windows sharing重试，不吞永久权威错误；明确第二问委派Codex续聊，允许复用已在上下文中的讨论结果，仍严格核实新活动卡、2记录/2次实际图片输入/fork→resume。新批冻结后再跑，V1/V2/V3全部旧分数保留。八份历史报告及登记证据保留基线共330文件，原先249文件哈希完全不变。

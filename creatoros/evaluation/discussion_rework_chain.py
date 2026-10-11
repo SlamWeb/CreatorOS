@@ -386,10 +386,9 @@ def discussion_rework_checks(evidence, case_id):
         except (KeyError, TypeError, ValueError):
             protocol_facts, calls = {}, []
         names = [call.get("name") for call in calls]
-        check("deepseek_chat_tools", "真实账号聊天先查Run，再两次调用原讨论工具并读取讨论状态",
+        check("deepseek_chat_tools", "真实账号聊天先查Run，再两次调用原讨论工具；已有结果可从上下文复用",
               all(protocol_facts.get(name) is True for name in ("agent_terminal", "request_capture", "tool_protocol", "final_answer"))
-              and names.count("get_content_run") >= 1 and names.count("discuss_content_run") == 2
-              and names.count("get_content_discussion") >= 1,
+              and names.count("get_content_run") >= 1 and names.count("discuss_content_run") == 2,
               ["requests.json", "transport.json", "snapshots.json", "messages.json", "trace.json"])
         first = records[0] if len(records) > 0 else {}
         second = records[1] if len(records) > 1 else {}

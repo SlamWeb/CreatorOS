@@ -343,6 +343,31 @@
       "manifest_sha256": "3357d3d9cff015509670d054a2e7cf38a3b87812b9ef597f9961e4bb5e9eba8d",
       "run_ids": ["425b892b2f464b869266f6869461f482", "b41638b53c06443a8922dd9052993cd0"],
       "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v3-20261011", "phase": "regression", "protocol": "discussion-rework-gui-v3-20261011",
+      "source_commit": "eee68b5", "runtime_commit": "2514e69", "cases": 2, "executions": 2, "repeats_per_slot": 1,
+      "entrypoint": "real_frontend", "case_ids": ["P06", "P04"],
+      "model": {"outer": "deepseek-v4-flash", "discussion": "gpt-6-luna/high", "production": "gpt-6-luna/xhigh", "sdk": "openai-codex 0.157.1"},
+      "program": {"passed": 0, "failed": 2, "needs_review": 0, "missing": 0, "checks": {"passed": 7, "failed": 11, "needs_review": 2}},
+      "browser_suite": {"passed": 0, "failed": 2, "total": 2}, "original_eval_complete_reading": {"completed": 2, "total": 2},
+      "failure_categories": {"P06": "eval_request_requires_delegation_implicitly: first Codex discussion completed; DS legitimately answered follow-up from known result, no second Codex turn",
+        "P04": "product_authoritative_checkpoint_atomic_replace_WinError5: real image exists, SDK capture and receipt failed"},
+      "deepseek_requests": 4, "deepseek_tool_calls": 2, "deepseek_input_tokens": 30909, "deepseek_output_tokens": 725, "deepseek_total_tokens": 31634,
+      "codex_usage": {"P06": {"last_model_request": {"input_tokens": 59087, "output_tokens": 1435, "total_tokens": 60522},
+          "thread_cumulative": {"input_tokens": 499918, "output_tokens": 13369, "total_tokens": 513287}, "includes_inherited_production_history": true},
+        "P04": {"scope": "last_observed_cumulative_before_failure", "input_tokens": 369553, "cached_input_tokens": 309248,
+          "output_tokens": 12896, "reasoning_output_tokens": 8767, "total_tokens": 382449, "is_completed_final_usage": false}},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false, "elapsed_seconds": {"P06": 74.437, "P04": 357.969},
+      "real_new_deliverable_images": 0, "completed_image_generation_events": 1, "saved_partial_images": 1,
+      "content_quality_review": "needs_review", "original_scores_unchanged": true,
+      "observation_transport": {"read_errors": 13, "recovered_gets": 13, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "global_skills_unchanged": null,
+      "source_and_seed_files_unchanged": true, "freeze_verified_after_round_before_fixes": true,
+      "comparable_to_baseline_for_resume_uplift": false, "incomparability_reason": "V4 clarifies explicit delegate query and removes unnecessary history reread assertion; old scores remain.",
+      "manifest_sha256": "15e6131288aab1e081e6e610013200f4ec8900a06ef8481e1a1be786ae6f4bc7",
+      "run_ids": ["4d52f413431345d0a4a8294456b8933f", "f68c2a1adaaa4af89968c0e0d1b9b075"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]
 }

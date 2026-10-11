@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v6-discussion-rework",
+  "revision": "workbench-slice-v7-discussion-rework",
   "status": "wired_not_run",
   "cases": [
     {
@@ -73,7 +73,7 @@
       "id": "P06", "title": "真实图片讨论 fork 与两轮续聊", "category": "tools", "split": "dev",
       "steps": [
         {"kind": "user", "text": "请 Codex 看这个已完成产物 {run_path} 的第1版四格图，分析可读性；先不要修改。"},
-        {"kind": "user", "text": "继续上一轮讨论：你刚才指出的第二个问题具体在哪一格？给出一句可直接替换的更短中文，不要修改产物。"}
+        {"kind": "user", "text": "请让 Codex 针对同一作品继续上一轮看图讨论：结合刚才的分析，再看原图，指出其中一格并给出一句更短的中文释义。只讨论，不要修改产物。"}
       ],
       "assertions": [
         {"id": "two_real_discussions", "pass": "两轮账号聊天由真实DeepSeek调用原工具，绑定同一Run/Revision/digest；真实Codex讨论结果回到原页面并可复读。", "evidence": ["requests.json", "messages.json", "discussion_records.json", "browser.json", "network.json"]},

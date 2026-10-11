@@ -242,6 +242,8 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
     Object.assign(chatTurn, { trace_visible: true, tool_calls: calls });
     browser.trace_tool_calls = toolSets;
     browser.steps.push(`原账号聊天第 ${turn + 1} 轮已真实发送；可见完整回复与该轮 Trace 工具结果`);
+    expect(calls.some(name => name.includes("discuss_content_run")), "每轮明确委派均应真实调用讨论工具").toBe(true);
+    await expect(panel.locator(".discussion-activity"), "不能把首轮旧活动卡冒充第二轮新结果").toHaveCount(turn + 1);
     const activity = panel.locator(".discussion-activity").last();
     await expect(activity).toContainText("讨论已完成", { timeout: 240_000 });
     const link = activity.getByRole("link", { name: "查看同一讨论 ↗" });
@@ -257,7 +259,6 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   const secondCalls = toolSets[1];
   expect(firstCalls.some(name => name.includes("get_content_run"))).toBe(true);
   expect(firstCalls.some(name => name.includes("discuss_content_run"))).toBe(true);
-  expect(secondCalls.some(name => name.includes("get_content_discussion"))).toBe(true);
   expect(secondCalls.some(name => name.includes("discuss_content_run"))).toBe(true);
   const discussionLinks = discussionHrefs.map(href => new URL(href, page.url()));
   expect(discussionLinks).toHaveLength(2);
