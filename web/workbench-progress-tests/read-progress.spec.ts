@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { createServer, type ServerResponse, type IncomingMessage } from "node:http";
-import { readProgress, type ObservationAttempt } from "../live-workbench/read-progress";
+import { readProgress, readTask, type ObservationAttempt } from "../live-workbench/read-progress";
 
 const path = "/api/runs/existing-run";
 
@@ -23,6 +23,18 @@ function reply(response: ServerResponse, status: number, body: string) {
 function records(browser: Record<string, unknown>) {
   return browser.observation_retries as ObservationAttempt[];
 }
+
+test("full task reader preserves real file metadata while progress stays a projection", async ({ playwright }) => {
+  const job = { status: "ready", id: "existing-job", files: [{ kind: "image", path: "assets/reference.jpg" }], digest: "version-1" };
+  const methods: string[] = [];
+  const host = await localServer((request, response) => { methods.push(request.method!); reply(response, 200, JSON.stringify(job)); });
+  const client = await playwright.request.newContext({ baseURL: host.url });
+  try {
+    expect(await readTask(client, "/api/skill-extractions/existing-job", {})).toEqual(job);
+    expect(await readProgress(client, "/api/skill-extractions/existing-job", {})).toEqual({ status: "ready" });
+    expect(methods).toEqual(["GET", "GET"]);
+  } finally { await client.dispose(); await host.close(); }
+});
 
 test("three real socket resets recover on fourth GET and keep all evidence", async ({ playwright }) => {
   const requests: Array<{ method?: string; url?: string }> = [];

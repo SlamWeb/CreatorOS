@@ -168,6 +168,23 @@
       "manifest_sha256": "8b2f5724085cfc658b9839350a528c14a2c517d5e39bd1fb6b953b2c022b357c",
       "run_ids": ["c5a48af48614439c87e69933073c8e48", "8553b3d604ca47aab4a39b4656c6e86e", "491483f35f9f45eba67efc7af97a4aba", "9ec24dbcc77f401091d598a825dd0fd6"],
       "report": "WORKBENCH-REGRESSION-2026-10-11.md"
+    },
+    {
+      "batch_id": "artifact-chain-v1-20261011", "phase": "baseline", "protocol": "artifact-chain-gui-v1-20261011",
+      "source_commit": "76aaa14", "cases": 1, "executions": 1, "repeats_per_slot": 1,
+      "model": "deepseek-v4-flash + gpt-6-sol/high + gpt-6-luna/xhigh", "entrypoint": "real_frontend",
+      "program": {"passed": 0, "failed": 1, "needs_review": 0, "missing": 0, "passed_fraction": "0/1"},
+      "complete_delivery": {"passed": 0, "total": 1, "failure": "Collector treated status-only projection as Job.files; Agent and production not started."},
+      "deepseek_requests": 0, "deepseek_tool_calls": 0, "deepseek_total_tokens": 0,
+      "codex_usage": {"extraction": {"input_tokens": 190549, "cached_input_tokens": 172160, "output_tokens": 3559, "reasoning_output_tokens": 1456, "total_tokens": 194108}, "production": null,
+        "scope": "Extraction thread cumulative; last request30513 not added. Cache/reasoning are subsets. No DeepSeek or production started."},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false,
+      "real_new_deliverable_images": 0, "completed_image_generation_events": 0,
+      "observation_transport": {"read_errors": 6, "recovered_gets": 6, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "global_skills_unchanged": true,
+      "comparable_to_baseline_for_resume_uplift": false,
+      "manifest_sha256": "2b427ab15a971c796b1a26f5ccddbe44368f9c15602cdbcd719405e9ace0926d",
+      "run_ids": ["e2bfa96dd5554f9eb18a2958f9302927"], "report": "ARTIFACT-CHAIN-2026-10-11.md"
     }
   ]
 }

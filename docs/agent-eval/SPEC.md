@@ -2,6 +2,10 @@
 
 ## P03 作品提炼到新题材生产 Draft（2026-10-11）
 
+- 首次槽已结束（`e2bfa96dd5554f9eb18a2958f9302927`），原程序/浏览器均 failed，完整链路 0/1；不修改原分。实际 Sol/high 提炼成功、Job ready/v001、参考完整保留，刚采到 draft_ready，未编辑/入库/建栏、零 DS/生产/新图。根因是测试把 `readProgress` 只返回 status 的投影当完整 Job DTO，`current.files.filter` 崩溃；随后 Eval 阅读器错误地要求该未发起 Agent 的失败记录有 DS request/answer，又出现次级错误。不是已证实的 Codex/业务失败。
+- 本轮冻结源码运行后校验通过，正式14表/654文件及全局Skill摘要不变。SDK提炼累计 input190,549/cache172,160/output3,559/total194,108，last request30,513；DS 0请求/0tokens，费用null。6次实际GET断线均有限恢复，零POST重发。下一小修仅评测读取器：rich task读取保留files（progress原合同不变），类型与实际本地HTTP回归；未发起Agent的报告照实展示零请求并核对14表。结束后另冻结/批次重跑，不边跑边改、不覆原槽。
+- 首轮结束后读取器回归：本地真实HTTP 13/13、严格浏览器TS通过；新 `readTask` 保留 Job 元数据，旧 `readProgress` 仍只返回 status，未改变业务协议。初轮 failed/未发起Agent/缺完整阶段的报告仍保留，后续单独 `artifact-chain-gui-v2-20261011` / `artifact-chain-v2-20261011` 新冻结/新槽验证。
+
 - 本轮用户授权代写评测接线：只扩隔离工作台，不改业务 Runtime、提炼 Prompt、生产协议或正式服务。沿既定 P03：原 Skill 页上传参考图 → single 真实 Codex 提炼 → 阅读全文和资产 → 手动编辑/保存/刷新 → 显式入库 → 自由组合框建本账号栏目 → 原账号聊天真实 DeepSeek 入队/委派 → 真实 Codex 一图 → 原 Run/Eval 页面验收，不批准、不发布。
 - 在草稿就绪、编辑后、入库后、建栏目后分别保存独立数据库/文件/catalog/Job/HTTP 快照。未确认前不得入库或建栏；编辑的全文与资产必须准确传到入库副本、栏目绑定和生产冻结快照；参考图不能冒充新图。SDK 提炼与生产分别核对 source/thread/turn 终态并记录用量，参考图实际生图 API 参数继续标不可观察。
 - 先补采集与判分正负例、检查真实 UI 控件路径；然后 commit/push、保存新冻结清单，再只跑本题首尝试。冻结后不修改来源、不自动重提模型/业务 POST；失败和不完整证据保留，后续修复/回归另开 revision/batch。旧四题及历史分数不重判。

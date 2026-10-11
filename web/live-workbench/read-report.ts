@@ -13,7 +13,11 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   await expect(chain.getByRole("status")).toHaveCount(0);
   await expect(chain.getByRole("alert")).toHaveCount(0);
   const verified: Record<string, unknown> = {};
-  if (caseId !== "S13" && userQuery) {
+  const rawBrowser = await (await request.get(`/api/eval/runs/${runId}/evidence?name=browser.json`)).json();
+  // A failure before accountTurn has no DeepSeek requests. Still read all real
+  // evidence and table counts; never fabricate an Agent turn to satisfy the UI.
+  const agentNotStarted = caseId === "P03" && rawBrowser.content.session_posts === 0;
+  if (caseId !== "S13" && userQuery && !agentNotStarted) {
     const actual = await readEvalViewEvidence(request, runId, [userQuery]);
     Object.assign(verified, await expectEvalEvidence(page, actual));
   }
@@ -42,7 +46,7 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   }
   // S13 has zero DeepSeek requests by design. Still verify every real DB row
   // count; empty Agent context is not fabricated as a model request.
-  if (caseId === "S13") {
+  if (caseId === "S13" || agentNotStarted) {
     const other = database.getByRole("button", { name: /^其他 \d+ 张表：完整行一致$/ });
     if (await other.count()) await other.click();
     const before = contents.get("before.json") as { database: Record<string, unknown[]> };
@@ -53,6 +57,7 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
       await expect(row.getByRole("cell").nth(1)).toHaveText(String(after.database[name].length));
     }
     verified.database_tables_verified = Object.keys(after.database);
+    verified.agent_not_started = agentNotStarted;
   }
   // Copying a command is not executing it. This must not name the old suite.
   const command = page.locator(".eval-executor code");

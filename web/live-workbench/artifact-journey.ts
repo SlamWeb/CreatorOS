@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { readProgress } from "./read-progress";
+import { readTask } from "./read-progress";
+import type { SkillExtractionJob } from "../src/api/types";
 
 export type ArtifactScenario = {
   creator_id: string; series_name: string; skill_names: string[];
@@ -40,15 +41,15 @@ export async function artifactJourney(page: Page, request: APIRequestContext, in
   const submitted = responseFor("/api/skill-extractions");
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   const upload = await receipt(await uploaded);
-  const job = await receipt(await submitted);
+  const job = await receipt(await submitted) as SkillExtractionJob;
   browser.job_id = job.id;
   steps.push("原作品页面上传真实参考图；单一完整Skill提交一次真实Codex提炼");
   const detail = page.locator(".extraction-detail");
   await expect(detail).toBeVisible();
   browser.extraction_visible_progress = await detail.innerText();
-  let current = job;
+  let current: { status: string; files?: unknown } = { status: job.status };
   await expect.poll(async () => {
-    current = await readProgress(request, `/api/skill-extractions/${job.id}`, browser);
+    current = await readTask(request, `/api/skill-extractions/${job.id}`, browser);
     return current.status;
   }, { timeout: 900_000, intervals: [1000, 3000, 5000] }).toMatch(/^(ready|failed|interrupted|cancelled|unknown)$/);
   expect(current.status, "提炼实际失败就终止并保留首尝试，不能偷偷重试").toBe("ready");
@@ -58,7 +59,8 @@ export async function artifactJourney(page: Page, request: APIRequestContext, in
   await stage("draft_ready", job.id);
 
   const tree = detail.getByRole("navigation", { name: "Skill 文件" });
-  const assets = current.files.filter((file: { kind: string; path: string }) => file.kind === "image" && file.path.startsWith("assets/"));
+  expect(Array.isArray(current.files), "完整Job响应应包含文件列表；不能把纯进度投影当Job").toBe(true);
+  const assets = (current.files as NonNullable<SkillExtractionJob["files"]>).filter(file => file.kind === "image" && file.path.startsWith("assets/"));
   expect(assets.length).toBeGreaterThan(0);
   for (const asset of assets) {
     await tree.getByRole("button", { name: asset.path, exact: true }).click();

@@ -16,6 +16,17 @@ export async function readProgress(
   path: string,
   browser: Record<string, unknown>,
 ): Promise<{ status: string }> {
+  const state = await readTask(request, path, browser);
+  return { status: state.status };
+}
+
+// The progress view deliberately strips metadata. File browsing needs this
+// full, validated GET response rather than pretending progress is a Job DTO.
+export async function readTask(
+  request: Pick<APIRequestContext, "get">,
+  path: string,
+  browser: Record<string, unknown>,
+): Promise<{ status: string } & Record<string, unknown>> {
   if (!/^\/api\/(?:runs|skill-extractions)\/[A-Za-z0-9_-]+$/.test(path)) {
     throw new Error("进度恢复仅允许读取已有 Run 或提炼任务。");
   }
@@ -38,7 +49,7 @@ export async function readProgress(
       record.business_status = state.status;
       record.recovery = attempt > 1 ? "recovered" : "not_needed";
       // failed/unknown/etc. are authoritative business states, not retry reasons.
-      return { status: state.status };
+      return state as { status: string } & Record<string, unknown>;
     } catch (error) {
       record.error = String(error);
       const transportReset = record.http_status === null
