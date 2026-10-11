@@ -31,7 +31,10 @@ async function evalFixture(page: Page, request: APIRequestContext) {
   const docs: Record<string, unknown> = { "messages.json": [{ role: "user", content: query }, { role: "assistant", content: answer }],
     "requests.json": requests, "trace.json": [{ request_id: "collector-real-request", event: "started", request_kind: "main" }],
     "before.json": before, "after.json": after, "oracle.json": oracle, "answer.txt": answer,
-    "execution.json": { status: "idle" } };
+    "execution.json": { status: "idle" },
+    // Similar filenames must never alias the original DB evidence selector.
+    "global_skills_before.json": { files: { "SKILL.md": "unrelated-global-hash" } },
+    "global_skills_after.json": { files: { "SKILL.md": "unrelated-global-hash" } } };
   await page.route(`**/api/eval/runs/${runId}`, route => route.fulfill({ json: { ...report, execution_mode: "controlled",
     evidence_files: Object.keys(docs).map(name => ({ name, label: name })), checks: [] } }));
   return { runId, evidence, docs };

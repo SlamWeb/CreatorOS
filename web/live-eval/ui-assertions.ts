@@ -91,11 +91,12 @@ export async function expectEvalEvidence(page: Page, evidence: EvalViewEvidence,
     ["answer.txt", evidence.answer, chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: "最终回复", exact: true }) })],
   ] as const) {
     await source.getByRole("button", { name, exact: true }).click();
-    const file = original.locator(".eval-evidence").filter({ has: page.locator("button.eval-reveal").filter({ hasText: name }) });
-    await expect(file.locator("button.eval-reveal")).toHaveAttribute("aria-expanded", "true");
+    const file = original.locator(".eval-evidence").filter({ has: page.getByRole("button", { name, exact: true }) });
+    const reveal = file.getByRole("button", { name, exact: true });
+    await expect(reveal).toHaveAttribute("aria-expanded", "true");
     await fullText(file, typeof value === "string" ? value : JSON.stringify(value, null, 2), "展开全文", timeout, `${name} must load the complete recorded body`);
     opened.push(name);
-    await file.locator("button.eval-reveal").click();
+    await reveal.click();
   }
   await original.getByRole("button", { name: "收起文件", exact: true }).click();
   return { user_queries_verified: evidence.userQueries.length, model_requests_verified: evidence.requests.length,
