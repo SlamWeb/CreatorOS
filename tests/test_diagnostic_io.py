@@ -15,6 +15,7 @@ import httpx
 
 from creatoros.integrations.atomic_file import atomic_write_text
 from creatoros.integrations.extraction_activity import ExtractionActivity
+from creatoros.integrations.native_production import Checkpoint, NativeProgress
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, _write
 from creatoros.integrations.production_progress import (
     OBSERVATION_WARNING, ProgressWriter, collect_observed_turn, read_observation_warning,
@@ -23,6 +24,7 @@ from creatoros.integrations.skill_extraction import SkillExtractionService, extr
 from creatoros.runs import ContentRunService
 from creatoros.storage import Database, upgrade_database
 from creatoros.web import create_app
+from creatoros.integrations.visual_production import atomic_json
 from tests.agent_studio_support import serve
 from tests.smoke_production_progress import FakeTurn, assistant_item, completed_item, token_update, turn_completed
 
@@ -63,6 +65,56 @@ class DiagnosticIOTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 atomic_write_text(target, "not-published")
         self.assertEqual(replace.call_count, 1, "disk full is not a Windows sharing conflict")
+
+    def test_native_checkpoint_uses_shared_atomic_writer_and_preserves_authority(self):
+        target = self.root / "native_checkpoint.json"
+        checkpoint = Checkpoint(input_digest="d" * 64, thread_id="native-thread-1", skill_digests={})
+        target.write_text(checkpoint.model_dump_json(indent=2), encoding="utf-8")
+        original_replace = os.replace
+        transient_errors = []
+        for winerror in (5, 32, 33):
+            with self.subTest(winerror=winerror):
+                denied = PermissionError("private path")
+                denied.winerror = winerror
+                native_replacements = []
+
+                def retry_once(source, destination):
+                    if Path(destination) == target:
+                        native_replacements.append(Path(source))
+                        if len(native_replacements) == 1:
+                            raise denied
+                    return original_replace(source, destination)
+
+                progress = NativeProgress(
+                    self.root, Checkpoint.model_validate_json(target.read_text(encoding="utf-8")))
+                with patch("creatoros.integrations.atomic_file.os.replace", side_effect=retry_once):
+                    progress.record_usage({"input_tokens": 123 + winerror, "output_tokens": 4})
+                saved = Checkpoint.model_validate_json(target.read_text(encoding="utf-8"))
+                self.assertEqual(saved.usage.input_tokens, 123 + winerror)
+                self.assertEqual(len(native_replacements), 2)
+                self.assertTrue(all(path.name.startswith(".native_checkpoint.json.")
+                                    for path in native_replacements))
+                self.assertFalse(list(self.root.glob(".native_checkpoint.json.*.tmp")))
+                transient_errors.append(denied)
+
+        for failure, expected_calls in (
+                (transient_errors[0], 4), (OSError(errno.ENOSPC, "disk full"), 1)):
+            with self.subTest(failure=type(failure).__name__):
+                before = target.read_bytes()
+                denied = NativeProgress(self.root, Checkpoint.model_validate_json(before))
+                with patch("creatoros.integrations.atomic_file.os.replace", side_effect=failure) as replace:
+                    with self.assertRaises(type(failure)):
+                        denied.record_usage({"input_tokens": 456})
+                self.assertEqual(replace.call_count, expected_calls)
+                self.assertEqual(target.read_bytes(), before, "failed publication must preserve the full old checkpoint")
+                self.assertFalse(list(self.root.glob(".native_checkpoint.json.*.tmp")))
+
+        linked_target = self.root / "linked_checkpoint.json"
+        linked_target.symlink_to(target)
+        before = target.read_bytes()
+        with self.assertRaisesRegex(ValueError, "符号链接"):
+            atomic_json(linked_target, Checkpoint.model_validate_json(before))
+        self.assertEqual(target.read_bytes(), before)
 
     @unittest.skipUnless(os.name == "nt", "real sharing lock needs Windows")
     def test_real_windows_sharing_lock_recovers_then_degrades_without_killing_stream(self):

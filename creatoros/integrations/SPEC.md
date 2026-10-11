@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## V3 真实返工 Checkpoint 替换失败与 V4 Draft（2026-10-11）
+
+- P04 真生图后 NativeProgress 写 native_checkpoint.json 时 `*.json.tmp -> *.json` 得到 WinError5，collector未完成/receipt failed，产物保留。V3整轮结束并验冻/正式数据守卫通过后才修，原失败不能以现存图片改判成功。
+- 读取者/占用者未证实；确定原共享 atomic_json 仍用固定 .tmp、一次replace，与已有唯一临时文件/有限Windows sharing重试方案未统一。只复用该基础写入器，不忽略权威Checkpoint保存失败，不扩权限、不自动重提模型或生成。
+- 验收：短暂WinError5/32/33有限恢复、真实JSON可读且旧/新文件完整；永久拒写和非sharing错误必须传播，原文件/原异常保留，临时文件清理；既有native/visual恢复与生产受控回归。新轮另冻结，再真前端付费验证，原记录保留。
+- deepcode环境诊断I/O 8/8（含真实Windows sharing-lock）、native_production/visual_checkpoint/native_run_wiring三个受控smoke、编译/diff-check通过。新增测试实际调用NativeProgress.record_usage，覆盖5/32/33各一次恢复、永久5四次失败、ENOSPC一次失败、唯一临时文件/清理/旧字节与symlink；这些是声明故障注入/本地transport，不计付费模型成绩。
+
 ## 讨论 SDK 输入事件与工具守卫（2026-10-11）
 
 - 真实前端 V2 P06 已 fork 来源生产 thread 并实际发送 LocalImageInput，却在 SDK `item/started userMessage` 即被本地守卫中断；没有执行工具或开始答复。这是事件分类错误，不是模型越权或不能看图。
