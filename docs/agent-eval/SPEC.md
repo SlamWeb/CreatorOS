@@ -2,6 +2,9 @@
 
 ## P03 作品提炼到新题材生产 Draft（2026-10-11）
 
+- V2 独立首槽 `a02b7925f104475b99b250059f8d3e1c` 在原页面完成提炼→编辑v002→入库，但账号select的精确label含选项文本，测试call@209无法定位，主动中断；完整交付0/1，原report仅启动占位、未完成评分。SDK正常completed，DS0/新图0；原trace/截图/三阶段和独立中断记录保留。正式14表/654文件不变、结束后验冻通过；取消丢失进程内global Skill起点，明确缺证据。整轮结束后才修局部前缀定位、30秒动作超时、开局落盘起点；本地原SPA预检后另冻结V3，不改业务或旧成绩。
+- V2结束后的免费验证：19项工作台/判分测试通过；新原SPA真实HTTP/SQLite下拉框预检1/1（首次因同名h1/h2定位歧义失败，明确level后通过）；严格浏览器TS在web目录通过。首次root执行TS找不到node类型仅为命令cwd问题，没有改依赖。上述不记模型成绩；下一轮仍独立首槽、全程零付费重试。
+
 - 首次槽已结束（`e2bfa96dd5554f9eb18a2958f9302927`），原程序/浏览器均 failed，完整链路 0/1；不修改原分。实际 Sol/high 提炼成功、Job ready/v001、参考完整保留，刚采到 draft_ready，未编辑/入库/建栏、零 DS/生产/新图。根因是测试把 `readProgress` 只返回 status 的投影当完整 Job DTO，`current.files.filter` 崩溃；随后 Eval 阅读器错误地要求该未发起 Agent 的失败记录有 DS request/answer，又出现次级错误。不是已证实的 Codex/业务失败。
 - 本轮冻结源码运行后校验通过，正式14表/654文件及全局Skill摘要不变。SDK提炼累计 input190,549/cache172,160/output3,559/total194,108，last request30,513；DS 0请求/0tokens，费用null。6次实际GET断线均有限恢复，零POST重发。下一小修仅评测读取器：rich task读取保留files（progress原合同不变），类型与实际本地HTTP回归；未发起Agent的报告照实展示零请求并核对14表。结束后另冻结/批次重跑，不边跑边改、不覆原槽。
 - 首轮结束后读取器回归：本地真实HTTP 13/13、严格浏览器TS通过；新 `readTask` 保留 Job 元数据，旧 `readProgress` 仍只返回 status，未改变业务协议。初轮 failed/未发起Agent/缺完整阶段的报告仍保留，后续单独 `artifact-chain-gui-v2-20261011` / `artifact-chain-v2-20261011` 新冻结/新槽验证。

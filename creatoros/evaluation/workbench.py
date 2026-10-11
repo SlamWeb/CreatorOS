@@ -614,6 +614,12 @@ class WorkbenchEvaluation:
             self.before_catalog = self.fixture.catalog.list()
             from .artifact_chain import global_skills_snapshot
             self.global_skills_before = global_skills_snapshot(PROJECT_ROOT) if case_id == "P03" else None
+            # Preserve the starting oracle even if the browser runner is interrupted.
+            # These are observations, never recovery/replay of a business action.
+            write_json(self.root / "before.json", self.before)
+            write_json(self.root / "before_catalog.json", self.before_catalog)
+            if self.global_skills_before is not None:
+                write_json(self.root / "global_skills_before.json", self.global_skills_before)
         except Exception as error:
             self.report.update(error={"kind": "setup", "message": str(error)}, auto_status="failed")
             write_json(self.root / "report.json", self.report)

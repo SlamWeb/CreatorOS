@@ -25,14 +25,21 @@
 
 原始证据位于 `data/agent-eval-workbench/<Run>/`，不上传凭证、正式内容或大图到Git。图片质量与链路/文件合法性分开；实际图像API参考参数当前不可观察，不伪称已核对传参。
 
-## V2 独立续验
+## V2：提炼、编辑与入库完成，浏览器观察中断
 
-修正采集器后新批次，不覆盖 V1，不从中挑成功结果。尚未得出V2通过率，执行命令：
+- 批次 `artifact-chain-v2-20261011`，Run `a02b7925f104475b99b250059f8d3e1c`，冻结执行 `6d8d6a0`。完整交付仍为 0/1。原 report 只是启动占位，尚未完成评分；另存 `interruption-assessment.json`，不将占位 needs_review 当成终局成绩。
+- 实际原页面完成 draft_ready → draft_edited/v002 → adopted/saved，完整修改和参考素材均保留。建栏测试停在账号下拉框：`getByLabel("归属账号", {exact:true})` 包裹 select，其标签包含 option 文案，因此无法匹配。浏览器原 trace 的 call@209、最后截图和三次阶段快照保留；确认停点后主动结束测试，不等35分钟、不重发任何付费任务。
+- 实际尚未创建新栏目、Agent会话或生产 Run；真实 DS 0请求/0tokens，真实新图0。Sol提炼 thread累计 input171,719/cache151,168/output4,830/reasoning2,064/total176,549；last request32,714 单列。正式14表/654文件不变，源码结束后验冻通过。V2全局Skill起点摘要在进程内、未落盘，取消后无法完整对账，明确缺证据，不声称该维度通过。
+- 结束后只改测试：限定组合框内的账号标签前缀；所有浏览器动作/导航30秒超时，模型终态仍用原长任务poll预算；开局落盘 before/catalog/global Skill hashes 防止下次取消丢失证据。新增免费原SPA/真实隔离SQLite下拉框预检，不调用模型、不记模型成绩。
+
+## V3 独立续验
+
+修正采集器后新批次，不覆盖前两轮，不从中挑成功结果。尚未得出V3通过率，执行命令：
 
 ```powershell
 $env:CREATOROS_PYTHON='D:/Anaconda4.7g/envs/deepcode/python.exe'
-$env:CREATOROS_WORKBENCH_BATCH='artifact-chain-v2-20261011'
-$env:CREATOROS_WORKBENCH_REVISION='artifact-chain-gui-v2-20261011'
+$env:CREATOROS_WORKBENCH_BATCH='artifact-chain-v3-20261011'
+$env:CREATOROS_WORKBENCH_REVISION='artifact-chain-gui-v3-20261011'
 npm --prefix web run eval:workbench -- --project P03
 ```
 

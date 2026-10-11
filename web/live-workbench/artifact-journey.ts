@@ -114,7 +114,11 @@ export async function artifactJourney(page: Page, request: APIRequestContext, in
   await composer.getByLabel("栏目名称", { exact: true }).fill(scenario.series_name);
   await composer.getByLabel("栏目定位", { exact: true }).fill("用情境漫画区分常用英语词语");
   await composer.getByLabel("目标受众", { exact: true }).fill(scenario.audience!);
-  await composer.getByLabel("归属账号", { exact: true }).selectOption(scenario.creator_id);
+  // A label wrapping <select> includes option text in Playwright's label lookup.
+  // Keep the visible label prefix, within the one composer, rather than exact text.
+  const account = composer.getByLabel("归属账号");
+  await expect(account).toHaveCount(1);
+  await account.selectOption(scenario.creator_id);
   const created = responseFor("/api/series");
   await composer.getByRole("button", { name: "创建栏目", exact: true }).click();
   const column = await receipt(await created);

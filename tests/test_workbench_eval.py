@@ -308,6 +308,10 @@ class WorkbenchHostTests(unittest.TestCase):
             for case in sorted(workbench.CASES):
                 host = workbench.WorkbenchEvaluation(case, output_root=temporary)
                 try:
+                    self.assertEqual(json.loads((host.root / "before.json").read_text(encoding="utf-8")), host.before)
+                    self.assertEqual(json.loads((host.root / "before_catalog.json").read_text(encoding="utf-8")), host.before_catalog)
+                    if case == "P03":
+                        self.assertEqual(json.loads((host.root / "global_skills_before.json").read_text(encoding="utf-8")), host.global_skills_before)
                     with TestClient(host.app) as client:
                         self.assertEqual(client.get("/").status_code, 200)
                         self.assertEqual(client.get("/api/eval").status_code, 200)

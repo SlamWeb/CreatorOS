@@ -17,6 +17,7 @@ export default defineConfig({
   testDir: "./live-workbench", timeout: 2_100_000, workers: 1, retries: 0, reporter: "line",
   outputDir: `./tmp/live-workbench/${batch ?? "not-started"}`,
   use: { channel: "chrome", viewport: { width: 1440, height: 900 },
+    actionTimeout: 30_000, navigationTimeout: 30_000,
     permissions: ["clipboard-read", "clipboard-write"], trace: "on", screenshot: "only-on-failure" },
   projects: cases.map((name, index) => ({ name, use: { baseURL: `http://127.0.0.1:${portFor(index)}` } })),
   webServer: cases.map((name, index) => ({ name, index })).filter(({ name }) => !selected.length || selected.includes(name)).map(({ name, index }) => ({
