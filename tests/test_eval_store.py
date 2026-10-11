@@ -9,9 +9,10 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
-from creatoros.evaluation.store import DIMENSIONS, EvalStore, EvalStoreError, MAX_EVIDENCE_BYTES
+from creatoros.evaluation.store import DIMENSIONS, EvalStore, EvalStoreError, MAX_EVIDENCE_BYTES, READ_CHUNK_BYTES
 
 
 def fixture_report(run_id=None, *, auto_status="passed"):
@@ -168,6 +169,39 @@ class EvalStoreTests(unittest.TestCase):
         with self.assertRaises(EvalStoreError) as error:
             self.store.evidence(report["run_id"], "trace.json")
         self.assertEqual(error.exception.status_code, 413)
+
+    def test_small_real_file_reads_do_not_allocate_the_evidence_limit(self):
+        report = fixture_report()
+        directory = save_report(self.root, report)
+        path = directory / "trace.json"
+        expected = path.read_bytes()
+        actual_open = Path.open
+        requested = []
+
+        class ObservedFile:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def read(self, size):
+                requested.append(size)
+                return self.stream.read(size)
+
+        def observed_open(target, *args, **kwargs):
+            stream = actual_open(target, *args, **kwargs)
+            return ObservedFile(stream) if target == path else stream
+
+        # Observe a real file; no fake model/HTTP evidence or score is created.
+        with patch.object(Path, "open", observed_open):
+            self.assertEqual(self.store._bytes(path, maximum=MAX_EVIDENCE_BYTES), expected)
+        self.assertTrue(requested)
+        self.assertLessEqual(max(requested), READ_CHUNK_BYTES)
 
     def test_jsonl_credentials_and_private_reasoning_are_not_exposed(self):
         report = fixture_report()

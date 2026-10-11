@@ -20,6 +20,7 @@ DIMENSIONS = {"task_success", "boundary_enforced", "state_consistent", "protocol
 RUN_ID = re.compile(r"^[a-f0-9]{32}$")
 MAX_REPORT_BYTES = 2 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 8 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 
 
 class EvalStoreError(Exception):
@@ -69,7 +70,19 @@ class EvalStore:
         try:
             path = safe_path(root or self.root, path)
             with path.open("rb") as stream:
-                raw = stream.read(maximum + 1)
+                # Small records should not reserve the full 2/8 MiB limit for
+                # every GET. Read to EOF in bounded chunks, retaining the same
+                # limit even if a file grows after it was opened.
+                chunks, size = [], 0
+                while True:
+                    chunk = stream.read(min(READ_CHUNK_BYTES, maximum + 1 - size))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > maximum:
+                        raise EvalStoreError(413, "eval_evidence_too_large", "评测文件超过读取上限。")
+                raw = b"".join(chunks)
             if len(raw) > maximum:
                 raise EvalStoreError(413, "eval_evidence_too_large", "评测文件超过读取上限。")
             return raw
