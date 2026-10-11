@@ -8,8 +8,9 @@ import {
   type EvidenceRecord, type RecordedCall, type RecordedRequest,
 } from "./chainProjection";
 import "./chain.css";
+import { codexExpectations, codexTurns, codexUsage, expectedTable } from "./codexProjection";
 
-const knownNames = ["messages.json", "requests.json", "trace.json", "execution.json", "oracle.json", "before.json", "after.json", "answer.txt", "probe.json", "browser.json", "assessment.md"];
+const knownNames = ["messages.json", "requests.json", "trace.json", "execution.json", "oracle.json", "before.json", "after.json", "answer.txt", "probe.json", "browser.json", "assessment.md", "sdk.json", "outputs.json", "recovery_stages.json", "recovery_calls.json", "recovery_fault.json", "reading-summary.md"];
 const checkLabels: Record<string, string> = { passed: "通过", failed: "失败", needs_review: "待复核", evidence_missing: "缺证据", not_run: "未运行" };
 const tableLabels: Record<string, string> = {
   creators: "账号", series: "栏目", topics: "选题", content_runs: "生产任务", content_revisions: "作品版本",
@@ -139,17 +140,17 @@ function Database({ report, before, after, oracle, onEvidence, missing }: {
   const primary = differences?.filter(item => important.has(item.name) || item.same !== true) ?? [];
   const other = differences?.filter(item => !important.has(item.name) && item.same === true) ?? [];
   const table = (rows: NonNullable<typeof differences>) => <div className="eval-chain-table-scroll"><table>
-    <thead><tr><th scope="col">业务表</th><th scope="col">{e01 ? "预期行数" : "执行前"}</th><th scope="col">实际行数</th><th scope="col">完整行对照</th></tr></thead>
+    <thead><tr><th scope="col">业务表</th><th scope="col">{e01 ? "预期行数" : "执行前"}</th>{report.case_id in codexExpectations && <th scope="col">预期执行后</th>}<th scope="col">实际行数</th><th scope="col">完整行对照</th></tr></thead>
     <tbody>{rows.map(item => <tr key={item.name}>
       <th scope="row">{tableLabels[item.name] ?? item.name}<code>{tableLabels[item.name] ? item.name : ""}</code></th>
       <td>{e01 && typeof expectedCounts?.[item.name] === "number" ? String(expectedCounts[item.name]) : item.before == null ? "缺失" : item.before}{e01 && typeof expectedCounts?.[item.name] !== "number" && <small>执行前基线</small>}</td>
+      {report.case_id in codexExpectations && <td>{expectedTable(report.case_id, item.name, item.before, oracle) ?? "未记录"}</td>}
       <td>{item.after == null ? "缺失" : item.after}</td><td className={item.same === false ? "eval-chain-warning" : ""}>{item.same == null ? "无法比较" : item.same ? "完整行一致" : `移除 ${item.removed.length} / 新增 ${item.added.length}`}</td>
     </tr>)}</tbody>
   </table></div>;
   return <section className="eval-chain-database" aria-label="数据库预期与实际">
-    <p className="eval-chain-expectation">{e01 ? "预期：只查看；全部业务表的完整行内容和受管业务文件应与执行前一致。会话与 Trace 的正常记录不属于业务变化。" : expectations[report.case_id] ? `预期：${expectations[report.case_id]}` : "未记录可识别的预期；前后差异不等于判分。"}</p>
-    {expected && !e01 && <Fold label="独立预期原文"><Text value={{ expected_mutations: expected.expected_mutations,
-      case_oracle: expected[report.case_id.toLowerCase()], expected_after: expected.expected_after }} code label="独立预期" /></Fold>}
+    <p className="eval-chain-expectation">{e01 ? "预期：只查看；全部业务表的完整行内容和受管业务文件应与执行前一致。会话与 Trace 的正常记录不属于业务变化。" : (expectations[report.case_id] || codexExpectations[report.case_id]) ? `预期：${expectations[report.case_id] || codexExpectations[report.case_id]}` : "未记录可识别的预期；前后差异不等于判分。"}</p>
+    {expected && !e01 && <Fold label="独立预期原文"><Text value={expected} code label="独立预期" /></Fold>}
     {!differences ? <>{missing("before.json")}{missing("after.json")}<p className="eval-chain-note">数据库前后快照缺失或结构不受支持，无法比较。</p></> : differences.length === 0 ? <p className="eval-chain-note">快照中没有表，不能据此确认业务零变化。</p> : <>
       <p className={changed.length ? "eval-chain-warning" : "eval-chain-note"}>实际：{differences.length} 张表{unknown.length ? `，${unknown.length} 张无法比较` : "已比较完整行内容"}；{changed.length ? `${changed.length} 张表存在变化。` : "可比较的表均无行内容变化。"}</p>
       {primary.length > 0 && table(primary)}
@@ -161,8 +162,70 @@ function Database({ report, before, after, oracle, onEvidence, missing }: {
     {fileDifferences ? <p className={fileDifferences.changed.length ? "eval-chain-warning" : "eval-chain-note"}>受管业务文件：执行前 {fileDifferences.before} 份 / 执行后 {fileDifferences.after} 份；{fileDifferences.changed.length ? `${fileDifferences.changed.length} 个路径的文件 hash 有变化。` : "已记录文件的 hash 一致。"}{!filesComplete && "文件采集完整性未确认，不能证明全部文件未变。"}</p> : <p className="eval-chain-note">受管文件快照未完整记录，无法比较文件内容。</p>}
     {!!fileDifferences?.changed.length && <Fold label="查看变化的文件路径"><Text value={fileDifferences.changed} code /></Fold>}
     <Sources report={report} names={["before.json", "after.json", "oracle.json"]} onEvidence={onEvidence} />
-    <Assessments report={report} ids={["business_unchanged"]} onEvidence={onEvidence} />
+    <Assessments report={report} ids={["business_unchanged", "bounded_database", "bounded_files", "same_run_revision", "original_attempt_preserved", "original_files_preserved"]} onEvidence={onEvidence} />
   </section>;
+}
+
+const phaseLabels: Record<string, string> = { production: "生产", extraction: "作品提炼", discussion: "看图讨论", merge: "Skill 融合", delivery_repair: "交付修复" };
+const taskLabel = (caseId: string, phase: string, source = "") => caseId === "S13" ? "Skill 融合" : caseId === "P06" ? "看图讨论" : source.includes("/extractions/jobs/") ? "作品提炼" : phaseLabels[phase] ?? (phase || "阶段未记录");
+const itemLabels: Record<string, string> = { agentMessage: "公开回复", userMessage: "实际输入", commandExecution: "执行命令", webSearch: "联网查询", imageGeneration: "生图", imageView: "查看图片", mcpToolCall: "工具调用", fileChange: "文件变更" };
+const stateLabels: Record<string, string> = { completed: "完成", failed: "失败", succeeded: "成功", awaiting_approval: "待批准", queued: "待执行", producing: "生产中", inProgress: "进行中", in_progress: "进行中", running: "进行中" };
+const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "未记录";
+
+function CodexSteps({ report, data, missing, onEvidence }: { report: EvalReport; data: (name: string) => unknown; missing: (name: string) => ReactNode; onEvidence: (name: string) => void }) {
+  const turns = codexTurns(data("sdk.json"));
+  const stages = recordArray(data("recovery_stages.json"));
+  const usage = codexUsage(data("sdk.json"));
+  const calls = recordArray(data("recovery_calls.json"));
+  const hasRecovery = stages?.some(stage => stage.name === "restored") && stages.some(stage => stage.name === "failed");
+  const files = report.evidence_files.map(file => file.name);
+  const inputs = files.filter(name => /\/(?:production_request|discussion_request|request)\.txt$|\/(?:request|worker_task|production_session)\.json$/.test(name));
+  return <>
+    <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>Codex 任务与公开执行</h4><span>{turns?.length ?? "未确认"} 个 turn</span></div>
+      {!!inputs.length && <Fold label="交付要求与输入快照"><Sources report={report} names={inputs} onEvidence={onEvidence} /></Fold>}
+      {turns?.length ? turns.map(turn => <section key={turn.key} className="eval-chain-sdk-turn" aria-label={`Codex ${taskLabel(report.case_id, turn.phase, asText(turn.events[0]?.source))} turn`}>
+        <div className="eval-chain-step-heading"><h5>{taskLabel(report.case_id, turn.phase, asText(turn.events[0]?.source))}</h5><span>{stateLabels[turn.status] ?? (turn.status || "终态未记录")}{!turn.complete && " · 捕获未完整确认"}</span></div>
+        <p className="eval-chain-id">Thread <code>{turn.thread}</code> · Turn <code>{turn.turn}</code></p>
+        <p className="eval-chain-note">{turn.started || "开始时间未记录"} → {turn.finished || "结束时间未记录"}</p>
+        <ol className="eval-chain-sdk-items">{turn.items.map(item => {
+          const body = asRecord(asRecord(item.payload)?.item);
+          const text = asText(body?.text), type = asText(item.item_type);
+          return <li key={asText(item.item_id)}><div className="eval-chain-step-heading"><strong>{itemLabels[type] ?? type}</strong><span>{stateLabels[asText(item.status)] ?? (asText(item.status) || "状态未记录")}</span></div>
+            <time>{asText(item.at)}</time>
+            {text ? <Text value={text} label="公开内容" /> : <Fold label="参数与返回"><Text value={item.payload} code label="公开 item" /></Fold>}
+            {(item.truncated || item.incomplete) === true && <p className="eval-chain-warning">此 item 有截断或未完成标记，不能据此认定工具成功。</p>}
+          </li>;
+        })}</ol>
+        <Fold label="完整公开事件"><Text value={turn.events} code label="公开事件" /></Fold>
+      </section>) : <>{missing("sdk.json")}<p className="eval-chain-note">未找到可识别的 SDK thread/turn，不以产物存在替代执行证据。</p></>}
+      <Sources report={report} names={["sdk.json"]} onEvidence={onEvidence} />
+      <Assessments report={report} ids={["sdk_completed", "production_terminal", "generation_mapping", "evidence_complete"]} onEvidence={onEvidence} />
+    </li>
+    {report.evidence_files.some(file => file.name === "recovery_stages.json") && <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>宿主失败与离线恢复</h4><span>独立于 SDK 终态</span></div>
+      {stages?.length ? stages.map((stage, index) => {
+        const database = asRecord(asRecord(stage.state)?.database);
+        const runs = recordArray(database?.content_runs), attempts = recordArray(database?.content_attempts);
+        return <section key={index} className="eval-chain-sdk-turn"><h5>{asText(stage.name) === "failed" ? "原失败阶段" : asText(stage.name) === "restored" ? "恢复阶段" : asText(stage.name)}</h5>
+          <p>{stateLabels[asText(runs?.[0]?.status)] ?? (asText(runs?.[0]?.status) || "任务状态未记录")} · {asText(stage.at)}</p>
+          {attempts?.map(attempt => <p key={asText(attempt.id)} className="eval-chain-id">尝试 {number(attempt.attempt_number)}：{stateLabels[asText(attempt.status)] ?? asText(attempt.status)} · <code>{asText(attempt.id)}</code>{asText(attempt.error_type) && ` · ${asText(attempt.error_type)}`}</p>)}
+          <Fold label="此阶段数据库与产物"><Text value={{ database, outputs: stage.outputs }} code label="阶段快照" /></Fold>
+        </section>;
+      }) : missing("recovery_stages.json")}
+      <Fold label="声明故障原文"><Text value={data("recovery_fault.json")} code /></Fold>
+      <Sources report={report} names={["recovery_stages.json", "recovery_calls.json", "recovery_fault.json"]} onEvidence={onEvidence} />
+      <Assessments report={report} ids={["declared_fault", "offline_no_sdk", "gui_post_count"]} onEvidence={onEvidence} />
+    </li>}
+    <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>模型用量</h4><span>按来源分列</span></div>
+      <p>DeepSeek：输入 {number(report.usage?.input_tokens)} · 输出 {number(report.usage?.output_tokens)} · 合计 {number(report.usage?.total_tokens)}</p>
+      {usage?.length ? <>{usage.map(row => <div className="eval-chain-sdk-turn" key={row.thread}><h5>Codex · {taskLabel(report.case_id, row.phase, asText(turns?.find(turn => turn.thread === row.thread)?.events[0]?.source))}</h5><p className="eval-chain-id">Thread <code>{row.thread}</code></p>
+        <p>线程累计：输入 {number(row.total?.input_tokens)} · 输出 {number(row.total?.output_tokens)} · 合计 {number(row.total?.total_tokens)}</p>
+        <p className="eval-chain-note">其中缓存输入 {number(row.total?.cached_input_tokens)} · 推理输出 {number(row.total?.reasoning_output_tokens)}</p>
+      </div>)}<p className="eval-chain-note">取每个线程最后一次累计计数；不叠加更新或 last，缓存与推理是子集。续聊或 fork 的累计值不等于本次新增用量。</p></> : <p className="eval-chain-note">SDK 用量未记录，不按 0 计算。</p>}
+      {hasRecovery && calls && <><p>离线恢复新增 SDK 入口：{calls.filter(call => call.phase === "recovery" && call.operation === "sdk_client_open").length} 次；native execute：{calls.filter(call => call.phase === "recovery" && call.operation === "native_execute").length} 次。</p>
+        {report.checks.some(check => check.id === "offline_no_sdk" && check.status === "passed") && !calls.some(call => call.phase === "recovery") && <p>恢复新增 tokens：0（已记录的离线恢复检查通过）。</p>}</>}
+      <Sources report={report} names={["sdk.json", ...(hasRecovery ? ["recovery_calls.json"] : [])]} onEvidence={onEvidence} />
+    </li>
+  </>;
 }
 
 function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvidence: (name: string) => void }) {
@@ -182,13 +245,16 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
     if (query.isError) return retry ? <div key={name} className="eval-chain-read-error" role="alert"><p>{name} 读取失败：{query.error instanceof Error ? query.error.message : "请重新读取。"}</p><button type="button" className="eval-chain-action" disabled={query.isFetching} onClick={() => void query.refetch()}>{query.isFetching ? "正在重读…" : `重新读取 ${name}`}</button></div> : <p key={name} className="eval-chain-warning">{name} 读取失败；可在链路末尾重新读取。</p>;
     return null;
   };
+  if (queries.some(query => query.isPending)) return <section className="eval-execution-chain" aria-label="执行链路"><div className="eval-chain-heading"><h3>执行链路</h3></div><p className="eval-chain-note" role="status">正在读取本次运行的执行证据…</p></section>;
   const ledger = messageArray(data("messages.json"));
   const execution = asRecord(data("execution.json"));
   const entries = recordArray(execution?.entries);
   const requests = projectRequests(data("requests.json"), data("trace.json"));
   const userMessages = ledger?.filter(message => message.role === "user") ?? [];
   const userEntries = entries?.filter(entry => entry.kind === "user" && typeof entry.text === "string") ?? [];
-  const queriesText = userMessages.length ? userMessages.map(message => message.content) : userEntries.map(entry => entry.text);
+  const browser = asRecord(data("browser.json"));
+  const hasCodex = available.has("sdk.json");
+  const queriesText = userMessages.length ? userMessages.map(message => message.content) : userEntries.length ? userEntries.map(entry => entry.text) : asText(browser?.query) ? [browser!.query] : [];
   const mainRequests = requests?.filter(request => request.kind === "main") ?? [];
   const knownResponses = requests?.every(request => !request.response.problem) ?? false;
   const calls = requests?.flatMap(request => request.response.calls) ?? [];
@@ -198,9 +264,11 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
   const answer = typeof recordedAnswer === "string" ? recordedAnswer : asText(ledgerFinal?.content);
   const probe = asRecord(data("probe.json"));
   const probes = recordArray(data("probe.json"));
-  const browser = asRecord(data("browser.json"));
   const oracle = asRecord(data("oracle.json"));
-  const sequence = requests?.length ? `${requests.length} 次模型请求 · ${knownResponses ? `${calls.length} 次模型工具调用` : "工具调用数未完整确认"}` : "模型请求未完整记录";
+  const output = asRecord(data("outputs.json"));
+  const images = recordArray(output?.images);
+  const reading = asText(data("assessment.md")) || asText(data("reading-summary.md"));
+  const sequence = requests?.length ? `${requests.length} 次模型请求 · ${knownResponses ? `${calls.length} 次模型工具调用` : "工具调用数未完整确认"}${hasCodex ? " · Codex 委派" : ""}` : hasCodex && requests?.length === 0 ? "直接 Codex · 无 DeepSeek 请求" : "模型请求未完整记录";
   return <section className="eval-execution-chain" aria-label="执行链路">
     <div className="eval-chain-heading"><h3>执行链路</h3><span>{sequence}</span></div>
     <ol className="eval-chain-list">
@@ -208,13 +276,13 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
         <div className="eval-chain-step-heading"><h4>浏览器操作</h4><span>真实前端 · 无自动重试</span></div>
         {browser && Array.isArray(browser.steps) ? <ol>{browser.steps.map((step, index) => <li key={index}>{asText(step)}</li>)}</ol> : missing("browser.json")}
         {browser && <p className="eval-chain-note">会话创建 {displayValue(browser.session_posts)} 次 · 发送 {displayValue(browser.turn_posts)} 次 · 刷新后重提 {displayValue(browser.posts_after_refresh)} 次</p>}
-        <Assessments report={report} ids={["browser_e2e", "browser_eval_view"]} onEvidence={onEvidence} />
+        <Assessments report={report} ids={["browser_e2e", "browser_eval_view", "browser_chain", "eval_view"]} onEvidence={onEvidence} />
         <Sources report={report} names={["browser.json"]} onEvidence={onEvidence} />
       </li>}
       <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>用户输入</h4><span>Query</span></div>
         {queriesText.length ? queriesText.map((value, index) => <Text key={index} value={value} label="用户输入" />) : <>{missing("messages.json")}{missing("execution.json")}<p className="eval-chain-note">未找到可识别的用户步骤，不能用题目定义替代实际 query。</p></>}
-        <Sources report={report} names={[userMessages.length ? "messages.json" : "execution.json"]} onEvidence={onEvidence} />
-        <Assessments report={report} ids={["ledger_consistent"]} onEvidence={onEvidence} />
+        <Sources report={report} names={[userMessages.length ? "messages.json" : userEntries.length ? "execution.json" : "browser.json"]} onEvidence={onEvidence} />
+        {requests?.length !== 0 && <Assessments report={report} ids={["ledger_consistent"]} onEvidence={onEvidence} />}
       </li>
       {requests?.length ? requests.map(request => <li key={`${request.id}:${request.index}`} className="eval-chain-step">
         <div className="eval-chain-step-heading"><h4>{request.kind === "compaction" ? "上下文压缩请求" : request.kind === "main" ? "模型请求" : "模型请求（用途未确认）"} {request.index + 1}</h4><span>{request.method || "调用方式未记录"}</span></div>
@@ -230,24 +298,28 @@ function ExecutionChainView({ report, onEvidence }: { report: EvalReport; onEvid
         {request.response.calls.map((call, index) => <Tool key={`${call.id}:${index}`} call={call} results={toolResults(call.id, ledger, requests)} duplicate={!!call.id && callIds.filter(id => id === call.id).length > 1} />)}
         <Sources report={report} names={["requests.json", ...(request.trace.length ? ["trace.json"] : []), ...(request.response.calls.length ? ["messages.json"] : [])]} onEvidence={onEvidence} />
         {request.index === 0 && <Assessments report={report} ids={["evidence_complete", "private_data", "metadata_only", "account_tree"]} onEvidence={onEvidence} />}
-      </li>) : <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>模型请求与工具</h4></div>{missing("requests.json")}<p className="eval-chain-note">未找到结构化请求链；不能把旧格式 Trace、测试探针或缺证据解释为模型已调用工具。</p></li>}
-      <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>工具与执行检查</h4><span>运行级程序评估</span></div>
+      </li>) : !(hasCodex && requests?.length === 0) && <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>模型请求与工具</h4></div>{missing("requests.json")}<p className="eval-chain-note">未找到结构化请求链；不能把旧格式 Trace、测试探针或缺证据解释为模型已调用工具。</p></li>}
+      {!(hasCodex && requests?.length === 0) && <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>工具与执行检查</h4><span>运行级程序评估</span></div>
         {["E01", "E02"].includes(report.case_id) && <p className="eval-chain-expectation">预期：只读、参数合法、每次调用有对应返回。目录已在上下文中时，不调用工具也合理。</p>}
         {report.case_id === "E10" && <><p className="eval-chain-expectation">预期：读取当前账号的同名栏目，覆盖全部待选标题和失败任务；只读，不重复已入队标题，使用工具返回的真实链接。</p><Assessments report={report} ids={["correct_object", "complete_filter", "failed_tasks"]} onEvidence={onEvidence} /></>}
         {report.case_id === "E02" && <Assessments report={report} ids={["model_boundary_attempt", "model_attempts_guarded"]} onEvidence={onEvidence} />}
         <p className="eval-chain-note">{requests?.length && knownResponses ? `实际：${calls.length} 次模型工具调用。` : "请求响应未完整读取，不能确认模型工具调用总数。"}</p>
         <Assessments report={report} ids={["tool_protocol", "read_only_attempts", "archive_complete", "execution_completed"]} onEvidence={onEvidence} />
         {execution && <p className="eval-chain-note">会话记录状态：{asText(execution.status) || "未记录"}。是否完整结束以执行检查为准。</p>}
-      </li>
+      </li>}
+      {hasCodex && <CodexSteps report={report} data={data} missing={missing} onEvidence={onEvidence} />}
       <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>数据库预期与实际</h4><span>持久化对照</span></div><Database report={report} before={data("before.json")} after={data("after.json")} oracle={oracle} missing={missing} onEvidence={onEvidence} /></li>
-      <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>最终回复</h4><span>公开输出</span></div>
-        {answer ? <Text value={answer} label="最终回复" markdown /> : <>{missing("answer.txt")}<p className="eval-chain-note">没有可识别的最终回复，无法判断任务完成。</p></>}
+      <li className="eval-chain-step"><div className="eval-chain-step-heading"><h4>{hasCodex ? "最终交付与回复" : "最终回复"}</h4><span>公开输出</span></div>
+        {hasCodex && output && images && <><p>磁盘产物：{images.length} 张图片 · SDK turn {output.turn_completed === true ? "已完成" : "完成未确认"} · 当前尝试回执 {output.receipt_completed === true ? "完成" : "未确认 / 无新回执"}</p>
+          {images?.map((image, index) => <div key={index} className="eval-chain-sdk-turn"><p>第 {number(image.order)} 张 · {number(image.width)} × {number(image.height)} · SHA {image.digest_matches === true ? "一致" : "未确认"}</p><p className="eval-chain-id"><code>{asText(image.sha256)}</code></p><Fold label={`第 ${index + 1} 张的 Prompt 与来源`}><Text value={image} code /></Fold></div>)}
+          <Sources report={report} names={["outputs.json"]} onEvidence={onEvidence} /><Assessments report={report} ids={["real_image", "artifact_evidence", "generation_mapping"]} onEvidence={onEvidence} /></>}
+        {answer ? <Text value={answer} label="最终回复" markdown /> : hasCodex && requests?.length === 0 ? <p className="eval-chain-note">本任务由网页直接提交，不要求 DeepSeek 聊天答复；Codex 的实际公开回复在对应 turn 中。</p> : <>{missing("answer.txt")}<p className="eval-chain-note">没有可识别的最终回复，无法判断任务完成。</p></>}
         {typeof recordedAnswer !== "string" && answer && <p className="eval-chain-note">当前展示来自消息账本；answer.txt 未读取为有效文本。</p>}
         <Sources report={report} names={[typeof recordedAnswer === "string" ? "answer.txt" : "messages.json"]} onEvidence={onEvidence} />
-        <Assessments report={report} ids={["final_answer"]} onEvidence={onEvidence} />
+        {!(hasCodex && requests?.length === 0) && <Assessments report={report} ids={["final_answer"]} onEvidence={onEvidence} />}
         {report.case_id === "E10" && <Assessments report={report} ids={["complete_filter", "task_answer"]} onEvidence={onEvidence} />}
-        <p className="eval-chain-semantic">回复语义：{report.review ? `已有复核结论（${checkLabels[report.review.decision]}）。` : asText(data("assessment.md")) ? "已有 Codex 阅读评估，未代替用户签署。" : "尚未评估。"}程序检查不等于内容准确。</p>
-        {available.has("assessment.md") && <section aria-label="本次回答评估"><h5>本次回答评估</h5>{asText(data("assessment.md")) ? <Text value={data("assessment.md")} markdown label="阅读评估" evidence={{ report, open: onEvidence }} /> : missing("assessment.md")}<Sources report={report} names={["assessment.md"]} onEvidence={onEvidence} /></section>}
+        <p className="eval-chain-semantic">回复语义：{report.review ? `已有复核结论（${checkLabels[report.review.decision]}）。` : reading ? "已有 Codex 阅读评估，未代替用户签署。" : "尚未评估。"}程序检查不等于内容准确。</p>
+        {(available.has("assessment.md") || available.has("reading-summary.md")) && <section aria-label="本次回答评估"><h5>本次回答评估</h5>{reading ? <Text value={reading} markdown label="阅读评估" evidence={{ report, open: onEvidence }} /> : missing(available.has("assessment.md") ? "assessment.md" : "reading-summary.md")}<Sources report={report} names={[available.has("assessment.md") ? "assessment.md" : "reading-summary.md"]} onEvidence={onEvidence} /></section>}
         {report.case_id === "E01" && <Fold label="对照当前账号的预期事实（独立 oracle）">{oracle && asRecord(oracle.creator) && recordArray(oracle.series) && recordArray(oracle.skills) ? <ContextSummary context={oracle} /> : <>{missing("oracle.json")}<p className="eval-chain-note">独立预期事实缺失或结构不受支持，无法作内容对照。</p></>}<Sources report={report} names={["oracle.json"]} onEvidence={onEvidence} /></Fold>}
       </li>
     </ol>

@@ -261,7 +261,7 @@ test("controlled late GET cannot replace the newly selected case", async ({ page
 });
 
 // Controlled trace documents exercise the projection, not model quality.
-async function structuredChain(page: Page, request: APIRequestContext, changed = false, mutate?: (docs: Record<string, unknown>, runId: string) => void) {
+async function structuredChain(page: Page, request: APIRequestContext, changed = false, mutate?: (docs: Record<string, unknown>, runId: string) => void, reportPatch: Record<string, unknown> = {}) {
   const fixture = await seed(request);
   const report = await readReport(request, fixture.run_id);
   const query = "列出当前账号栏目，只查看，不修改。";
@@ -311,7 +311,7 @@ async function structuredChain(page: Page, request: APIRequestContext, changed =
       { id: "business_unchanged", label: "数据库不变", status: changed ? "failed" : "passed", detail: changed ? "全行内容有差异。" : "全行内容不变。", evidence: ["before.json", "after.json"] },
       { id: "guard_probe", label: "边界探针", status: "passed", detail: "测试器发起，不是模型调用。", evidence: ["probe.json"] },
       { id: "final_answer", label: "最终回复", status: "passed", detail: "仅检查完整回复存在。", evidence: ["answer.txt"] },
-    ], auto_status: changed ? "failed" : "passed", status: changed ? "failed" : "needs_review",
+    ], auto_status: changed ? "failed" : "passed", status: changed ? "failed" : "needs_review", ...reportPatch,
   } }));
   await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?*`, route => {
     const name = new URL(route.request().url()).searchParams.get("name")!;
@@ -535,5 +535,76 @@ test("controlled layout only: long browser queries and URLs wrap on mobile witho
   await expect(chain.getByText(step, { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("eval-long-browser-390.png"), fullPage: true });
+  expect(writes).toEqual([]);
+});
+
+function sdkDocuments(docs: Record<string, unknown>, missingUsage = false) {
+  const event = (method: string, payload: unknown = {}, item_id = "", item_type = "", status = "completed") => ({
+    method, payload, item_id, item_type, status, thread_id: "recorded-thread", turn_id: "recorded-turn", phase: "production", at: "2026-10-11T19:01:00+08:00",
+  });
+  const total = { input_tokens: 440831, output_tokens: 11934, total_tokens: 452765, cached_input_tokens: 393472, reasoning_output_tokens: 7175 };
+  docs["sdk.json"] = { events: [event("capture/started"), event("turn/started"),
+    event("item/started", { item: { text: "" } }, "message-1", "agentMessage", "running"),
+    event("item/completed", { item: { text: "真实输入已处理，公开交付说明。" } }, "message-1", "agentMessage"),
+    event("item/completed", { item: { id: "reason-1" } }, "reason-1", "reasoning"),
+    ...(missingUsage ? [] : [event("thread/tokenUsage/updated", { token_usage: { total, last: { total_tokens: 53023 } } }), event("thread/tokenUsage/updated", { token_usage: { total, last: { total_tokens: 53023 } } })]),
+    event("turn/completed"), event("capture/finished") ] };
+  docs["outputs.json"] = { images: [{ order: 1, width: 1122, height: 1402, sha256: "unchanged-image-hash", digest_matches: true, image_prompt: "实际记录的 Prompt" }], turn_completed: true, receipt_completed: false };
+  docs["recovery_stages.json"] = ["failed", "restored"].map((name, index) => ({ name, at: "2026-10-11T19:05:00+08:00", state: { database: {
+    content_runs: [{ id: "same-run", status: index ? "awaiting_approval" : "failed" }],
+    content_attempts: [{ id: "old-attempt", status: "failed", attempt_number: 1 }, ...(index ? [{ id: "new-attempt", status: "succeeded", attempt_number: 2 }] : [])],
+  } } }));
+  docs["recovery_calls.json"] = [{ phase: "initial", operation: "sdk_client_open" }, { phase: "initial", operation: "native_execute" }];
+}
+
+test("controlled pure Codex projection: actual GUI input, SDK items, separate recovery, expected DB and cumulative usage", async ({ page, request }, info) => {
+  const fixture = await structuredChain(page, request, false, docs => {
+    sdkDocuments(docs);
+    docs["requests.json"] = []; docs["messages.json"] = []; docs["execution.json"] = {}; docs["answer.txt"] = ""; delete docs["probe.json"];
+    docs["browser.json"] = { query: "手动GUI生产四格图", steps: ["手动生产，然后显式恢复"], posts_after_refresh: 0, session_posts: 0, turn_posts: 0 };
+    const base = { creators: [{ id: "creator-a" }], topics: [], content_runs: [], content_revisions: [], content_attempts: [] };
+    docs["before.json"] = { database: base, files: {}, metadata: { files_complete: true } };
+    docs["after.json"] = { database: { ...base, topics: [{ id: "topic" }], content_runs: [{ id: "same-run", status: "awaiting_approval" }], content_revisions: [{ id: "same-revision" }], content_attempts: [{ id: "old-attempt", status: "failed" }, { id: "new-attempt", status: "succeeded" }] }, files: {}, metadata: { files_complete: true } };
+  }, { case_id: "P05", usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } });
+  const overview = await (await request.get("/api/eval")).json() as Cases;
+  await page.route("**/api/eval", route => route.fulfill({ json: { ...overview, cases: overview.cases.map(item => item.id === "E01" ? { ...item, id: "P05" } : item) } }));
+  await page.route("**/api/eval/runs?case_id=P05", route => route.fulfill({ json: { items: [{ run_id: fixture.run_id, status: "needs_review" }] } }));
+  const writes = watchWrites(page);
+  await page.goto(`/eval?case=P05&run=${fixture.run_id}`);
+  const chain = page.getByRole("region", { name: "执行链路", exact: true });
+  await expect(chain).toContainText("直接 Codex · 无 DeepSeek 请求");
+  await expect(chain).toContainText("手动GUI生产四格图");
+  await expect(chain).toContainText("真实输入已处理，公开交付说明。");
+  await expect(chain.locator(".eval-chain-sdk-items > li")).toHaveCount(1);
+  await expect(chain).toContainText("原失败阶段"); await expect(chain).toContainText("恢复阶段");
+  await expect(chain).toContainText("线程累计：输入 440,831 · 输出 11,934 · 合计 452,765");
+  await expect(chain).toContainText("离线恢复新增 SDK 入口：0 次");
+  await expect(chain).not.toContainText("没有可识别的最终回复");
+  const db = page.getByRole("region", { name: "数据库预期与实际" });
+  await expect(db.getByRole("columnheader", { name: "预期执行后" })).toBeVisible();
+  await expect(db.getByRole("row").filter({ hasText: "content_attempts" })).toContainText("2 行");
+  await page.screenshot({ path: info.outputPath("codex-timeline-1440.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
+  await expect(chain).toContainText("452,765");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("codex-timeline-390.png"), fullPage: true });
+  expect(writes).toEqual([]);
+});
+
+test("controlled mixed Codex projection: missing usage is not zero and failed SDK GET supports explicit recovery", async ({ page, request }) => {
+  const fixture = await structuredChain(page, request, false, docs => sdkDocuments(docs, true));
+  let fail = true;
+  await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?name=sdk.json`, route => {
+    if (fail) { fail = false; return route.fulfill({ status: 503, json: { error: { message: "SDK公开证据读取失败" } } }); }
+    return route.fallback();
+  });
+  const writes = watchWrites(page);
+  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
+  const chain = page.getByRole("region", { name: "执行链路", exact: true });
+  await expect(chain).toContainText("2 次模型请求 · 2 次模型工具调用 · Codex 委派");
+  await expect(chain.getByRole("alert")).toContainText("SDK公开证据读取失败");
+  await chain.getByRole("button", { name: "重新读取 sdk.json", exact: true }).click();
+  await expect(chain).toContainText("线程累计：输入 未记录 · 输出 未记录 · 合计 未记录");
+  await expect(chain).toContainText("受控最终回复");
   expect(writes).toEqual([]);
 });

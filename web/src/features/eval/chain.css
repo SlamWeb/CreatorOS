@@ -90,3 +90,8 @@
   .eval-chain-database th, .eval-chain-database td { padding-right: 7px; }
   .eval-chain-assessment-heading { align-items: start; }
 }
+.eval-chain-sdk-turn { margin-block: 1rem; min-width: 0; }
+.eval-chain-sdk-turn h5 { margin: .4rem 0; font-size: .95rem; }
+.eval-chain-sdk-items { padding-left: 1.4rem; }
+.eval-chain-sdk-items > li { padding: .6rem 0; min-width: 0; }
+.eval-chain-sdk-items time { color: var(--muted); font-size: .75rem; }

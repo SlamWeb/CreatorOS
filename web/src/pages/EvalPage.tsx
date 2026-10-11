@@ -157,7 +157,7 @@ function Report({ report, readFailed, onSaved, onReload }: { report: EvalReport;
       <div><dt>执行</dt><dd>{report.entrypoint === "browser" ? <span>浏览器 E2E</span> : report.execution_mode === "live" ? "后台真实模型" : "受控执行"} · {report.execution_status === "completed" ? "完成" : "失败"}</dd></div>
       <div><dt>模型</dt><dd>{report.model?.name || "未记录"}{report.model?.provider ? ` · ${report.model.provider}` : ""}</dd></div>
       <div><dt>耗时</dt><dd>{report.elapsed_seconds == null ? "未记录" : `${report.elapsed_seconds.toFixed(2)} 秒`}</dd></div>
-      <div><dt>用量</dt><dd>{report.usage == null ? "未记录" : Object.entries(report.usage).map(([key, value]) => `${key}: ${value}`).join(" · ") || "未记录"}</dd></div>
+      <div><dt>{report.evidence_files.some(file => file.name === "sdk.json") ? "DeepSeek 用量" : "用量"}</dt><dd>{report.usage == null ? "未记录" : Object.entries(report.usage).map(([key, value]) => `${key}: ${value}`).join(" · ") || "未记录"}</dd></div>
     </dl>
     {report.error && <div className="eval-error"><LongText text={`${report.error.kind}：${report.error.message}`} /></div>}
     {report.execution_mode === "controlled" && <p className="eval-mode-note">受控执行用于验证接线与交互，不代表真实模型任务成绩。</p>}
