@@ -68,6 +68,11 @@ export async function expectEvalEvidence(page: Page, evidence: EvalViewEvidence,
 
   const database = chain.getByRole("region", { name: "数据库预期与实际", exact: true });
   await expect(database.locator("tbody tr").first()).toBeVisible({ timeout });
+  const headers = await database.getByRole("columnheader").allTextContents();
+  const baselineColumn = headers.findIndex(value => ["执行前", "预期行数"].includes(value.trim()));
+  const actualColumn = headers.findIndex(value => value.trim() === "实际行数");
+  expect(baselineColumn).toBeGreaterThanOrEqual(0);
+  expect(actualColumn).toBeGreaterThan(baselineColumn);
   const otherTables = database.getByRole("button", { name: /^其他 \d+ 张表：完整行一致$/ });
   if (await otherTables.count()) await otherTables.click();
   const readonly = ["E01", "E02", "E03", "E04", "E05", "E10"].includes(new URL(page.url()).searchParams.get("case") ?? "");
@@ -79,16 +84,17 @@ export async function expectEvalEvidence(page: Page, evidence: EvalViewEvidence,
     const row = database.locator("tbody tr").filter({ has: page.getByText(name, { exact: true }) });
     const before = readonly && typeof evidence.oracle.expected_row_counts?.[name] === "number"
       ? evidence.oracle.expected_row_counts[name] : evidence.before.database[name].length;
-    await expect.poll(() => row.getByRole("cell").nth(0).evaluate(el => el.firstChild?.textContent),
+    const cells = row.getByRole("cell");
+    await expect.poll(() => cells.nth(baselineColumn - 1).evaluate(el => el.firstChild?.textContent),
       { timeout, message: `Expected/baseline row count for ${name}` }).toBe(String(before));
-    await expect(row.getByRole("cell").nth(1)).toHaveText(String(evidence.after.database[name].length));
+    await expect(cells.nth(actualColumn - 1)).toHaveText(String(evidence.after.database[name].length));
   }
 
   const original = page.getByRole("region", { name: "原始证据", exact: true });
   const opened: string[] = [];
   for (const [name, value, source] of [
     ["before.json", evidence.before, database], ["after.json", evidence.after, database],
-    ["answer.txt", evidence.answer, chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: "最终回复", exact: true }) })],
+    ["answer.txt", evidence.answer, chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: /^最终(?:回复|交付与回复)$/ }) })],
   ] as const) {
     await source.getByRole("button", { name, exact: true }).click();
     const file = original.locator(".eval-evidence").filter({ has: page.getByRole("button", { name, exact: true }) });

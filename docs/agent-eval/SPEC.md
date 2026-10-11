@@ -1,5 +1,16 @@
 # 账号 Agent Eval v1
 
+## Codex 证据展示与 P04/P06（2026-10-11，接线已验证、待冻结首轮）
+
+- 先补既有纯/混合 Codex 任务的只读时间线、独立数据库预期及实际行变化、DS/SDK 累计/离线恢复用量；不覆盖历史分数和文件。普通受控展示测试不计付费模型成绩。
+- P06 保留 coverage-v3 原定义：账号聊天真实 DeepSeek 委派看图，真实 LocalImageInput，来源生产 thread 首轮 fork、第二轮 resume；只新增讨论记录，旧 Run/图/Skill/审批不变。P04 原 GUI 保存返工不执行，明确执行后产生新 Revision/Attempt/真实新图，原版本文件不覆盖。
+- 两题只补隔离夹具、采集器、判分正负例及原 SPA 接线；不改业务、Prompt、正式数据或既有题目规避失败。先预检、commit、冻结；付费首轮 retries=0，整轮结束前不修代码。失败、独立内容评估与用量如实追加，每轮正式数据守卫前后比对。
+- Codex 只读投影已提交 6ea4232：普通 UI 17/17、build 通过；真实 P03/P05 原 Eval 各 GET-only 1/1，14 表与完整证据原文可读；两报告和证据共 91 文件字节不变。SDK 累计用量、DS 用量、离线恢复新增0分别显示，旧 failed/needs_review 不改。
+- 隔离真实 SQLite/原 SPA 免费预检 P04/P06 各 1/1 通过；禁止 provider、executor 和讨论提交，不算模型成绩。P04 保存后新版 queued/零 Attempt，切换旧图 SHA 不变并刷新，零执行 POST；P06 实际定位指定图/讨论/生产记录/账号聊天，零业务 POST。
+- 预检失败也保留：P04 首次错误假定 Revision.status 存在，二次错误假定 queued 新版仍展示旧图；P06 首次 Observation 全页同名链接歧义。仅修评测 DTO/操作路径，没有改变前端业务。严格测试 TS 另修 screenshot Promise<Buffer> 回调及 scenario.series_id 类型遗漏；普通 typecheck 未覆盖付费测试脚本。
+- 本地定义/工作台/判分/恢复/提炼回归 44/44（132.072秒）；最终收紧后专用4项再次通过（0.008秒）。P04 直接调用真实终态判分函数，缺 capture/finished 或回执即失败；P06 记录原 SDK Thread.turn 的 LocalImageInput 路径/SHA，不能用工作目录副本冒充已发送图片。核对已安装 SDK 类型实际模块 openai_codex._inputs，兼容该命名空间。
+- 来源是已完成真实 P05 的隔离副本，注明不是本轮新图；保留原生产 thread 供 P06 fork，冻结 Skill/输入/图片摘要。预期行数只取 before 加合同增量：P04 同 Run +1 Revision/+1 Attempt/+4 events，P06 数据库全表不变、文件中新增2讨论记录。原 revision-001 全部文件与原 P05 来源摘要另验不变。
+
 ## P05 离线恢复首轮结束（2026-10-11）
 
 - 冻结 `offline-recovery-gui-v1-20261011`、源码9a7a8f0；首槽 `5bfb85f661504de0bfed17ce88234ee8` / 批次 `offline-recovery-v1-20261011` 已结束，收费期间不改源码，结束后验冻通过。原GUI添加→真Luna/xhigh生图→声明宿主失败→同Run点击恢复→同图/Prompt/Skill/刷新/封面/Eval，浏览器1/1；原自动15 passed/1 needs_review/0 failed，质量待评估不改成通过。

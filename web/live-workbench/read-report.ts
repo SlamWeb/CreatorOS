@@ -3,7 +3,7 @@ import { expectEvalEvidence, readEvalViewEvidence } from "../live-eval/ui-assert
 
 // Read-only API establishes expected bytes. Acceptance still requires the
 // original page to open/expand and render those exact bytes, without a re-run.
-export async function readWorkbenchReport(page: Page, request: APIRequestContext, caseId: string, runId: string, userQuery?: string) {
+export async function readWorkbenchReport(page: Page, request: APIRequestContext, caseId: string, runId: string, userQuery?: string | string[]) {
   await page.goto(`/eval?case=${caseId}&run=${runId}`);
   await expect(page.getByRole("heading", { name: "运行结果", exact: true })).toBeVisible();
   const chain = page.getByRole("region", { name: "执行链路", exact: true });
@@ -16,9 +16,9 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   const rawBrowser = await (await request.get(`/api/eval/runs/${runId}/evidence?name=browser.json`)).json();
   // A failure before accountTurn has no DeepSeek requests. Still read all real
   // evidence and table counts; never fabricate an Agent turn to satisfy the UI.
-  const agentNotStarted = caseId === "P05" || caseId === "P03" && rawBrowser.content.session_posts === 0;
+  const agentNotStarted = ["P04", "P05"].includes(caseId) || caseId === "P03" && rawBrowser.content.session_posts === 0;
   if (caseId !== "S13" && userQuery && !agentNotStarted) {
-    const actual = await readEvalViewEvidence(request, runId, [userQuery]);
+    const actual = await readEvalViewEvidence(request, runId, Array.isArray(userQuery) ? userQuery : [userQuery]);
     Object.assign(verified, await expectEvalEvidence(page, actual));
   }
   const evidence = page.getByRole("region", { name: "原始证据", exact: true });
@@ -27,6 +27,10 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
     caseId === "S13" ? "source_manifest.json" : caseId.startsWith("P") ? "outputs.json" : "messages.json"];
   if (caseId === "P03") names.push("artifact_stages.json", "before_catalog.json", "after_catalog.json", "global_skills_guard.json");
   if (caseId === "P05") names.push("recovery_stages.json", "recovery_fault.json", "recovery_calls.json");
+  if (caseId === "P04" || caseId === "P06") names.push("oracle.json", "source_hashes.json", "transport.json", "messages.json", "trace.json",
+    "reused_source.json", "discussion_records.json", "discussion_usage.json", "discussion_probe.json", "execution_counts.json");
+  if (caseId === "P04") names.push("rework_stages.json");
+  if (caseId === "P06") names.push("answer.txt");
   const contents = new Map<string, unknown>();
   for (const name of names) {
     const response = await request.get(`/api/eval/runs/${runId}/evidence?${new URLSearchParams({ name })}`);
@@ -52,10 +56,16 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
     if (await other.count()) await other.click();
     const before = contents.get("before.json") as { database: Record<string, unknown[]> };
     const after = contents.get("after.json") as { database: Record<string, unknown[]> };
+    const headers = await database.getByRole("columnheader").allTextContents();
+    const beforeColumn = headers.findIndex(value => ["执行前", "预期行数"].includes(value.trim()));
+    const actualColumn = headers.findIndex(value => value.trim() === "实际行数");
+    expect(beforeColumn).toBeGreaterThanOrEqual(0);
+    expect(actualColumn).toBeGreaterThan(beforeColumn);
     for (const name of Object.keys(after.database)) {
       const row = database.locator("tbody tr").filter({ has: page.getByText(name, { exact: true }) });
-      await expect.poll(() => row.getByRole("cell").nth(0).evaluate(element => element.firstChild?.textContent)).toBe(String(before.database[name].length));
-      await expect(row.getByRole("cell").nth(1)).toHaveText(String(after.database[name].length));
+      const cells = row.getByRole("cell");
+      await expect.poll(() => cells.nth(beforeColumn - 1).evaluate(element => element.firstChild?.textContent)).toBe(String(before.database[name].length));
+      await expect(cells.nth(actualColumn - 1)).toHaveText(String(after.database[name].length));
     }
     verified.database_tables_verified = Object.keys(after.database);
     verified.agent_not_started = agentNotStarted;
@@ -63,5 +73,5 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   // Copying a command is not executing it. This must not name the old suite.
   const command = page.locator(".eval-executor code");
   await expect(command).toContainText("eval:workbench");
-  return { completed: true, evidence_loaded: true, evidence_files: names, ...verified };
+  return { completed: true, evidence_loaded: true, evidence_files: [...new Set(names)], ...verified };
 }

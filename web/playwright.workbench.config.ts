@@ -4,9 +4,10 @@ import path from "node:path";
 // Separate opt-in paid suite: no mock model, SDK, producer, or intercepted API.
 const python = process.env.CREATOROS_PYTHON ?? "python";
 const root = path.resolve(import.meta.dirname, "..");
-const cases = ["A14", "S13", "P01", "P02", "P03", "P05"];
+const cases = ["A14", "S13", "P01", "P02", "P03", "P05", "P04", "P06"];
 // 8894 is reserved for the read-only report viewer.
-const portFor = (index: number) => index < 4 ? 8890 + index : 8891 + index;
+const ports = [8890, 8891, 8892, 8893, 8895, 8896, 8898, 8899];
+const portFor = (index: number) => ports[index];
 const batch = process.env.CREATOROS_WORKBENCH_BATCH;
 const revision = process.env.CREATOROS_WORKBENCH_REVISION;
 const listing = process.argv.includes("--list");

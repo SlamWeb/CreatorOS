@@ -4,15 +4,20 @@ import { readWorkbenchReport } from "./read-report";
 import { readProgress } from "./read-progress";
 import { artifactJourney, type ArtifactScenario } from "./artifact-journey";
 import { recoveryJourney } from "./recovery-journey";
+import { discussionJourney, reworkJourney } from "./discussion-rework-journey";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
   const response = await request.get("/__live_eval__/scenario");
   expect(response.ok()).toBe(true);
   const scenario = await response.json() as { case_id: string; run_id: string; query: string;
-    creator_id: string; creator_name: string; skill_names: string[]; series_name: string; expected_images: number } & ArtifactScenario;
+    creator_id: string; creator_name: string; series_id: string; skill_names: string[]; series_name: string; expected_images: number;
+    seed_run_id?: string; seed_revision_id?: string; seed_artifact_digest?: string; seed_image_sha256?: string;
+    eval_run_id?: string; business_run_id?: string; discussion_questions?: string[]; rework_instruction?: string } & ArtifactScenario;
   expect(scenario.case_id).toBe(info.project.name);
-  const browser: Record<string, unknown> = { query: scenario.query, session_id: "", completed: false,
+  const browser: Record<string, unknown> & { steps: string[] } = { query: scenario.query, session_id: "", completed: false,
     steps: [], session_posts: 0, turn_posts: 0, merge_posts: 0, posts_after_refresh: 0 };
+  const apiMutations: Array<{ method: string; path: string; body?: string; status?: number }> = [];
+  const mutationByRequest = new WeakMap<object, { method: string; path: string; body?: string; status?: number }>();
   const steps = browser.steps as string[];
   const errors: string[] = [];
   let refreshing = false;
@@ -20,10 +25,17 @@ test("real workbench: original GUI → real services → durable evidence → or
   page.on("request", event => {
     const path = new URL(event.url()).pathname;
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(event.method()) || !path.startsWith("/api/")) return;
+    const record = { method: event.method(), path, body: event.postData() ?? undefined };
+    apiMutations.push(record);
+    mutationByRequest.set(event, record);
     if (path === "/api/agent/sessions") browser.session_posts = Number(browser.session_posts) + 1;
     if (path.endsWith("/turns")) browser.turn_posts = Number(browser.turn_posts) + 1;
     if (path === "/api/skill-extractions/merge") browser.merge_posts = Number(browser.merge_posts) + 1;
     if (refreshing) browser.posts_after_refresh = Number(browser.posts_after_refresh) + 1;
+  });
+  page.on("response", response => {
+    const record = mutationByRequest.get(response.request());
+    if (record) record.status = response.status();
   });
   async function imageLoaded(image: Locator) {
     await expect(image).toBeVisible();
@@ -109,7 +121,11 @@ test("real workbench: original GUI → real services → durable evidence → or
     return new URL(link!.url, page.url()).pathname.split("/")[2];
   }
   try {
-    if (scenario.case_id === "S13") {
+    if (scenario.case_id === "P04") {
+      await reworkJourney(page, request, info, scenario, browser, reload, () => { refreshing = false; });
+    } else if (scenario.case_id === "P06") {
+      await discussionJourney(page, request, info, scenario, browser, reload, () => { refreshing = false; });
+    } else if (scenario.case_id === "S13") {
       await page.goto("/skills");
       for (const name of scenario.skill_names) {
         await page.locator(".skill-card").filter({ hasText: name }).click();
@@ -242,6 +258,7 @@ test("real workbench: original GUI → real services → durable evidence → or
     throw error;
   } finally {
     browser.page_errors = errors;
+    browser.api_mutations = apiMutations;
     const finished = await request.post("/__live_eval__/finish", { data: browser });
     expect(finished.status()).toBe(202);
     await expect.poll(async () => (await request.get("/__live_eval__/result")).status(), { timeout: 90_000 }).toBe(200);
@@ -250,8 +267,9 @@ test("real workbench: original GUI → real services → durable evidence → or
     // The independent original Eval page is the final read endpoint, not a backend-only test.
     const view: Record<string, unknown> = { run_id: scenario.run_id, completed: false, evidence_loaded: false };
     try {
-      Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.run_id,
-        scenario.case_id === "S13" ? undefined : scenario.query));
+      Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.eval_run_id ?? scenario.run_id,
+        scenario.case_id === "S13" ? undefined : scenario.case_id === "P06"
+          ? scenario.discussion_questions ?? [scenario.query] : scenario.query));
       await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: false });
     } catch (error) { view.error = String(error); }
     const committed = await request.post("/__live_eval__/view", { data: view });

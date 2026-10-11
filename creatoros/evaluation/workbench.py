@@ -39,9 +39,9 @@ from creatoros.web.chat import AgentChatService
 
 CASES_PATH = PROJECT_ROOT / "docs/agent-eval/workbench-cases.json"
 OUTPUT_ROOT = PROJECT_ROOT / "data/agent-eval-workbench"
-CASES = {"A14", "S13", "P01", "P02", "P03", "P05"}
-PRODUCTION_CASES = {"P01", "P02", "P03", "P05"}
-VERSION = "workbench-world-v3-offline-recovery"
+CASES = {"A14", "S13", "P01", "P02", "P03", "P04", "P05", "P06"}
+PRODUCTION_CASES = {"P01", "P02", "P03", "P04", "P05"}
+VERSION = "workbench-world-v4-discussion-rework"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -81,10 +81,13 @@ def model_configuration():
     from creatoros.ai.deepseek import DeepSeekProvider
     from creatoros.config import CODEX_PRODUCER_TIMEOUT_SECONDS
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
+    from creatoros.integrations.content_discussion import CodexDiscussionReviewer
     from creatoros.integrations.skill_extraction import EXTRACTION_MODEL, EXTRACTION_EFFORT, extraction_timeout
     return {"deepseek": {"model": signature(DeepSeekProvider).parameters["model"].default, "timeout_seconds": 60, "max_retries": 0},
             "extraction": {"model": EXTRACTION_MODEL, "effort": EXTRACTION_EFFORT, "timeout_seconds": extraction_timeout()},
             "production": {"model": CODEX_MODEL, "effort": CODEX_EFFORT, "timeout_seconds": CODEX_PRODUCER_TIMEOUT_SECONDS},
+            "discussion": {"model": CODEX_MODEL, "effort": "high",
+                           "timeout_seconds": signature(CodexDiscussionReviewer).parameters["timeout_seconds"].default},
             "codex_sdk_package_version": version("openai-codex"), "browser_retries": 0}
 
 
@@ -185,6 +188,12 @@ class WorkbenchWorld:
                 (source / "scripts/example.py").write_text("# Source example, retain but do not execute.\nEXAMPLE = 'bilingual'\n", encoding="utf-8")
                 (source / ".env").write_text("WORKBENCH_PRIVATE_SENTINEL=not-a-real-credential\n", encoding="utf-8")
                 self.source_skills.append(self.catalog.register_local(source, role=role))
+        elif self.case_id in {"P04", "P06"}:
+            from .discussion_rework_chain import source_bundle
+            source = source_root / "four-panel-vocabulary"
+            source.mkdir()
+            shutil.copytree(Path(source_bundle()["skill_path"]), source, dirs_exist_ok=True)
+            self.source_skills.append(self.catalog.register_local(source, role="legacy_end_to_end"))
         else:
             source = source_root / "four-panel-vocabulary"
             shutil.copytree(PROJECT_ROOT / "production-skills/english-word-scenes", source)
@@ -200,7 +209,7 @@ class WorkbenchWorld:
             self.source_skills.append(self.catalog.register_local(source, role="legacy_end_to_end"))
         self.single_skill = self.source_skills[0]
         self.reference_path = source_root / "four-panel-vocabulary/assets/reference.jpg" if self.case_id == "P03" else None
-        if self.case_id in {"P01", "P05"}:
+        if self.case_id in {"P01", "P04", "P05", "P06"}:
             content.create_series(series_id=self.series_id, creator_id=self.creator_a, name="每日辨词",
                 description="一张四格双语情境漫画讲清英语易混词。", audience="高中英语学习者", skill_name=self.single_skill["id"])
         elif self.case_id == "P02":
@@ -229,16 +238,22 @@ class WorkbenchWorld:
         research = TopicResearchService(self.database, self.catalog)
         self.extractions = SkillExtractionService(self.catalog)
         discussions = ContentDiscussionService(self.database, StudioArtifacts(self.database, self.runs.output_root), self.root / "discussions")
+        if self.case_id == "P06":
+            from .discussion_rework_chain import install_discussion_probe
+            self.discussion_probe = install_discussion_probe(discussions)
         for service, method, action in ((installs, "submit", "install"), (research, "submit", "research"),
                 (self.extractions, "submit", "extraction"), (self.extractions, "revise", "revise"),
                 (self.extractions, "trial", "trial"), (discussions, "submit", "discussion")):
             if hasattr(service, method):
-                if not (self.case_id == "P03" and action == "extraction"):
+                if not (self.case_id == "P03" and action == "extraction") and not (self.case_id == "P06" and action == "discussion"):
                     setattr(service, method, self.reject(action))
         if self.case_id != "S13":
             self.extractions.submit_merge = self.reject("merge")
         if self.case_id not in PRODUCTION_CASES:
             executor.submit = self.reject("production")
+        if self.case_id in {"P04", "P06"}:
+            from .discussion_rework_chain import seed_existing_delivery
+            seed_existing_delivery(self, content)
         self.app = create_app(database=self.database, run_service=self.runs, run_executor=executor,
             chat_root=self.root / "sessions", chat_provider_factory=provider_factory,
             skill_install_service=installs, topic_research_service=research,
@@ -274,9 +289,15 @@ class WorkbenchWorld:
             "audience": "技术零基础读者" if self.case_id == "P02" else "高中英语学习者",
             "foreign_markers": ["WORKBENCH_FOREIGN_SENTINEL", "WORKBENCH_FOREIGN_TOPIC"],
             "reference_kind": "synthetic_palette" if self.case_id in {"S13", "P02"} else "user_supplied_reference_copy",
-            "allowed_capabilities": ["extraction", "production"] if self.case_id == "P03" else ["merge"] if self.case_id == "S13" else ["production"] if self.case_id in PRODUCTION_CASES else [],
+            "allowed_capabilities": ["extraction", "production"] if self.case_id == "P03" else ["merge"] if self.case_id == "S13" else ["discussion"] if self.case_id == "P06" else ["production"] if self.case_id in PRODUCTION_CASES else [],
             "reference_sha256": digest(self.reference_path) if self.reference_path else None,
-            "expected_images": 3 if self.case_id == "P02" else 1 if self.case_id in PRODUCTION_CASES else 0}
+            "expected_images": 3 if self.case_id == "P02" else 1 if self.case_id in PRODUCTION_CASES else 0,
+            "seed_run_id": getattr(self, "seed_run_id", None),
+            "seed_revision_id": getattr(self, "seed_revision_id", None),
+            "seed_artifact_digest": getattr(self, "seed_artifact_digest", None),
+            "production_thread_id": (getattr(self, "reused_source", None) or {}).get("production_thread_id"),
+            "seed_image_sha256": (getattr(self, "reused_source", None) or {}).get("image_sha256"),
+            "reused_source": getattr(self, "reused_source", None)}
 
     def close(self):
         self.database.close()
@@ -419,6 +440,9 @@ def grade_slice(evidence, case_id):
     if case_id == "P05":
         from .recovery_chain import recovery_checks
         return recovery_checks(evidence)
+    if case_id in {"P04", "P06"}:
+        from .discussion_rework_chain import discussion_rework_checks
+        return discussion_rework_checks(evidence, case_id)
     checks = []
     def check(name, label, good, files, detail=""):
         checks.append({"id": name, "label": label, "status": "passed" if good else "failed",
@@ -598,6 +622,7 @@ class WorkbenchEvaluation:
         self.view_confirmed = False
         self.artifact_stages = []
         self.recovery_stages = []
+        self.rework_stages = []
         self.claim = claim(self.root.parent, batch_id, revision, case_id, self.root.name) if batch_id else None
         hashes, _ = source_fingerprint()
         hashes.update(frozen_hashes())
@@ -621,12 +646,15 @@ class WorkbenchEvaluation:
             self.fixture = WorkbenchWorld(self.root / "fixture", case_id, self.provider, self.root.parent)
             self.before = self.fixture.state()
             self.before_catalog = self.fixture.catalog.list()
+            self.expected_after = self._expected_after(self.before) if case_id in {"P04", "P06"} else None
+            self.oracle_snapshot = {**self.fixture.oracle(), "expected_after": self.expected_after} if self.expected_after is not None else self.fixture.oracle()
             from .artifact_chain import global_skills_snapshot
             self.global_skills_before = global_skills_snapshot(PROJECT_ROOT) if case_id == "P03" else None
             # Preserve the starting oracle even if the browser runner is interrupted.
             # These are observations, never recovery/replay of a business action.
             write_json(self.root / "before.json", self.before)
             write_json(self.root / "before_catalog.json", self.before_catalog)
+            write_json(self.root / "oracle.json", self.oracle_snapshot)
             if self.global_skills_before is not None:
                 write_json(self.root / "global_skills_before.json", self.global_skills_before)
         except Exception as error:
@@ -639,6 +667,7 @@ class WorkbenchEvaluation:
         router.post("/__live_eval__/checkpoint")(self.checkpoint)
         router.post("/__live_eval__/artifact-stage")(self.artifact_stage)
         router.post("/__live_eval__/recovery-stage")(self.recovery_stage)
+        router.post("/__live_eval__/rework-stage")(self.rework_stage)
         router.post("/__live_eval__/finish")(self.finish_request)
         router.get("/__live_eval__/result")(self.result)
         router.post("/__live_eval__/view")(self.confirm_view)
@@ -679,7 +708,36 @@ class WorkbenchEvaluation:
             from .artifact_chain import EDIT_NAME, EDIT_MARKER
             value.update(reference_path=str(self.fixture.reference_path), edit_name=EDIT_NAME, edit_marker=EDIT_MARKER,
                          extraction_instruction=self.case["extraction_instruction"], audience=self.fixture.oracle()["audience"])
+        if self.case["id"] in {"P04", "P06"}:
+            source = self.fixture.reused_source
+            value.update(eval_run_id=self.root.name, business_run_id=self.fixture.seed_run_id,
+                         seed_run_id=self.fixture.seed_run_id, revision_id=self.fixture.seed_revision_id,
+                         artifact_digest=self.fixture.seed_artifact_digest,
+                         expected_after=self.expected_after,
+                         image_sha256=source["image_sha256"], production_thread_id=source["production_thread_id"],
+                         reused_source={"source_path": source["image_path"], "source_sha256": source["image_sha256"],
+                             "copy_path": source["copy_path"], "copy_sha256": source["copy_sha256"],
+                             "generated_in_this_case": False},
+                         rework_instruction="这一版中文解释太长，保留四格/角色，每格中文缩成一句；只生成一张新版。",
+                         discussion_questions=[step["text"] for step in self.case["steps"]])
         return value
+
+    def _expected_after(self, before):
+        """Freeze expected state from before + case contract, never from after."""
+        counts = {name: len(rows) for name, rows in before["database"].items()}
+        deltas = {"content_revisions": 1, "content_attempts": 1, "content_run_events": 4} if self.case["id"] == "P04" else {}
+        for table, delta in deltas.items():
+            counts[table] = counts.get(table, 0) + delta
+        initial_run = next(row for row in before["database"]["content_runs"]
+                           if row["id"] == self.fixture.seed_run_id)
+        return {"row_counts": counts, "allowed_row_deltas": deltas,
+            "database_mode": "only_declared_row_deltas" if deltas else "unchanged",
+            "generated_image_count": 1 if self.case["id"] == "P04" else 0,
+            "discussion_record_count": 0 if self.case["id"] == "P04" else 2,
+            "run_id": self.fixture.seed_run_id,
+            "run_status": "awaiting_approval" if self.case["id"] == "P04" else initial_run["status"],
+            "active_revision_number": 2 if self.case["id"] == "P04" else 1,
+            "approved": False, "published": False}
 
     async def recovery_stage(self, request: Request):
         payload = await request.json()
@@ -698,6 +756,50 @@ class WorkbenchEvaluation:
         self.recovery_stages.append(stage)
         write_json(self.root / "recovery_stages.json", self.recovery_stages)
         return {"captured": True, "name": stage["name"]}
+
+    async def rework_stage(self, request: Request):
+        payload = await request.json()
+        names = ("saved_before_execute", "completed")
+        if self.case["id"] != "P04" or len(self.rework_stages) >= 2 or payload.get("name") != names[len(self.rework_stages)]:
+            raise HTTPException(409, "返工阶段不能重复或乱序。")
+        if payload.get("run_id") != self.fixture.seed_run_id:
+            raise HTTPException(409, "返工Run与隔离来源不匹配。")
+        state = self.fixture.state()
+        sdk, _ = self.sdk_evidence()
+        run = next((row for row in state["database"]["content_runs"] if row["id"] == self.fixture.seed_run_id), None)
+        revisions = [row for row in state["database"]["content_revisions"] if row["content_run_id"] == self.fixture.seed_run_id]
+        attempts = [row for row in state["database"]["content_attempts"] if row["revision_id"] in {r["id"] for r in revisions}]
+        if run is None:
+            raise HTTPException(409, "隔离Run丢失。")
+        if payload["name"] == "saved_before_execute":
+            if run["status"] != "queued" or len(revisions) != 2 or len(attempts) != 1 or self.fixture.execution_counts["producer_instances"] != 0:
+                raise HTTPException(409, "保存返工后应只新增queued Revision，尚无Attempt或模型调用。")
+        else:
+            if run["status"] != "awaiting_approval" or len(revisions) != 2 or len(attempts) != 2:
+                raise HTTPException(409, "显式执行后应有待批准的新Revision和新Attempt。")
+            if not any(row["method"] == "POST" and row["path"].endswith("/execute") and row.get("status") in {200, 202}
+                       for row in self.network):
+                raise HTTPException(409, "没有观察到原页面显式执行返工的POST。")
+        row = {"name": payload["name"], "run_id": run["id"], "run_status": run["status"],
+               "active_revision_number": run["active_revision_number"], "revision_ids": [r["id"] for r in revisions],
+               "revision_numbers": [r["revision_number"] for r in revisions], "new_attempt_count": len(attempts) - 1,
+               "sdk_client_opens": self.fixture.execution_counts["producer_instances"],
+               "image_generation_count": sum(row.get("item_type") == "imageGeneration" for row in sdk.get("events", [])),
+               "explicit_execute_clicked": payload["name"] == "completed"}
+        if payload["name"] == "completed":
+            original = next(r for r in revisions if r["revision_number"] == 1)
+            original_before = next(r for r in self.before["database"]["content_revisions"] if r["id"] == original["id"])
+            old_files_before = {k: v for k, v in self.before["files"].items()
+                                if f"/{run['id']}/revision-001/" in f"/{k}"}
+            old_files_now = {k: v for k, v in state["files"].items()
+                             if f"/{run['id']}/revision-001/" in f"/{k}"}
+            row["old_revision_unchanged"] = original == original_before and old_files_before == old_files_now
+            row["unapproved"] = not run.get("approved_revision_id") and not state["database"]["manual_publications"]
+        else:
+            row.update(old_revision_unchanged=True, unapproved=True)
+        self.rework_stages.append(row)
+        write_json(self.root / "rework_stages.json", self.rework_stages)
+        return {"captured": True, "name": row["name"]}
 
     async def artifact_stage(self, request: Request):
         """Evidence-only checkpoint after an actual GUI action; never does that action."""
@@ -794,6 +896,36 @@ class WorkbenchEvaluation:
         return {"events": events, "receipts": receipts, "image_generation_events": images,
                 "capture_scope": "公开SDK item与终态，不包含私有推理或图像二进制"}, evidence_files
 
+    def discussion_evidence(self):
+        from .discussion_rework_chain import source_bundle
+        service = self.app.state.content_discussions
+        records = service.get(self.fixture.seed_run_id)["items"]
+        usage, source_files_unchanged = [], True
+        current_state = self.fixture.state()
+        run_prefix = f"outputs/{self.fixture.creator_a}/{self.fixture.series_id}/{self.fixture.seed_run_id}/revision-001/"
+        old_revision_before = {path: sha for path, sha in self.before["files"].items() if path.startswith(run_prefix)}
+        old_revision_now = {path: sha for path, sha in current_state["files"].items() if path.startswith(run_prefix)}
+        seed_revision_files_unchanged = bool(old_revision_before) and old_revision_before == old_revision_now
+        expected = self.fixture.reused_source
+        try:
+            current = source_bundle()
+            source_files_unchanged = all(current.get(key) == expected.get(key) for key in
+                ("image_sha256", "skill_sha256", "input_snapshot_sha256", "production_thread_id"))
+        except (OSError, ValueError, KeyError):
+            source_files_unchanged = False
+        for item in records:
+            work = self.fixture.root / "discussions" / "work" / item["id"]
+            images = sorted(path for path in work.glob("page-*.*") if path.is_file() and not path.is_symlink())
+            observed = [{"path": path.relative_to(self.fixture.root).as_posix(), "image_sha256": digest(path)}
+                        for path in images]
+            usage_path = work / "usage.json"
+            usage_row = json.loads(usage_path.read_text(encoding="utf-8")) if usage_path.is_file() else None
+            usage.append({"discussion_id": item["id"], "thread_id": item.get("thread_id"),
+                          "source_thread_id": item.get("source_thread_id"), "mode": item.get("context", {}).get("history_mode"),
+                          "image_input_count": len(observed), "image_sha256": observed[0]["image_sha256"] if len(observed) == 1 else None,
+                          "image_inputs": observed, "usage": usage_row})
+        return records, usage, source_files_unchanged, seed_revision_files_unchanged
+
     def source_manifest(self, jobs):
         results, verified = [], bool(jobs)
         for job in jobs:
@@ -819,7 +951,12 @@ class WorkbenchEvaluation:
         from creatoros.integrations.worker_protocol import completed_delivery_turn
         result = {"images": [], "receipt_completed": False, "evidence_complete": False}
         attempts = after["database"]["content_attempts"]
-        if self.case["id"] == "P05":
+        if self.case["id"] in {"P04", "P05"}:
+            if self.case["id"] == "P04":
+                revisions = [row for row in after["database"]["content_revisions"]
+                             if row["content_run_id"] == self.fixture.seed_run_id]
+                active = max(revisions, key=lambda row: row["revision_number"])
+                attempts = [row for row in attempts if row["revision_id"] == active["id"]]
             attempts = sorted(attempts, key=lambda row: row["attempt_number"])[-1:]
         if len(attempts) != 1 or not attempts[0].get("output_directory"):
             return result
@@ -904,6 +1041,8 @@ class WorkbenchEvaluation:
                 self.session_file = self.fixture.root / "sessions" / doc["id"] / "messages.json"
             after = self.fixture.state()
             evidence = collect(self.root, self.session_file, self.captured, self.fixture, doc, self.before, after, None)
+            evidence["oracle"] = self.oracle_snapshot
+            write_json(self.root / "oracle.json", self.oracle_snapshot)
             try:
                 sdk, sdk_files = self.sdk_evidence()
                 jobs = self.fixture.extractions.list()
@@ -920,6 +1059,18 @@ class WorkbenchEvaluation:
                     extras.update(recovery_stages=self.recovery_stages,
                         recovery_calls=self.fixture.recovery_probe.calls,
                         recovery_fault=self.fixture.recovery_probe.fault)
+                if self.case["id"] in {"P04", "P06"}:
+                    records, discussion_usage, source_unchanged, seed_revision_unchanged = self.discussion_evidence()
+                    extras.update(reused_source={key: self.fixture.reused_source.get(key) for key in
+                        ("run_id", "report_path", "image_path", "image_sha256", "skill_path", "skill_sha256",
+                         "input_snapshot_path", "input_snapshot_sha256", "production_thread_id", "source_artifact_sha256",
+                         "copy_path", "copy_sha256", "generated_in_this_case", "seed_run_id")},
+                        discussion_records=records, discussion_usage=discussion_usage,
+                        discussion_probe=getattr(getattr(self.fixture, "discussion_probe", None), "calls", []),
+                        source_files_unchanged=source_unchanged,
+                        seed_revision_files_unchanged=seed_revision_unchanged,
+                        rework_stages=self.rework_stages, execution_counts=self.fixture.execution_counts,
+                        outputs=self.output_evidence(after) if self.case["id"] == "P04" else {})
             except Exception as error:
                 errors.append({"source": "sdk_or_artifact", "error_type": type(error).__name__, "message": str(error)})
                 sdk_files = []
@@ -930,8 +1081,9 @@ class WorkbenchEvaluation:
                 evidence["final_answer"] = extras["jobs"][0].get("note", "")
                 (self.root / "answer.txt").write_text(evidence["final_answer"], encoding="utf-8")
                 self.report["model"] = {"name": "gpt-6-sol", "provider": "Codex Python SDK"}
-            if self.case["id"] == "P05":
+            if self.case["id"] in {"P04", "P05"}:
                 self.report["model"] = {"name": model_configuration()["production"]["model"], "provider": "Codex Python SDK"}
+            if self.case["id"] == "P05":
                 self.report["usage"] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
             evidence["collection_errors"].extend(errors)
             counts = {"session_posts": sum(row["path"] == "/api/agent/sessions" for row in self.network),
@@ -944,9 +1096,12 @@ class WorkbenchEvaluation:
                 write_json(self.root / (name + ".json"), value)
             self.report.update(grade_slice(evidence, self.case["id"]))
             self.chain_grade = deepcopy(self.report)
-            terminal_check = "production_terminal" if self.case["id"] == "P05" else "sdk_completed" if self.case["id"] == "S13" else "agent_terminal"
+            terminal_check = ("production_terminal" if self.case["id"] == "P05" else
+                              "new_real_image" if self.case["id"] == "P04" else
+                              "two_real_discussions" if self.case["id"] == "P06" else
+                              "sdk_completed" if self.case["id"] == "S13" else "agent_terminal")
             ended = next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == terminal_check), False)
-            if self.case["id"] in PRODUCTION_CASES:
+            if self.case["id"] in PRODUCTION_CASES and self.case["id"] != "P04":
                 ended &= next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == "production_terminal"), False)
             self.report.update(execution_status="completed" if browser.get("completed") and ended and not errors else "failed",
                 finished_at=now(), elapsed_seconds=round(monotonic() - self.clock, 3), session_id=doc.get("id"),

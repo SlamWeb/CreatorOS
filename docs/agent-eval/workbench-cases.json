@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v3-offline-recovery",
+  "revision": "workbench-slice-v4-discussion-rework",
   "status": "wired_not_run",
   "cases": [
     {
@@ -59,6 +59,27 @@
         {"id": "zero_recovery_calls", "pass": "恢复阶段实际native execute/SDK client入口为0；全量公开SDK事件和初次文件不变；原页面Prompt、Skill、刷新、封面及Eval真实可读，未批准未发布。", "evidence": ["recovery_calls.json", "sdk.json", "outputs.json", "network.json", "browser.json"]}
       ],
       "manual_checks": ["内容质量另评；人为宿主后处理失败不是供应商失败，不将原生图用量说成免费恢复用量。"]
+    },
+    {
+      "id": "P04", "title": "明确返工的新版本与旧产物隔离", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "这一版中文解释太长，保留四格/角色，每格中文缩成一句；只生成一张新版。"}],
+      "assertions": [
+        {"id": "save_without_execution", "pass": "原Run页保存返工只创建queued新Revision，不产生Attempt、SDK调用或图片；刷新后输入与新版本仍在。", "evidence": ["browser.json", "rework_stages.json", "execution_counts.json", "network.json"]},
+        {"id": "explicit_new_revision", "pass": "用户随后明确点击开始，新Revision真实执行并生成一张新图；旧Revision/图/SHA不变，新版待批准未发布。", "evidence": ["before.json", "after.json", "outputs.json", "sdk.json", "rework_stages.json", "browser.json"]}
+      ],
+      "manual_checks": ["比较旧新图片、Prompt与中文长度；真实生图和内容质量分列，不把复用旧图记成新生成。"]
+    },
+    {
+      "id": "P06", "title": "真实图片讨论 fork 与两轮续聊", "category": "tools", "split": "dev",
+      "steps": [
+        {"kind": "user", "text": "请 Codex 看我选定这一版四格图，分析可读性；先不要修改。"},
+        {"kind": "user", "text": "继续上一轮讨论：你刚才指出的第二个问题具体在哪一格？给出一句可直接替换的更短中文，不要修改产物。"}
+      ],
+      "assertions": [
+        {"id": "two_real_discussions", "pass": "两轮账号聊天由真实DeepSeek调用原工具，绑定同一Run/Revision/digest；真实Codex讨论结果回到原页面并可复读。", "evidence": ["requests.json", "messages.json", "discussion_records.json", "browser.json", "network.json"]},
+        {"id": "fork_then_continue", "pass": "首轮实际附图并fork原生产thread；第二轮resume同一讨论thread且承接前轮；不生图、不改Run或文件。", "evidence": ["discussion_usage.json", "sdk.json", "discussion_records.json", "before.json", "after.json", "execution_counts.json"]}
+      ],
+      "manual_checks": ["独立核对回复确实读图、第二轮承接前轮且建议具体；不把模型答复质量交给自动链路判分。"]
     }
   ]
 }
