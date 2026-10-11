@@ -1,6 +1,17 @@
 # 账号 Agent Eval v1
 
-## P05 离线恢复 Draft（2026-10-11）
+## P05 离线恢复首轮结束（2026-10-11）
+
+- 冻结 `offline-recovery-gui-v1-20261011`、源码9a7a8f0；首槽 `5bfb85f661504de0bfed17ce88234ee8` / 批次 `offline-recovery-v1-20261011` 已结束，收费期间不改源码，结束后验冻通过。原GUI添加→真Luna/xhigh生图→声明宿主失败→同Run点击恢复→同图/Prompt/Skill/刷新/封面/Eval，浏览器1/1；原自动15 passed/1 needs_review/0 failed，质量待评估不改成通过。
+- 同Run/第1版、两Attempt：原失败完整行及18文件路径/摘要不变，恢复成功375ms、待批准未发布。仅一次实际SDK thread/turn、1次完成生图；恢复native execute/client各0、新生图0，公开事件前后相同。恢复没有新SDK回执，完成来源明确引用原Attempt，不捏造第二turn；两producer实例不当两SDK调用。
+- DS0是网页手动生产的真实范围，不是模型免费；初次Codex累计input440,831/output11,934/total452,765，cache/reasoning子集，last53,023不另加；恢复新增0。总采集311.969秒，费用null。图片1122×1402、2,350,243字节，SDK原图/首次/恢复/HTTP/封面SHA一致。参考API参数不可观察，未代用户批准质量。
+- 正式14表/654受管文件完全不变，8765原服务未重启。SDK机制在用户generated_images另新增1图（夹具外），不声称全部写入隔离；本题全局Skill哈希未采集，明确null。4业务POST/刷新重提0，一次GET有限恢复不重发模型或POST。
+- 独立原Eval发现纯Codex被通用DS摘要显示为“模型未完整记录/未识别query”，顶层用量0未列SDK，工作台oracle预期未映射。原SDK原文确实完整、原文件浏览通过，但摘要展示不合格单列，不能称整套可视化完善或SDK日志缺失。
+- 整轮结束后只追加2阅读sidecar/索引，原40份登记证据集合SHA及report非索引SHA不变，review=null。computer-use实际展开完整步骤/结果/用量；本地阅读用编号避免当前GFM表格投影问题。详细预期/实际/限制和只读重开、新批续验见OFFLINE-RECOVERY-2026-10-11.md及机器账本。
+- 当前18个不同场景/19槽已接线，50规划还有32个未接线。下一切片先补Codex专用摘要/用量/预期投影，再接P06讨论/P04显式返工；旧付费失败及待复核不倒改，没有给未接线题假命令。
+- 收尾验证：23项判分/结构/恢复边界测试通过（58.272秒），17项覆盖定义检查通过（0.387秒），新42份登记原文均由EvalStore实际读取；机器账本新增第10轮，前9轮JSON对象逐项不变。文档收尾后再验原冻结源码通过，原正式服务PID仍32196。
+
+### 本轮冻结前 Draft（保留）
 
 - P03 已有真实完成链，不重复付费；下一小步只接 P05。原 SPA 手动添加一图选题/生产→真实 Codex completed→声明的宿主最终交付失败一次→原 Run 点击恢复→同 Run/Revision 的新 Attempt 离线组装→读图/Prompt/刷新/Eval。此题不经过账号聊天，DS 请求明确为0，不伪造 DeepSeek 轨迹。
 - 故障只在真实 Producer 已返回完整且验证可读的交付后抛 native_delivery_failed；不改 SDK 结果、checkpoint/原图、receipt 或业务恢复逻辑。不是远端故障，也不冒充最终 Run validating 校验异常的恢复能力。

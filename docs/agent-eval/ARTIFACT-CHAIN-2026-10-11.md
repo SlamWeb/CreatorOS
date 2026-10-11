@@ -115,3 +115,5 @@ npm --prefix web run eval:workbench -- --project P03
 ```
 
 当前17个不同场景/18槽，50规划还有33个未接线。下一切片P05真实完成后离线重验（恢复阶段零SDK/生图、原图hash不变），再P06看图讨论/P04显式返工隔离；先接journey/fixture/grader并冻结，再运行，不提供未实现project的假命令。中文进度/内部URL、工作台oracle的时间线映射是已记缺口，后续统一修复并全量回归。
+
+后续进展：P05已独立冻结并完成首轮真实GUI恢复，详见 [离线恢复报告](OFFLINE-RECOVERY-2026-10-11.md)。当前增至18个不同场景/19槽；本P03历史failed与回复瑕疵不改写。
