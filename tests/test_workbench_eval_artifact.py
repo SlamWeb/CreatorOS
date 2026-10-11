@@ -255,7 +255,9 @@ class ArtifactChainTests(unittest.TestCase):
         def artifact_gui_check(report):
             return next(row["status"] for row in report["checks"] if row["id"] == "artifact_gui_writes")
 
-        self.assertEqual(artifact_gui_check(grade_slice(evidence, "P03")), "passed")
+        report = grade_slice(evidence, "P03")
+        self.assertEqual(artifact_gui_check(report), "passed")
+        self.assertEqual([row["id"] for row in report["checks"] if row["status"] == "failed"], [])
 
         duplicate = p03_gui_write_evidence()
         duplicate["network"].insert(0, deepcopy(duplicate["network"][0]))
@@ -264,4 +266,3 @@ class ArtifactChainTests(unittest.TestCase):
         stale_save_cas = p03_gui_write_evidence()
         stale_save_cas["browser"]["artifact_write_receipts"][3]["body"]["expected_digest"] = "stale-digest"
         self.assertEqual(artifact_gui_check(grade_slice(stale_save_cas, "P03")), "failed")
-
