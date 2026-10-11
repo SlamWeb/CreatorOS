@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v1",
+  "revision": "workbench-slice-v2-artifact-chain",
   "status": "wired_not_run",
   "cases": [
     {
@@ -39,6 +39,16 @@
         {"id": "pair_sources", "pass": "正确双绑定、冻结两源与组合协调；原前端逐图翻页、Prompt、刷新及栏目封面均可读。合成配色参考不是角色原图，不能虚称参考角色已核对。", "evidence": ["after.json", "outputs.json", "browser.json", "network.json"]}
       ],
       "manual_checks": ["独立阅读三页为什么/机制/边界、页间因果、角色一致性和事实；可读取与内容质量分列。"]
+    },
+    {
+      "id": "P03", "title": "参考作品→编辑草稿→入库→新选题真实生产", "category": "tools", "split": "dev",
+      "extraction_instruction": "从参考作品提炼可用于新词组的英语辨词情境漫画 Skill，将作品放入 assets 作为参考。不照抄原词组；使用单张2×2四格，每格一个常用词，英文释义配中文释义，词语后面有白色底衬，不额外加总标题。",
+      "steps": [{"kind": "user", "text": "给「参考炼化辨词」新增 bring/take/fetch/carry 选题并生产。只要一张2×2四格中英双语情境漫画，不额外标题，不发布。"}],
+      "assertions": [
+        {"id": "artifact_chain", "pass": "原页面上传用户参考图，真实Codex提炼可见草稿，手动修改后保存刷新；显式确认才入库，新增栏目只绑定审核后的完整Skill。", "evidence": ["artifact_stages.json", "before_catalog.json", "after_catalog.json", "browser.json", "network.json"]},
+        {"id": "approved_version_production", "pass": "原账号聊天真实DeepSeek入队→真实Codex生产，Run冻结审核后的全文和assets，生成本轮新图，待批准未发布；正式数据及全局Skill库不变。", "evidence": ["before.json", "after.json", "sdk.json", "outputs.json", "global_skills_guard.json", "messages.json"]}
+      ],
+      "manual_checks": ["独立阅读提炼是否获得可迁移的方法而非原图复刻；新词组教学、双语、白底与版式质量和链路成功分列。"]
     }
   ]
 }

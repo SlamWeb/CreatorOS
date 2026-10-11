@@ -2,12 +2,13 @@ import { expect, test, type Locator } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { readWorkbenchReport } from "./read-report";
 import { readProgress } from "./read-progress";
+import { artifactJourney, type ArtifactScenario } from "./artifact-journey";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
   const response = await request.get("/__live_eval__/scenario");
   expect(response.ok()).toBe(true);
   const scenario = await response.json() as { case_id: string; run_id: string; query: string;
-    creator_id: string; creator_name: string; skill_names: string[]; series_name: string; expected_images: number };
+    creator_id: string; creator_name: string; skill_names: string[]; series_name: string; expected_images: number } & ArtifactScenario;
   expect(scenario.case_id).toBe(info.project.name);
   const browser: Record<string, unknown> = { query: scenario.query, session_id: "", completed: false,
     steps: [], session_posts: 0, turn_posts: 0, merge_posts: 0, posts_after_refresh: 0 };
@@ -165,6 +166,9 @@ test("real workbench: original GUI → real services → durable evidence → or
       browser.edited_and_restored = true;
       steps.push("打开两份命名空间同名资产，编辑草稿后保存并刷新；未入库、未试产");
     } else {
+      if (scenario.case_id === "P03") {
+        await artifactJourney(page, request, info, scenario, browser, reload, () => { refreshing = false; }, imageLoaded);
+      }
       const id = await accountTurn();
       if (scenario.case_id === "A14") {
         await expect(page).toHaveURL(url => url.pathname === "/" && url.searchParams.get("series") === id);

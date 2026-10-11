@@ -21,6 +21,7 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   await evidence.getByRole("button", { name: "浏览文件", exact: true }).click();
   const names = ["before.json", "after.json", "browser.json", "sdk.json", "requests.json", "snapshots.json", "answer.txt",
     caseId === "S13" ? "source_manifest.json" : caseId.startsWith("P") ? "outputs.json" : "messages.json"];
+  if (caseId === "P03") names.push("artifact_stages.json", "before_catalog.json", "after_catalog.json", "global_skills_guard.json");
   const contents = new Map<string, unknown>();
   for (const name of names) {
     const response = await request.get(`/api/eval/runs/${runId}/evidence?${new URLSearchParams({ name })}`);

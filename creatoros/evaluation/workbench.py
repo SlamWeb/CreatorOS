@@ -39,8 +39,9 @@ from creatoros.web.chat import AgentChatService
 
 CASES_PATH = PROJECT_ROOT / "docs/agent-eval/workbench-cases.json"
 OUTPUT_ROOT = PROJECT_ROOT / "data/agent-eval-workbench"
-CASES = {"A14", "S13", "P01", "P02"}
-VERSION = "workbench-world-v1"
+CASES = {"A14", "S13", "P01", "P02", "P03"}
+PRODUCTION_CASES = {"P01", "P02", "P03"}
+VERSION = "workbench-world-v2-artifact-chain"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -74,13 +75,28 @@ def frozen_hashes():
     return result
 
 
+def model_configuration():
+    from inspect import signature
+    from importlib.metadata import version
+    from creatoros.ai.deepseek import DeepSeekProvider
+    from creatoros.config import CODEX_PRODUCER_TIMEOUT_SECONDS
+    from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
+    from creatoros.integrations.skill_extraction import EXTRACTION_MODEL, EXTRACTION_EFFORT, extraction_timeout
+    return {"deepseek": {"model": signature(DeepSeekProvider).parameters["model"].default, "timeout_seconds": 60, "max_retries": 0},
+            "extraction": {"model": EXTRACTION_MODEL, "effort": EXTRACTION_EFFORT, "timeout_seconds": extraction_timeout()},
+            "production": {"model": CODEX_MODEL, "effort": CODEX_EFFORT, "timeout_seconds": CODEX_PRODUCER_TIMEOUT_SECONDS},
+            "codex_sdk_package_version": version("openai-codex"), "browser_retries": 0}
+
+
 def freeze(name):
     path = manifest_path(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = {"schema_version": 1, "revision": name, "frozen_at": now(),
            "source_hashes": frozen_hashes(), "execution_keys": sorted(CASES),
            "dataset_sha256": digest(CASES_PATH),
-           "policy": "四题各首尝试独占；真实GUI/DeepSeek/Codex，零自动付费重试；内容质量独立评估。"}
+           "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True).strip(),
+           "model_configuration": model_configuration(),
+           "policy": "已接线题首尝试独占；真实GUI/DeepSeek/Codex，零自动付费重试；内容质量独立评估。"}
     with path.open("x", encoding="utf-8") as stream:
         json.dump(doc, stream, ensure_ascii=False, indent=2)
     return doc
@@ -95,6 +111,8 @@ def verify(name):
         raise ValueError("冻结来源改变，拒绝付费执行：" + ", ".join(sorted(mismatches)[:10]))
     if manifest["execution_keys"] != sorted(CASES):
         raise ValueError("工作台冻结执行集无效。")
+    if manifest.get("model_configuration") is not None and manifest["model_configuration"] != model_configuration():
+        raise ValueError("冻结模型参数或SDK版本改变，拒绝付费执行。")
     return manifest
 
 
@@ -181,6 +199,7 @@ class WorkbenchWorld:
                 image.verify()
             self.source_skills.append(self.catalog.register_local(source, role="legacy_end_to_end"))
         self.single_skill = self.source_skills[0]
+        self.reference_path = source_root / "four-panel-vocabulary/assets/reference.jpg" if self.case_id == "P03" else None
         if self.case_id == "P01":
             content.create_series(series_id=self.series_id, creator_id=self.creator_a, name="每日辨词",
                 description="一张四格双语情境漫画讲清英语易混词。", audience="高中英语学习者", skill_name=self.single_skill["id"])
@@ -198,7 +217,7 @@ class WorkbenchWorld:
             self.execution_counts["producer_instances"] += 1
             return CodexSdkProducer.from_defaults()
         self.runs = ContentRunService(self.database, output_root=self.root / "outputs",
-            producer_factory=real_producer if self.case_id in {"P01", "P02"} else self.reject("production"))
+            producer_factory=real_producer if self.case_id in PRODUCTION_CASES else self.reject("production"))
         executor = ManagedRunExecutor(self.runs)
         from creatoros.integrations.producer_skills import SkillInstallService
         installs = SkillInstallService(self.catalog)
@@ -209,10 +228,11 @@ class WorkbenchWorld:
                 (self.extractions, "submit", "extraction"), (self.extractions, "revise", "revise"),
                 (self.extractions, "trial", "trial"), (discussions, "submit", "discussion")):
             if hasattr(service, method):
-                setattr(service, method, self.reject(action))
+                if not (self.case_id == "P03" and action == "extraction"):
+                    setattr(service, method, self.reject(action))
         if self.case_id != "S13":
             self.extractions.submit_merge = self.reject("merge")
-        if self.case_id not in {"P01", "P02"}:
+        if self.case_id not in PRODUCTION_CASES:
             executor.submit = self.reject("production")
         self.app = create_app(database=self.database, run_service=self.runs, run_executor=executor,
             chat_root=self.root / "sessions", chat_provider_factory=provider_factory,
@@ -242,15 +262,16 @@ class WorkbenchWorld:
 
     def oracle(self):
         return {"case_id": self.case_id, "creator_id": self.creator_a, "target_series_id": self.series_id,
-            "series_name": "问题教学×小白图解" if self.case_id == "P02" else "每日辨词",
+            "series_name": "参考炼化辨词" if self.case_id == "P03" else "问题教学×小白图解" if self.case_id == "P02" else "每日辨词",
             "single_skill_id": self.single_skill["id"], "source_skill_ids": [item["id"] for item in self.source_skills],
             "source_skill_md": {item["id"]: digest(Path(item["local_path"]) / "SKILL.md") for item in self.source_skills},
             "topic_keywords": ["幂等", "订单", "重试"] if self.case_id == "P02" else ["bring", "take", "fetch", "carry"],
             "audience": "技术零基础读者" if self.case_id == "P02" else "高中英语学习者",
             "foreign_markers": ["WORKBENCH_FOREIGN_SENTINEL", "WORKBENCH_FOREIGN_TOPIC"],
             "reference_kind": "synthetic_palette" if self.case_id in {"S13", "P02"} else "user_supplied_reference_copy",
-            "allowed_capabilities": ["merge"] if self.case_id == "S13" else ["production"] if self.case_id in {"P01", "P02"} else [],
-            "expected_images": 3 if self.case_id == "P02" else 1 if self.case_id == "P01" else 0}
+            "allowed_capabilities": ["extraction", "production"] if self.case_id == "P03" else ["merge"] if self.case_id == "S13" else ["production"] if self.case_id in PRODUCTION_CASES else [],
+            "reference_sha256": digest(self.reference_path) if self.reference_path else None,
+            "expected_images": 3 if self.case_id == "P02" else 1 if self.case_id in PRODUCTION_CASES else 0}
 
     def close(self):
         self.database.close()
@@ -381,7 +402,8 @@ def production_links(evidence):
         pending = _new_rows(evidence, "pending_operations")
         good &= all(row.get("scope_series_id") == target["id"] and row.get("status") == "succeeded" for row in pending)
         good &= all(row.get("pending_operation_id") in {p["id"] for p in pending} for row in _new_rows(evidence, "operation_events"))
-        good &= all(row.get("resource_id") == target["id"] and row.get("operation") == "queue_topics" for row in _new_rows(evidence, "write_receipts"))
+        receipt_operations = {"queue_topics", "create_series"} if oracle.get("case_id") == "P03" else {"queue_topics"}
+        good &= all(row.get("resource_id") == target["id"] and row.get("operation") in receipt_operations for row in _new_rows(evidence, "write_receipts"))
         good &= all(row.get("content_run_id") == run["id"] and row.get("revision_id") in {None, revision["id"]} and row.get("attempt_id") in {None, attempt["id"]} for row in _new_rows(evidence, "content_run_events"))
         return bool(good)
     except (KeyError, TypeError, ValueError, StopIteration):
@@ -397,12 +419,23 @@ def grade_slice(evidence, case_id):
     browser, sdk = evidence["browser"], evidence["sdk"]
     allowed = {"series", "write_receipts"} if case_id == "A14" else {
         "topics", "pending_operations", "operation_events", "write_receipts", "content_runs",
-        "content_revisions", "content_attempts", "content_run_events"} if case_id in {"P01", "P02"} else set()
+        "content_revisions", "content_attempts", "content_run_events"} if case_id in PRODUCTION_CASES else set()
+    if case_id == "P03":
+        allowed.add("series")
     check("bounded_database", "原记录及未授权表保持不变", _rows_preserved(before["database"], after["database"], allowed), ["before.json", "after.json"])
     changed = {key for key in set(before["files"]) | set(after["files"]) if before["files"].get(key) != after["files"].get(key)}
-    prefix = "outputs/" if case_id in {"P01", "P02"} else evidence["extraction_prefix"] if case_id == "S13" else None
-    check("bounded_files", "源Skill与库登记不改，文件变化限本次任务", all(prefix and key.startswith(prefix) for key in changed)
-          and all(key in after["files"] for key in before["files"]), ["before.json", "after.json"])
+    prefix = "outputs/" if case_id in PRODUCTION_CASES else evidence["extraction_prefix"] if case_id == "S13" else None
+    if case_id == "P03":
+        catalog_root = evidence.get("catalog_prefix", "")
+        added_ids = {row["id"] for row in evidence.get("after_catalog", [])} - {row["id"] for row in evidence.get("before_catalog", [])}
+        prefixes = ["outputs/", evidence["extraction_prefix"], catalog_root + "extractions/uploads/"]
+        prefixes += [catalog_root + folder + "/" + identifier + "/" for identifier in added_ids for folder in ("working", "versions")]
+        registry = {catalog_root + "registry/" + identifier + ".json" for identifier in added_ids}
+        bounded = bool(catalog_root) and all(key in registry or any(key.startswith(p) for p in prefixes if p) for key in changed)
+        bounded &= all(after["files"].get(key) == value for key, value in before["files"].items())
+    else:
+        bounded = all(prefix and key.startswith(prefix) for key in changed) and all(key in after["files"] for key in before["files"])
+    check("bounded_files", "源Skill与未授权库登记不改，文件变化限本次任务", bounded, ["before.json", "after.json"])
     check("capability_boundary", "未尝试场景外执行", not evidence["external_attempts"], ["external_attempts.json"])
     check("browser_chain", "真实GUI、刷新零再提交及页面数据可读", browser.get("completed") is True
           and browser.get("posts_after_refresh") == 0 and not browser.get("page_errors"), ["browser.json", "network.json"])
@@ -482,7 +515,7 @@ def grade_slice(evidence, case_id):
         checks.append({"id": "reference_usage", "label": "参考图实际生图参数可观察范围", "status": "needs_review",
             "detail": "当前SDK不公开referenced_image_paths；仅有冻结资产、公开查看记录与worker声明，实际传参not_observable。",
             "evidence": ["sdk.json", "outputs.json"]})
-        skill_order = {"single": evidence["oracle"]["single_skill_id"]} if case_id == "P01" else dict(zip(("mind", "production"), evidence["oracle"]["source_skill_ids"]))
+        skill_order = {"single": evidence["oracle"]["single_skill_id"]} if case_id in {"P01", "P03"} else dict(zip(("mind", "production"), evidence["oracle"]["source_skill_ids"]))
         expected_frozen = {role: evidence["oracle"]["source_skill_md"][identifier] for role, identifier in skill_order.items()}
         check("artifact_evidence", "冻结Skill原文、Prompt全文、封面摘要与产物一致", outputs["evidence_complete"]
               and outputs.get("frozen_skill_files") == expected_frozen
@@ -497,6 +530,29 @@ def grade_slice(evidence, case_id):
                   and set(outputs.get("frozen_skill_files", {})) == {"mind", "production"}
                   and outputs.get("composition_review", {}).get("status") == "ready"
                   and browser.get("bindings_opened") == 2, ["after.json", "outputs.json", "browser.json"])
+        if case_id == "P03":
+            from .artifact_chain import chain_checks
+            stages = evidence.get("artifact_stages", [])
+            job_id = stages[0]["job"]["id"] if stages else "missing"
+            paths = ["/api/skill-extractions/uploads", "/api/skill-extractions",
+                     f"/api/skill-extractions/{job_id}/draft", f"/api/skill-extractions/{job_id}/save", "/api/series"]
+            rows = [row for row in evidence["network"] if row["path"] in paths]
+            receipts = browser.get("artifact_write_receipts", [])
+            seen = {row["path"]: row for row in receipts}
+            cas = (len(stages) == 4 and seen.get(paths[2], {}).get("body", {}).get("expected_digest") == stages[0]["job"]["digest"]
+                   and seen.get(paths[3], {}).get("body", {}).get("expected_digest") == stages[1]["job"]["digest"])
+            check("artifact_gui_writes", "上传/提炼/编辑/确认/建栏各一次原GUI写入，CAS对应所见版本",
+                  len(rows) == len(receipts) == 5 and [row["path"] for row in rows] == paths
+                  and [row["path"] for row in receipts] == paths
+                  and all(row["method"] == "POST" and row.get("status") in {200, 201, 202} for row in rows) and cas,
+                  ["network.json", "browser.json", "artifact_stages.json"])
+            for name, good in chain_checks(evidence).items():
+                check(name, {"draft_gate": "草稿审核前目录与业务库零增量", "edited_version": "手动编辑的新版本保存并刷新一致",
+                    "explicit_adoption": "显式确认仅入库所见版本且库副本/原始快照一致", "new_series_binding": "新栏目只绑定本次审核入库Skill",
+                    "reference_chain": "上传原图、Job参考、草稿和入库资产摘要一致", "extraction_completed": "当前提炼thread/turn真实完成且未生图",
+                    "approved_skill_frozen": "审核版完整资源/digest准确冻结到新题生产且产物非参考副本",
+                    "global_skills_unchanged": "全局Codex与项目Skill文件摘要未变"}[name], good,
+                    ["artifact_stages.json", "before_catalog.json", "after_catalog.json", "sdk.json", "outputs.json", "global_skills_guard.json", "browser.json"])
     if evidence.get("collection_errors"):
         check("evidence_complete", "证据采集未丢失", False, ["collection_errors.json"], str(evidence["collection_errors"]))
     failed = any(row["status"] == "failed" for row in checks)
@@ -506,6 +562,10 @@ def grade_slice(evidence, case_id):
     groups = {"boundary_enforced": {"bounded_database", "bounded_files", "capability_boundary", "foreign_not_exposed"},
               "state_consistent": {"bounded_database", "bounded_files", "created_series", "series_receipt", "draft_ready", "source_resources", "one_run", "pair_binding"},
               "protocol_valid": {"agent_terminal", "request_capture", "tool_protocol", "sdk_completed", "production_terminal", "generation_mapping", "evidence_complete"}}
+    if case_id == "P03":
+        groups["boundary_enforced"].update({"draft_gate", "global_skills_unchanged"})
+        groups["state_consistent"].update({"draft_gate", "edited_version", "explicit_adoption", "new_series_binding", "reference_chain", "approved_skill_frozen"})
+        groups["protocol_valid"].update({"extraction_completed", "artifact_gui_writes"})
     dimensions = {}
     for key, identifiers in groups.items():
         statuses = {row["status"] for row in checks if row["id"] in identifiers}
@@ -528,6 +588,7 @@ class WorkbenchEvaluation:
         self.network, self.turns = [], []
         self.finished, self.collection_task = False, None
         self.view_confirmed = False
+        self.artifact_stages = []
         self.claim = claim(self.root.parent, batch_id, revision, case_id, self.root.name) if batch_id else None
         hashes, _ = source_fingerprint()
         hashes.update(frozen_hashes())
@@ -550,6 +611,9 @@ class WorkbenchEvaluation:
         try:
             self.fixture = WorkbenchWorld(self.root / "fixture", case_id, self.provider, self.root.parent)
             self.before = self.fixture.state()
+            self.before_catalog = self.fixture.catalog.list()
+            from .artifact_chain import global_skills_snapshot
+            self.global_skills_before = global_skills_snapshot(PROJECT_ROOT) if case_id == "P03" else None
         except Exception as error:
             self.report.update(error={"kind": "setup", "message": str(error)}, auto_status="failed")
             write_json(self.root / "report.json", self.report)
@@ -558,6 +622,7 @@ class WorkbenchEvaluation:
         router = APIRouter()
         router.get("/__live_eval__/scenario")(self.scenario)
         router.post("/__live_eval__/checkpoint")(self.checkpoint)
+        router.post("/__live_eval__/artifact-stage")(self.artifact_stage)
         router.post("/__live_eval__/finish")(self.finish_request)
         router.get("/__live_eval__/result")(self.result)
         router.post("/__live_eval__/view")(self.confirm_view)
@@ -588,11 +653,56 @@ class WorkbenchEvaluation:
         return current
 
     def scenario(self):
-        return {"case_id": self.case["id"], "run_id": self.root.name,
+        value = {"case_id": self.case["id"], "run_id": self.root.name,
             "creator_name": "词汇实验室", "creator_id": self.fixture.creator_a,
             "query": self.case["steps"][0]["text"], "skill_names": [s["name"] for s in self.fixture.source_skills],
-            "series_name": "问题教学×小白图解" if self.case["id"] == "P02" else "每日辨词",
+            "series_name": self.fixture.oracle()["series_name"],
             "expected_images": self.fixture.oracle()["expected_images"]}
+        if self.case["id"] == "P03":
+            from .artifact_chain import EDIT_NAME, EDIT_MARKER
+            value.update(reference_path=str(self.fixture.reference_path), edit_name=EDIT_NAME, edit_marker=EDIT_MARKER,
+                         extraction_instruction=self.case["extraction_instruction"], audience=self.fixture.oracle()["audience"])
+        return value
+
+    async def artifact_stage(self, request: Request):
+        """Evidence-only checkpoint after an actual GUI action; never does that action."""
+        from .artifact_chain import STAGES, file_hashes
+        from creatoros.integrations.producer_skills import _digest
+        payload = await request.json()
+        if self.case["id"] != "P03" or len(self.artifact_stages) >= len(STAGES) or payload.get("name") != STAGES[len(self.artifact_stages)]:
+            raise HTTPException(409, "不允许重复或乱序采集P03阶段。")
+        job = self.fixture.extractions.get(payload["job_id"])
+        draft_root = self.fixture.extractions._draft_root(job) / job["skills"][0]["role"]
+        if not draft_root.resolve().is_relative_to(self.fixture.root):
+            raise HTTPException(409, "草稿越界。")
+        stage = {"name": payload["name"], "at": now(), "job": job, "state": self.fixture.state(),
+                 "catalog": self.fixture.catalog.list(), "network": deepcopy(self.network),
+                 "draft": {"files": file_hashes(draft_root), "digest": _digest(draft_root),
+                           "skill_md": (draft_root / "SKILL.md").read_text(encoding="utf-8")}}
+        upload_id = job["uploads"][0]["id"]
+        job_directory = self.fixture.extractions.root / "jobs" / job["id"]
+        references = [path for path in (job_directory / "references").glob("reference-*") if path.is_file()]
+        stage["reference_copies"] = {"uploaded": digest(self.fixture.extractions.image_path(upload_id)),
+                                     "job_reference": digest(references[0]) if len(references) == 1 else None}
+        if job.get("saved_skills"):
+            registered = self.fixture.catalog.describe(job["saved_skills"][0]["id"])
+            working = Path(registered["local_path"])
+            original = self.fixture.catalog.original(registered["id"], registered["digest"])
+            if not all(path.resolve().is_relative_to(self.fixture.root) for path in (working, original)):
+                raise HTTPException(409, "入库资源越界。")
+            stage["registered"] = {"id": registered["id"], "digest": registered["digest"], "files": file_hashes(working),
+                                   "immutable_digest": _digest(original), "immutable_files": file_hashes(original)}
+        self.artifact_stages.append(stage)
+        write_json(self.root / "artifact_stages.json", self.artifact_stages)
+        if stage["name"] == "series_created":
+            previous = {row["id"] for row in self.before["database"]["series"]}
+            added = [row for row in stage["state"]["database"]["series"] if row["id"] not in previous]
+            if len(added) != 1 or not job.get("saved_skills"):
+                raise HTTPException(409, "新栏目/审核Skill无法唯一对应。")
+            self.fixture.series_id = added[0]["id"]
+            self.fixture.single_skill = self.fixture.catalog.describe(job["saved_skills"][0]["id"])
+            self.fixture.source_skills = [self.fixture.single_skill]
+        return {"name": stage["name"], "captured": True}
 
     async def checkpoint(self, request: Request):
         browser = await request.json()
@@ -703,6 +813,9 @@ class WorkbenchEvaluation:
         frozen = {name: digest(path) for name, path in
                   ((path.parent.name, path) for path in directory.glob("skills/*/SKILL.md"))}
         result["frozen_skill_files"] = frozen
+        if self.case["id"] == "P03":
+            from .artifact_chain import file_hashes
+            result["frozen_skill_resources"] = {path.name: file_hashes(path) for path in (directory / "skills").iterdir() if path.is_dir()}
         result["skill_digests"] = checkpoint.skill_digests
         result["composition_review"] = checkpoint.composition_review.model_dump() if checkpoint.composition_review else {}
         result["prompt_provenance"] = checkpoint.prompt_provenance
@@ -758,9 +871,14 @@ class WorkbenchEvaluation:
                 sdk, sdk_files = self.sdk_evidence()
                 jobs = self.fixture.extractions.list()
                 extras = {"sdk": sdk, "jobs": jobs, "source_manifest": self.source_manifest(jobs) if self.case["id"] == "S13" else {"verified": False, "files": []},
-                    "outputs": self.output_evidence(after) if self.case["id"] in {"P01", "P02"} else {},
+                    "outputs": self.output_evidence(after) if self.case["id"] in PRODUCTION_CASES else {},
                     "execution_counts": self.fixture.execution_counts,
                     "extraction_prefix": self.fixture.extractions.root.relative_to(self.fixture.root).as_posix() + "/jobs/"}
+                if self.case["id"] == "P03":
+                    from .artifact_chain import global_skills_snapshot
+                    extras.update(artifact_stages=self.artifact_stages, before_catalog=self.before_catalog,
+                                  after_catalog=self.fixture.catalog.list(), catalog_prefix=self.fixture.catalog.root.relative_to(self.fixture.root).as_posix() + "/",
+                                  global_skills_guard={"before": self.global_skills_before, "after": global_skills_snapshot(PROJECT_ROOT)})
             except Exception as error:
                 errors.append({"source": "sdk_or_artifact", "error_type": type(error).__name__, "message": str(error)})
                 sdk_files = []
@@ -784,7 +902,7 @@ class WorkbenchEvaluation:
             self.chain_grade = deepcopy(self.report)
             terminal_check = "sdk_completed" if self.case["id"] == "S13" else "agent_terminal"
             ended = next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == terminal_check), False)
-            if self.case["id"] in {"P01", "P02"}:
+            if self.case["id"] in PRODUCTION_CASES:
                 ended &= next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == "production_terminal"), False)
             self.report.update(execution_status="completed" if browser.get("completed") and ended and not errors else "failed",
                 finished_at=now(), elapsed_seconds=round(monotonic() - self.clock, 3), session_id=doc.get("id"),

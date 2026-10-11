@@ -4,7 +4,9 @@ import path from "node:path";
 // Separate opt-in paid suite: no mock model, SDK, producer, or intercepted API.
 const python = process.env.CREATOROS_PYTHON ?? "python";
 const root = path.resolve(import.meta.dirname, "..");
-const cases = ["A14", "S13", "P01", "P02"];
+const cases = ["A14", "S13", "P01", "P02", "P03"];
+// 8894 is reserved for the read-only report viewer.
+const portFor = (index: number) => index < 4 ? 8890 + index : 8891 + index;
 const batch = process.env.CREATOROS_WORKBENCH_BATCH;
 const revision = process.env.CREATOROS_WORKBENCH_REVISION;
 const listing = process.argv.includes("--list");
@@ -16,10 +18,10 @@ export default defineConfig({
   outputDir: `./tmp/live-workbench/${batch ?? "not-started"}`,
   use: { channel: "chrome", viewport: { width: 1440, height: 900 },
     permissions: ["clipboard-read", "clipboard-write"], trace: "on", screenshot: "only-on-failure" },
-  projects: cases.map((name, index) => ({ name, use: { baseURL: `http://127.0.0.1:${8890 + index}` } })),
+  projects: cases.map((name, index) => ({ name, use: { baseURL: `http://127.0.0.1:${portFor(index)}` } })),
   webServer: cases.map((name, index) => ({ name, index })).filter(({ name }) => !selected.length || selected.includes(name)).map(({ name, index }) => ({
-    command: `"${python}" -m creatoros.evaluation.workbench serve --case ${name} --port ${8890 + index} --batch-id ${batch} --revision ${revision}`,
-    cwd: root, url: `http://127.0.0.1:${8890 + index}/api/health`,
+    command: `"${python}" -m creatoros.evaluation.workbench serve --case ${name} --port ${portFor(index)} --batch-id ${batch} --revision ${revision}`,
+    cwd: root, url: `http://127.0.0.1:${portFor(index)}/api/health`,
     env: { DATABASE_URL: `sqlite:///${root.replaceAll("\\", "/")}/data/agent-eval-workbench/bootstrap-${name}.db` },
     reuseExistingServer: false, timeout: 90_000,
   })),
