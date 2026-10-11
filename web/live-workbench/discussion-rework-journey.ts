@@ -12,10 +12,11 @@ type DiscussionScenario = {
 type BrowserEvidence = Record<string, unknown> & { steps: string[] };
 type ImageInfo = { src: string; width: number; height: number; sha256: string };
 
-async function imageInfo(image: Locator, request: APIRequestContext): Promise<ImageInfo> {
-  await expect(image).toBeVisible();
+export async function imageInfo(image: Locator, request: APIRequestContext, timeout = 30_000): Promise<ImageInfo> {
+  const deadline = Date.now() + timeout;
+  await expect(image).toBeVisible({ timeout });
   await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
-    element.complete && element.naturalWidth > 0 && element.naturalHeight > 0)).toBe(true);
+    element.complete && element.naturalWidth > 0 && element.naturalHeight > 0), { timeout: Math.max(1, deadline - Date.now()) }).toBe(true);
   const rendered = await image.evaluate((element: HTMLImageElement) => ({
     src: element.currentSrc, width: element.naturalWidth, height: element.naturalHeight,
   }));
@@ -183,6 +184,77 @@ export function sentDiscussionQueries(mutations: Array<{ method: string; path: s
 }
 
 type DiscussionTurn = { turn_id: string; question: string };
+type DiscussionRecord = { id: string; request_id: string; run_id: string; revision_id: string;
+  artifact_digest: string; message: string; reply: string; status: string };
+type DiscussionDelegation = { turn_id: string; call_id: string; request_snapshot_id: string;
+  arguments: Omit<DiscussionRecord, "id" | "reply" | "status">; result: Omit<DiscussionRecord, "message" | "artifact_digest"> };
+
+export async function readDiscussionDelegation(request: Pick<APIRequestContext, "get">, sessionId: string, turnId: string) {
+  const base = `/api/agent/sessions/${encodeURIComponent(sessionId)}/turn-trace/${encodeURIComponent(turnId)}`;
+  const indexResponse = await request.get(base, { maxRetries: 0 });
+  expect(indexResponse.ok()).toBe(true);
+  const index = await indexResponse.json();
+  expect(index.turn_id).toBe(turnId);
+  expect(index.available).toBe(true);
+  expect(index.requests.length).toBeGreaterThan(0);
+  const delegations: DiscussionDelegation[] = [];
+  for (const step of index.requests) {
+    expect(step.snapshot_available).toBe(true);
+    const response = await request.get(`${base}/requests/${encodeURIComponent(step.request_id)}`, { maxRetries: 0 });
+    expect(response.ok()).toBe(true);
+    const snapshot = await response.json();
+    expect(snapshot.turn_id).toBe(turnId);
+    expect(snapshot.request_id).toBe(step.request_id);
+    for (const call of snapshot.response?.tool_calls ?? []) {
+      if (call.name !== "discuss_content_run") continue;
+      const results = snapshot.tool_results.filter((row: { tool_call_id: string }) => row.tool_call_id === call.id);
+      expect(results).toHaveLength(1);
+      expect(results[0].name).toBe(call.name);
+      expect(results[0].is_error).toBe(false);
+      const args = typeof call.arguments === "string" ? JSON.parse(call.arguments) : call.arguments;
+      const raw = results[0].raw_content;
+      expect(raw).toBeDefined();
+      const result = typeof raw === "string" ? JSON.parse(raw) : raw;
+      delegations.push({ turn_id: turnId, call_id: call.id, request_snapshot_id: step.request_id,
+        arguments: args, result });
+    }
+  }
+  expect(delegations, "每个实际用户轮次恰有一条真实讨论调用").toHaveLength(1);
+  return delegations[0];
+}
+
+export function assertDiscussionRecords(records: DiscussionRecord[], delegations: DiscussionDelegation[],
+  target: { run_id: string; revision_id: string; artifact_digest: string }) {
+  expect(records).toHaveLength(2);
+  expect(delegations).toHaveLength(2);
+  for (const key of ["turn_id", "call_id"] as const) expect(new Set(delegations.map(row => row[key])).size).toBe(2);
+  for (const delegation of delegations) {
+    for (const key of ["turn_id", "call_id", "request_snapshot_id"] as const) {
+      expect(typeof delegation[key]).toBe("string");
+      expect(delegation[key].trim()).not.toBe("");
+    }
+  }
+  for (const key of ["id", "request_id"] as const) expect(new Set(records.map(row => row[key])).size).toBe(2);
+  for (const [index, row] of records.entries()) {
+    const { arguments: args, result } = delegations[index];
+    for (const key of ["run_id", "revision_id", "artifact_digest", "request_id", "message"] as const) {
+      expect(typeof args[key]).toBe("string");
+      expect(args[key].trim()).not.toBe("");
+    }
+    // DiscussContentRunArgs uses str_strip_whitespace for every string field.
+    expect({ run_id: args.run_id.trim(), revision_id: args.revision_id.trim(), artifact_digest: args.artifact_digest.trim() }).toEqual(target);
+    expect({ run_id: row.run_id, revision_id: row.revision_id, artifact_digest: row.artifact_digest }).toEqual(target);
+    expect(row.message).toBe(args.message.trim());
+    expect(row.request_id).toBe(args.request_id.trim());
+    for (const key of ["id", "request_id", "run_id", "revision_id", "status", "reply"] as const) {
+      expect(row[key]).toBe(result[key]);
+    }
+    expect(row.id).toBeTruthy();
+    expect(row.request_id).toBeTruthy();
+    expect(row.status).toBe("completed");
+    expect(row.reply.trim()).not.toBe("");
+  }
+}
 type DiscussionSession = { id: string; status: string; error: string | null; has_older: boolean;
   entries: Array<{ kind: string; text?: string; turn_id?: string; complete?: boolean; terminal?: boolean }> };
 
@@ -226,6 +298,10 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   if (!questions || questions.length !== 2) throw new Error("P06 must receive both frozen scenario questions; the browser does not derive query text.");
   const runId = scenario.business_run_id ?? scenario.seed_run_id ?? scenario.run_id;
   const seed = await (await request.get(`/api/runs/${runId}`)).json();
+  const seedRevisionId = scenario.seed_revision_id ?? scenario.revision_id;
+  const selectedRevision = seed.revisions.find((row: { id: string }) => row.id === seedRevisionId);
+  expect(selectedRevision?.review_digest).toBeTruthy();
+  const discussionTarget = { run_id: runId, revision_id: seedRevisionId!, artifact_digest: selectedRevision.review_digest };
   const originalRun = { id: seed.id, status: seed.status, version: seed.version, active_revision_number: seed.active_revision_number,
     publication: seed.publication, revisions: seed.revisions };
   await page.goto("/");
@@ -240,6 +316,7 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   const visibleReplies: string[] = [];
   const discussionHrefs: string[] = [];
   const postedTurns: DiscussionTurn[] = [];
+  const delegations: DiscussionDelegation[] = [];
   for (let turn = 0; turn < questions.length; turn++) {
     await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill(questions[turn]);
     const created = turn === 0 ? page.waitForResponse(response => response.request().method() === "POST"
@@ -299,6 +376,8 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
       await page.screenshot({ path: info.outputPath(`p06-turn-${turn + 1}-trace.png`), fullPage: false });
     });
     Object.assign(chatTurn, { trace_visible: true, tool_calls: calls });
+    delegations.push(await readDiscussionDelegation(request, String(browser.session_id), postedTurns[turn].turn_id));
+    browser.discussion_delegations = delegations;
     browser.trace_tool_calls = toolSets;
     browser.steps.push(`原账号聊天第 ${turn + 1} 轮已真实发送；可见完整回复与该轮 Trace 工具结果`);
     expect(calls.some(name => name.includes("discuss_content_run")), "每轮明确委派均应真实调用讨论工具").toBe(true);
@@ -325,6 +404,8 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   const latestLink = discussionLinks[1];
   const runIdFromLink = firstLink.pathname.split("/")[2];
   const revisionId = firstLink.searchParams.get("revision");
+  expect(runIdFromLink).toBe(discussionTarget.run_id);
+  expect(revisionId).toBe(discussionTarget.revision_id);
   const discussionIds = discussionLinks.map(link => link.searchParams.get("discussion"));
   expect(discussionIds.every(Boolean)).toBe(true);
   expect(new Set(discussionIds).size).toBe(2);
@@ -380,9 +461,24 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
     && url.searchParams.get("discussion") === discussionIds[1]
     && url.searchParams.get("revision") === revisionId);
   const records = page.getByRole("region", { name: /第 \d+ 版的 Codex 讨论/ });
+  const historyResponse = await request.get(`/api/runs/${runId}/discussion`, { maxRetries: 0 });
+  expect(historyResponse.ok()).toBe(true);
+  const persistedRecords: DiscussionRecord[] = (await historyResponse.json()).items;
+  assertDiscussionRecords(persistedRecords, delegations, discussionTarget);
+  expect(persistedRecords.map(row => row.id)).toEqual(discussionIds);
+  browser.persisted_discussion_records = persistedRecords;
   await expect(records.locator(".discussion-entry")).toHaveCount(2);
-  await expect(records.locator(".discussion-entry").nth(0).locator(".discussion-message")).toHaveText(questions[0]);
-  await expect(records.locator(".discussion-entry").nth(1).locator(".discussion-message")).toHaveText(questions[1]);
+  const visibleDiscussionReplies: string[] = [];
+  for (const row of persistedRecords) {
+    const entry = records.locator(`#discussion-entry-${row.id}`);
+    await expect(entry.locator(".discussion-message")).toHaveText(row.message);
+    await expect(entry.locator(".discussion-status-completed")).toHaveCount(1);
+    const phrase = row.reply.split(/[#*`\[\]\n]/).map(text => text.trim()).sort((a, b) => b.length - a.length)[0];
+    expect(phrase).toBeTruthy();
+    await expect(entry.locator(".discussion-reply")).toContainText(phrase);
+    visibleDiscussionReplies.push(await entry.locator(".discussion-reply").innerText());
+  }
+  browser.visible_discussion_replies = visibleDiscussionReplies;
   await expect(records.locator(".discussion-entry .discussion-status-completed")).toHaveCount(2);
   const visibleRecordIds = await records.locator(".discussion-entry").evaluateAll(items => items.map(item =>
     (item as HTMLElement).id.replace(/^discussion-entry-/, "")));
@@ -394,8 +490,20 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   await page.screenshot({ path: info.outputPath("run-discussion-two-records.png"), fullPage: false });
   const postReadCount = Number(browser.posts_after_refresh ?? 0);
   await reload();
-  await expect(page).toHaveURL(url => url.searchParams.get("discussion") === discussionIds[1]);
+  await expect(page).toHaveURL(url => url.pathname === `/runs/${runId}`
+    && url.searchParams.get("revision") === revisionId && url.searchParams.get("discussion") === discussionIds[1]);
   await expect(page.getByRole("region", { name: /第 \d+ 版的 Codex 讨论/ }).locator(".discussion-entry")).toHaveCount(2);
+  const refreshedResponse = await request.get(`/api/runs/${runId}/discussion`, { maxRetries: 0 });
+  expect(refreshedResponse.ok()).toBe(true);
+  const refreshedRecords: DiscussionRecord[] = (await refreshedResponse.json()).items;
+  expect(refreshedRecords).toEqual(persistedRecords);
+  expect(await records.locator(".discussion-entry").evaluateAll(items => items.map(item => item.id.replace(/^discussion-entry-/, "")))).toEqual(discussionIds);
+  for (const [index, row] of refreshedRecords.entries()) {
+    await expect(records.locator(`#discussion-entry-${row.id} .discussion-message`)).toHaveText(row.message);
+    await expect.poll(() => records.locator(`#discussion-entry-${row.id} .discussion-reply`).innerText()).toBe(visibleDiscussionReplies[index]);
+  }
+  await expect(records.locator(".discussion-status-completed")).toHaveCount(2);
+  browser.refreshed_discussion_record_details = refreshedRecords;
   expect(Number(browser.posts_after_refresh ?? 0)).toBe(postReadCount);
   endRefresh();
   browser.run_id = runIdFromLink;

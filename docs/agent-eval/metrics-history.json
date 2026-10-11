@@ -393,6 +393,29 @@
       "manifest_sha256": "7252d58faf504e3809e2eba2d6d758737710edf02762376c74e1ec3aaa965c15",
       "run_ids": ["4a462a95dfbb41e292b2a8d75982b309", "d0fe9320f1fa4d169997b555498914e7"],
       "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v5-20261011", "phase": "regression", "protocol": "discussion-rework-gui-v5-20261011",
+      "source_commit": "4201086", "runtime_commit": "5d6360b", "cases": 2, "executions": 2, "repeats_per_slot": 1,
+      "entrypoint": "real_frontend", "case_ids": ["P06", "P04"],
+      "model": {"outer": "deepseek-v4-flash", "discussion": "gpt-6-luna/high", "production": "gpt-6-luna/xhigh", "sdk": "openai-codex 0.157.1"},
+      "program": {"passed": 0, "failed": 2, "needs_review": 0, "missing": 0, "checks": {"passed": 11, "failed": 7, "needs_review": 2}},
+      "browser_suite": {"passed": 0, "failed": 2, "total": 2}, "original_eval_complete_reading": {"completed": 2, "total": 2},
+      "business_chain_completed": {"P06": true, "P04": false, "passed": 1, "total": 2, "user_signed": false},
+      "failure_categories": {"P06": "eval_contract_compares_delegated_message_with_original_user_query: actual two discussions completed; message is tool argument not user echo",
+        "P04": "eval_default_5s_image_visibility_timeout: Run GET200 took4957.67ms and imageGET200 followed; no business POST or SDK yet; slow read system cause unconfirmed"},
+      "deepseek_requests": 5, "deepseek_tool_calls": 3, "deepseek_input_tokens": 40279, "deepseek_output_tokens": 1042, "deepseek_total_tokens": 41321,
+      "codex_usage": {"P06": {"last_model_requests_total_tokens": [60544, 68337], "thread_cumulative_total_tokens": 581646,
+          "inherited_production_total_tokens": 452765, "new_last_requests_total_tokens": 128881}, "P04": {"new_calls": 0, "total_tokens": 0}},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false, "elapsed_seconds": {"P06": 100.0, "P04": 22.219},
+      "real_new_deliverable_images": 0, "completed_image_generation_events": 0, "content_quality_review": "needs_review",
+      "observation_transport": {"read_errors": 0, "recovered_gets": 0, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "source_and_seed_files_unchanged": true,
+      "freeze_verified_after_round_before_fixes": true, "original_scores_unchanged": true, "prior_registered_files_unchanged": 415,
+      "comparable_to_baseline_for_resume_uplift": false, "incomparability_reason": "V6 corrects delegated-question identity and bounded GUI wait; cannot claim product uplift from changed collector.",
+      "manifest_sha256": "f8712c0d3b58dd5e4c659fa4d862173fafbfdc38ef8008894e622a0635b79ffd",
+      "run_ids": ["abc0396955ec4e869f023c802dddd8b4", "4c492e056be34379a91e810448b5937f"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]
 }

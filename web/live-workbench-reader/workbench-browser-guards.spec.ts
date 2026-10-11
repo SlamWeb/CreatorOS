@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { expect, request as playwrightRequest, test } from "@playwright/test";
 import { preservePrimaryFailure } from "../live-workbench/preserve-primary-failure";
 import { readTask } from "../live-workbench/read-progress";
-import { assertDiscussionRefresh, discussionTranscript, readCompletedDiscussionTranscript,
+import { assertDiscussionRecords, assertDiscussionRefresh, discussionTranscript, imageInfo, readDiscussionDelegation, readCompletedDiscussionTranscript,
   sentDiscussionQueries } from "../live-workbench/discussion-rework-journey";
 
 test("readTask recovers a real HTTP reset with GET only", async () => {
@@ -176,4 +176,133 @@ test("discussion session recovery rejects unsafe or nested paths before making a
     await expect(readTask(request, path, {})).rejects.toThrow(/仅允许读取已有/);
   }
   expect(calls).toBe(0);
+});
+
+const discussionTarget = { run_id: "run-one", revision_id: "revision-one", artifact_digest: "a".repeat(64) };
+function delegatedDiscussionEvidence() {
+  const records = discussionTurns.map((turn, index) => ({ ...discussionTarget, id: `discussion-${index}`,
+    request_id: `request-${index}`, message: `${turn.question}，只诊断可读性，不修改作品。`,
+    reply: `第 ${index + 1} 轮真实答复。`, status: "completed" }));
+  const delegations = records.map((record, index) => ({ turn_id: discussionTurns[index].turn_id,
+    call_id: `call-${index}`, request_snapshot_id: `snapshot-${index}`,
+    arguments: { ...discussionTarget, request_id: record.request_id, message: record.message }, result: { ...record } }));
+  return { records, delegations };
+}
+
+test("discussion records permit delegated phrasing but bind exact call result identity and content", () => {
+  const { records, delegations } = delegatedDiscussionEvidence();
+  expect(records[0].message).not.toBe(discussionTurns[0].question);
+  assertDiscussionRecords(records, delegations, discussionTarget);
+  const whitespace = structuredClone(delegations);
+  for (const key of ["run_id", "revision_id", "artifact_digest", "request_id", "message"] as const) {
+    whitespace[0].arguments[key] = ` ${whitespace[0].arguments[key]} `;
+  }
+  assertDiscussionRecords(records, whitespace, discussionTarget);
+});
+
+test("discussion records reject wrong targets questions identities duplicates dropped or reordered records", () => {
+  for (const key of ["run_id", "revision_id", "artifact_digest", "message", "request_id", "reply", "status", "id"] as const) {
+    const { records, delegations } = delegatedDiscussionEvidence();
+    records[0][key] = "altered";
+    expect(() => assertDiscussionRecords(records, delegations, discussionTarget)).toThrow();
+  }
+  for (const key of ["run_id", "revision_id", "artifact_digest", "message", "request_id"] as const) {
+    const { records, delegations } = delegatedDiscussionEvidence();
+    delegations[0].arguments[key] = "different tool argument";
+    expect(() => assertDiscussionRecords(records, delegations, discussionTarget)).toThrow();
+  }
+  for (const mode of ["missing", "duplicate", "reverse", "same-turn", "same-call"]) {
+    const { records, delegations } = delegatedDiscussionEvidence();
+    if (mode === "missing") records.pop();
+    if (mode === "duplicate") records[1] = { ...records[0] };
+    if (mode === "reverse") records.reverse();
+    if (mode === "same-turn") delegations[1].turn_id = delegations[0].turn_id;
+    if (mode === "same-call") delegations[1].call_id = delegations[0].call_id;
+    expect(() => assertDiscussionRecords(records, delegations, discussionTarget)).toThrow();
+  }
+  for (const key of ["turn_id", "call_id", "request_snapshot_id"] as const) {
+    const { records, delegations } = delegatedDiscussionEvidence();
+    delegations[0][key] = "";
+    expect(() => assertDiscussionRecords(records, delegations, discussionTarget)).toThrow();
+  }
+});
+
+test("discussion delegation reads real turn Trace with GET only and rejects incomplete call pairing", async () => {
+  const methods: string[] = [];
+  const { delegations } = delegatedDiscussionEvidence();
+  let mode = "valid";
+  const server = createServer((incoming, outgoing) => {
+    methods.push(incoming.method ?? "");
+    const delegation = delegations[0];
+    const result = { tool_call_id: delegation.call_id, name: "discuss_content_run", is_error: false,
+      raw_content: JSON.stringify(delegation.result) };
+    const snapshot = { turn_id: delegation.turn_id, request_id: "snapshot-0",
+      response: { tool_calls: [{ id: delegation.call_id, name: "discuss_content_run", arguments: JSON.stringify(delegation.arguments) }] },
+      tool_results: mode === "missing" ? [] : mode === "duplicate" ? [result, result] : [{ ...result,
+        tool_call_id: mode === "wrong-call" ? "different-call" : result.tool_call_id,
+        is_error: mode === "error", raw_content: mode === "missing-raw" ? undefined : result.raw_content }] };
+    if (mode === "wrong-turn") snapshot.turn_id = "different-turn";
+    if (mode === "wrong-request") snapshot.request_id = "different-request";
+    outgoing.writeHead(200, { "content-type": "application/json" });
+    outgoing.end(JSON.stringify(incoming.url?.endsWith("/requests/snapshot-0") ? snapshot : {
+      turn_id: delegation.turn_id, available: true, requests: [{ request_id: "snapshot-0", snapshot_available: true }] }));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const context = await playwrightRequest.newContext({ baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}` });
+  try {
+    expect(await readDiscussionDelegation(context, "session-one", "turn-one")).toEqual(delegations[0]);
+    for (mode of ["missing", "duplicate", "wrong-call", "error", "missing-raw", "wrong-turn", "wrong-request"]) {
+      await expect(readDiscussionDelegation(context, "session-one", "turn-one")).rejects.toThrow();
+    }
+    expect(methods).toHaveLength(16);
+    expect(methods.every(method => method === "GET")).toBe(true);
+  } finally {
+    await context.dispose();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
+test("image observer waits beyond five seconds for real HTTP DOM and decoding, and rejects bad evidence", async ({ page }) => {
+  const methods: string[] = [];
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64");
+  let mode = "delayed-dom";
+  let imageGets = 0;
+  const server = createServer((incoming, outgoing) => {
+    methods.push(incoming.method ?? "");
+    if (incoming.url === "/") {
+      outgoing.writeHead(200, { "content-type": "text/html" });
+      outgoing.end(mode === "delayed-dom"
+        ? '<script>fetch("/fragment").then(r=>r.text()).then(html=>document.body.innerHTML=html)</script>'
+        : '<img src="/image.png">');
+    } else if (incoming.url === "/fragment") {
+      setTimeout(() => { outgoing.writeHead(200, { "content-type": "text/html" }); outgoing.end('<img src="/image.png">'); }, 6_000);
+    } else {
+      imageGets++;
+      const send = () => { outgoing.writeHead(mode === "non200" && imageGets > 1 ? 503 : 200,
+        { "content-type": "image/png", "cache-control": "no-store" }); outgoing.end(mode === "corrupt" ? "bad png" : png); };
+      if (mode === "delayed-image" && imageGets === 1) setTimeout(send, 6_000); else send();
+    }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const context = await playwrightRequest.newContext();
+  try {
+    for (mode of ["delayed-dom", "delayed-image"]) {
+      imageGets = 0;
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      const observed = await imageInfo(page.locator("img"), context);
+      expect(observed.width).toBe(1);
+      expect(observed.height).toBe(1);
+      expect(() => expect(observed.sha256).toBe("0".repeat(64))).toThrow();
+    }
+    for (mode of ["corrupt", "non200"]) {
+      imageGets = 0;
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await expect(imageInfo(page.locator("img"), context, 500)).rejects.toThrow();
+    }
+    expect(methods.every(method => method === "GET")).toBe(true);
+  } finally {
+    await context.dispose();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
 });
