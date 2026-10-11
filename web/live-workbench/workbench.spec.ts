@@ -5,6 +5,7 @@ import { readProgress } from "./read-progress";
 import { artifactJourney, type ArtifactScenario } from "./artifact-journey";
 import { recoveryJourney } from "./recovery-journey";
 import { discussionJourney, reworkJourney } from "./discussion-rework-journey";
+import { preservePrimaryFailure } from "./preserve-primary-failure";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
   const response = await request.get("/__live_eval__/scenario");
@@ -120,6 +121,7 @@ test("real workbench: original GUI → real services → durable evidence → or
     if (await close.isVisible()) await close.click();
     return new URL(link!.url, page.url()).pathname.split("/")[2];
   }
+  let primaryJourneyError: unknown;
   try {
     if (scenario.case_id === "P04") {
       await reworkJourney(page, request, info, scenario, browser, reload, () => { refreshing = false; });
@@ -252,33 +254,40 @@ test("real workbench: original GUI → real services → durable evidence → or
       }
     }
     browser.completed = true;
-    await page.screenshot({ path: info.outputPath("workbench-complete.png"), fullPage: true });
+    await page.screenshot({ path: info.outputPath("workbench-complete.png"), fullPage: scenario.case_id !== "P06" });
   } catch (error) {
     browser.error = String(error);
-    throw error;
+    primaryJourneyError = error;
   } finally {
-    browser.page_errors = errors;
-    browser.api_mutations = apiMutations;
-    const finished = await request.post("/__live_eval__/finish", { data: browser });
-    expect(finished.status()).toBe(202);
-    await expect.poll(async () => (await request.get("/__live_eval__/result")).status(), { timeout: 90_000 }).toBe(200);
-    const result = await (await request.get("/__live_eval__/result")).json();
-    await info.attach("full-result", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
-    // The independent original Eval page is the final read endpoint, not a backend-only test.
-    const view: Record<string, unknown> = { run_id: scenario.run_id, completed: false, evidence_loaded: false };
-    try {
-      Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.eval_run_id ?? scenario.run_id,
-        scenario.case_id === "S13" ? undefined : scenario.case_id === "P06"
-          ? scenario.discussion_questions ?? [scenario.query] : scenario.query));
-      await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: false });
-    } catch (error) { view.error = String(error); }
-    const committed = await request.post("/__live_eval__/view", { data: view });
-    expect(committed.ok()).toBe(true);
-    const report = await committed.json();
-    await info.attach("view-confirmed-result", { body: JSON.stringify(report, null, 2), contentType: "application/json" });
-    expect(view.completed).toBe(true);
-    expect(report.checks.filter((check: { status: string }) => check.status === "failed")).toEqual([]);
-    // Independent linguistic/fusion/image review remains pending, never auto-passed.
-    expect(report.auto_status).toBe("needs_review");
+    primaryJourneyError = await preservePrimaryFailure(primaryJourneyError, async () => {
+      browser.page_errors = errors;
+      browser.api_mutations = apiMutations;
+      const finished = await request.post("/__live_eval__/finish", { data: browser });
+      expect(finished.status()).toBe(202);
+      await expect.poll(async () => (await request.get("/__live_eval__/result")).status(), { timeout: 90_000 }).toBe(200);
+      const result = await (await request.get("/__live_eval__/result")).json();
+      await info.attach("full-result", { body: JSON.stringify(result, null, 2), contentType: "application/json" });
+      // The independent original Eval page is the final read endpoint, not a backend-only test.
+      const view: Record<string, unknown> = { run_id: scenario.eval_run_id ?? scenario.run_id, completed: false, evidence_loaded: false };
+      try {
+        if (scenario.case_id === "P06") expect(scenario.discussion_questions).toHaveLength(2);
+        Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.eval_run_id ?? scenario.run_id,
+          scenario.case_id === "S13" ? undefined : scenario.case_id === "P06"
+            ? scenario.discussion_questions : scenario.query));
+        await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: false });
+      } catch (error) { view.error = String(error); }
+      const committed = await request.post("/__live_eval__/view", { data: view });
+      expect(committed.ok()).toBe(true);
+      const report = await committed.json();
+      await info.attach("view-confirmed-result", { body: JSON.stringify(report, null, 2), contentType: "application/json" });
+      expect(view.completed).toBe(true);
+      expect(report.checks.filter((check: { status: string }) => check.status === "failed")).toEqual([]);
+      // Independent linguistic/fusion/image review remains pending, never auto-passed.
+      expect(report.auto_status).toBe("needs_review");
+    }, async secondaryFailure => {
+      const failureText = String(secondaryFailure);
+      await info.attach("eval-finalization-error", { body: failureText, contentType: "text/plain" });
+    });
   }
+  if (primaryJourneyError !== undefined) throw primaryJourneyError;
 });

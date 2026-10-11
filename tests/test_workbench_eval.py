@@ -315,7 +315,13 @@ class WorkbenchHostTests(unittest.TestCase):
                     with TestClient(host.app) as client:
                         self.assertEqual(client.get("/").status_code, 200)
                         self.assertEqual(client.get("/api/eval").status_code, 200)
-                        self.assertEqual(client.get("/__live_eval__/scenario").json()["case_id"], case)
+                        scenario = client.get("/__live_eval__/scenario").json()
+                        self.assertEqual(scenario["case_id"], case)
+                        if case == "P06":
+                            self.assertIn(f"/runs/{host.fixture.seed_run_id}", scenario["query"])
+                            self.assertIn("第1版", scenario["query"])
+                            self.assertNotIn("{run_path}", scenario["query"])
+                            self.assertEqual(scenario["discussion_questions"][0], scenario["query"])
                         report = host.safe_finish({"completed": False, "posts_after_refresh": 0, "page_errors": []})
                         self.assertEqual(report["auto_status"], "failed")
                         store = EvalStore(temporary, cases_path=workbench.CASES_PATH)
@@ -338,6 +344,8 @@ class WorkbenchHostTests(unittest.TestCase):
                     second = client.post("/__live_eval__/view", json={"run_id": host.root.name, "completed": True, "evidence_loaded": True}).json()
                     self.assertEqual(first, second)
                     self.assertEqual(second["auto_status"], "failed")
+                    self.assertEqual(first["error"]["kind"], "collection")
+                    self.assertEqual(first["secondary_errors"][0]["kind"], "eval_view")
             finally:
                 host.fixture.close()
 

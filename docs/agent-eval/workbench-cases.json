@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v4-discussion-rework",
+  "revision": "workbench-slice-v5-discussion-rework",
   "status": "wired_not_run",
   "cases": [
     {
@@ -72,7 +72,7 @@
     {
       "id": "P06", "title": "真实图片讨论 fork 与两轮续聊", "category": "tools", "split": "dev",
       "steps": [
-        {"kind": "user", "text": "请 Codex 看我选定这一版四格图，分析可读性；先不要修改。"},
+        {"kind": "user", "text": "请 Codex 看这个已完成产物 {run_path} 的第1版四格图，分析可读性；先不要修改。"},
         {"kind": "user", "text": "继续上一轮讨论：你刚才指出的第二个问题具体在哪一格？给出一句可直接替换的更短中文，不要修改产物。"}
       ],
       "assertions": [

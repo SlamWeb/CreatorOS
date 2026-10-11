@@ -281,6 +281,35 @@
       "incomparability_reason": "New controlled-recovery case, one first attempt, no calibrated quality pass; not paired fixed-benchmark success-rate uplift.",
       "manifest_sha256": "c030fd4ec8f7404b6afd3328c93d04dc7266aebbdc369e023510c87eda5735a0",
       "run_ids": ["5bfb85f661504de0bfed17ce88234ee8"], "report": "OFFLINE-RECOVERY-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v1-20261011", "phase": "baseline", "protocol": "discussion-rework-gui-v1-20261011",
+      "source_commit": "9e80f9f419cff6c118a225ec80470a7aa4c92188", "runtime_commit": "f5022f4",
+      "cases": 2, "executions": 2, "repeats_per_slot": 1, "entrypoint": "real_frontend", "case_ids": ["P06", "P04"],
+      "model": {"outer": "deepseek-v4-flash", "discussion": "gpt-6-luna/high", "production": "gpt-6-luna/xhigh", "sdk": "openai-codex 0.157.1"},
+      "program": {"passed": 0, "failed": 2, "needs_review": 0, "missing": 0,
+        "checks": {"passed": 5, "failed": 13, "needs_review": 2}},
+      "browser_suite": {"passed": 0, "failed": 2, "total": 2},
+      "first_attempt_complete_delivery": {"passed": 0, "total": 2},
+      "failure_categories": {
+        "P06": "eval_input_target_unspecified: DeepSeek correctly requested title/link, no discussion tool call; secondary eval MemoryError",
+        "P04": "eval_observer_unrecovered_GET_ECONNRESET: Run producing when collected and service stopped; secondary eval MemoryError",
+        "eval_view": "bounded read MemoryError; system-level cause unconfirmed; secondary error masked primary at top level"
+      },
+      "deepseek_requests": 1, "deepseek_tool_calls": 0,
+      "deepseek_input_tokens": 6929, "deepseek_output_tokens": 98, "deepseek_total_tokens": 7027,
+      "codex_usage": {"P06": {"new_calls": 0, "total_tokens": 0}, "P04": null,
+        "scope": "P06 did not delegate. P04 created a thread but has no completed turn/usage; initial checkpoint zeros are not final usage."},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false,
+      "elapsed_seconds": {"P06": 261.469, "P04": 39.328},
+      "real_new_deliverable_images": 0, "completed_image_generation_events": 0,
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "global_skills_unchanged": null,
+      "source_and_seed_files_unchanged": true, "freeze_verified_after_round": true,
+      "comparable_to_baseline_for_resume_uplift": false,
+      "incomparability_reason": "Input target and collector will change in V2; preserve these two failures rather than treating a reread as paid success.",
+      "manifest_sha256": "0945f19727142c4847c34a37faca761add4ab08d44e3d0fd19ee60a3b2802c35",
+      "run_ids": ["4b32fc7566b1488c8c2d3a27256896ed", "246a3b6ca93b4940b8fcdb234ea9d75b"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]
 }

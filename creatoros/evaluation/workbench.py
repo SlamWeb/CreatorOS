@@ -41,7 +41,7 @@ CASES_PATH = PROJECT_ROOT / "docs/agent-eval/workbench-cases.json"
 OUTPUT_ROOT = PROJECT_ROOT / "data/agent-eval-workbench"
 CASES = {"A14", "S13", "P01", "P02", "P03", "P04", "P05", "P06"}
 PRODUCTION_CASES = {"P01", "P02", "P03", "P04", "P05"}
-VERSION = "workbench-world-v4-discussion-rework"
+VERSION = "workbench-world-v5-discussion-rework"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -644,6 +644,10 @@ class WorkbenchEvaluation:
         write_json(self.root / "report.json", self.report)
         try:
             self.fixture = WorkbenchWorld(self.root / "fixture", case_id, self.provider, self.root.parent)
+            if case_id == "P06":
+                # Resolve only the visible work URL, not oracle/assertion data.
+                for step in self.case["steps"]:
+                    step["text"] = step["text"].replace("{run_path}", f"/runs/{self.fixture.seed_run_id}")
             self.before = self.fixture.state()
             self.before_catalog = self.fixture.catalog.list()
             self.expected_after = self._expected_after(self.before) if case_id in {"P04", "P06"} else None
@@ -1133,7 +1137,11 @@ class WorkbenchEvaluation:
             view.update(status="passed" if ok else "failed", detail="真实Eval链路、数据库、原文证据已展开并读完。" if ok else str(payload.get("error", "未读完证据")))
             candidate["view_confirmation"] = {"status": "committed", "confirmed_at": now(), "payload": payload}
             if not ok:
-                candidate.update(auto_status="failed", execution_status="failed", error={"kind": "eval_view", "message": view["detail"]})
+                primary = candidate.get("error")
+                candidate.update(auto_status="failed", execution_status="failed",
+                    error=primary or {"kind": "eval_view", "message": view["detail"]})
+                if primary:
+                    candidate["secondary_errors"] = [{"kind": "eval_view", "message": view["detail"]}]
                 candidate["dimensions"]["task_success"] = "failed"
             write_json(self.root / "view_confirmation.json", payload)
             browser = json.loads((self.root / "browser.json").read_text(encoding="utf-8"))

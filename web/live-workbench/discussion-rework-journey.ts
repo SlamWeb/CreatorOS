@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { readTask } from "./read-progress";
 
 type DiscussionScenario = {
   creator_name: string; creator_id: string; series_id: string; series_name: string; run_id: string;
@@ -106,10 +107,12 @@ export async function reworkJourney(page: Page, request: APIRequestContext, info
   expect(execute.status()).toBe(202);
   browser.execute_request = { path: new URL(execute.url()).pathname, status: execute.status(), body: execute.request().postDataJSON() };
   let final = queued;
+  const terminalRunStatuses = /^(awaiting_approval|approved|interrupted|failed|cancelled)$/;
   await expect.poll(async () => {
-    final = await (await request.get(`/api/runs/${runId}`)).json();
+    final = await readTask(request, `/api/runs/${runId}`, browser);
     return final.status;
-  }, { timeout: 1_860_000, intervals: [1000, 3000, 5000] }).toBe("awaiting_approval");
+  }, { timeout: 1_860_000, intervals: [1000, 3000, 5000] }).toMatch(terminalRunStatuses);
+  expect(final.status).toBe("awaiting_approval");
   const newRevision = final.revisions.find((row: { id: string }) => row.id === queuedRevision.id);
   const preservedOld = final.revisions.find((row: { id: string }) => row.id === oldRevision.id);
   expect(newRevision).toBeTruthy();
@@ -172,8 +175,8 @@ async function inspectVisibleTrace(page: Page, names: string[], capture: () => P
 
 export async function discussionJourney(page: Page, request: APIRequestContext, info: TestInfo, scenario: DiscussionScenario,
   browser: BrowserEvidence, reload: () => Promise<void>, endRefresh: () => void) {
-  const questions = scenario.discussion_questions ?? [scenario.query];
-  expect(questions).toHaveLength(2);
+  const questions = scenario.discussion_questions;
+  if (!questions || questions.length !== 2) throw new Error("P06 must receive both frozen scenario questions; the browser does not derive query text.");
   const runId = scenario.business_run_id ?? scenario.seed_run_id ?? scenario.run_id;
   const seed = await (await request.get(`/api/runs/${runId}`)).json();
   const originalRun = { id: seed.id, status: seed.status, version: seed.version, active_revision_number: seed.active_revision_number,
@@ -213,13 +216,20 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
     const answer = await panel.locator(".chat-answer").last().innerText();
     expect(answer.trim()).not.toBe("");
     visibleReplies.push(answer);
-    const calls: string[] = [];
+    const chatTurn: Record<string, unknown> = { question: questions[turn], visible_reply: answer, trace_visible: false };
+    chatTurns.push(chatTurn);
+    browser.chat_turns = chatTurns;
     await panel.getByRole("button", { name: "查看回复 Trace" }).last().click();
+    const calls: string[] = [];
+    toolSets.push(calls);
+    Object.assign(chatTurn, { trace_opened: true, tool_calls: calls });
+    browser.chat_turns = chatTurns;
+    browser.trace_tool_calls = toolSets;
     await inspectVisibleTrace(page, calls, async () => {
       await page.screenshot({ path: info.outputPath(`p06-turn-${turn + 1}-trace.png`), fullPage: false });
     });
-    toolSets.push(calls);
-    chatTurns.push({ question: questions[turn], visible_reply: answer, trace_visible: true, tool_calls: calls });
+    Object.assign(chatTurn, { trace_visible: true, tool_calls: calls });
+    browser.trace_tool_calls = toolSets;
     browser.steps.push(`原账号聊天第 ${turn + 1} 轮已真实发送；可见完整回复与该轮 Trace 工具结果`);
     const activity = panel.locator(".discussion-activity").last();
     await expect(activity).toContainText("讨论已完成", { timeout: 240_000 });
@@ -255,7 +265,7 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   browser.chat_turns = chatTurns;
   browser.discussion_ids = discussionIds;
   browser.trace_tool_calls = toolSets;
-  await page.screenshot({ path: info.outputPath("account-chat-two-discussion-rounds.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("account-chat-two-discussion-rounds.png"), fullPage: false });
   const checkpoint = await request.post("/__live_eval__/checkpoint", { data: browser });
   expect(checkpoint.ok()).toBe(true);
 
@@ -275,7 +285,7 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   endRefresh();
   browser.refreshed_discussion_ids = refreshedLinks.map(value => new URL(value).searchParams.get("discussion"));
   browser.refreshed_replies = await panel.locator(".chat-answer").allTextContents();
-  await page.screenshot({ path: info.outputPath("account-chat-after-refresh.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("account-chat-after-refresh.png"), fullPage: false });
   browser.posts_after_refresh = Number(browser.posts_after_refresh ?? 0);
   browser.steps.push("刷新后同一聊天的两轮回复与讨论链接仍在，期间没有业务 POST；未重放会话或讨论");
 
@@ -296,7 +306,7 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   expect({ id: afterDiscussionRead.id, status: afterDiscussionRead.status, version: afterDiscussionRead.version,
     active_revision_number: afterDiscussionRead.active_revision_number, publication: afterDiscussionRead.publication,
     revisions: afterDiscussionRead.revisions }).toEqual(originalRun);
-  await page.screenshot({ path: info.outputPath("run-discussion-two-records.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("run-discussion-two-records.png"), fullPage: false });
   const postReadCount = Number(browser.posts_after_refresh ?? 0);
   await reload();
   await expect(page).toHaveURL(url => url.searchParams.get("discussion") === discussionIds[1]);
