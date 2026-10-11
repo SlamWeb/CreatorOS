@@ -182,6 +182,44 @@ export function sentDiscussionQueries(mutations: Array<{ method: string; path: s
   return actual as string[];
 }
 
+type DiscussionTurn = { turn_id: string; question: string };
+type DiscussionSession = { id: string; status: string; error: string | null; has_older: boolean;
+  entries: Array<{ kind: string; text?: string; turn_id?: string; complete?: boolean; terminal?: boolean }> };
+
+export function discussionTranscript(session: DiscussionSession, turns: DiscussionTurn[]) {
+  if (session.status !== "idle" || session.error !== null || session.has_older !== false) {
+    throw new Error("讨论会话必须完整结束且公开记录未截断。");
+  }
+  if (!turns.length || new Set(turns.map(turn => turn.turn_id)).size !== turns.length
+    || turns.some(turn => !turn.turn_id || !turn.question)) throw new Error("实际讨论 turn_id 必须非空且唯一。");
+  const users = session.entries.filter(entry => entry.kind === "user")
+    .map(entry => ({ turn_id: entry.turn_id, question: entry.text }));
+  expect(users, "GET 用户轮次必须与实际 POST 身份、原文和顺序相同").toEqual(turns);
+  const publicEntries = session.entries.filter(entry => entry.kind === "assistant" && entry.text);
+  const finals = publicEntries.map((entry, public_index) => ({ ...entry, public_index }))
+    .filter(entry => entry.complete === true || entry.terminal === true);
+  if (finals.length !== turns.length || finals.some((entry, index) => entry.complete !== true
+    || entry.terminal !== true || !entry.text?.trim() || entry.turn_id !== turns[index].turn_id)) {
+    throw new Error("每条实际 POST 必须恰有一条 complete=true/terminal=true 最终回复，身份与顺序不可改变。");
+  }
+  return { public_bodies: publicEntries.map(entry => entry.text!),
+    final_replies: finals.map(entry => ({ turn_id: entry.turn_id!, text: entry.text!, public_index: entry.public_index })) };
+}
+
+export async function readCompletedDiscussionTranscript(request: Pick<APIRequestContext, "get">,
+  sessionId: string, turns: DiscussionTurn[], browser: Record<string, unknown>) {
+  const session = await readTask(request, `/api/agent/sessions/${sessionId}`, browser) as unknown as DiscussionSession;
+  expect(session.id).toBe(sessionId);
+  return discussionTranscript(session, turns);
+}
+
+export function assertDiscussionRefresh(before: ReturnType<typeof discussionTranscript>,
+  after: ReturnType<typeof discussionTranscript>, visibleBefore: string[], visibleAfter: string[]) {
+  expect(after.public_bodies, "刷新必须保留全部公开正文，包括工具前说明").toEqual(before.public_bodies);
+  expect(after.final_replies, "刷新必须保留两轮最终回复的身份、原文和顺序").toEqual(before.final_replies);
+  expect(visibleAfter, "刷新必须完整保留所有可见正文").toEqual(visibleBefore);
+}
+
 export async function discussionJourney(page: Page, request: APIRequestContext, info: TestInfo, scenario: DiscussionScenario,
   browser: BrowserEvidence, reload: () => Promise<void>, endRefresh: () => void) {
   const questions = scenario.discussion_questions;
@@ -201,8 +239,8 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   const toolSets: string[][] = [];
   const visibleReplies: string[] = [];
   const discussionHrefs: string[] = [];
+  const postedTurns: DiscussionTurn[] = [];
   for (let turn = 0; turn < questions.length; turn++) {
-    const previousAnswerCount = await panel.locator(".chat-answer").count();
     await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill(questions[turn]);
     const created = turn === 0 ? page.waitForResponse(response => response.request().method() === "POST"
       && new URL(response.url()).pathname === "/api/agent/sessions") : null;
@@ -217,20 +255,41 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
     }
     const sentResponse = await sent;
     expect(sentResponse.status()).toBe(202);
+    const sentBody = sentResponse.request().postDataJSON();
+    expect(typeof sentBody.request_id).toBe("string");
+    expect(sentBody.text).toBe(questions[turn]);
+    // /turns returns a Session, not a top-level turn_id; the submitted user entry binds request_id.
+    const accepted = await sentResponse.json() as DiscussionSession;
+    expect(accepted.id).toBe(browser.session_id);
+    expect(accepted.entries.filter(entry => entry.kind === "user" && entry.turn_id === sentBody.request_id)
+      .map(entry => ({ turn_id: entry.turn_id, question: entry.text })))
+      .toEqual([{ turn_id: sentBody.request_id, question: questions[turn] }]);
+    postedTurns.push({ turn_id: sentBody.request_id, question: questions[turn] });
     sessionPosts.push({ path: new URL(sentResponse.url()).pathname, status: sentResponse.status(),
-      body: sentResponse.request().postDataJSON() });
-    await expect.poll(() => panel.locator(".chat-answer").count(), { timeout: 240_000 }).toBe(previousAnswerCount + 1);
-    await expect(panel.locator(".agent-composer [role=status]")).toContainText("可以继续对话", { timeout: 240_000 });
-    const answer = await panel.locator(".chat-answer").last().innerText();
-    expect(answer.trim()).not.toBe("");
-    visibleReplies.push(answer);
-    const chatTurn: Record<string, unknown> = { question: questions[turn], visible_reply: answer, trace_visible: false };
+      body: sentBody });
+    const chatTurn: Record<string, unknown> = { ...postedTurns[turn], trace_visible: false };
     chatTurns.push(chatTurn);
     browser.chat_turns = chatTurns;
-    browser.discussion_alerts = await panel.getByRole("alert").allTextContents();
-    // Preserve what the user actually saw even when the SDK/tool failed.
+    try {
+      await expect(panel.locator(".chat-user")).toHaveCount(postedTurns.length);
+      await expect(panel.locator(".agent-composer [role=status]"))
+        .toContainText(/可以继续对话|本次未完成|已中断/, { timeout: 240_000 });
+    } finally {
+      // Keep the actual visible response/error even if a subsequent state or GET check fails.
+      chatTurn.visible_public_replies = await panel.locator(".chat-answer").allInnerTexts();
+      browser.discussion_alerts = await panel.getByRole("alert").allTextContents();
+    }
     await expect(panel.getByRole("alert")).toHaveCount(0);
-    await panel.getByRole("button", { name: "查看回复 Trace" }).last().click();
+    await expect(panel.locator(".agent-composer [role=status]")).toContainText("可以继续对话");
+    const persisted = await readCompletedDiscussionTranscript(request, String(browser.session_id), postedTurns, browser);
+    await expect(panel.locator(".chat-answer")).toHaveCount(persisted.public_bodies.length);
+    const reply = panel.locator(".chat-reply").nth(persisted.final_replies[turn].public_index);
+    await expect(reply.locator(".chat-reply-actions")).toHaveCount(1);
+    const answer = await reply.locator(".chat-answer").innerText();
+    expect(answer.trim()).not.toBe("");
+    visibleReplies.push(answer);
+    chatTurn.visible_reply = answer;
+    await reply.getByRole("button", { name: "查看回复 Trace" }).click();
     const calls: string[] = [];
     toolSets.push(calls);
     Object.assign(chatTurn, { trace_opened: true, tool_calls: calls });
@@ -277,6 +336,13 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   browser.chat_turns = chatTurns;
   browser.discussion_ids = discussionIds;
   browser.trace_tool_calls = toolSets;
+  const transcriptBeforeRefresh = await readCompletedDiscussionTranscript(request, String(browser.session_id), postedTurns, browser);
+  expect(transcriptBeforeRefresh.final_replies).toHaveLength(2);
+  await expect(panel.locator(".chat-answer")).toHaveCount(transcriptBeforeRefresh.public_bodies.length);
+  const publicRepliesBeforeRefresh = await panel.locator(".chat-answer").allInnerTexts();
+  browser.public_replies_before_refresh = publicRepliesBeforeRefresh;
+  browser.public_reply_bodies_before_refresh = transcriptBeforeRefresh.public_bodies;
+  browser.final_reply_entries_before_refresh = transcriptBeforeRefresh.final_replies;
   await page.screenshot({ path: info.outputPath("account-chat-two-discussion-rounds.png"), fullPage: false });
   const checkpoint = await request.post("/__live_eval__/checkpoint", { data: browser });
   expect(checkpoint.ok()).toBe(true);
@@ -284,9 +350,14 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   const beforeRefresh = Number(browser.posts_after_refresh ?? 0);
   await reload();
   await page.getByRole("button", { name: "打开账号对话" }).click();
-  await expect.poll(() => panel.locator(".chat-answer").count()).toBe(2);
+  const transcriptAfterRefresh = await readCompletedDiscussionTranscript(request, String(browser.session_id), postedTurns, browser);
+  await expect.poll(() => panel.locator(".chat-answer").allInnerTexts()).toEqual(publicRepliesBeforeRefresh);
+  const publicRepliesAfterRefresh = await panel.locator(".chat-answer").allInnerTexts();
+  assertDiscussionRefresh(transcriptBeforeRefresh, transcriptAfterRefresh, publicRepliesBeforeRefresh, publicRepliesAfterRefresh);
   for (let index = 0; index < visibleReplies.length; index++) {
-    await expect.poll(() => panel.locator(".chat-answer").nth(index).innerText()).toBe(visibleReplies[index]);
+    const reply = panel.locator(".chat-reply").nth(transcriptAfterRefresh.final_replies[index].public_index);
+    await expect(reply.locator(".chat-reply-actions")).toHaveCount(1);
+    await expect.poll(() => reply.locator(".chat-answer").innerText()).toBe(visibleReplies[index]);
   }
   const refreshedActivities = panel.locator(".discussion-activity");
   await expect(refreshedActivities).toHaveCount(2);
@@ -296,7 +367,9 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
   expect(Number(browser.posts_after_refresh ?? 0)).toBe(beforeRefresh);
   endRefresh();
   browser.refreshed_discussion_ids = refreshedLinks.map(value => new URL(value).searchParams.get("discussion"));
-  browser.refreshed_replies = await panel.locator(".chat-answer").allTextContents();
+  browser.refreshed_replies = publicRepliesAfterRefresh;
+  browser.refreshed_reply_bodies = transcriptAfterRefresh.public_bodies;
+  browser.refreshed_final_reply_entries = transcriptAfterRefresh.final_replies;
   await page.screenshot({ path: info.outputPath("account-chat-after-refresh.png"), fullPage: false });
   browser.posts_after_refresh = Number(browser.posts_after_refresh ?? 0);
   browser.steps.push("刷新后同一聊天的两轮回复与讨论链接仍在，期间没有业务 POST；未重放会话或讨论");

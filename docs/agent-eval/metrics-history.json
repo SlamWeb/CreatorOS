@@ -368,6 +368,31 @@
       "manifest_sha256": "15e6131288aab1e081e6e610013200f4ec8900a06ef8481e1a1be786ae6f4bc7",
       "run_ids": ["4d52f413431345d0a4a8294456b8933f", "f68c2a1adaaa4af89968c0e0d1b9b075"],
       "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v4-20261011", "phase": "regression", "protocol": "discussion-rework-gui-v4-20261011",
+      "source_commit": "c1289e6", "runtime_commit": "9d0e3f0", "cases": 2, "executions": 2, "repeats_per_slot": 1,
+      "entrypoint": "real_frontend", "case_ids": ["P06", "P04"],
+      "model": {"outer": "deepseek-v4-flash", "discussion": "gpt-6-luna/high", "production": "gpt-6-luna/xhigh", "sdk": "openai-codex 0.157.1"},
+      "program": {"passed": 0, "failed": 1, "needs_review": 1, "missing": 0, "checks": {"passed": 16, "failed": 2, "needs_review": 2}},
+      "browser_suite": {"passed": 1, "failed": 1, "total": 2}, "original_eval_complete_reading": {"completed": 2, "total": 2},
+      "business_chain_completed": {"P06": true, "P04": true, "passed": 2, "total": 2, "user_signed": false},
+      "failure_categories": {"P06": "eval_refresh_counts_public_progress_as_final: two true finals and one normal pre-tool public message; no duplicate final"},
+      "deepseek_requests": 5, "deepseek_tool_calls": 3, "deepseek_input_tokens": 40096, "deepseek_output_tokens": 948, "deepseek_total_tokens": 41044,
+      "codex_usage": {"P06": {"last_model_requests_total_tokens": [61121, 66616], "thread_cumulative_total_tokens": 580502,
+          "inherited_production_total_tokens": 452765, "new_last_requests_total_tokens": 127737},
+        "P04": {"scope": "thread_cumulative", "input_tokens": 549264, "cached_input_tokens": 491520,
+          "output_tokens": 14754, "reasoning_output_tokens": 9070, "total_tokens": 564018}},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false, "elapsed_seconds": {"P06": 104.719, "P04": 349.125},
+      "real_new_deliverable_images": 1, "completed_image_generation_events": 1, "content_quality_review": "needs_review",
+      "image_api_reference_parameters": "not_observable", "sdk_external_artifact_files": {"new_files": 1, "outside_fixture": true},
+      "observation_transport": {"read_errors": 11, "recovered_gets": 11, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "source_and_seed_files_unchanged": true,
+      "freeze_verified_after_round_before_fixes": true, "original_scores_unchanged": true, "prior_registered_files_unchanged": 330,
+      "comparable_to_baseline_for_resume_uplift": false, "incomparability_reason": "V5 will repair final/progress collection; preserve original V4 failed score.",
+      "manifest_sha256": "7252d58faf504e3809e2eba2d6d758737710edf02762376c74e1ec3aaa965c15",
+      "run_ids": ["4a462a95dfbb41e292b2a8d75982b309", "d0fe9320f1fa4d169997b555498914e7"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]
 }

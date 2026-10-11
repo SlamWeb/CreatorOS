@@ -27,8 +27,8 @@ export async function readTask(
   path: string,
   browser: Record<string, unknown>,
 ): Promise<{ status: string } & Record<string, unknown>> {
-  if (!/^\/api\/(?:runs|skill-extractions)\/[A-Za-z0-9_-]+$/.test(path)) {
-    throw new Error("进度恢复仅允许读取已有 Run 或提炼任务。");
+  if (!/^\/api\/(?:runs|skill-extractions|agent\/sessions)\/[A-Za-z0-9_-]+$/.test(path)) {
+    throw new Error("进度恢复仅允许读取已有 Run、提炼任务或会话。");
   }
   const history = (browser.observation_retries ??= []) as ObservationAttempt[];
   for (let attempt = 1; attempt <= 4; attempt++) {

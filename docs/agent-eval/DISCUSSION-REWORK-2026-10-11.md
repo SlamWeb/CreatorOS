@@ -89,3 +89,16 @@ P04 `f68c2a1adaaa4af89968c0e0d1b9b075`：357.969秒。真实网页保存queued/�
 最近SDK token更新input369,553/output12,896/total382,449（cache309,248/reasoning8,767为子集），是失败前观察到的累计值，不称最终成功用量；磁盘production_usage旧值input314,418/output11,885更早，因为后续Checkpoint写入先失败。DS0为手动网页入口。13次GET重置均有限恢复、零POST/模型重放。占用Checkpoint的进程未确认，未取消其他用户服务或扩权限。
 
 V4仅统一共享atomic_json到已有唯一临时文件/有限Windows sharing重试，不吞永久权威错误；明确第二问委派Codex续聊，允许复用已在上下文中的讨论结果，仍严格核实新活动卡、2记录/2次实际图片输入/fork→resume。新批冻结后再跑，V1/V2/V3全部旧分数保留。八份历史报告及登记证据保留基线共330文件，原先249文件哈希完全不变。
+
+## V4：生产走通；讨论刷新暴露采集语义错误
+
+冻结 `discussion-rework-gui-v4-20261011`，源码 `c1289e6`、运行 `9d0e3f0`，manifest SHA `7252d58faf504e3809e2eba2d6d758737710edf02762376c74e1ec3aaa965c15`。两题全部结束后、任何下一轮修复前验冻通过；正式14表/654文件及此前330登记文件SHA均不变。原评分：P06 failed（8通过/2失败/1质量待复核），P04 needs_review（8通过/0失败/1质量待复核），浏览器1/2。独立业务链完成2/2不等于原评分2/2通过，更不能写成简历成功率提升。
+
+- **P06 `4a462a95dfbb41e292b2a8d75982b309`，104.719秒：** 账号聊天两条query真实发送，DS5请求/3工具（get_content_run、两次discuss_content_run），输入40,096/输出948/合计41,044。两条讨论 `3fb1674f4b8e4200b03ba44fc9edde62`、`4d4f9f53e9154f06acd704590a28d947` 均completed，同一讨论thread `01a12b76-03d8-7180-ac0d-601d9f4152b5`，首轮fork来源生产、第二轮续聊；两轮实际附图SHA均为原P05图 `df9553…ad185`。14表完整行/旧Run/Skill/图像/审批不变，零新生图。首轮分析字号、四格叙事和词义，第二轮实际Codex选fetch并建议“去取，再带回来。”；独立读取与图中三步顺序一致，未自动签署整体教学质量。
+- **P06失败归因：评测脚本。** execution.json中3条非空assistant：工具前“我先核实这个Run的第1版信息”（complete=false/terminal=false），两轮final各complete=true/terminal=true且属于不同实际POST turn。产品正常展示三条公开正文，脚本刷新要求.chat-answer总数2，实际3；nth(index)也会错把进度当第一条final。没有重复final或已证实持久化损坏。每轮原等待同样可能被进度提前满足，下一轮必须同时修复，不隐藏说明迁就测试。原Eval完整读取、两轮query/5模型请求/2Codexturn/DB预期实际可见，原failed不改判。
+- **P04 `d0fe9320f1fa4d169997b555498914e7`，349.125秒：** 原Run页保存返工时新版本queued、零Attempt/执行；显式执行后同一Run `9705c98f-af65-45bc-a2c7-a505c001ef5b` 新增第2版/1Attempt，SDK thread `01a12b78-4ee1-7450-a9ca-0ebdc39cc597` turn `01a12b78-574f-75e2-b5a3-a2fde86bf84a` completed，生产终态awaiting_approval未批准/发布。一真实imageGeneration completed、一新交付图，SHA `696ec9c7f61139f6a5a7e7d135c5125c3b132de251316b1b18af6ff283d52798`、1122×1402。磁盘/HTTP/网页、新旧版切换/刷新/Prompt/Skill/原Eval完整读取均通过；仅目标正常业务状态更新，旧版文件/源Skill保留。Checkpoint修复在此首尝试不再失败，不证明所有Windows锁场景已穷尽。11次GET断线全部只读恢复、零业务POST重放。
+- **用量与边界：** P06两个turn最后请求分别61,121/66,616 tokens；最终thread累计580,502含继承生产452,765，不与新增127,737重复相加。P04累计输入549,264（缓存491,520）/输出14,754（推理9,070）/总564,018，DS为0而非缺失；缓存/推理是子集。SDK另在用户generated_images目录生成1原文件，非正式CreatorOS数据、但在夹具外；不是完全无外部文件写入。参考参数仍不可观察，Prompt为producer报告。独立读新图确认2×2、四词双语、每格一句中文、无总标题；仅样本观察，质量仍needs_review。
+
+V5仅修采集并增加正负例，不改产品/题目/判分意图；刷新前后验证全部公开正文、按实际turn区分两条final、讨论ID和零POST。先提交再冻结重新跑整轮，原V4评分保持不变。
+
+补充保留：V4 P04有一次Codex生成的PowerShell文件核查命令因foreach直接接管道语法失败，Codex随后修正核查命令并完成同一turn；不是重新生产/重放POST。原SDK item/exit_code原样可读。纯Codex链路明确显示“无DeepSeek请求”，但顶部/分列DeepSeek用量仍把report.usage=null显示“未记录”而不是实际0；Codex累计564,018正确可见。此展示口径缺口记录为后续项，不把未记录当计费0，也不因此改判本轮。
