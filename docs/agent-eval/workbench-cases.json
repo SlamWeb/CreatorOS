@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v2-artifact-chain",
+  "revision": "workbench-slice-v3-offline-recovery",
   "status": "wired_not_run",
   "cases": [
     {
@@ -49,6 +49,16 @@
         {"id": "approved_version_production", "pass": "原账号聊天真实DeepSeek入队→真实Codex生产，Run冻结审核后的全文和assets，生成本轮新图，待批准未发布；正式数据及全局Skill库不变。", "evidence": ["before.json", "after.json", "sdk.json", "outputs.json", "global_skills_guard.json", "messages.json"]}
       ],
       "manual_checks": ["独立阅读提炼是否获得可迁移的方法而非原图复刻；新词组教学、双语、白底与版式质量和链路成功分列。"]
+    },
+    {
+      "id": "P05", "title": "真实完成后离线重验不再生图", "category": "tools", "split": "dev",
+      "steps": [{"kind": "user", "text": "bring/take/fetch/carry：一张四格中英双语情境漫画，不额外标题，不发布"}],
+      "declared_fault": {"point": "post_sdk_completed_final_ingest", "kind": "controlled_acceptance_failure", "count": 1},
+      "assertions": [
+        {"id": "offline_resume", "pass": "原网页手动添加/生产，真实Codex一图和最后turn完成后宿主后处理失败一次；原Run显式恢复同Revision新Attempt，原失败保留且原图SHA一致。", "evidence": ["recovery_stages.json", "recovery_fault.json", "sdk.json", "before.json", "after.json", "browser.json"]},
+        {"id": "zero_recovery_calls", "pass": "恢复阶段实际native execute/SDK client入口为0；全量公开SDK事件和初次文件不变；原页面Prompt、Skill、刷新、封面及Eval真实可读，未批准未发布。", "evidence": ["recovery_calls.json", "sdk.json", "outputs.json", "network.json", "browser.json"]}
+      ],
+      "manual_checks": ["内容质量另评；人为宿主后处理失败不是供应商失败，不将原生图用量说成免费恢复用量。"]
     }
   ]
 }

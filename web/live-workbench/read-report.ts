@@ -16,7 +16,7 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   const rawBrowser = await (await request.get(`/api/eval/runs/${runId}/evidence?name=browser.json`)).json();
   // A failure before accountTurn has no DeepSeek requests. Still read all real
   // evidence and table counts; never fabricate an Agent turn to satisfy the UI.
-  const agentNotStarted = caseId === "P03" && rawBrowser.content.session_posts === 0;
+  const agentNotStarted = caseId === "P05" || caseId === "P03" && rawBrowser.content.session_posts === 0;
   if (caseId !== "S13" && userQuery && !agentNotStarted) {
     const actual = await readEvalViewEvidence(request, runId, [userQuery]);
     Object.assign(verified, await expectEvalEvidence(page, actual));
@@ -26,6 +26,7 @@ export async function readWorkbenchReport(page: Page, request: APIRequestContext
   const names = ["before.json", "after.json", "browser.json", "sdk.json", "requests.json", "snapshots.json", "answer.txt",
     caseId === "S13" ? "source_manifest.json" : caseId.startsWith("P") ? "outputs.json" : "messages.json"];
   if (caseId === "P03") names.push("artifact_stages.json", "before_catalog.json", "after_catalog.json", "global_skills_guard.json");
+  if (caseId === "P05") names.push("recovery_stages.json", "recovery_fault.json", "recovery_calls.json");
   const contents = new Map<string, unknown>();
   for (const name of names) {
     const response = await request.get(`/api/eval/runs/${runId}/evidence?${new URLSearchParams({ name })}`);

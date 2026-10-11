@@ -39,9 +39,9 @@ from creatoros.web.chat import AgentChatService
 
 CASES_PATH = PROJECT_ROOT / "docs/agent-eval/workbench-cases.json"
 OUTPUT_ROOT = PROJECT_ROOT / "data/agent-eval-workbench"
-CASES = {"A14", "S13", "P01", "P02", "P03"}
-PRODUCTION_CASES = {"P01", "P02", "P03"}
-VERSION = "workbench-world-v2-artifact-chain"
+CASES = {"A14", "S13", "P01", "P02", "P03", "P05"}
+PRODUCTION_CASES = {"P01", "P02", "P03", "P05"}
+VERSION = "workbench-world-v3-offline-recovery"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -200,7 +200,7 @@ class WorkbenchWorld:
             self.source_skills.append(self.catalog.register_local(source, role="legacy_end_to_end"))
         self.single_skill = self.source_skills[0]
         self.reference_path = source_root / "four-panel-vocabulary/assets/reference.jpg" if self.case_id == "P03" else None
-        if self.case_id == "P01":
+        if self.case_id in {"P01", "P05"}:
             content.create_series(series_id=self.series_id, creator_id=self.creator_a, name="每日辨词",
                 description="一张四格双语情境漫画讲清英语易混词。", audience="高中英语学习者", skill_name=self.single_skill["id"])
         elif self.case_id == "P02":
@@ -213,9 +213,14 @@ class WorkbenchWorld:
             name="外账号对照", description="WORKBENCH_FOREIGN_SENTINEL", audience="隔离对照", skill_name=self.single_skill["id"])
         content.add_topic(topic_id="topic-workbench-foreign", series_id="series-workbench-foreign",
                           title="WORKBENCH_FOREIGN_TOPIC", source=TopicSource.MANUAL)
+        self.recovery_probe = None
+        if self.case_id == "P05":
+            from .recovery_chain import RecoveryProbe
+            self.recovery_probe = RecoveryProbe(self.root)
         def real_producer():
             self.execution_counts["producer_instances"] += 1
-            return CodexSdkProducer.from_defaults()
+            producer = CodexSdkProducer.from_defaults()
+            return self.recovery_probe.instrument(producer) if self.recovery_probe else producer
         self.runs = ContentRunService(self.database, output_root=self.root / "outputs",
             producer_factory=real_producer if self.case_id in PRODUCTION_CASES else self.reject("production"))
         executor = ManagedRunExecutor(self.runs)
@@ -411,6 +416,9 @@ def production_links(evidence):
 
 
 def grade_slice(evidence, case_id):
+    if case_id == "P05":
+        from .recovery_chain import recovery_checks
+        return recovery_checks(evidence)
     checks = []
     def check(name, label, good, files, detail=""):
         checks.append({"id": name, "label": label, "status": "passed" if good else "failed",
@@ -589,6 +597,7 @@ class WorkbenchEvaluation:
         self.finished, self.collection_task = False, None
         self.view_confirmed = False
         self.artifact_stages = []
+        self.recovery_stages = []
         self.claim = claim(self.root.parent, batch_id, revision, case_id, self.root.name) if batch_id else None
         hashes, _ = source_fingerprint()
         hashes.update(frozen_hashes())
@@ -600,7 +609,7 @@ class WorkbenchEvaluation:
             "fixture_version": VERSION, "started_at": now(), "finished_at": now(),
             "code_fingerprint": fingerprint, "dataset_sha256": digest(CASES_PATH), "freeze_claim": self.claim,
             "execution_mode": "live", "entrypoint": "browser", "execution_status": "failed",
-            "model": {"name": "unavailable", "provider": "Codex" if case_id == "S13" else "DeepSeek"},
+            "model": {"name": "unavailable", "provider": "Codex" if case_id in {"S13", "P05"} else "DeepSeek"},
             "usage": None, "elapsed_seconds": 0, "error": None, "review": None,
             "manual_checks": self.case["manual_checks"], "auto_status": "needs_review",
             "dimensions": {key: "needs_review" for key in DIMENSIONS},
@@ -629,6 +638,7 @@ class WorkbenchEvaluation:
         router.get("/__live_eval__/scenario")(self.scenario)
         router.post("/__live_eval__/checkpoint")(self.checkpoint)
         router.post("/__live_eval__/artifact-stage")(self.artifact_stage)
+        router.post("/__live_eval__/recovery-stage")(self.recovery_stage)
         router.post("/__live_eval__/finish")(self.finish_request)
         router.get("/__live_eval__/result")(self.result)
         router.post("/__live_eval__/view")(self.confirm_view)
@@ -663,12 +673,31 @@ class WorkbenchEvaluation:
             "creator_name": "词汇实验室", "creator_id": self.fixture.creator_a,
             "query": self.case["steps"][0]["text"], "skill_names": [s["name"] for s in self.fixture.source_skills],
             "series_name": self.fixture.oracle()["series_name"],
+            "series_id": self.fixture.series_id,
             "expected_images": self.fixture.oracle()["expected_images"]}
         if self.case["id"] == "P03":
             from .artifact_chain import EDIT_NAME, EDIT_MARKER
             value.update(reference_path=str(self.fixture.reference_path), edit_name=EDIT_NAME, edit_marker=EDIT_MARKER,
                          extraction_instruction=self.case["extraction_instruction"], audience=self.fixture.oracle()["audience"])
         return value
+
+    async def recovery_stage(self, request: Request):
+        payload = await request.json()
+        names = ("failed", "restored")
+        if self.case["id"] != "P05" or len(self.recovery_stages) >= 2 or payload.get("name") != names[len(self.recovery_stages)]:
+            raise HTTPException(409, "恢复阶段不能重复或乱序。")
+        state = self.fixture.state()
+        run = self.fixture.runs.get(payload["run_id"])
+        expected = "failed" if payload["name"] == "failed" else "awaiting_approval"
+        if run.status.value != expected or not self.fixture.recovery_probe.injected:
+            raise HTTPException(409, "实际故障/恢复终态尚未发生。")
+        sdk, _ = self.sdk_evidence()
+        stage = {"name": payload["name"], "at": now(), "state": state,
+            "outputs": self.output_evidence(state), "sdk": sdk,
+            "calls": deepcopy(self.fixture.recovery_probe.calls), "network": deepcopy(self.network)}
+        self.recovery_stages.append(stage)
+        write_json(self.root / "recovery_stages.json", self.recovery_stages)
+        return {"captured": True, "name": stage["name"]}
 
     async def artifact_stage(self, request: Request):
         """Evidence-only checkpoint after an actual GUI action; never does that action."""
@@ -790,6 +819,8 @@ class WorkbenchEvaluation:
         from creatoros.integrations.worker_protocol import completed_delivery_turn
         result = {"images": [], "receipt_completed": False, "evidence_complete": False}
         attempts = after["database"]["content_attempts"]
+        if self.case["id"] == "P05":
+            attempts = sorted(attempts, key=lambda row: row["attempt_number"])[-1:]
         if len(attempts) != 1 or not attempts[0].get("output_directory"):
             return result
         directory = Path(attempts[0]["output_directory"])
@@ -885,6 +916,10 @@ class WorkbenchEvaluation:
                     extras.update(artifact_stages=self.artifact_stages, before_catalog=self.before_catalog,
                                   after_catalog=self.fixture.catalog.list(), catalog_prefix=self.fixture.catalog.root.relative_to(self.fixture.root).as_posix() + "/",
                                   global_skills_guard={"before": self.global_skills_before, "after": global_skills_snapshot(PROJECT_ROOT)})
+                if self.case["id"] == "P05":
+                    extras.update(recovery_stages=self.recovery_stages,
+                        recovery_calls=self.fixture.recovery_probe.calls,
+                        recovery_fault=self.fixture.recovery_probe.fault)
             except Exception as error:
                 errors.append({"source": "sdk_or_artifact", "error_type": type(error).__name__, "message": str(error)})
                 sdk_files = []
@@ -895,6 +930,9 @@ class WorkbenchEvaluation:
                 evidence["final_answer"] = extras["jobs"][0].get("note", "")
                 (self.root / "answer.txt").write_text(evidence["final_answer"], encoding="utf-8")
                 self.report["model"] = {"name": "gpt-6-sol", "provider": "Codex Python SDK"}
+            if self.case["id"] == "P05":
+                self.report["model"] = {"name": model_configuration()["production"]["model"], "provider": "Codex Python SDK"}
+                self.report["usage"] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
             evidence["collection_errors"].extend(errors)
             counts = {"session_posts": sum(row["path"] == "/api/agent/sessions" for row in self.network),
                       "turn_posts": sum(row["path"].endswith("/turns") for row in self.network),
@@ -906,7 +944,7 @@ class WorkbenchEvaluation:
                 write_json(self.root / (name + ".json"), value)
             self.report.update(grade_slice(evidence, self.case["id"]))
             self.chain_grade = deepcopy(self.report)
-            terminal_check = "sdk_completed" if self.case["id"] == "S13" else "agent_terminal"
+            terminal_check = "production_terminal" if self.case["id"] == "P05" else "sdk_completed" if self.case["id"] == "S13" else "agent_terminal"
             ended = next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == terminal_check), False)
             if self.case["id"] in PRODUCTION_CASES:
                 ended &= next((row["status"] == "passed" for row in self.report["checks"] if row["id"] == "production_terminal"), False)

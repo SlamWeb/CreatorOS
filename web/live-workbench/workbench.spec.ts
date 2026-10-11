@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readWorkbenchReport } from "./read-report";
 import { readProgress } from "./read-progress";
 import { artifactJourney, type ArtifactScenario } from "./artifact-journey";
+import { recoveryJourney } from "./recovery-journey";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
   const response = await request.get("/__live_eval__/scenario");
@@ -169,7 +170,7 @@ test("real workbench: original GUI → real services → durable evidence → or
       if (scenario.case_id === "P03") {
         await artifactJourney(page, request, info, scenario, browser, reload, () => { refreshing = false; }, imageLoaded);
       }
-      const id = await accountTurn();
+      const id = scenario.case_id === "P05" ? await recoveryJourney(page, request, info, scenario, browser) : await accountTurn();
       if (scenario.case_id === "A14") {
         await expect(page).toHaveURL(url => url.pathname === "/" && url.searchParams.get("series") === id);
         await expect(page.getByRole("heading", { name: scenario.series_name, exact: true })).toBeVisible();
@@ -251,7 +252,7 @@ test("real workbench: original GUI → real services → durable evidence → or
     try {
       Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.run_id,
         scenario.case_id === "S13" ? undefined : scenario.query));
-      await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: true });
+      await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: false });
     } catch (error) { view.error = String(error); }
     const committed = await request.post("/__live_eval__/view", { data: view });
     expect(committed.ok()).toBe(true);

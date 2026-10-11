@@ -1,5 +1,16 @@
 # 账号 Agent Eval v1
 
+## P05 离线恢复 Draft（2026-10-11）
+
+- P03 已有真实完成链，不重复付费；下一小步只接 P05。原 SPA 手动添加一图选题/生产→真实 Codex completed→声明的宿主最终交付失败一次→原 Run 点击恢复→同 Run/Revision 的新 Attempt 离线组装→读图/Prompt/刷新/Eval。此题不经过账号聊天，DS 请求明确为0，不伪造 DeepSeek 轨迹。
+- 故障只在真实 Producer 已返回完整且验证可读的交付后抛 native_delivery_failed；不改 SDK 结果、checkpoint/原图、receipt 或业务恢复逻辑。不是远端故障，也不冒充最终 Run validating 校验异常的恢复能力。
+- 观察真实 native execute/SDK client 开启边界，正常调用原实现；恢复阶段请求必须0。初次失败、恢复后分别持久保存全库/文件/公开SDK事件/计数；检查旧失败 Attempt 原文不变、仅新增同版本一次尝试，图片SHA相同，无批准/发布。缺历史完成证据不可通过。
+- Given 已完成真实一图，When 故障触发，Then 原Run失败可见且仅一次故障；Given 显式恢复，Then 原图复用且SDK入口/新生图为0；Given 缺完成记录/图损坏/新调用/新Revision，Then 判分失败；Given 刷新/返回，Then 同产物且零再提交。
+- 只改评测夹具/读取器/测试，不改业务、Prompt、工具和正式数据。先本地判分正负例及GUI定位预检，再commit/freeze/正式只读before，首尝试retries=0；整轮完成后才改代码，失败原样留账。用量区分初次SDK thread累计、恢复本地耗时与DS0。
+- 冻结前验证：23个本地结构/判分/故障边界测试通过（包含本题缺证据、额外调用、旧文件新增/篡改等负例），覆盖定义17个检查通过；原SPA/真实隔离SQLite手动入队免费预检1/1，生产与模型入口明确禁用，不算模型评测。原SPA build及收费脚本独立严格TS检查通过。
+- 故障位置如实界定：真实 `produce_to` 返回且产物本地校验成功之后、Run提交产物成功状态之前抛一次宿主错误；并非让Run最终`validating`阶段的校验函数失败。恢复新Attempt可能不复制旧SDK回执，判分引用原Attempt的最后turn/回执/事件及同thread与同图摘要，不捏造第二次SDK完成记录。
+- 只接P05一个新概念；旧付费P03等记录、50题规划及正式8765服务不改。此题DeepSeek请求为0，既有P03链的真实DeepSeek证据不继承成此题成绩。
+
 ## P03 V3 原始结果与只读复核（2026-10-11）
 
 - 付费首槽 `eede1b8a2da84d8197102a877be0a924` 已结束，冻结 `artifact-chain-gui-v3-20261011` / 批次 `artifact-chain-v3-20261011`。作品上传、真SDK提炼、编辑v002/刷新、显式入库、单Skill建本账号栏目、真实DS入队/启动、真SDK新题材图片生产、原网页图片/Prompt/Skill/刷新/封面均完成。Run待批准，Attempt成功，不批准不发布。

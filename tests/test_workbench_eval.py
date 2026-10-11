@@ -127,7 +127,7 @@ class WorkbenchGraderTests(unittest.TestCase):
 
     def test_all_fact_chains_remain_pending_independent_quality(self):
         # P03's stage/digest fact and negative cases live in the dedicated module.
-        for case in sorted(workbench.CASES - {"P03"}):
+        for case in sorted(workbench.CASES - {"P03", "P05"}):
             with self.subTest(case=case):
                 report = workbench.grade_slice(grade_facts(case), case)
                 self.assertEqual(report["auto_status"], "needs_review")

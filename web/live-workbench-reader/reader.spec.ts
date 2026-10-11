@@ -3,6 +3,7 @@ import { readWorkbenchReport } from "../live-workbench/read-report";
 import { writeFile } from "node:fs/promises";
 
 test("unpaid original Eval opens full bytes and real DB rows without a rerun", async ({ page, request }, info) => {
+  test.skip(process.env.CREATOROS_WORKBENCH_READ_CASE === "P05" && !process.env.CREATOROS_WORKBENCH_READ_RUN_ID, "另有P05免费入队定位预检");
   const existingRun = process.env.CREATOROS_WORKBENCH_READ_RUN_ID;
   const reportUrl = existingRun ? `/api/eval/runs/${existingRun}` : "/__live_eval__/result";
   const beforeReport = await (await request.get(reportUrl)).text();
