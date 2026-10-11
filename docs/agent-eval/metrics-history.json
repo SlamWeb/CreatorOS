@@ -198,6 +198,38 @@
       "comparable_to_baseline_for_resume_uplift": false,
       "manifest_sha256": "4c9096789323a55ef813aea0a9b0d69a94300f56fee846fb5cac6a084273adfe",
       "run_ids": ["a02b7925f104475b99b250059f8d3e1c"], "report": "ARTIFACT-CHAIN-2026-10-11.md"
+    },
+    {
+      "batch_id": "artifact-chain-v3-20261011", "phase": "baseline", "protocol": "artifact-chain-gui-v3-20261011",
+      "source_commit": "ab3eed9", "cases": 1, "executions": 1, "repeats_per_slot": 1, "entrypoint": "real_frontend",
+      "model": {"outer": "deepseek-v4-flash", "extraction": "gpt-6-sol/high", "production": "gpt-6-luna/xhigh"},
+      "program": {"passed": 0, "failed": 1, "needs_review": 0, "missing": 0, "passed_fraction": "0/1",
+        "checks": {"passed": 25, "failed": 1, "needs_review": 2}, "failure": "eval_view_exact_filename_collision"},
+      "first_attempt_complete_delivery": {"passed": 0, "total": 1},
+      "independent_chain_reading": {"completed": 1, "total": 1, "evaluator": "Codex full evidence reading", "user_signed": false},
+      "independent_reply_reading": {"business_facts_match": true, "response_policy_passed": false,
+        "failures": ["English pre-tool progress", "Internal localhost URL in final body"], "user_signed": false},
+      "read_only_recheck": {"completed": 1, "total": 1, "business_mutations": 0, "new_paid_model_requests": 0,
+        "original_score_unchanged": true, "prior_read_only_screenshot_failure_preserved": true},
+      "deepseek_requests": 3, "deepseek_tool_calls": 2,
+      "deepseek_input_tokens": 21814, "deepseek_output_tokens": 311, "deepseek_total_tokens": 22125,
+      "codex_usage": {
+        "extraction": {"thread_id": "01a12a0f-b552-77c3-8ccf-ac834dcdaa15", "input_tokens": 194051,
+          "cached_input_tokens": 173312, "output_tokens": 4673, "reasoning_output_tokens": 2401, "total_tokens": 198724},
+        "production": {"thread_id": "01a12a11-47d2-7611-8b35-9c24309de30a", "input_tokens": 811499,
+          "cached_input_tokens": 746368, "output_tokens": 18654, "reasoning_output_tokens": 11824, "total_tokens": 830153},
+        "scope": "Thread cumulative; cache/reasoning subsets and last request are not added again. Separate from DeepSeek."
+      },
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false, "elapsed_seconds": 616.11,
+      "real_new_deliverable_images": 1, "completed_image_generation_events": 2, "non_delivered_intermediate_images": 1,
+      "image_api_reference_parameters": "not_observable", "prompt_provenance": "producer_reported_not_image_service_verified",
+      "observation_transport": {"read_errors": 7, "recovered_gets": 7, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "global_skills_unchanged": true,
+      "sdk_external_artifact_files": {"new_files": 2, "location": "user Codex generated_images/thread", "outside_fixture": true},
+      "comparable_to_baseline_for_resume_uplift": false,
+      "incomparability_reason": "Three rounds changed collectors; V3 business chain completed but original Eval failed. Read-only recheck is not a new paid sample or retroactive success.",
+      "manifest_sha256": "824fced0a587f2b311bea774825c649fa93b998473d508b4cbf7b6393b7f2bf8",
+      "run_ids": ["eede1b8a2da84d8197102a877be0a924"], "report": "ARTIFACT-CHAIN-2026-10-11.md"
     }
   ]
 }
