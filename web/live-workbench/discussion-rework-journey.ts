@@ -173,6 +173,15 @@ async function inspectVisibleTrace(page: Page, names: string[], capture: () => P
   await page.getByRole("button", { name: "关闭 Trace" }).click();
 }
 
+export function sentDiscussionQueries(mutations: Array<{ method: string; path: string; body?: string }>, frozen: string[]) {
+  const actual = mutations.filter(row => row.method === "POST" && /^\/api\/agent\/sessions\/[^/]+\/turns$/.test(row.path))
+    .map(row => JSON.parse(row.body ?? "{}").text as unknown);
+  if (actual.length > frozen.length || actual.some((query, index) => typeof query !== "string" || query !== frozen[index])) {
+    throw new Error("实际发送的讨论问题必须是冻结问题的准确前缀；不允许补写未发送的 query 或重放。");
+  }
+  return actual as string[];
+}
+
 export async function discussionJourney(page: Page, request: APIRequestContext, info: TestInfo, scenario: DiscussionScenario,
   browser: BrowserEvidence, reload: () => Promise<void>, endRefresh: () => void) {
   const questions = scenario.discussion_questions;
@@ -212,13 +221,15 @@ export async function discussionJourney(page: Page, request: APIRequestContext, 
       body: sentResponse.request().postDataJSON() });
     await expect.poll(() => panel.locator(".chat-answer").count(), { timeout: 240_000 }).toBe(previousAnswerCount + 1);
     await expect(panel.locator(".agent-composer [role=status]")).toContainText("可以继续对话", { timeout: 240_000 });
-    await expect(panel.getByRole("alert")).toHaveCount(0);
     const answer = await panel.locator(".chat-answer").last().innerText();
     expect(answer.trim()).not.toBe("");
     visibleReplies.push(answer);
     const chatTurn: Record<string, unknown> = { question: questions[turn], visible_reply: answer, trace_visible: false };
     chatTurns.push(chatTurn);
     browser.chat_turns = chatTurns;
+    browser.discussion_alerts = await panel.getByRole("alert").allTextContents();
+    // Preserve what the user actually saw even when the SDK/tool failed.
+    await expect(panel.getByRole("alert")).toHaveCount(0);
     await panel.getByRole("button", { name: "查看回复 Trace" }).last().click();
     const calls: string[] = [];
     toolSets.push(calls);

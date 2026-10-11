@@ -13,7 +13,7 @@ from creatoros.content import SocialContentPack
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.storage import (
     ContentAttempt, ContentAttemptStatus, ContentRevision, ContentRunEvent,
-    ContentRunEventType, ContentRunStatus, TopicSource,
+    ContentRunEventType, ContentRunStatus, Topic, TopicSource, TopicStatus,
 )
 
 P05_RUN = "5bfb85f661504de0bfed17ce88234ee8"
@@ -90,6 +90,8 @@ def seed_existing_delivery(world, content):
         snapshot = source_input
         saved.input_snapshot_json = snapshot
         saved.status = ContentRunStatus.AWAITING_APPROVAL
+        # The reused artifact is already validated; mirror the real validator.
+        session.get(Topic, saved.topic_id).status = TopicStatus.READY
         saved.producer_thread_id = source["production_thread_id"]
         saved.version += 1
         revision = session.query(ContentRevision).filter_by(content_run_id=run.id).one()
@@ -246,13 +248,30 @@ def discussion_rework_checks(evidence, case_id):
         new_run_ids = {item["id"] for item in after.get("content_runs", [])}
         old_topic_ids = {item["id"] for item in before.get("topics", [])}
         new_topic_ids = {item["id"] for item in after.get("topics", [])}
+        expected_topic = oracle.get("expected_after", {}).get("topic_update", {})
+        seed_before = next((item for item in before.get("content_runs", [])
+                            if item["id"] == oracle.get("seed_run_id")), {})
+        target_topic = seed_before.get("topic_id")
+        topics_by_id = {item["id"]: item for item in after.get("topics", [])}
+        topics_ok = bool(target_topic) and expected_topic == {
+            "id": target_topic, "status": "ready", "mutable_columns": ["status", "updated_at"]}
+        for old_topic in before.get("topics", []):
+            actual_topic = topics_by_id.get(old_topic["id"], {})
+            expected_row = dict(old_topic)
+            if old_topic["id"] == target_topic:
+                expected_row["status"] = "ready"
+                if "updated_at" in old_topic:
+                    expected_row["updated_at"] = actual_topic.get("updated_at")
+                    topics_ok &= bool(expected_row["updated_at"])
+            topics_ok &= expected_row == actual_topic
         old_ids_preserved = (old_run_ids == new_run_ids and old_topic_ids == new_topic_ids
-             and before.get("topics", []) == after.get("topics", [])
+             and topics_ok
              and {row(x) for x in old_revisions} <= {row(x) for x in after.get("content_revisions", [])}
              and {row(x) for x in old_attempts} <= {row(x) for x in after.get("content_attempts", [])}
              and {row(x) for x in old_events} <= {row(x) for x in after.get("content_run_events", [])})
         seeded = next((r for r in after.get("content_runs", []) if r["id"] == oracle.get("seed_run_id")), {})
         state_ok = (seeded.get("status") == "awaiting_approval" and seeded.get("active_revision_number") == 2
+                    and seeded.get("topic_id") == target_topic
                     and not seeded.get("approved_revision_id") and not after.get("manual_publications"))
         old_nonseed_runs = [item for item in before.get("content_runs", []) if item["id"] != oracle.get("seed_run_id")]
         final_runs_by_id = {item["id"]: item for item in after.get("content_runs", [])}

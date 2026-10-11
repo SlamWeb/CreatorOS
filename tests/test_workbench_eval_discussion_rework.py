@@ -23,12 +23,13 @@ def _source():
 
 
 def _database():
-    return {"content_runs": [{"id": "run-seed", "status": "awaiting_approval",
+    return {"content_runs": [{"id": "run-seed", "topic_id": "topic-1", "status": "awaiting_approval",
             "active_revision_number": 1, "approved_revision_id": None}],
         "content_revisions": [{"id": "rev-1", "content_run_id": "run-seed", "revision_number": 1}],
         "content_attempts": [{"id": "attempt-1", "revision_id": "rev-1", "attempt_number": 1}],
         "content_run_events": [{"id": "event-1", "content_run_id": "run-seed"}],
-        "topics": [{"id": "topic-1", "title": "seed"}], "manual_publications": []}
+        "topics": [{"id": "topic-1", "title": "seed", "series_id": "series-target",
+                    "status": "queued", "updated_at": "2026-10-11 01:00:00"}], "manual_publications": []}
 
 
 def _p06():
@@ -76,12 +77,15 @@ def _p04():
     after["content_revisions"].append(revision2)
     after["content_attempts"].append(attempt2)
     after["content_run_events"].extend(events)
+    after["topics"][0].update(status="ready", updated_at="2026-10-11 01:01:00")
     event = {"source": "sdk-files/task/codex_public_events.jsonl", "item_type": "imageGeneration", "status": "completed", "thread_id": "thread-new",
         "turn_id": "turn-1", "generation_artifact": {"verified": True, "saved_path": "outputs/new.png", "sha256": HASH_NEW}}
     output = {"thread_id": "thread-new", "delivery_turn_id": "turn-1", "sdk_prefix": "sdk-files/task/",
         "evidence_complete": True, "images": [{"sha256": HASH_NEW, "digest_matches": True, "width": 1024}]}
     return {"oracle": {"seed_run_id": "run-seed", "production_thread_id": "thread-original",
-                "expected_after": {"row_counts": {key: len(value) + {"content_revisions": 1, "content_attempts": 1,
+                "expected_after": {"topic_update": {"id": "topic-1", "status": "ready",
+                    "mutable_columns": ["status", "updated_at"]},
+                    "row_counts": {key: len(value) + {"content_revisions": 1, "content_attempts": 1,
                     "content_run_events": 4}.get(key, 0) for key, value in before.items()}}},
         "before": {"database": before}, "after": {"database": after},
         "browser": {"completed": True, "page_errors": [], "posts_after_refresh": 0},
@@ -169,6 +173,30 @@ class DiscussionReworkGraderTests(unittest.TestCase):
         for evidence, failed_check in cases:
             with self.subTest(failed_check=failed_check):
                 self.assertEqual(self._ids(discussion_rework_checks(evidence, "P04"))[failed_check], "failed")
+
+    def test_p04_topic_ready_is_expected_but_other_mutations_fail(self):
+        mutations = (
+            lambda e: e["after"]["database"]["topics"][0].update(status="queued"),
+            lambda e: e["after"]["database"]["topics"][0].update(title="rewritten"),
+            lambda e: e["after"]["database"]["topics"][0].update(series_id="foreign"),
+            lambda e: e["after"]["database"]["topics"][0].update(updated_at=None),
+            lambda e: e["after"]["database"]["content_runs"][0].update(topic_id="foreign"),
+            lambda e: e["oracle"]["expected_after"]["topic_update"].update(id="foreign"),
+            lambda e: e["oracle"]["expected_after"].pop("topic_update"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                evidence = _p04()
+                mutate(evidence)
+                self.assertEqual(self._ids(discussion_rework_checks(evidence, "P04"))["database_scope"], "failed")
+        evidence = _p04()
+        foreign = {"id": "topic-foreign", "title": "foreign", "status": "queued"}
+        evidence["before"]["database"]["topics"].append(deepcopy(foreign))
+        evidence["after"]["database"]["topics"].append(deepcopy(foreign))
+        evidence["oracle"]["expected_after"]["row_counts"]["topics"] += 1
+        self.assertEqual(self._ids(discussion_rework_checks(evidence, "P04"))["database_scope"], "passed")
+        evidence["after"]["database"]["topics"][1]["status"] = "ready"
+        self.assertEqual(self._ids(discussion_rework_checks(evidence, "P04"))["database_scope"], "failed")
 
 
 if __name__ == "__main__":

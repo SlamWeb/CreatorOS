@@ -4,7 +4,7 @@ import { readWorkbenchReport } from "./read-report";
 import { readProgress } from "./read-progress";
 import { artifactJourney, type ArtifactScenario } from "./artifact-journey";
 import { recoveryJourney } from "./recovery-journey";
-import { discussionJourney, reworkJourney } from "./discussion-rework-journey";
+import { discussionJourney, reworkJourney, sentDiscussionQueries } from "./discussion-rework-journey";
 import { preservePrimaryFailure } from "./preserve-primary-failure";
 
 test("real workbench: original GUI → real services → durable evidence → original Eval", async ({ page, request }, info) => {
@@ -271,9 +271,12 @@ test("real workbench: original GUI → real services → durable evidence → or
       const view: Record<string, unknown> = { run_id: scenario.eval_run_id ?? scenario.run_id, completed: false, evidence_loaded: false };
       try {
         if (scenario.case_id === "P06") expect(scenario.discussion_questions).toHaveLength(2);
+        const actualQuestions = scenario.case_id === "P06"
+          ? sentDiscussionQueries(apiMutations, scenario.discussion_questions!) : undefined;
+        if (scenario.case_id === "P06" && browser.completed) expect(actualQuestions).toEqual(scenario.discussion_questions);
         Object.assign(view, await readWorkbenchReport(page, request, scenario.case_id, scenario.eval_run_id ?? scenario.run_id,
           scenario.case_id === "S13" ? undefined : scenario.case_id === "P06"
-            ? scenario.discussion_questions : scenario.query));
+            ? actualQuestions : scenario.query));
         await page.screenshot({ path: info.outputPath("eval-full-evidence.png"), fullPage: false });
       } catch (error) { view.error = String(error); }
       const committed = await request.post("/__live_eval__/view", { data: view });

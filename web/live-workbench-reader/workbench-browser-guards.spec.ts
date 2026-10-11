@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { expect, request as playwrightRequest, test } from "@playwright/test";
 import { preservePrimaryFailure } from "../live-workbench/preserve-primary-failure";
 import { readTask } from "../live-workbench/read-progress";
+import { sentDiscussionQueries } from "../live-workbench/discussion-rework-journey";
 
 test("readTask recovers a real HTTP reset with GET only", async () => {
   const methods: string[] = [];
@@ -43,4 +44,17 @@ test("finalization error is recorded without replacing the primary journey error
   const result = await preservePrimaryFailure(primary, async () => { throw secondary; }, error => { recorded = error; });
   expect(result).toBe(primary);
   expect(recorded).toBe(secondary);
+});
+
+test("failed discussion reads only sent queries and still rejects altered or repeated inputs", () => {
+  const frozen = ["先看这一版", "继续上一轮"];
+  const post = (text: string) => ({ method: "POST", path: "/api/agent/sessions/session-1/turns", body: JSON.stringify({ text }) });
+  const first = post(frozen[0]);
+  expect(sentDiscussionQueries([], frozen)).toEqual([]);
+  expect(sentDiscussionQueries([first], frozen)).toEqual([frozen[0]]);
+  expect(sentDiscussionQueries([first, post(frozen[1])], frozen)).toEqual(frozen);
+  for (const rows of [[post("改题")], [first, first], [first, post(frozen[1]), post(frozen[1])]]) {
+    expect(() => sentDiscussionQueries(rows, frozen)).toThrow(/准确前缀/);
+  }
+  expect(() => sentDiscussionQueries([{ ...first, body: "{}" }], frozen)).toThrow(/准确前缀/);
 });

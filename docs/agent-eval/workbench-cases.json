@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "creatoros-workbench-v1",
-  "revision": "workbench-slice-v5-discussion-rework",
+  "revision": "workbench-slice-v6-discussion-rework",
   "status": "wired_not_run",
   "cases": [
     {

@@ -310,6 +310,39 @@
       "manifest_sha256": "0945f19727142c4847c34a37faca761add4ab08d44e3d0fd19ee60a3b2802c35",
       "run_ids": ["4b32fc7566b1488c8c2d3a27256896ed", "246a3b6ca93b4940b8fcdb234ea9d75b"],
       "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v2-20261011", "phase": "regression", "protocol": "discussion-rework-gui-v2-20261011",
+      "source_commit": "c416978", "runtime_commit": "1ae2579", "cases": 2, "executions": 2, "repeats_per_slot": 1,
+      "entrypoint": "real_frontend", "case_ids": ["P06", "P04"],
+      "model": {"outer": "deepseek-v4-flash", "discussion": "gpt-6-luna/high", "production": "gpt-6-luna/xhigh", "sdk": "openai-codex 0.157.1"},
+      "program": {"passed": 0, "failed": 2, "needs_review": 0, "missing": 0, "checks": {"passed": 10, "failed": 8, "needs_review": 2}},
+      "browser_suite": {"passed": 0, "failed": 2, "total": 2},
+      "business_chain_completed": {"P06": false, "P04": true, "passed": 1, "total": 2, "user_signed": false},
+      "failure_categories": {
+        "P06": "product_discussion_guard_rejects_normal_userMessage: correct fork and actual LocalImageInput; interrupted before answer",
+        "P04": "eval_fixture_oracle_false_negative: production correctly sets target Topic ready; grader expected whole Topic unchanged",
+        "P06_eval_view": "eval_reader_requires_unsent_second_query; separate from primary product guard failure"
+      },
+      "deepseek_requests": 3, "deepseek_tool_calls": 2, "deepseek_input_tokens": 22303,
+      "deepseek_output_tokens": 494, "deepseek_total_tokens": 22797,
+      "codex_usage": {"P06": null,
+        "P04": {"scope": "thread_cumulative", "thread_id": "01a12b51-1095-71b1-a6ff-af89c2d84c7a",
+          "input_tokens": 353756, "cached_input_tokens": 304128, "output_tokens": 9754, "reasoning_output_tokens": 5303, "total_tokens": 363510},
+        "scope_note": "P06 interrupted before usage; unavailable is not zero. Cached/reasoning are subsets, not extra tokens."},
+      "late_prior_round_observation": {"batch_id": "discussion-rework-v1-20261011", "case_id": "P04", "scope": "partial_after_original_report_cutoff",
+        "input_tokens": 21906, "output_tokens": 429, "total_tokens": 22335, "is_final_usage": false, "original_record_unchanged": true},
+      "cost_cny": null, "codex_usage_included_in_deepseek_total": false, "elapsed_seconds": {"P06": 49.156, "P04": 325.313},
+      "real_new_deliverable_images": 1, "completed_image_generation_events": 1, "content_quality_review": "needs_review",
+      "observation_transport": {"read_errors": 21, "recovered_gets": 21, "business_posts_P04": 2, "business_post_replays": 0},
+      "formal_data": {"unchanged": true, "tables": 14, "files": 654}, "global_skills_unchanged": null,
+      "sdk_external_artifact_files": {"new_files": 1, "outside_fixture": true},
+      "source_and_seed_files_unchanged": true, "freeze_verified_after_round_before_fixes": true,
+      "original_scores_unchanged": true, "comparable_to_baseline_for_resume_uplift": false,
+      "incomparability_reason": "V3 changes fixture, Topic oracle and failure reader; original scores are not retroactively regraded.",
+      "manifest_sha256": "3357d3d9cff015509670d054a2e7cf38a3b87812b9ef597f9961e4bb5e9eba8d",
+      "run_ids": ["425b892b2f464b869266f6869461f482", "b41638b53c06443a8922dd9052993cd0"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]
 }

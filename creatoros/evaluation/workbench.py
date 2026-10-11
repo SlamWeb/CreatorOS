@@ -41,7 +41,7 @@ CASES_PATH = PROJECT_ROOT / "docs/agent-eval/workbench-cases.json"
 OUTPUT_ROOT = PROJECT_ROOT / "data/agent-eval-workbench"
 CASES = {"A14", "S13", "P01", "P02", "P03", "P04", "P05", "P06"}
 PRODUCTION_CASES = {"P01", "P02", "P03", "P04", "P05"}
-VERSION = "workbench-world-v5-discussion-rework"
+VERSION = "workbench-world-v6-discussion-rework"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -734,7 +734,7 @@ class WorkbenchEvaluation:
             counts[table] = counts.get(table, 0) + delta
         initial_run = next(row for row in before["database"]["content_runs"]
                            if row["id"] == self.fixture.seed_run_id)
-        return {"row_counts": counts, "allowed_row_deltas": deltas,
+        expected = {"row_counts": counts, "allowed_row_deltas": deltas,
             "database_mode": "only_declared_row_deltas" if deltas else "unchanged",
             "generated_image_count": 1 if self.case["id"] == "P04" else 0,
             "discussion_record_count": 0 if self.case["id"] == "P04" else 2,
@@ -742,6 +742,10 @@ class WorkbenchEvaluation:
             "run_status": "awaiting_approval" if self.case["id"] == "P04" else initial_run["status"],
             "active_revision_number": 2 if self.case["id"] == "P04" else 1,
             "approved": False, "published": False}
+        if self.case["id"] == "P04":
+            expected["topic_update"] = {"id": initial_run["topic_id"], "status": "ready",
+                                        "mutable_columns": ["status", "updated_at"]}
+        return expected
 
     async def recovery_stage(self, request: Request):
         payload = await request.json()
