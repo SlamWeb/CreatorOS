@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_on": "2026-10-11",
+  "recorded_on": "2026-10-14",
   "policy": "Separate program checks, delivery reading and host navigation. Do not claim a comparable success-rate uplift when collector/grader/protocol changed. Null means not evaluated.",
   "records": [
     {
@@ -415,6 +415,180 @@
       "comparable_to_baseline_for_resume_uplift": false, "incomparability_reason": "V6 corrects delegated-question identity and bounded GUI wait; cannot claim product uplift from changed collector.",
       "manifest_sha256": "f8712c0d3b58dd5e4c659fa4d862173fafbfdc38ef8008894e622a0635b79ffd",
       "run_ids": ["abc0396955ec4e869f023c802dddd8b4", "4c492e056be34379a91e810448b5937f"],
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v6-20261011",
+      "phase": "regression",
+      "protocol": "discussion-rework-gui-v6-20261011",
+      "source_commit": "4c7bd09",
+      "runtime_commit": "bf8a370",
+      "cases": 2,
+      "executions": 2,
+      "entrypoint": "real_frontend",
+      "case_ids": [
+        "P06",
+        "P04"
+      ],
+      "program": {
+        "passed": 0,
+        "failed": 0,
+        "needs_review": 1,
+        "missing": 1
+      },
+      "browser_suite": {
+        "passed": 1,
+        "failed": 0,
+        "incomplete": 1,
+        "total": 2
+      },
+      "per_case": {
+        "P06": {
+          "run_id": "233eff0bf30243b9862d58a88b887d2a",
+          "execution_status": "completed",
+          "checks": {
+            "passed": 10,
+            "failed": 0,
+            "needs_review": 1
+          },
+          "elapsed_seconds": 107.438
+        },
+        "P04": {
+          "run_id": "1e4ffc77f1674125821af85bd66e707f",
+          "observed_outcome": "incomplete_unknown_terminal",
+          "raw_report_execution_status": "failed",
+          "raw_report_auto_status": "needs_review",
+          "raw_elapsed_seconds": 0,
+          "report_is_startup_placeholder": true,
+          "thread_id": "01a12b97-f460-78d3-a901-e0fd396c7f50",
+          "turn_id": "01a12b97-f9a5-76f2-8121-bb06e69e77c9",
+          "sdk_last_status": "running",
+          "checkpoint_completed": false,
+          "root_cause": "unconfirmed",
+          "final_usage_known": false
+        }
+      },
+      "deepseek_requests": 5,
+      "deepseek_tool_calls": 3,
+      "deepseek_input_tokens": 40111,
+      "deepseek_output_tokens": 980,
+      "deepseek_total_tokens": 41091,
+      "codex_usage": {
+        "P06": {
+          "last_model_requests_total_tokens": [
+            61203,
+            69130
+          ],
+          "thread_cumulative_total_tokens": 583098,
+          "inherited_production_total_tokens": 452765,
+          "new_last_requests_total_tokens": 130333
+        },
+        "P04": {
+          "scope": "last_observed_partial_not_final",
+          "input_tokens": 119165,
+          "cached_input_tokens": 91136,
+          "output_tokens": 2614,
+          "reasoning_output_tokens": 1803,
+          "total_tokens": 121779,
+          "is_completed_final_usage": false
+        }
+      },
+      "formal_data": {
+        "unchanged": true,
+        "tables": 14,
+        "files": 654,
+        "after_checked_on": "2026-10-14"
+      },
+      "cost_cny": null,
+      "original_scores_unchanged": true,
+      "comparable_to_baseline_for_resume_uplift": false,
+      "manifest_sha256": "91d101792927ce6049713f1eca414ecf6300596a1343ebb0448996deafb684b6",
+      "report": "DISCUSSION-REWORK-2026-10-11.md"
+    },
+    {
+      "batch_id": "discussion-rework-v6-closeout-20261014",
+      "phase": "regression",
+      "protocol": "discussion-rework-gui-v6-20261011",
+      "source_commit": "4c7bd09",
+      "runtime_commit": "bf8a370",
+      "cases": 1,
+      "executions": 1,
+      "entrypoint": "real_frontend",
+      "case_ids": [
+        "P04"
+      ],
+      "run_ids": [
+        "8eab00360ed24a1bbb15e02c884d813d"
+      ],
+      "model": {
+        "production": "gpt-6-luna/xhigh",
+        "sdk": "openai-codex 0.157.1"
+      },
+      "program": {
+        "passed": 0,
+        "failed": 0,
+        "needs_review": 1,
+        "missing": 0,
+        "checks": {
+          "passed": 8,
+          "failed": 0,
+          "needs_review": 1
+        }
+      },
+      "browser_suite": {
+        "passed": 1,
+        "failed": 0,
+        "total": 1
+      },
+      "original_eval_complete_reading": {
+        "completed": 1,
+        "total": 1
+      },
+      "deepseek_requests": 0,
+      "deepseek_tool_calls": 0,
+      "deepseek_total_tokens": 0,
+      "deepseek_usage_display": "raw null displayed as unavailable despite direct Codex entrypoint",
+      "codex_usage": {
+        "P04": {
+          "scope": "thread_cumulative",
+          "input_tokens": 213297,
+          "cached_input_tokens": 144896,
+          "output_tokens": 12545,
+          "reasoning_output_tokens": 9219,
+          "total_tokens": 225842
+        }
+      },
+      "elapsed_seconds": {
+        "P04": 192.828
+      },
+      "cost_cny": null,
+      "completed_image_generation_events": 1,
+      "real_new_deliverable_images": 1,
+      "content_quality_review": "needs_review",
+      "quality_observation": "2x2 bilingual four-word output; one Chinese sentence per panel; extra School Festival text on poster prop; no approval",
+      "observation_transport": {
+        "read_errors": 0,
+        "business_posts": 2,
+        "business_post_replays": 0
+      },
+      "formal_data": {
+        "unchanged": true,
+        "tables": 14,
+        "files": 654
+      },
+      "sdk_external_artifact_files": {
+        "new_files": 1,
+        "outside_fixture": true
+      },
+      "image_api_reference_parameters": "not_observable",
+      "source_and_seed_files_unchanged": true,
+      "prior_workbench_reports_unchanged": 24,
+      "prior_metrics_records_unchanged": 15,
+      "freeze_verified_after_round_before_fixes": true,
+      "original_scores_unchanged": true,
+      "comparable_to_baseline_for_resume_uplift": false,
+      "scope_decision": "Stop adding cases at 20 distinct scenarios / 21 slots; defer 30 unwired planned scenarios; pivot to interview learning",
+      "manifest_sha256": "91d101792927ce6049713f1eca414ecf6300596a1343ebb0448996deafb684b6",
       "report": "DISCUSSION-REWORK-2026-10-11.md"
     }
   ]

@@ -126,3 +126,44 @@ DS5请求/3工具，输入40,279/输出1,042/总41,321。Codex两turn最后请�
 ### V6 最小改动
 
 只修评测脚本：原用户POST保持逐字/turn核对；实际Trace的讨论工具参数及返回以call_id、turn、目标Run/Revision/digest关联持久化讨论和可见GUI，再检查刷新不丢失/不重提。图片可见与解码等待30秒，无业务或模型重放；坏图、错误对象/消息、缺final/重复、永久失败仍拒绝。先免费正负例、提交/冻结，再从原GUI整轮重跑，不倒改任何历史分数。新轮保护12报告493登记文件。
+
+## V6 实际结果及返工补跑收尾（2026-10-14）
+
+用户要求停止新增样例，完成既有链路后转向面试理解。本轮没有改产品、测试脚本或题目；复用 `discussion-rework-gui-v6-20261011`（源码4c7bd09、运行bf8a370），manifest SHA `91d101792927ce6049713f1eca414ecf6300596a1343ebb0448996deafb684b6`。没有抹掉未完成的旧尝试，也未为凑通过率反复运行整集。
+
+### 10月11日原V6：P06完成，P04终态缺失
+
+- P06 `233eff0bf30243b9862d58a88b887d2a`：Playwright 1 passed（2.6分钟），执行107.438秒，10程序检查通过/0失败/1质量待复核。两条用户query→真实DeepSeek委派→真实Codex fork/续聊及实际附图→两条答复→刷新持久化→原Eval读取完整。数据库14表不变，旧文件/Skill/审批不变，零生图/重复POST。DS5请求/3工具、输入40,111/输出980/总41,091；Codex两turn最后请求61,203与69,130，新增130,333；含继承生产452,765的线程累计583,098，不能重复相加。
+- P04 `1e4ffc77f1674125821af85bd66e707f`：原report只剩初始化的failed/needs_review/elapsed=0及browser_start待检查。执行前快照证明保存queued新版、零Attempt，但随后执行锁已claimed；深查attempt的回执证明SDK已启动，thread `01a12b97-f460-78d3-a901-e0fd396c7f50`、turn `01a12b97-f9a5-76f2-8121-bb06e69e77c9`停在running，checkpoint turn_completed=false、无交付图片。末次活动15:33:18 UTC；partial输入119,165/输出2,614/总121,779（缓存91,136、推理1,803为子集），不是最终用量。旧宿主PID8236现不存在，缺完整浏览器结果/终态，不能确认中断根因，更不能把占位failed解读为已证实SDK失败或零调用。
+- 首次只读查看忽略了被Git忽略的fixture/outputs目录，暂时只看到执行前快照；补查实际attempt后以上述回执纠正，未改原证据。旧V6跨日正式before/after核对仍14表/654文件相同。
+
+### 10月14日只补P04：同协议、独立新批、真实GUI
+
+批次 `discussion-rework-v6-closeout-20261014`，Eval `8eab00360ed24a1bbb15e02c884d813d`。不重用旧独占槽，不把新结果倒填旧记录。原SPA真实点击：
+
+1. 打开既有第1版，核对来源图SHA；输入“这一版中文解释太长，保留四格/角色，每格中文缩成一句；只生成一张新版。”
+2. 保存返工：POST revisions 201，只新增第2版queued，零新Attempt/SDK；刷新不提交，旧图及旧记录仍一致。
+3. 明确点击执行：POST execute 202，同Run新增一个Attempt；实际Codex新thread/turn，读取Skill/参考图、调研、生成一张新图并完成交付。
+4. 页面切换旧/新版本、Prompt与Skill、刷新新图；磁盘/HTTP/可见图SHA相同，旧图SHA未变。再在原Eval逐项读取执行步骤、14表预期实际、SDK事件与用量。
+
+Playwright `1 passed (3.4m)`，业务采集192.828秒，原报告completed/needs_review，8程序检查通过/0失败/1质量待复核。业务Run `96582314-f9e7-40b4-90e8-5cbdaa652a82`，新版 `514950dd-5452-4b39-b869-1e3071417570`，新Attempt `99a0e938-f1dd-42ba-92c3-922903bcd3c8`。SDK thread `01a136b7-8df6-7a02-bfcb-26c2b91d25a3`、turn `01a136b7-9190-78f3-a3df-1443f07bd8ce` completed；一生图item的started/completed两事件不能算两次生图。
+
+数据库预期与实际：Run数1不变、Revision1→2、Attempt1→2、事件2→6；仅目标Run/Topic正常字段更新，其余账号/栏目/表与旧版本不变。终态awaiting_approval，未批准未发布；2个业务POST、刷新重提0、GET观察无传输错误。source_files_unchanged及seed_revision_files_unchanged均true。
+
+本题是UI直接生产，DS请求0（report.usage=null在UI仍显示“未记录”，这是已有展示缺口）。SDK累计输入213,297（缓存144,896）/输出12,545（推理9,219）/合计225,842，费用未记录。只有1张新交付图1122×1402、SHA `52cef487bdce9c1cfd174f5ee24db21543daff65fcb9d303d86fd071ef9a0938`；SDK还在用户generated_images目录写入原图，位于夹具外，非正式CreatorOS业务数据。参考参数not_observable，Prompt为producer报告。
+
+独立看图：四格、四词、中英解释、每格一句中文与无总标题可见；海报道具仍有额外“School Festival”文字，Codex也公开指出且没有自动重画。不能因此宣布视觉完全合规或长期角色一致，质量保持待复核。只读浏览器复查可见真实query、完整生产turn、225,842用量、14表预期实际和8/9检查；部分步骤的检查关联仍显示“没有对应的程序检查”，不隐藏展示缺口。
+
+### 保存与停止边界
+
+- 整轮结束后源码验冻通过；本日批次正式before/after14表/654文件完全一致。既有24份工作台report SHA逐一相同，旧15轮metrics对象不变，只追加记录；没有在业务目录修数据或覆盖失败报告。
+- 本次只是P04补跑，不能和P06不同时间执行拼成“本轮2/2”或总体成功率提升；不能把8个检查当8个新测试任务。现有20个不同场景/21槽全部已有运行记录，不等于全部通过；历史失败、未完成和质量边界保留。
+- 停止新增案例/扩建50题规划，也不继续为刷绿而付费重复。后续优先从现有代码和失败证据练习职责分工、作用域、状态机、恢复和评测口径。
+
+只读打开本次证据（不运行模型、不恢复旧任务）：
+
+```powershell
+& 'D:/Anaconda4.7g/envs/deepcode/python.exe' -m creatoros.evaluation.workbench view --run-id 8eab00360ed24a1bbb15e02c884d813d --port 8903
+```
+
+访问 `http://127.0.0.1:8903/eval?case=P04&run=8eab00360ed24a1bbb15e02c884d813d`。若端口已由只读viewer占用，直接打开，不另起正式服务。
