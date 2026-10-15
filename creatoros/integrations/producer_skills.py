@@ -22,6 +22,8 @@ from creatoros.skills.loader import SkillLoader, _NAME_PATTERN
 
 
 _SKILL_EDIT_LOCK = RLock()
+# Local extraction may retain twenty 4 MiB references plus supporting resources.
+MAX_LOCAL_SKILL_BYTES = 96 * 1024 * 1024
 
 
 class SkillDigestConflict(ValueError):
@@ -660,7 +662,7 @@ class ProducerSkillCatalog:
             raise ValueError("本地 Skill 必须是普通目录，不能是符号链接。")
         source = source.resolve(strict=True)
 
-        # Match the existing Git import bounds and reject all linked/escaping entries.
+        # Local extraction has a larger byte budget; linked/escaping entries stay forbidden.
         entries, total_bytes = 0, 0
         for path in source.rglob("*"):
             entries += 1
@@ -675,8 +677,8 @@ class ProducerSkillCatalog:
                 total_bytes += path.stat().st_size
             elif not path.is_dir():
                 raise ValueError("Skill 只允许普通文件和目录。")
-            if total_bytes > 32 * 1024 * 1024:
-                raise ValueError("Skill 超过 32 MiB，请拆分目录后再导入。")
+            if total_bytes > MAX_LOCAL_SKILL_BYTES:
+                raise ValueError("Skill 超过 96 MiB，请拆分目录后再导入。")
 
         initial_digest = _digest(source)
         loader = SkillLoader([source])

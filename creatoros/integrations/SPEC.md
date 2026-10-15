@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 同类作品批量提炼（2026-10-15）
+
+- Skill 页面提炼/API/通用 `extract_skills_from_artifact` 工具统一最多 20 张参考图，每张仍最多 4 MiB。`MAX_REFERENCE_IMAGES` 为后端单一数量定义；普通聊天附件及会话图片提炼工具仍为 6 张，不扩大 DeepSeek 单轮图片上下文。
+- 用户选择的完整有序 upload_ids 被复制为 reference-01…reference-20，进入同一个提炼任务和同一个 Codex turn 的 LocalImageInput 列表；没有分批模型请求、静默截断或自动重试。纯文案仍可提炼；重复图 ID、21 张、同幂等 ID 改顺序拒绝。
+- 原生草稿与本地 Skill 注册共用 96 MiB 上限，覆盖 20 × 4 MiB 原图及配套文件，防止上传成功却在草稿或入库时碰到旧 32 MiB 限制。文件数量/路径安全/人工确认入库规则不变。GitHub 下载包和 Skill 融合来源的 32 MiB 上限保持不变，不将两种来源约束混为一谈。
+- `python -m unittest tests.test_extraction_batch -v`：3/3 通过（6.276 秒）。实际隔离 loopback HTTP 完成 20 次上传→单次提炼 handoff→草稿→显式入库，逐字节核对 20 个 assets 及顺序；21 张在 worker 前拒绝；大于旧 32 MiB 的本地目录可注册，大于 96 MiB 的草稿/注册均拒绝。
+- `tests.smoke_skill_draft_files`、`tests.smoke_skill_extraction`、`tests.smoke_producer_skills`、`tests.smoke_skill_merge` 通过。SDK 转换测试确认一个 turn 完整携带 20 个有序 LocalImageInput；此项及 HTTP 测试使用声明的受控提炼器验证本地接线，不计作真实 Codex 质量验收。真实前端/模型验证另见 web/SPEC.md；正式数据未修改。
+
 ## V3 真实返工 Checkpoint 替换失败与 V4 Draft（2026-10-11）
 
 - P04 真生图后 NativeProgress 写 native_checkpoint.json 时 `*.json.tmp -> *.json` 得到 WinError5，collector未完成/receipt failed，产物保留。V3整轮结束并验冻/正式数据守卫通过后才修，原失败不能以现存图片改判成功。

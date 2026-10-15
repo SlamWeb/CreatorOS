@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { FileImage, FileText } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
 import type { ExtractedSkillDraft, ProducerSkillItem, SkillExtractionFile, SkillExtractionMode } from "../api/types";
 import { ExtractionActivity } from "./ExtractionActivity";
+import { ExtractionImagePicker, MAX_EXTRACTION_IMAGES } from "./ExtractionImagePicker";
 import "./artifact-skill-extraction.css";
 
 const modeLabels: Record<SkillExtractionMode, string> = {
@@ -102,7 +103,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const requestIdRef = useRef<string | null>(null);
   const reviseRequestIdRef = useRef<string | null>(null);
   const trialRequestIdRef = useRef<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadProgress, setUploadProgress] = useState("");
+  const createLock = useRef(false);
   const uploadedFilesRef = useRef<File[]>([]);
   const uploadedIdsRef = useRef<string[]>([]);
 
@@ -169,7 +171,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       const text = sourceText.trim();
       if (!files.length && !text) throw new Error("请上传至少一张图片，或粘贴参考文案。");
       if (text.length > 20000) throw new Error("参考文案最多 20,000 字符。");
-      if (files.length > 6) throw new Error("最多选择 6 张图片。");
+      if (files.length > MAX_EXTRACTION_IMAGES) throw new Error("最多选择 20 张图片。");
       const allowed = new Set(["image/png", "image/jpeg", "image/webp"]);
       for (const file of files) {
         if (!allowed.has(file.type)) throw new Error(`${file.name} 不是 PNG、JPEG 或 WebP 图片。`);
@@ -180,22 +182,25 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       requestIdRef.current ??= crypto.randomUUID().replaceAll("-", "");
       for (let index = uploadedIdsRef.current.length; index < files.length; index += 1) {
         const file = files[index];
+        setUploadProgress(`正在上传 ${index + 1} / ${files.length}…`);
         const uploaded = await studioApi.uploadSkillExtractionImage({ name: file.name, data_base64: await toBase64(file) });
         uploadedIdsRef.current.push(uploaded.id);
       }
+      setUploadProgress("正在提交提炼…");
       return studioApi.createSkillExtraction({
         request_id: requestIdRef.current, upload_ids: [...uploadedIdsRef.current], source_text: text,
         mode, instruction: instruction.trim(),
       });
     },
     onSuccess: async job => {
-      setFiles([]); setSourceText(""); if (fileInputRef.current) fileInputRef.current.value = "";
+      setFiles([]); setSourceText("");
       resetCreateAttempt(); setPanelError("");
       setNewWorkOpen(false);
       setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
       await Promise.all([cache.setQueryData(["skill-extraction", job.id], job), cache.invalidateQueries({ queryKey: ["skill-extractions"] })]);
     },
     onError: error => setPanelError(error.message),
+    onSettled: () => { createLock.current = false; setUploadProgress(""); },
   });
 
   const updateDraft = useMutation({
@@ -272,9 +277,6 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const selectedSkillDocument = selectedSkill ? splitFrontmatter(selectedSkill.skill_md) : null;
   const trialEligible = activeJob?.status === "ready" && draftSkills.some(skill => skill.output_kind === "image-carousel" && skill.role !== "mind");
   const isStaleDraft = Boolean(activeJob?.digest && draftBaseDigest && draftBaseDigest !== activeJob.digest);
-  const imageSummary = files.length ? `${files.length} 张图片 · ${(files.reduce((total, file) => total + file.size, 0) / 1024 / 1024).toFixed(1)} MiB` : "";
-  const previews = useMemo(() => files.map(file => URL.createObjectURL(file)), [files]);
-  useEffect(() => () => previews.forEach(url => URL.revokeObjectURL(url)), [previews]);
 
   useEffect(() => {
     let current = true;
@@ -311,20 +313,13 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       <div className="extraction-new-work">
         <button type="button" className="extraction-new-trigger" aria-expanded={newWorkOpen} aria-controls={newWorkId}
           onClick={() => setNewWorkOpen(value => !value)}>新作品<span>{newWorkOpen ? "收起" : "添加"}</span></button>
-        <form id={newWorkId} hidden={!newWorkOpen} onSubmit={event => { event.preventDefault(); setPanelError(""); create.mutate(); }}>
+        <form id={newWorkId} hidden={!newWorkOpen} onSubmit={event => {
+          event.preventDefault(); if (createLock.current) return;
+          createLock.current = true; setPanelError(""); create.mutate();
+        }}>
         <fieldset disabled={create.isPending}>
-          <label className="extraction-label">参考图片（可选）
-            <input ref={fileInputRef} aria-label="参考图片" type="file" accept="image/png,image/jpeg,image/webp" multiple
-              onChange={event => {
-                const selectedFiles = Array.from(event.currentTarget.files ?? []);
-                resetCreateAttempt(); setPanelError(selectedFiles.length > 6 ? "最多选择 6 张图片；请重新选择。" : "");
-                setFiles(selectedFiles.slice(0, 6));
-              }} />
-          </label>
-          <p className="extraction-help">PNG、JPEG、WebP；最多 6 张，每张 4 MiB。{imageSummary && ` 已选 ${imageSummary}。`}</p>
-          {files.length > 0 && <div className="extraction-thumbnails" aria-label="已选图片">
-            {files.map((file, index) => <figure key={`${file.name}-${index}`}><img src={previews[index]} alt={file.name} /><figcaption>{file.name}</figcaption></figure>)}
-          </div>}
+          <ExtractionImagePicker files={files} disabled={create.isPending} onError={setPanelError}
+            onChange={next => { if (!createLock.current) { resetCreateAttempt(); setFiles(next); } }} />
           <label className="extraction-label">参考文案（可选）
             <textarea aria-label="参考文案" rows={5} maxLength={20000} value={sourceText}
               onChange={event => { resetCreateAttempt(); setSourceText(event.target.value); }} placeholder="粘贴作品文案" />
@@ -342,7 +337,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         </fieldset>
         <button className="button button-primary" disabled={create.isPending || draftDirty || (!files.length && !sourceText.trim())}
           title={draftDirty ? "请先保存草稿或明确丢弃修改" : undefined}>
-          {create.isPending ? "上传并提交中…" : "开始提炼"}
+          {create.isPending ? uploadProgress || "上传并提交中…" : "开始提炼"}
         </button>
         </form>
       </div>

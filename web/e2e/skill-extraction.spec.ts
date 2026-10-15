@@ -178,7 +178,7 @@ async function installControlledApi(page: Page, initialStatus = "ready", dropFir
 async function submitOneImage(page: Page, instruction = "保持克制") {
   await page.goto("/skills");
   await page.getByRole("button", { name: "从作品提炼" }).click();
-  await page.getByLabel("参考图片").setInputFiles({ name: "参考.png", mimeType: "image/png", buffer: tinyPng });
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles({ name: "参考.png", mimeType: "image/png", buffer: tinyPng });
   await page.getByLabel("提炼要求").fill(instruction);
   await page.getByRole("button", { name: "开始提炼" }).click();
 }
@@ -192,6 +192,109 @@ test("long real-world draft paths wrap inside the mobile extraction detail", asy
   await expect(page.getByText(note, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "SKILL.md", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("batch image selection appends drops, previews, removes and submits one ordered task", async ({ page }, info) => {
+  const api = await installControlledApi(page);
+  const uploads: string[] = [];
+  await page.route("**/api/skill-extractions/uploads", async route => {
+    const name = route.request().postDataJSON().name;
+    uploads.push(name);
+    await route.fulfill({ json: { id: name, name, url: `/api/skill-extractions/uploads/${name}` } });
+  });
+  await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  await page.screenshot({ path: info.outputPath("batch-empty-desktop.png"), fullPage: true });
+  const samples = await page.evaluate(() => Array.from({ length: 15 }, (_, index) => {
+    const canvas = document.createElement("canvas"); canvas.width = 180; canvas.height = 240;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = `hsl(${index * 24},60%,85%)`; ctx.fillRect(0, 0, 180, 240);
+    ctx.fillStyle = "#163655"; ctx.font = "24px sans-serif"; ctx.fillText(`SAMPLE ${index + 1}`, 16, 130);
+    return canvas.toDataURL("image/png").split(",")[1];
+  }));
+  const images = samples.map((data, index) => ({ name: `work-${index + 1}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64") }));
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles(images);
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(15);
+  const drop = await page.evaluateHandle(data => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([Uint8Array.from(atob(data), c => c.charCodeAt(0))], "dropped.png", { type: "image/png" }));
+    return transfer;
+  }, tinyPng.toString("base64"));
+  await page.getByRole("group", { name: "参考图片上传区" }).dispatchEvent("drop", { dataTransfer: drop }); await drop.dispose();
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(16);
+  await page.getByRole("button", { name: "移除 work-3.png", exact: true }).click();
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(15);
+  const popupPromise = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "预览 work-1.png", exact: true }).click();
+  const popup = await popupPromise; await popup.waitForLoadState(); expect(popup.url()).toMatch(/^blob:/); await popup.close();
+  await page.screenshot({ path: info.outputPath("batch-selected-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("batch-selected-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  const expected = [...images.filter(item => item.name !== "work-3.png").map(item => item.name), "dropped.png"];
+  expect(uploads).toEqual(expected);
+  const creates = api.posts.filter(item => item.path === "/api/skill-extractions");
+  expect(creates).toHaveLength(1); expect(creates[0].body.upload_ids).toEqual(expected);
+  await page.reload(); await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+});
+
+test("batch picker rejects excess and invalid files without truncating existing selection", async ({ page }) => {
+  await installControlledApi(page); await page.goto("/skills");
+  await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  const input = page.getByLabel("参考图片", { exact: true });
+  await input.setInputFiles(Array.from({ length: 20 }, (_, i) => ({ name: `${i}.png`, mimeType: "image/png", buffer: tinyPng })));
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(20);
+  await input.setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: tinyPng });
+  await expect(page.getByRole("alert")).toContainText("本次未添加");
+  await input.setInputFiles({ name: "wrong.txt", mimeType: "text/plain", buffer: Buffer.from("wrong") });
+  await expect(page.getByRole("alert")).toContainText("请选择 PNG");
+  await input.setInputFiles({ name: "large.png", mimeType: "image/png", buffer: Buffer.alloc(4 * 1024 * 1024 + 1) });
+  await expect(page.getByRole("alert")).toContainText("每张最多 4 MiB");
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(20);
+});
+
+test("partial batch upload preserves files and resumes without reuploading completed images", async ({ page }) => {
+  const api = await installControlledApi(page);
+  const uploaded: string[] = []; let fail = true;
+  await page.route("**/api/skill-extractions/uploads", async route => {
+    const name = route.request().postDataJSON().name; uploaded.push(name);
+    if (name === "second.png" && fail) { fail = false; await route.abort("failed"); return; }
+    await route.fulfill({ json: { id: name, name, url: `/api/skill-extractions/uploads/${name}` } });
+  });
+  await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "second.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(2);
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(0);
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  expect(uploaded).toEqual(["first.png", "second.png", "second.png"]);
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
+});
+
+test("pending batch upload locks selection and duplicate form submission", async ({ page }) => {
+  const api = await installControlledApi(page);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/skill-extractions/uploads", async route => {
+    await gate;
+    await route.fulfill({ json: { id: "locked.png", name: "locked.png", url: "/api/skill-extractions/uploads/locked.png" } });
+  });
+  await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles({ name: "locked.png", mimeType: "image/png", buffer: tinyPng });
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  try {
+    await expect(page.getByRole("button", { name: "正在上传 1 / 1…", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "继续添加", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "移除 locked.png", exact: true })).toBeDisabled();
+    await page.getByLabel("参考图片", { exact: true }).evaluate(input => input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(0);
+  } finally { release(); }
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
 });
 
 test("uploads, creates one persisted job, resumes after refresh, previews and confirms save", async ({ page }, testInfo) => {

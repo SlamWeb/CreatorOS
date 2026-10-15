@@ -94,8 +94,11 @@ def main():
         from creatoros.integrations import skill_extraction
         sdk_root = root / "sdk-job"
         sdk_root.mkdir()
-        sdk_image = root / "sdk-reference.png"
-        Image.new("RGB", (8, 8), "white").save(sdk_image, format="PNG")
+        sdk_images = []
+        for index in range(20):
+            sdk_image = root / f"sdk-reference-{index:02d}.png"
+            Image.new("RGB", (8, 8), (index, 0, 0)).save(sdk_image, format="PNG")
+            sdk_images.append(sdk_image)
         sdk_calls = {}
 
         class Input:
@@ -130,7 +133,7 @@ def main():
              patch.object(skill_extraction, "_production_client", fake_client), \
              patch.object(skill_extraction, "collect_observed_turn", new=lambda *_: _completed_turn()):
             sdk_result = asyncio.run(skill_extraction.sdk_extract(
-                sdk_root, [sdk_image], "single", "extract reusable method", threading.Event(),
+                sdk_root, sdk_images, "single", "extract reusable method", threading.Event(),
                 lambda value: sdk_calls.__setitem__("thread_id", value)))
         assert sdk_calls["thread_id"] == "sdk-thread"
         assert sdk_calls["thread_controls"]["cwd"] == str((sdk_root / "draft").resolve())
@@ -138,7 +141,8 @@ def main():
         assert sdk_calls["turn_controls"]["sandbox"] == "workspace_write"
         assert "output_schema" not in sdk_calls["thread_controls"]
         assert "output_schema" not in sdk_calls["turn_controls"]
-        assert [type(item).__name__ for item in sdk_calls["inputs"]] == ["TextInput", "LocalImageInput"]
+        assert [type(item).__name__ for item in sdk_calls["inputs"]] == ["TextInput"] + ["LocalImageInput"] * 20
+        assert [item.value for item in sdk_calls["inputs"][1:]] == [str(path.resolve()) for path in sdk_images]
         assert sdk_result.note == "说明来自最终响应，不是 JSON"
         assert sdk_result.skills[0].name == "legacy-end-to-end-skill"
         assert sdk_result._directories["legacy_end_to_end"] == sdk_root / "draft" / "skill"

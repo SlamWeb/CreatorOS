@@ -22,3 +22,22 @@ npx --prefix web playwright test --config web/live-images/playwright.config.ts
 图片提炼是另一个显式付费入口：设置 `CREATOROS_IMAGES_EXTRACT_SESSION` 为本隔离账号已上传两图的会话 ID，清除 `CREATOROS_IMAGES_REVIEW_REPORT`，再运行同一命令。只创建草稿，不入库、不试产、不生图。等待最多 10 分钟；超时或失败保留原 Job，不能自动重提。要检查同一提炼任务，额外设置 `CREATOROS_IMAGES_EXTRACTION_JOB`，测试会只读取原会话链接而不再发送用户指令。
 
 浏览器证据每次写入独立 `web/tmp/live-images-browser-时间戳/`，业务记录保存真实 Session、Turn、Job、Run ID。断言脚本错误与模型/业务错误需分别报告，不能通过覆盖旧报告抹去失败。
+
+## 15 图批量提炼（显式付费）
+
+先在另一个终端启动独立服务（不能复用正式数据根）：
+
+```powershell
+& 'D:/Anaconda4.7g/envs/deepcode/python.exe' -m tests.live_chat_images --serve --root D:/CreatorOS/tmp/live-extraction-batch-20261015 --port 8905
+```
+
+再从仓库根目录执行：
+
+```powershell
+$env:CREATOROS_BATCH_IMAGES = '1'
+$env:CREATOROS_IMAGES_ROOT = 'D:/CreatorOS/tmp/live-extraction-batch-20261015'
+$env:CREATOROS_IMAGES_URL = 'http://127.0.0.1:8905'
+npx --prefix web playwright test --config web/live-images/playwright.config.ts
+```
+
+真实网页多选 15 张测试色块图 → 逐张上传 → 单次提交真实 Codex → 检查 ready、草稿中的全部 15 图、刷新不重提。仅提炼草稿，不入库、不试产、不生图；样本用于链路验收，不代表复杂作品提炼质量。证据写入 `batch-evidence.json`，最多等 10 分钟，失败不自动重发；重跑本命令会创建新付费任务，已有结果应通过原 Job URL 只读查看。完成后清除 `CREATOROS_BATCH_IMAGES` 环境变量，以恢复默认聊天测试。

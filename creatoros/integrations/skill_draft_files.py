@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from ..skills.loader import SkillLoader
-from .producer_skills import _digest, freeze_skill
+from .producer_skills import MAX_LOCAL_SKILL_BYTES, _digest, freeze_skill
 
 MODE_FOLDERS = {"single": ["skill"], "mind": ["mind"], "visual": ["visualize"],
                 "pair": ["mind", "visualize"]}
@@ -21,8 +21,8 @@ def checked_folder(path: Path, root: Path) -> Path:
             size += entry.stat().st_size
         elif not entry.is_dir():
             raise ExtractionError("Skill 只允许普通文件和目录。")
-        if entries > 2000 or size > 32 * 1024 * 1024:
-            raise ExtractionError("草稿 Skill 超过文件数量或 32 MiB 限制。")
+        if entries > 2000 or size > MAX_LOCAL_SKILL_BYTES:
+            raise ExtractionError("草稿 Skill 超过文件数量或 96 MiB 限制。")
     return path
 
 

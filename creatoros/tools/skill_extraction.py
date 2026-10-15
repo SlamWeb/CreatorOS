@@ -4,14 +4,14 @@ from pathlib import Path
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from creatoros.integrations.skill_extraction import DraftSkill
+from creatoros.integrations.skill_extraction import DraftSkill, MAX_IMAGE, MAX_REFERENCE_IMAGES
 
 from .builtins import _is_sensitive_path, _project_root
 from .results import ToolResult
 from .studio import _call
 
-MAX_IMAGE_BYTES = 4 * 1024 * 1024
-MAX_IMAGE_COUNT = 6
+MAX_IMAGE_BYTES = MAX_IMAGE
+MAX_IMAGE_COUNT = MAX_REFERENCE_IMAGES
 _IMAGE_SIGNATURES = {
     ".jpg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
     ".jpeg": ("image/jpeg", lambda data: data.startswith(b"\xff\xd8\xff")),
@@ -80,7 +80,7 @@ class EditExtractedSkillsArgs(SaveExtractedSkillsArgs):
 
 def _read_reference_images(image_paths, context=None):
     if not 1 <= len(image_paths) <= MAX_IMAGE_COUNT:
-        return ToolResult("参考图数量必须为 1–6 张。", True, "invalid_arguments")
+        return ToolResult(f"参考图数量必须为 1–{MAX_IMAGE_COUNT} 张。", True, "invalid_arguments")
     if context is not None and context.archive_only_reads:
         return ToolResult("此 Web 会话不能读取本机项目路径；请先在 Skill 页面上传参考图，再使用 upload_ids。",
                           True, "path_out_of_scope")
@@ -131,7 +131,7 @@ def extract_skills_from_artifact(image_paths=None, request_id=None, mode="single
             return images
         local_uploads = images
     elif upload_ids is not None and not 1 <= len(upload_ids) <= MAX_IMAGE_COUNT:
-        return ToolResult("参考图数量必须为 1–6 张。", True, "invalid_arguments")
+        return ToolResult(f"参考图数量必须为 1–{MAX_IMAGE_COUNT} 张。", True, "invalid_arguments")
 
     def submit(client):
         resolved_upload_ids = list(upload_ids or [])

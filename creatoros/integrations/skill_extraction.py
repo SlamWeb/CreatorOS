@@ -29,6 +29,7 @@ from .production_progress import ProgressWriter, collect_observed_turn, read_obs
 from .extraction_activity import ExtractionActivity, safe_text
 
 MAX_IMAGE = 4 * 1024 * 1024
+MAX_REFERENCE_IMAGES = 20
 EXTRACTION_MODEL = "gpt-6-sol"
 EXTRACTION_EFFORT = "high"
 LOG = logging.getLogger(__name__)
@@ -379,10 +380,10 @@ class SkillExtractionService:
 
     def submit(self, request_id, upload_ids=None, mode="single", instruction="", source_text=""):
         upload_ids = upload_ids or []
-        if (mode not in MODE_ROLES or not (upload_ids or source_text.strip()) or len(upload_ids) > 6
+        if (mode not in MODE_ROLES or not (upload_ids or source_text.strip()) or len(upload_ids) > MAX_REFERENCE_IMAGES
                 or len(set(upload_ids)) != len(upload_ids) or not request_id.strip()
                 or len(request_id) > 128 or len(instruction) > 4000 or len(source_text) > 20000):
-            raise ExtractionError("请选择 1–6 张不同参考图及有效提炼模式。")
+            raise ExtractionError(f"请提供文案或 1–{MAX_REFERENCE_IMAGES} 张不同参考图，并选择有效提炼模式。")
         job_id = hashlib.sha256(request_id.encode()).hexdigest()
         inputs = {"request_id": request_id, "upload_ids": upload_ids, "mode": mode, "instruction": instruction, "source_text": source_text}
         digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()

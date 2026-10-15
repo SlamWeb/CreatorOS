@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import Field, model_validator
 
-from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE
+from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE, MAX_REFERENCE_IMAGES
 from .schemas import WriteRequest
 
 
@@ -16,7 +16,7 @@ class Upload(WriteRequest):
 
 class Extract(WriteRequest):
     request_id: str = Field(min_length=1, max_length=128)
-    upload_ids: list[str] = Field(default_factory=list, max_length=6)
+    upload_ids: list[str] = Field(default_factory=list, max_length=MAX_REFERENCE_IMAGES)
     source_text: str = Field(default="", max_length=20000)
     mode: Literal["pair", "mind", "visual", "single"] = "single"
     instruction: str = Field(default="", max_length=4000)
