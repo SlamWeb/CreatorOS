@@ -10,10 +10,11 @@ import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchA
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
 import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditHandoff";
 import { chatHref, type ChatLink } from "../components/chatLinks";
+import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
-  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[] };
+  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[]; attachments?: ChatAttachment[] };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
@@ -24,6 +25,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
+  read_image: "看图片", extract_skill_from_images: "提炼 Skill", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
@@ -64,12 +66,23 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [attachmentDrafts, setAttachmentDrafts] = useState<Record<string, ChatAttachment[]>>({});
+  const [uploading, setUploading] = useState(false);
+  const uploadLock = useRef(false);
+  const sendLock = useRef(false);
+  const viewRef = useRef("");
   const scopeKeyRef = useRef("");
   const creatorScopeId = requestedCreatorId;
   const scopeKey = creatorScopeId ? `creator:${creatorScopeId}` : "overview";
   scopeKeyRef.current = scopeKey;
   const draft = drafts[scopeKey] ?? readSessionValue(draftStorageKey(scopeKey));
   const id = standalone ? params.get("chat") : ((selectedChats[scopeKey] ?? readSessionValue(selectedChatStorageKey(scopeKey))) || null);
+  viewRef.current = `${scopeKey}:${id ?? "new"}`;
+  const attachments = id ? (attachmentDrafts[id] ?? readAttachmentDraft(id)) : [];
+  const saveAttachments = (sessionId: string, next: ChatAttachment[]) => {
+    writeAttachmentDraft(sessionId, next);
+    setAttachmentDrafts(previous => ({ ...previous, [sessionId]: next }));
+  };
   const error = errors[scopeKey] ?? "";
   const updateDraft = useCallback((scope: string, value: string) => {
     setDrafts(previous => ({ ...previous, [scope]: value }));
@@ -175,35 +188,63 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   useEffect(() => {
     if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [doc]);
-  const send = useMutation({
-    retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey }: { text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string }) => {
-      const target = current ?? await request<Session>(base, { method: "POST", body: JSON.stringify({ creator_id: scopeCreatorId }) });
-      const targetCreatorId = target.scope_kind === "creator" ? target.creator_id : null;
-      if (targetCreatorId !== scopeCreatorId || target.scope_kind !== (scopeCreatorId ? "creator" : "overview")) {
-        throw new Error("会话账号范围与当前选择不一致，已停止发送。请返回对应账号后打开正确的对话。");
-      }
-      if (!current) {
-        cache.setQueryData(["agent-session", submittedScopeKey, target.id], target);
+  const ensureSession = async (current: Session | undefined, scopeCreatorId: string | null, submittedScopeKey: string, sourceView: string) => {
+    const target = current ?? await request<Session>(base, { method: "POST", body: JSON.stringify({ creator_id: scopeCreatorId }) });
+    const targetCreatorId = target.scope_kind === "creator" ? target.creator_id : null;
+    if (targetCreatorId !== scopeCreatorId || target.scope_kind !== (scopeCreatorId ? "creator" : "overview")) {
+      throw new Error("会话账号范围与当前选择不一致，已停止发送。请返回对应账号后打开正确的对话。");
+    }
+    if (!current) {
+      cache.setQueryData(["agent-session", submittedScopeKey, target.id], target);
+      // Late uploads may finish after the user switches account or conversation.
+      // Keep their original session, but never navigate the new view backwards.
+      if (viewRef.current === sourceView) {
         writeSessionValue(selectedChatStorageKey(submittedScopeKey), target.id);
         setSelectedChats(previous => ({ ...previous, [submittedScopeKey]: target.id }));
-        if (standalone && scopeKeyRef.current === submittedScopeKey) {
-          setParams(previous => {
-            const next = new URLSearchParams(previous);
-            next.set("chat", target.id);
-            if (scopeCreatorId) next.set("creator", scopeCreatorId);
-            else next.delete("creator");
-            return next;
-          });
-        }
+        if (standalone) setParams(previous => {
+          const next = new URLSearchParams(previous);
+          next.set("chat", target.id);
+          if (scopeCreatorId) next.set("creator", scopeCreatorId); else next.delete("creator");
+          return next;
+        });
       }
+      void cache.invalidateQueries({ queryKey: ["agent-sessions", submittedScopeKey] });
+    }
+    return target;
+  };
+  const addImages = async (files: File[]) => {
+    if (!files.length || uploadLock.current || sendLock.current || cannotSend || (id && !doc) || doc?.status === "running") return;
+    if (attachments.length + files.length > MAX_CHAT_IMAGES) { updateError(scopeKey, "每条消息最多 6 张图片，请移除部分图片后再添加。"); return; }
+    const invalid = files.map(imageFileError).find(Boolean);
+    if (invalid) { updateError(scopeKey, invalid); return; }
+    uploadLock.current = true; setUploading(true); updateError(scopeKey, "");
+    const sourceView = viewRef.current;
+    let fileName = "图片";
+    try {
+      const target = await ensureSession(doc, creatorId, scopeKey, sourceView);
+      const next = [...attachments];
+      for (const file of files) {
+        fileName = file.name;
+        const image = await request<ChatAttachment>(`${base}/${target.id}/attachments`, { method: "POST", body: JSON.stringify({ name: file.name, data_base64: await imageBase64(file) }) });
+        if (!next.some(item => item.id === image.id)) next.push(image);
+        saveAttachments(target.id, [...next]);
+      }
+    } catch (e) {
+      updateError(scopeKey, `${fileName} 上传失败：${e instanceof Error ? e.message : "请重新选择图片。"} 已上传的图片仍保留，请重新选择失败的图片。`);
+    } finally { uploadLock.current = false; setUploading(false); }
+  };
+  const send = useMutation({
+    retry: false,
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds }: { text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string; sourceView: string; imageIds: string[] }) => {
+      const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       return request<Session>(`${base}/${target.id}/turns`, { method: "POST", body: JSON.stringify({
-        text, request_id: crypto.randomUUID(), expected_version: target.version,
+        text, request_id: crypto.randomUUID(), expected_version: target.version, attachment_ids: imageIds,
       }) });
     },
     onSuccess: (next, variables) => {
       cache.setQueryData<Session>(["agent-session", variables.submittedScopeKey, next.id], old => newestSession(old, next));
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
+      saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
       updateError(variables.submittedScopeKey, "");
       if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
       void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
@@ -212,10 +253,12 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       updateError(variables.submittedScopeKey, `${e.message} 没有自动重试；请先检查对话与运行记录。`);
       void cache.invalidateQueries({ queryKey: ["agent-session", variables.submittedScopeKey] });
     },
+    onSettled: () => { sendLock.current = false; },
   });
   const submit = () => {
-    if (!draft.trim() || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
-    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey });
+    if ((!draft.trim() && !attachments.length) || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
+    sendLock.current = true;
+    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id) });
   };
   const chooseSession = (next: string | null) => {
     updateError(scopeKey, ""); setHistoryOpen(false);
@@ -269,12 +312,18 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
+      {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending}
+        remove={imageId => { if (id) saveAttachments(id, attachments.filter(image => image.id !== imageId)); }} />}
       <textarea aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={2}
-        onChange={e => updateDraft(scopeKey, e.target.value)} onKeyDown={e => {
+        onChange={e => updateDraft(scopeKey, e.target.value)} onPaste={e => {
+          const files = Array.from(e.clipboardData.items).filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter((file): file is File => !!file);
+          if (files.length) { e.preventDefault(); void addImages(files); }
+        }} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
-      <div><span role="status">{send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]} · Enter 发送</span>
-        <button className="button button-primary" disabled={!draft.trim() || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
+      <div><ImagePicker disabled={uploading || send.isPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
+        <span className="agent-compose-status" role="status">{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]} · Enter 发送</span>
+        <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     </div>
@@ -282,7 +331,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
 }
 
 function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionId: string; sessionStatus: string }) {
-  if (entry.kind === "user") return <div className="chat-user">{entry.text}</div>;
+  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}</div>;
   if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,

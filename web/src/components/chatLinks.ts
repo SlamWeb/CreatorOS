@@ -9,9 +9,12 @@ export function chatHref(href: string | undefined, links: ChatLink[], origin: st
     if (url.username || url.password || !["http:", "https:"].includes(url.protocol)) return null;
     const pathname = decodeURIComponent(url.pathname);
     if (/[\\\s]/.test(pathname)) return null;
+    const extraction = pathname === "/skills" && url.searchParams.has("extraction");
+    if (extraction && (!/^[a-f0-9]{64}$/.test(url.searchParams.get("extraction") ?? "")
+      || [...url.searchParams.keys()].length !== 1 || url.hash)) return null;
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     const managed = /^\/(?:api\/)?(?:series\/series-[A-Za-z0-9_-]+|runs\/[a-f0-9-]{36})(?:\/|$)/i.test(pathname)
-      || links.some(link => pathname === new URL(link.url, origin).pathname);
+      || extraction || links.some(link => pathname === new URL(link.url, origin).pathname);
     const internal = url.origin === origin || loopback || managed;
     if (internal || !/^https?:\/\//.test(href)) {
       const path = `${url.pathname}${url.search}${url.hash}`;

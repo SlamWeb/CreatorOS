@@ -14,6 +14,12 @@ MAX_MODEL_TOOL_RESULT_CHARS = 16_000
 
 def estimate_tokens(value) -> int:
     """Conservative provider-independent estimate; not a tokenizer result."""
+    def count_images(item):
+        if isinstance(item, dict):
+            return (1536 if item.get("type") == "image_ref" else 0) + sum(count_images(v) for v in item.values())
+        if isinstance(item, (list, tuple)):
+            return sum(count_images(v) for v in item)
+        return 0
     serialized = json.dumps(
         value,
         ensure_ascii=False,
@@ -23,7 +29,28 @@ def estimate_tokens(value) -> int:
     )
     ascii_chars = sum(character.isascii() for character in serialized)
     non_ascii_chars = len(serialized) - ascii_chars
-    return max(1, math.ceil(ascii_chars / 4) + non_ascii_chars)
+    return max(1, math.ceil(ascii_chars / 4) + non_ascii_chars + count_images(value))
+
+
+def project_image_history(messages):
+    """Keep recent images within transport budget; older refs remain re-readable."""
+    projected = deepcopy(list(messages))
+    remaining = 24 * 1024 * 1024  # base64 expands to <=32 MiB, leaving room for text
+    for message in reversed(projected):
+        if not isinstance(message.get("content"), list):
+            continue
+        for index in range(len(message["content"]) - 1, -1, -1):
+            block = message["content"][index]
+            if block.get("type") != "image_ref":
+                continue
+            ref = block["attachment"]
+            size = ref.get("size", 4 * 1024 * 1024)
+            if size <= remaining:
+                remaining -= size
+            else:
+                message["content"][index] = {"type": "text", "text":
+                    f"[历史图片本次未载入；需要细节请 read_image 重读] {ref['name']}；附件ID：{ref['id']}"}
+    return projected
 
 
 def project_tool_result_content(

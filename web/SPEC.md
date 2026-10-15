@@ -1,5 +1,18 @@
 # CreatorOS Studio Web SPEC
 
+## Agent 图片输入（2026-10-15，完成）
+
+- 沿用聊天布局/配色，支持输入框 Ctrl+V 图片和选择文件；图片缩略图可移除，上传进度/错误就地显示；文本粘贴、中文输入法 Enter 保持。
+- 先创建并绑定 Session 再上传；上传中不能发送，失败保留草稿；切账号/历史不串附件，图片自身不触发提炼、导入或发布。
+- 已发送图片显示于用户消息，刷新可见；Trace 展示图片引用/受控缩略图，不展开 Base64。图片-only 消息允许发送。
+- Given 两图 When 粘贴并发送 Then 单次 POST 附件ID+文字且真实模型能比较；Given 上传失败 Then 错误可见并保留文本；Given 切账号/会话 Then 无串图；Given 刷新 Then 原消息图片仍可读且无重提。桌面/390px行为与截图分别验收。
+- 前端支持同会话重复图片按附件 ID 去重，最多 6 图、每图 4 MiB；只把附件 metadata 存 sessionStorage，不存 Base64。上传中禁发、同步重复发送保护、历史与账号切换、发送失败保留、图片-only 提交及已发送附件刷新可见均已验收。Trace 阅读模式展示当前会话受控图片引用，原始消息按需查看，拒绝外站或其他会话图片 URL。
+- 最终 `npm run build` / `typecheck` 通过；聊天图片、账号聊天、回复 Trace、权威链接与提炼 UI 受控回归 **25/25（1.1 分钟）**，明确不计真实模型 Eval 分数。受控测试使用真实 Chromium 剪贴板 `Ctrl+V`，模型/上传故障为故障注入；账号和历史切换、重复附件、文件大小/数量、长路径手机回归单独覆盖。
+- 隔离服务 `8905`、独立数据根 `tmp/live-chat-images-20261015` 上完成 **4 个真实 DeepSeek 用户 Turn + 1 次真实 Codex 提炼**：网页 Ctrl+V 两图并正确比较文字/颜色 → 实际读取 Skill 参考图后仅添加指定规则 → 导入蓝图成为待验收 Run（未批准、未发布、无生图）→ 原两图提炼为单 Skill 草稿。草稿 `SKILL.md` 和两个 assets 均经前端实际打开；未入库、未试产，正式数据未改。
+- 真实 Session `d1ff74f4-59de-4909-b088-bb676293a669`，导入 Run `26614d74-dd9d-412d-87ad-45a0b7a0f47e`，提炼 Job `5b31bc96fa792bda49e29ec6d517dcf66e24498a84015d8c8e5980dc55a03d3d`。脚本及续查方式在 `web/live-images/`，与普通 E2E/既有 Eval 分离；证据每轮唯一输出，不覆盖原失败。
+- 初始验收脚本先后出现空格不兼容（`ALPHA73` vs 实际 `ALPHA 73`）、标题 h1/h3 重名定位、Trace 固定图片数（模型实际回读产生重复消息块）的误报，业务已成功；修正采集断言后仅 GET 原 Session/Run/Job，不重发付费任务。实际产品缺陷是提炼完成说明含长 Windows 路径，隐式 Grid 最小内容宽使手机页面 `804 > 390`；限定提炼 CSS 为 `minmax(0,1fr)` 和自然换行，并加同路径回归，不隐藏正文。
+- 导入最终只读验收 **1 通过 / 1 跳过（3.9 秒）**，提炼最终只读验收 **1 通过 / 2 跳过（15.8 秒）**，跳过项为明确不重跑的付费流程。桌面 1440×900 / 手机 390×844 截图已采集；最终原图加载与提炼窄屏证据在 `web/tmp/live-images-browser-1792051542380/chat-images.live-existing--28e21--saving-or-trial-production/`，含 `vision-desktop-loaded.png`、`extraction-desktop.png`、`extraction-mobile.png` 和布局断言。主线程复核截图；Impeccable harden/craft-floor 用于错误与作用域保护，单次检测为空，既有主包 >500 kB 警告未处理。
+
 ## 纯 Codex Eval 链路投影（2026-10-11，完成）
 
 - 只读展示已有真实证据：GUI 输入 → Codex thread/turn 的公开 item → 宿主失败/恢复 → 数据库与产物 → 分阶段用量。混合任务保留 DeepSeek 请求链，纯 Codex 不要求不存在的聊天回复。旧报告、评分、失败与证据字节不变，不改业务接口。

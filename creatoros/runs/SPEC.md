@@ -131,3 +131,11 @@
 - native 生产中的预览可以更新；完成后才冻结。SDK 已完成但旧宿主误拒收的交付，显式恢复创建同 Revision 的新 Attempt，核验最新 work 后离线组装，原失败 Attempt/日志保留。取消状态不能因文件存在而恢复。
 - Web production_progress 在 Run 已终结时由数据库状态校准，不继续展示旧进度文件中的 running；GET 不修改文件或数据库版本。
 - 回归：smoke_worker_delivery、smoke_studio_production_progress、smoke_content_run_service、smoke_studio_executor、smoke_studio_run_api 通过；真实历史隔离回放见 docs/single-thread-production/SPEC.md。
+
+## 外部图片导入（2026-10-15）
+
+- 增加明确 `external-import` 输入协议：图片来自会话附件，不声称由栏目 Skill/Codex 生成；复用 SocialContentPack、Run、Revision、Attempt 与原图校验，状态直接为待人工验收。不会批准或发布。
+- 入口按账号及栏目校验，当前会话与宿主请求 ID 绑定幂等；文件验证后才一次事务写入 Topic/Run/Revision/Attempt/事件。失败可留下未登记的导入目录，但不留下半条业务记录。
+- 外部导入拒绝生产、恢复与自动返工，防止旧入口误调 Codex；仍可查看、人工批准、取消/移除。
+- 验证：隔离 SQLite 与真实本地 HTTP；图片为本地测试夹具，不调用付费生成模型。
+- 实测 `tests.smoke_chat_image_actions`、`tests.smoke_content_run_service`、`tests.smoke_studio_artifacts` 通过；包含损坏图片零业务记录、目录逃逸及链接拒绝。失败保留未登记目录供诊断，不自动清理或冒充验收成功；可在确认不属于任何 Revision 后人工回收。

@@ -12,7 +12,7 @@ class RunModel(BaseModel):
 
 
 class ContentRunInput(RunModel):
-    production_protocol: Literal["legacy", "native-v1"] = "legacy"
+    production_protocol: Literal["legacy", "native-v1", "external-import"] = "legacy"
     creator_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_name: str = Field(min_length=1)
@@ -32,6 +32,10 @@ class ContentRunInput(RunModel):
 
     @model_validator(mode="after")
     def binding(self):
+        if self.production_protocol == "external-import":
+            if self.skill_name is not None or self.composition is not None:
+                raise ValueError("外部导入产物不能声称由栏目 Skill 生成。")
+            return self
         if (self.skill_name is None) == (self.composition is None):
             raise ValueError("Run 必须有单 Skill 或完整双 Skill 快照，不能同时存在。")
         return self

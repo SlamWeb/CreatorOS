@@ -395,6 +395,8 @@ class ContentRunService:
             content_run = self._require(repository, run_id)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再返工。")
+            if content_run.input_snapshot_json.get("production_protocol") == "external-import":
+                raise ContentRunError("外部导入作品不支持自动返工，请修改后重新导入。", code="external_import_readonly")
             if session.get(TopicRemoval, content_run.topic_id) is not None:
                 raise ContentRunError("选题已移除，不能创建返工版本。", code="topic_removed")
             if content_run.status not in {
@@ -513,6 +515,8 @@ class ContentRunService:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
+            if content_run.input_snapshot_json.get("production_protocol") == "external-import":
+                raise ContentRunError("外部导入作品不进入生产执行器。", code="external_import_readonly")
             if session.get(TopicRemoval, content_run.topic_id) is not None:
                 raise ContentRunError("选题已移除，不能启动或恢复生产。", code="topic_removed")
             if expected_version is not None and content_run.version != expected_version:

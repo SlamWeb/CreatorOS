@@ -24,6 +24,7 @@ class DeepSeekProvider:
         reserve_output_tokens=DEEPSEEK_RESERVE_OUTPUT_TOKENS,
         timeout_seconds=None,
         max_retries=2,
+        image_resolver=None,
     ):
         client_options = {"api_key": api_key, "base_url": "https://api.deepseek.com", "max_retries": max_retries}
         if timeout_seconds is not None:
@@ -32,11 +33,27 @@ class DeepSeekProvider:
         self.model = model
         self.context_window = context_window
         self.reserve_output_tokens = reserve_output_tokens
+        self.image_resolver = image_resolver
 
     def _to_openai_messages(self, messages):
         converted = []
         for message in messages:
+            message = {key: value for key, value in message.items() if key != "creatoros_source"}
             if message.get("role") != "assistant":
+                message = dict(message)
+                if isinstance(message.get("content"), list):
+                    blocks = []
+                    for block in message["content"]:
+                        if block.get("type") == "image_ref":
+                            if message.get("role") != "user" or self.image_resolver is None:
+                                raise ValueError("当前请求未配置安全图片读取。")
+                            reference = block["attachment"]
+                            blocks.append({"type": "text", "text": f"图片：{reference['name']}；附件ID：{reference['id']}"})
+                            blocks.append({"type": "image_url", "image_url": {
+                                "url": self.image_resolver(reference), "detail": "original"}})
+                        else:
+                            blocks.append(block)
+                    message["content"] = blocks
                 converted.append(message)
                 continue
 

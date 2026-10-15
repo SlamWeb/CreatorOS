@@ -22,6 +22,10 @@ from .models import (
     ZhihuSearchArgs,
 )
 from .content import produce_content_pack
+from .chat_images import (
+    ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs,
+    read_image, extract_skill_from_images, import_content_images,
+)
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
 from .zhihu import get_zhihu_hot_list, search_zhihu
@@ -202,6 +206,9 @@ tool_registry = {
         Tool(name="get_content_discussion", description="读取同一 Run 的讨论历史与任务状态，不调用模型或重复提交。", execute=get_content_discussion, args_model=GetContentDiscussionArgs),
         Tool(name="request_content_revision", description="仅在用户明确要求返工时调用；按当前 Run version 创建待执行 revision，不会执行生产、批准或发布。先查最新 Run 取得 expected_version。", execute=request_content_revision, args_model=RequestContentRevisionArgs),
         Tool(name="get_creator_tasks", description="读取账号现有调研、生产与讨论任务摘要；只投影已有记录，不创建或改变任务状态。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
+        Tool(name="read_image", description="实际查看当前会话附件、当前账号 Skill 的参考图或指定产物版本的图片。按返回的附件看图，不猜测图片内容；不接受任意本地路径。", execute=read_image, args_model=ReadImageArgs),
+        Tool(name="extract_skill_from_images", description="按用户要求从当前聊天图片提炼 Skill 草稿。不会自动入库、组栏目或生产；沿用同一任务查看结果。", execute=extract_skill_from_images, args_model=ExtractSkillImagesArgs),
+        Tool(name="import_content_images", description="用户明确表示图片已是成品时，按顺序导入指定栏目成为待人工验收内容。不是生图队列，不调用 Codex、不批准、不发布。", execute=import_content_images, args_model=ImportContentImagesArgs),
         Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
              execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),
         Tool(name="get_skill_extraction", description="查询提炼任务或列出历史任务；ready 只表示草稿可预览。先展示 Skill 草稿并等待用户明确确认，不能把提炼结果当作已入库。",

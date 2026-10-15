@@ -1,5 +1,17 @@
 # CreatorOS Web API SPEC
 
+## 聊天图片附件（2026-10-15，真实链路验证完成）
+
+- 用户授权代写：聊天 Ctrl+V/选图上传、DeepSeek 实际看图、查产物/参考图后由 CreatorOS 修改 Skill；Codex 不承担已有 Skill 修改。图片也可显式提炼 Skill 或导入指定栏目待人工验收，不自动生图、批准、发布。
+- 附件保存到具体 Session 目录，账本及 Trace 只记录附件引用；Provider 发请求时解析为图像内容，不把 Base64 写入会话或 SSE。最多 6 张/次、4 MiB/张，校验真实格式、尺寸、摘要和路径；跨 Session 附件拒绝。
+- Web 视觉模型使用官方文档明确支持图片的 deepseek-flash；其他 CLI/解析模型默认不变。用户上传是数据，不是系统指令；模型只能经受控工具读现有 Skill/Run 图片。
+- 同 request_id 的文本和附件顺序必须一致；未知发送结果不自动重提。已发送图可刷新查看；失败保留前端草稿。上下文预算计入图片，摘要保留引用不冒充已看细节。
+- 验收：隔离 HTTP 校验图片/越权/幂等/重启、消息及 Trace 无 Base64；受控 Provider 仅用于故障与接线；另从真实前端粘贴两图请求真实 DeepSeek 验证。正式数据不改。
+- 实际链路：Chromium Ctrl+V 两图 → deepseek-flash 正确比较文字/颜色 → read_image 看 Skill 参考图并保存指定的一行修改 → 原图导入栏目、Run 为 awaiting_approval → 聊天提炼、真实 Codex 生成可浏览的单 Skill 草稿及两份 assets。没有自动入库、生图、批准、发布。隔离会话 `d1ff74f4-59de-4909-b088-bb676293a669`，导入 Run `26614d74-dd9d-412d-87ad-45a0b7a0f47e`，提炼 job `5b31bc96fa792bda49e29ec6d517dcf66e24498a84015d8c8e5980dc55a03d3d`；原始证据留在忽略目录 `tmp/live-chat-images-20261015`，不是新的 Eval 分数。
+- 故障/边界回归：附件单测 16/16、真实 loopback HTTP/SQLite 图片与业务 smoke 通过；覆盖损坏 JPEG、伪造元数据、Windows junction、同摘要重传修复、跨会话拒绝、异文重放冲突。受控 Provider 仅测接线与故障，不算真实视觉质量。
+- 读图的宿主消息标记为 tool_images，API 请求去掉内部标记，压缩不把它当新用户轮；完整工具批次与原用户要求保留。7 项原压缩回归、Web 聊天、回复 Trace、账号隔离/会话、原产物服务/读取 smoke 通过。传输预算保留最近 24 MiB 图像，旧图保留可重读引用；图片 token 是估算而非计费用量。
+- 复现入口：`python -m tests.live_chat_images --serve --root <仓库>/tmp/<新隔离目录> --port 8905`，然后运行 `web/live-images` 的显式真实浏览器测试（会调用收费模型）；原报告可只读复验，不重发 query。不启动正式 8765、不覆盖历史 Eval。
+
 ## 任务筛选与显式扩展 Eval 数据集（2026-10-11）
 
 - GET 账号任务允许 statuses 重复查询参数（1–14 个合法状态），默认行为不变；先按账号/栏目筛对象，再过滤状态，再计算统计，拒绝非法/空状态，不放宽其他账号访问。

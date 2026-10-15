@@ -83,6 +83,11 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         data = json.loads(content)
         if not isinstance(data, dict):
             return []
+        if name in {"extract_skill_from_images", "get_skill_extraction", "save_extracted_skills", "edit_extracted_skills"} and not is_error:
+            identity = data.get("id")
+            if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):
+                return [{"url": f"/skills?extraction={identity}", "label": "查看 Skill 草稿", "source_tool": name}]
+            return []
         if name in {"research_series_topics", "get_topic_research"}:
             if data.get("status") not in {"ready", "researching", "queued", "failed", "unknown", "interrupted", "stale"}:
                 return []
@@ -106,7 +111,7 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             kind, rows = "series", [data]
         elif name == "prepare_topic_selection":
             kind, rows = "preview", [data]
-        elif name in {"start_content_run", "get_content_run", "request_content_revision"}:
+        elif name in {"start_content_run", "get_content_run", "request_content_revision", "import_content_images"}:
             kind, rows = "production", [data]
         else:
             return []

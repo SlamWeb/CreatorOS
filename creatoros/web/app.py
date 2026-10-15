@@ -64,6 +64,7 @@ from .artifacts import StudioArtifacts
 from .run_routes import review_routes
 from .static import mount_studio
 from .chat import AgentChatService
+from .chat_image_actions import chat_image_action_routes
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
 from .account_context import CreatorContextBuilder
@@ -182,6 +183,7 @@ def create_app(
     app.include_router(research_routes(research, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(chat_routes(chat))
+    app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))
 
     @app.middleware("http")

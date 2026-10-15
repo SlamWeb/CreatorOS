@@ -62,6 +62,17 @@ class AgentScopeGuard:
 
         method, path = request.method.upper(), request.url.path
 
+        # Image actions bind their own resource checks to this exact conversation.
+        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|import)", path)
+        if image_action and method == "POST":
+            return None if image_action.group(1) == session_id else self._denied()
+        extraction = re.fullmatch(r"/api/skill-extractions/([a-f0-9]{64})(?:/(draft|save|cancel|events)(?:/[0-9]+)?)?", path)
+        if extraction:
+            from .chat_image_actions import owns_extraction
+            readable = method == "GET" and extraction.group(2) in {None, "events"}
+            writable = method == "POST" and extraction.group(2) in {"draft", "save", "cancel"}
+            return None if (readable or writable) and owns_extraction(self.chat, extraction.group(1), session_id) else self._denied()
+
         # The shared catalog is read-only and has no account-owned records.
         if method == "GET" and path == "/api/producer-skills":
             return None

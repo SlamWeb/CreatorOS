@@ -537,6 +537,8 @@ class StudioQueryService:
 
     @staticmethod
     def _run_actions(run: ContentRun) -> list[str]:
+        if run.input_snapshot_json.get("production_protocol") == "external-import":
+            return ["approve", "cancel"] if run.status is ContentRunStatus.AWAITING_APPROVAL else ["view"]
         if run.status is ContentRunStatus.QUEUED:
             return ["execute", "cancel"]
         if run.status is ContentRunStatus.INTERRUPTED or (run.status is ContentRunStatus.FAILED and run.retryable):

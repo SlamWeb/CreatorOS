@@ -145,3 +145,11 @@
 ## 生产 Skill Tool（2026-09-08）
 
 - install_producer_skill / get_skill_install / list_producer_skills 通过同一 StudioClient 暴露给 Web/CLI；安装返回句柄，不轮询等待、不生成或自动绑定。retry=true 只用于用户明确重试失败/中断。验收见 docs/agent-studio/producer-skills/SPEC.md。
+
+## 会话图片工具（2026-10-15）
+
+- `read_image` 仅允许当前会话附件、账号已绑定 Skill 参考图、账号所属 Run 的指定版本图片。读取真实受检图像后登记为当前会话附件；ToolResult.details.image_attachments 交由宿主显式加入模型上下文，文本结果不包含图片字节。
+- `extract_skill_from_images` 把当前会话图片提交既有提炼器，草稿仍需用户审核后入库；任务所有权另存于会话根的 image-extractions，账号 Agent 不获得全局提炼任务列表。
+- `import_content_images` 导入已完成作品为待验收内容，不是生图队列。宿主绑定 session/turn 幂等，模型不可选择其他会话或任意路径。
+- 隔离回归包含实际 HTTP 图片读取、账号拒绝、幂等导入、待验收状态、图片可读、批准校验及禁止生产/返工；正式数据不变。
+- `tests.smoke_chat_image_actions` 已通过：Skill 图片按绑定账号读取、非图片/越界拒绝、ToolResult 图片引用、跨会话隔离、提炼任务所有权、外部成品事务与文件校验。此项是工具/HTTP 回归，不冒充真实模型视觉或提炼质量验收。

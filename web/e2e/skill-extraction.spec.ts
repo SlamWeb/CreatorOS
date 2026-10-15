@@ -183,6 +183,17 @@ async function submitOneImage(page: Page, instruction = "保持克制") {
   await page.getByRole("button", { name: "开始提炼" }).click();
 }
 
+test("long real-world draft paths wrap inside the mobile extraction detail", async ({ page }) => {
+  await installControlledApi(page);
+  const note = `已完成草稿：D:/CreatorOS/tmp/isolated/studio-producer-skills/extractions/jobs/${"a".repeat(64)}/draft/skill/SKILL.md；未入库。`;
+  await page.route("**/api/skill-extractions/extract-e2e", route => route.fulfill({ json: fakeJob("ready", { note }) }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/skills?extraction=extract-e2e");
+  await expect(page.getByText(note, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SKILL.md", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test("uploads, creates one persisted job, resumes after refresh, previews and confirms save", async ({ page }, testInfo) => {
   const api = await installControlledApi(page);
   await submitOneImage(page);

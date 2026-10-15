@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, X } from "lucide-react";
 import { request } from "../api/client";
+import { ChatImages, isSessionAttachment } from "./AgentAttachments";
 
 type TraceRequest = {
   request_id: string;
@@ -110,7 +111,7 @@ export function ChatTrace({ sessionId, turnId, requestId, incomplete }: {
             {!selected.snapshot_available && <p className="chat-trace-state">这一步没有保存上下文快照；旧记录不会补造。</p>}
             {selected.snapshot_available && snapshot.isPending && <p role="status">正在读取这一步的上下文快照…</p>}
             {selected.snapshot_available && snapshot.isError && <div className="chat-trace-state" role="alert"><p>快照读取失败：{snapshot.error.message}</p><button type="button" onClick={() => void snapshot.refetch()}>重试</button></div>}
-            {snapshot.data && <SnapshotView key={selected.request_id} data={snapshot.data} />}
+            {snapshot.data && <SnapshotView key={selected.request_id} data={snapshot.data} sessionId={sessionId} />}
           </section>}
         </>}
       </div>
@@ -118,7 +119,7 @@ export function ChatTrace({ sessionId, turnId, requestId, incomplete }: {
   </>;
 }
 
-function SnapshotView({ data }: { data: TraceSnapshot }) {
+function SnapshotView({ data, sessionId }: { data: TraceSnapshot; sessionId: string }) {
   const [tab, setTab] = useState<"context" | "output" | "tools">("context");
   const messages = data.context.messages ?? [];
   const system = messages.filter(message => message.role === "system" || message.role === "developer");
@@ -133,7 +134,7 @@ function SnapshotView({ data }: { data: TraceSnapshot }) {
     </div>
     <section className="chat-trace-tab-panel" id={`${tabId}-panel`} role="tabpanel"
       aria-labelledby={`${tabId}-${tab}-tab`}>
-      {tab === "context" && <ContextView data={data} system={system} history={history} />}
+      {tab === "context" && <ContextView data={data} system={system} history={history} sessionId={sessionId} />}
       {tab === "output" && <OutputView data={data} />}
       {tab === "tools" && <ToolsView data={data} />}
     </section>
@@ -168,7 +169,7 @@ function RequestMetadata({ step }: { step: TraceRequest }) {
   </details>;
 }
 
-function ContextView({ data, system, history }: { data: TraceSnapshot; system: TraceMessage[]; history: TraceMessage[] }) {
+function ContextView({ data, system, history, sessionId }: { data: TraceSnapshot; system: TraceMessage[]; history: TraceMessage[]; sessionId: string }) {
   const [mode, setMode] = useState<"reading" | "raw">("reading");
   return <>
     <div className="chat-trace-message-toolbar" role="group" aria-label="消息显示方式">
@@ -177,12 +178,12 @@ function ContextView({ data, system, history }: { data: TraceSnapshot; system: T
     </div>
     <div className="chat-trace-subsection">
       <h4>System / Developer</h4>
-      {system.length ? system.map((message, i) => <ContextMessage key={i} message={message} mode={mode} />)
+      {system.length ? system.map((message, i) => <ContextMessage key={i} message={message} mode={mode} sessionId={sessionId} />)
         : <p className="chat-trace-state">没有单独记录的 system / developer 消息。</p>}
     </div>
     <div className="chat-trace-subsection">
       <h4>对话消息</h4>
-      {history.length ? history.map((message, i) => <ContextMessage key={i} message={message} mode={mode} />)
+      {history.length ? history.map((message, i) => <ContextMessage key={i} message={message} mode={mode} sessionId={sessionId} />)
         : <p className="chat-trace-state">没有对话消息。</p>}
     </div>
     <div className="chat-trace-subsection"><h4>工具 Schema · {data.context.tools.length}</h4>
@@ -192,16 +193,23 @@ function ContextView({ data, system, history }: { data: TraceSnapshot; system: T
   </>;
 }
 
-function ContextMessage({ message, mode }: { message: TraceMessage; mode: "reading" | "raw" }) {
+function ContextMessage({ message, mode, sessionId }: { message: TraceMessage; mode: "reading" | "raw"; sessionId: string }) {
   const role = message.role ?? "消息";
   if (mode === "raw") return <TraceBlock label={role} value={message} />;
   const callId = typeof message.tool_call_id === "string" ? message.tool_call_id : null;
   const content = message.content;
-  const text = content == null ? "（空）" : pretty(content);
+  const parts: unknown[] = Array.isArray(content) ? content : [];
+  const partObject = (part: unknown): { type?: string; text?: unknown; attachment?: unknown } =>
+    part && typeof part === "object" ? part : {};
+  const images = parts.map(partObject).filter(part => part.type === "image_ref").map(part => part.attachment).filter(image => isSessionAttachment(image, sessionId));
+  const text = parts.length ? parts.map(value => { const part = partObject(value); return part.type === "text" ? pretty(part.text)
+    : part.type === "image_ref" ? (isSessionAttachment(part.attachment, sessionId) ? "" : "（图片引用不可用）") : pretty(value); }).filter(Boolean).join("\n")
+    : content == null ? "（空）" : pretty(content);
   const assistantCalls = role === "assistant" && Array.isArray(message.tool_calls) ? message.tool_calls : [];
   return <div className="chat-trace-reading-message">
     <div className="chat-trace-message-label">{role}{callId && <span> · call ID {callId}</span>}</div>
-    <TraceBlock label="内容" value={text} />
+    {text && <TraceBlock label="内容" value={text} />}
+    {!!images.length && <ChatImages attachments={images} />}
     {!!assistantCalls.length && <details className="chat-trace-inline-detail">
       <summary>历史工具调用 · {assistantCalls.length}</summary>
       {assistantCalls.map((call, i) => <TraceBlock key={i} label={`工具调用 ${i + 1}`} value={call} />)}

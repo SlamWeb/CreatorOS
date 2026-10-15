@@ -42,6 +42,10 @@ def breakdown(context, *, kind, skill_text='', summary_text='', account_text='')
                     'tool_results' if role == 'tool' else 'recent_messages')
         copy = dict(message)
         content = copy.get('content')
+        if isinstance(content, list):
+            image_count = sum(isinstance(block, dict) and block.get('type') == 'image_ref' for block in content)
+            if image_count:
+                parts['images'] = parts.get('images', 0) + 1536 * image_count
         if account_text and role == 'user' and content == account_text:
             parts['account_context'] += _units(copy) // 4
             continue

@@ -43,9 +43,15 @@ def _step_cuts(messages: list[dict], user_index: int) -> list[int]:
             index += 1
         if pending or index == len(messages):
             break
+        cut = index
+        while index < len(messages) and messages[index].get("creatoros_source") == "tool_images":
+            index += 1
+        if index == len(messages):
+            cuts.append(cut)
+            break
         if messages[index].get("role") != "assistant":
             break
-        cuts.append(index)
+        cuts.append(cut)
     return cuts
 
 
@@ -82,7 +88,7 @@ class CompactionPlan:
         turn_starts = [
             index
             for index, message in enumerate(messages)
-            if message.get("role") == "user"
+            if message.get("role") == "user" and message.get("creatoros_source") != "tool_images"
         ]
         if not turn_starts:
             return cls(
