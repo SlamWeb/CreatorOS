@@ -4,6 +4,8 @@
 
 **当前验证状态（2026-10-16）：** 初始化、18 个工具发现、本机绑定与访问认证通过。Windows 防护拦截了上游启动浏览器所用的 `leakless.exe`，因此登录检查未完成，二维码命令未实际运行。不要为运行此探针关闭防护或设置排除项；先处理此安全兼容问题或审查替代部署。文件哈希一致只能确认与上游发布文件一致，不能证明安全。
 
+本机后续已按用户授权重装 Docker Desktop 4.95.0：程序位于 `D:\DockerDesktop`，WSL 与容器磁盘位于 `D:\DockerData`，Linux Engine 29.8.2 的真实 version/info 检查通过。用户配置和日志仍可能留在 C 盘；这不是“整套 Docker 所有文件都迁出 C 盘”。旧数据保留于 `D:\DockerData-backup-20261016`，不要误当新引擎正在使用的目录。旧终端若找不到 credential helper，请重开终端加载新 PATH。Docker 引擎可用不代表小红书已登录，后续探针结果见 SPEC。
+
 ## 本机准备（Windows）
 
 在仓库根目录创建 `tmp/xhs-mcp-smoke/`，下载上游 [v2.5.5 Windows MCP 二进制](https://github.com/xpzouying/xiaohongshu-mcp/releases/tag/v2.5.5)，保存为 `xiaohongshu-mcp-windows-amd64.exe`。启动脚本核验官方 release 的 SHA256，不运行未知版本。首次启动上游会下载独立浏览器；不是借用个人 Chrome 的登录态。

@@ -1,5 +1,16 @@
 # 小红书 MCP 登录探针
 
+## 2026-10-16：用户授权卸载并迁往 D 盘（引擎验证通过）
+
+- 用户明确允许恢复出厂，并进一步要求卸载重装、程序及大体积数据放 D 盘。先通过已验证 Docker Inc 有效签名的原安装器卸载，退出码 0；不操作其他 WSL 发行版或 CreatorOS 数据。
+- 检查发现旧程序在用户 C 盘，原 WSL 数据位置其实已为 `D:\DockerData`，残留 `docker_data.vhdx` 为 16,032,727,040 字节。为保留恢复可能，重装前将旧数据目录同盘改名为 `D:\DockerData-backup-20261016`，未永久删除。
+- 原 Local Docker、Local docker-secrets-engine、Roaming Docker 目录同父目录改名为 `*-reset-backup-20261016`，以隔离失效 socket 与旧配置。旧程序卸载器少量残件的进一步删除被工具策略拒绝，未绕过。
+- 官方 4.95.0 安装包下载至 `D:\DockerInstallers`；计划程序路径 `D:\DockerDesktop`、新 WSL 数据 `D:\DockerData`，二者不嵌套。安装器官方 SHA256：`73431db38491f770543880366228a23c993f84d1e8e045f56d83b8a98940cf76`。须待完整哈希与数字签名核验后执行，不将下载中或安装成功等同于引擎可用。
+- 官方安装参数支持 installation-dir 与 wsl-default-data-root；用户级日志/配置可能仍保留在 C 盘，不能承诺所有字节都离开 C 盘。尚未恢复小红书登录测试。
+- 完整安装包 SHA256 与官方一致，Authenticode 为 Valid / Docker Inc；以 `--user --installation-dir=D:\DockerDesktop --wsl-default-data-root=D:\DockerData --backend=wsl-2` 安装，退出码 0。安装临时目录也指定为 D 盘，不改系统全局 TEMP。
+- 注册表 InstallLocation 确认为 `D:\DockerDesktop`、版本 4.95.0；用户 PATH 已更新为其 resources/bin。新 WSL 注册位置为 `D:\DockerData\main`，容器数据盘为 `D:\DockerData\disk\docker_data.vhdx`。真实 `docker version/info` 返回 Linux Engine 29.8.2，初始 0 容器 / 0 镜像；旧 socket 崩溃本轮未复现。
+- 旧终端进程仍可能缓存 C 盘 PATH；新开终端即可，当前验证显式加入 D 盘 resources/bin（包括 credential helper）。开始拉取固定 `xpzouying/xiaohongshu-mcp:v2.5.5`；拉取成功与登录成功仍需分别验收。
+
 ## 2026-10-16：Docker 替代部署尝试（未连通）
 
 - 用户授权尝试 Docker；执行 `docker desktop start`，未拉取镜像、未创建容器、未调用发布工具。
