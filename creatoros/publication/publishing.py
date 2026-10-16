@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import stat
@@ -302,14 +303,43 @@ class PublicationService:
             self._unknown(request_id, "发布或核对未完成，平台结果未知；请核对结果，不要重复发布。")
 
     @staticmethod
-    def _matches(note, payload, started_at, manual):
+    def _body_match(note, payload):
+        """Compare prose separately from appended platform topic labels.
+
+        XHS may canonicalize a selected topic (e.g. 英语学习 -> 英语学习打卡).
+        Only a complete trailing topic block is metadata, never inline prose.
+        """
         compact = lambda value: "".join(str(value or "").split())
         body = str(note.get("body") or "")
-        for tag in payload["tags"]:
-            body = body.replace(f"#{tag}[话题]#", "").replace(f"#{tag}", "")
+        expected = compact(payload["content"])
+        requested = payload["tags"]
+        actual = []
+        if compact(body) != expected:
+            marker = r"#([^#\r\n]+?)\[话题\]#"
+            trailer = re.search(r"(?:\s*" + marker + r")+\s*\Z", body)
+            if trailer and requested:
+                actual = re.findall(marker, trailer[0])
+                if len(actual) != len(requested):
+                    return None
+                body = body[:trailer.start()]
+            elif requested:
+                # Older responses use plain hashtags: accept exact labels only.
+                suffix = r"\s+" + r"\s+".join(re.escape("#" + tag) for tag in requested) + r"\s*\Z"
+                trailer = re.search(suffix, body)
+                if not trailer:
+                    return None
+                actual, body = list(requested), body[:trailer.start()]
+            if compact(body) != expected:
+                return None
+        return {"requested_topics": list(requested), "platform_topics": actual,
+                "topic_labels_changed": bool(actual and actual != requested)}
+
+    @staticmethod
+    def _matches(note, payload, started_at, manual):
+        compact = lambda value: "".join(str(value or "").split())
         if (note.get("author_id") != payload["account_id"] or
             compact(note.get("title")) != compact(payload["title"]) or
-            compact(body) != compact(payload["content"]) or
+            PublicationService._body_match(note, payload) is None or
             len(note.get("images") or []) != payload["image_count"] or not note.get("id") or not note.get("url")):
             return False
         if manual:
@@ -361,7 +391,8 @@ class PublicationService:
             row.status, row.post_url, row.last_error = "published", note["url"], None
             event(row, "verified", "已按账号、完整文案、图片数量核对笔记" + ("（本人提供链接）。" if post_url else "及发布时间。"),
                 {"note_id": note["id"], "author_id": note["author_id"], "image_count": len(note["images"]),
-                 "published_at": note.get("published_at"), "text_match": True, "method": "user_link" if post_url else "recent_notes"})
+                 "published_at": note.get("published_at"), "text_match": True,
+                 **self._body_match(note, payload), "method": "user_link" if post_url else "recent_notes"})
             run = session.get(ContentRun, row.content_run_id)
             topic = session.get(Topic, run.topic_id)
             if topic:

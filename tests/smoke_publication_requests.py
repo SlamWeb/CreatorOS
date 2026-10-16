@@ -127,8 +127,22 @@ async def main():
         assert (await service.reconcile(other["id"]))["status"] == "unknown"
         platform.notes[0] = {**original, "published_at": None}
         assert (await service.reconcile(other["id"]))["status"] == "unknown"
-        # Explicit user link + exact author/copy/image count can resolve uncertainty.
-        assert (await service.reconcile(other["id"], original["url"]))["status"] == "published"
+        # Canonicalized trailing topics must repair unknown without another publish.
+        with db.session() as session:
+            row = session.get(PublicationRequest, other["id"])
+            payload = dict(row.payload_json)
+            payload["tags"] = ["英语学习"]
+            row.payload_json = payload
+        platform.notes[0] = {**original, "body": original["body"] + "\n#英语学习打卡[话题]#"}
+        verified = await service.reconcile(other["id"])
+        assert verified["status"] == "published" and platform.calls == 2
+        assert verified["events"][-1]["evidence"]["topic_labels_changed"]
+        # Rechecking and refreshing metrics must not send or duplicate the receipt.
+        await service.reconcile(other["id"], original["url"])
+        refreshed = await service.refresh_metrics(other["id"])
+        assert refreshed["metrics"][-1]["likes"] == 3 and platform.calls == 2
+        with db.session() as session:
+            assert len(list(session.scalars(select(ManualPublication).where(ManualPublication.content_run_id == run2.id)))) == 1
         with db.session() as session:
             row = session.get(PublicationRequest, other["id"])
             row.status = "sending"
