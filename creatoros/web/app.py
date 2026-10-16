@@ -20,6 +20,7 @@ from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRepository
 from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
 from creatoros.publication import ManualPublicationService, PublicationService
+from creatoros.publication.feedback import FeedbackService
 from creatoros.publication.mcp_client import XhsMcpClient, XhsMcpError
 from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
@@ -64,6 +65,7 @@ from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
 from .run_routes import review_routes
 from .publication_routes import publication_routes
+from .analytics_routes import analytics_routes
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_image_actions import chat_image_action_routes
@@ -120,6 +122,7 @@ def create_app(
     publications = ManualPublicationService(db)
     artifacts = StudioArtifacts(db, runs.output_root)
     publishing = PublicationService(db, runs, artifacts, publication_client or XhsMcpClient())
+    feedback = FeedbackService(db, publishing)
     queries = StudioQueryService(db, artifacts=artifacts)
     executor = run_executor or ManagedRunExecutor(runs)
     db_file = db.engine.url.database
@@ -152,8 +155,10 @@ def create_app(
                 research.start()
                 extractions.start()
                 discussions.start()
+                feedback.start()
                 yield
             finally:
+                await feedback.shutdown()
                 await publishing.shutdown()
                 # One timed-out service must not skip the remaining cleanup.
                 with ExitStack() as cleanup:
@@ -172,6 +177,7 @@ def create_app(
     )
     app.state.database = db
     app.state.publishing = publishing
+    app.state.feedback = feedback
     app.state.queries = queries
     app.state.writes = writes
     app.state.executor = executor
@@ -193,6 +199,7 @@ def create_app(
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))
     app.include_router(publication_routes(publishing))
+    app.include_router(analytics_routes(feedback))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):

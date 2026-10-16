@@ -641,3 +641,20 @@ class PublicationRequest(TimestampMixin, Base):
     post_url: Mapped[str | None] = mapped_column(String(1000))
     last_error: Mapped[str | None] = mapped_column(Text)
     events_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+
+
+class PublicationFeedbackSetting(Base):
+    __tablename__ = "publication_feedback_settings"
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class PublicationFeedbackState(Base):
+    __tablename__ = "publication_feedback_states"
+    request_id: Mapped[str] = mapped_column(ForeignKey("publication_requests.id"), primary_key=True)
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)

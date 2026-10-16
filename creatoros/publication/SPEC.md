@@ -1,5 +1,20 @@
 # 发布与反馈 SPEC
 
+## 自动反馈与账号看板（2026-10-16）
+
+- CreatorOS 后台每 300 秒检查；仅已核验 published 且发布时间在最近 7 天的笔记自动采集。每篇成功采集间隔至少 1800 秒；失败持久化下次尝试，退避最多 6 小时。按账号保存开关，默认关闭；本次用户授权开启英语账号。服务关闭不采集，重启不补跑所有漏过的周期。
+- 不调用 LLM，不注入固定账号上下文，不触发发布或重发。与现有发布共享 MCP 协调边界，自动读取遇到发布或人工操作让路；已经在途的读取有超时，不能承诺瞬间抢占。SQLite 网络外短事务；追加原有反馈快照，未知指标保持 NULL。
+- 新增持久设置/每篇采集状态；后台生命周期随 Studio。失败不抹掉上次数据，不改发布状态；身份不符不得采集别人的数据。
+- API：GET `/api/creators/{id}/analytics`；PUT 同路径 `/settings` body `{enabled:boolean}`；POST 同路径 `/refresh` 手动触发最近 7 天刷新（不等待长请求，返回同看板 DTO）。账号作用域校验。刷新重复请求复用后台任务。
+- 看板 DTO：`creator_id, enabled, checking, checked_at, last_updated_at, next_check_at, heartbeat_seconds:300, refresh_seconds:1800, window_days:7, error, summary:{notes, sampled_notes, likes, favorites, comments, views, shares}, notes:[{request_id,run_id,series_id,series_name,title,post_url,published_at,last_updated_at,next_refresh_at,error,samples:[{measured_at,likes,favorites,comments,views,shares}]}]`。摘要仅为最近 7 天笔记最新累计值之和，任何缺失项对应合计为 NULL；不是账号全量后台统计。曲线按真实单篇累计快照、真实时间，不虚构历史。
+- 验收：隔离数据库验证迁移、时间窗、30 分钟节流、失败退避、开关/重启、发布优先、账号隔离、关闭；真实前端开启英语账号，真实 MCP 只读采集 afraid 并核对数据库。原发布单 confirmed/submitted 仍各 1 次。
+- 隔离自动测试：`tests.test_publication_feedback` 16/16，覆盖迁移零漂移、持久化/重启、时间窗、自动/手动竞争、超时取消、账号/作者不符、禁用、发布优先、忙时手动刷新反馈和手动恢复清理退避；计时/故障使用受控时钟与平台，不算真实平台性能结果。
+- 关联回归：feedback HTTP、publication requests/HTTP、manual publication、account context/scope smoke 全通过；MCP 解析与发布核对单测 11/11。未改固定账号上下文或其工具能力。
+- 自动读取整体超时 120 秒，失败退避；发布到来时，已在途读取不能瞬间抢占，但不再启动新的后台读取。开启后等下一次检查，重启时检查持久设置。手动刷新可绕过 30 分钟等待，但仍不得与发布并发；占用时明确提示稍后刷新。
+- 看板优先使用 verified 事件中真实平台发布时间，缺失/损坏才回退旧凭证；最近 7 天窗口采用同一时间。不重写历史凭证，把旧提交开始时间伪装成平台发布时间的问题只在读取投影纠正。
+- 真实验收：2026-10-16（Asia/Shanghai）从正式前端开启英语账号自动更新，未按手动刷新；21:14:22 定时检查启动，21:14:57 真实 MCP 读取 afraid 笔记并追加第 2 个快照：点赞 0、收藏 1、评论 0、阅读/分享 NULL。21:15:53 重启后开关保留且未立即重复采集，下一次到期为 21:44:57，实际执行落在其后的心跳。
+- 与改动前 SQLite 备份逐表核对：creators、series、topics、content_runs、content_revisions、publication_requests、manual_publications 全部不变；confirmed/submitted/verified 事件仍各 1 次、外键检查无错误。只新增反馈设置、调度状态和真实快照；未重新发布。以上为单篇真实采集/恢复证据，不代表多账号平台全量采集已验证。
+
 ## 话题别名核对修复（2026-10-16，完成）
 
 - 实际已发布的 afraid 笔记被平台将「英语学习」映射为「英语学习打卡」，原核对按输入话题字符串替换，留下别名尾巴导致正文误判。只修核对，不重新确认或调用发布工具。

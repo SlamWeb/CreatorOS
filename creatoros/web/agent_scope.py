@@ -62,6 +62,13 @@ class AgentScopeGuard:
 
         method, path = request.method.upper(), request.url.path
 
+        analytics = re.fullmatch(r"/api/creators/([^/]+)/analytics(?:/(settings|refresh))?", path)
+        if analytics:
+            allowed = ((method == "GET" and analytics.group(2) is None)
+                       or (method == "PUT" and analytics.group(2) == "settings")
+                       or (method == "POST" and analytics.group(2) == "refresh"))
+            return None if allowed and analytics.group(1) == creator_id else self._denied()
+
         # Image actions bind their own resource checks to this exact conversation.
         image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|import)", path)
         if image_action and method == "POST":

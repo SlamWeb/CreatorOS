@@ -5,6 +5,8 @@ An ambiguous external outcome is never retried: the platform has no idempotency 
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+from functools import wraps
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -22,7 +24,7 @@ from creatoros.runs import ContentRunError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.storage import (ContentRevision, ContentRun, ContentRunStatus,
     Creator, ManualPublication, PublicationAccount, PublicationMetric,
-    PublicationRequest, Series, Topic, TopicStatus)
+    PublicationRequest, PublicationFeedbackState, Series, Topic, TopicStatus)
 
 
 def now():
@@ -48,11 +50,55 @@ def event(row, kind, message, evidence=None):
     row.events_json = [*(row.events_json or []), entry]
 
 
+class PublicationBusy(Exception):
+    """A background read yields to an active or queued foreground operation."""
+
+
+def mcp_operation(function):
+    @wraps(function)
+    async def guarded(self, *args, **kwargs):
+        background = kwargs.pop("background", False)
+        try:
+            async with self.mcp_access(background=background):
+                return await function(self, *args, **kwargs)
+        except asyncio.CancelledError:
+            if function.__name__ == "_dispatch":
+                self._unknown(args[0], "执行中断，平台结果未知；不会自动重新发布。")
+            raise
+    return guarded
+
+
 class PublicationService:
     def __init__(self, database, runs, artifacts, client):
         self.database, self.runs, self.artifacts, self.client = database, runs, artifacts, client
         self.tasks = set()
+        self._mcp_lock = asyncio.Lock()
+        self._mcp_owner = None
+        self._foreground_waiters = 0
         self.snapshot_root = Path(runs.output_root) / ".publication-snapshots"
+
+    @asynccontextmanager
+    async def mcp_access(self, *, background=False):
+        # Reentrant only for the very same task (dispatch -> reconcile).
+        task = asyncio.current_task()
+        if self._mcp_owner is task:
+            yield
+            return
+        if background and (self._mcp_lock.locked() or self._foreground_waiters or self.tasks):
+            raise PublicationBusy()
+        if not background:
+            self._foreground_waiters += 1
+        try:
+            await self._mcp_lock.acquire()
+        finally:
+            if not background:
+                self._foreground_waiters -= 1
+        self._mcp_owner = task
+        try:
+            yield
+        finally:
+            self._mcp_owner = None
+            self._mcp_lock.release()
 
     def start(self):
         with self.database.session() as session:
@@ -121,6 +167,7 @@ class PublicationService:
         if (binding and binding.account_id != account_id) or (other and other.creator_id != creator_id):
             fail("当前登录的小红书账号与此 CreatorOS 账号不匹配。", "account_mismatch")
 
+    @mcp_operation
     async def prepare(self, run_id, title=None, body=None, tags=None, visibility="公开可见"):
         identity = await self.client.identity()
         if not identity.get("id"):
@@ -198,6 +245,7 @@ class PublicationService:
             row = session.scalar(select(PublicationRequest).where(PublicationRequest.content_run_id == run_id))
             return self._view(row, session) if row else None
 
+    @mcp_operation
     async def confirm(self, request_id, expected_digest):
         current = self.get(request_id)
         if current["digest"] != expected_digest:
@@ -278,6 +326,7 @@ class PublicationService:
                 row.status, row.last_error = "unknown", message
                 event(row, "needs_verification", message)
 
+    @mcp_operation
     async def _dispatch(self, request_id, paths):
         try:
             with self.database.session() as session:
@@ -351,6 +400,7 @@ class PublicationService:
         except (AttributeError, TypeError, ValueError):
             return False
 
+    @mcp_operation
     async def reconcile(self, request_id, post_url=None):
         with self.database.session() as session:
             row = session.get(PublicationRequest, request_id)
@@ -399,10 +449,17 @@ class PublicationService:
                 topic.status = TopicStatus.PUBLISHED
         return self.get(request_id)
 
-    async def refresh_metrics(self, request_id):
+    @mcp_operation
+    async def refresh_metrics(self, request_id, *, min_interval_seconds=0):
         view = self.get(request_id)
         if view["status"] != "published":
             fail("请先核对发布结果。")
+        # Recheck after acquiring the shared browser gate: a manual refresh may
+        # have completed while this scheduled check was being prepared.
+        if view["metrics"] and min_interval_seconds:
+            latest = datetime.fromisoformat(view["metrics"][-1]["measured_at"])
+            if now() < latest + timedelta(seconds=min_interval_seconds):
+                return view
         if (await self.client.identity()).get("id") != view["account"]["id"]:
             fail("当前登录账号不匹配。", "account_mismatch")
         note = await self.client.inspect(view["post_url"])
@@ -413,6 +470,11 @@ class PublicationService:
             for value in [(note.get("metrics") or {}).get(key)]}
         with self.database.session() as session:
             receipt = session.scalar(select(ManualPublication).where(ManualPublication.content_run_id == view["run_id"]))
+            measured_at = now()
             session.add(PublicationMetric(id=str(uuid4()), publication_id=receipt.id, request_id=str(uuid4()),
-                measured_at=now(), **metrics))
+                measured_at=measured_at, **metrics))
+            state = session.get(PublicationFeedbackState, request_id)
+            if state:
+                state.failures, state.last_error = 0, None
+                state.next_attempt_at = measured_at + timedelta(seconds=1800)
         return self.get(request_id)

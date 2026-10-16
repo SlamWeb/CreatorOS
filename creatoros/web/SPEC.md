@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 账号反馈 API（2026-10-16）
+
+- GET `/api/creators/{id}/analytics` 只读 SQLite、no-store；PUT `analytics/settings` 严格布尔开关；POST `analytics/refresh` 提交短后台任务，重复点击复用在途采集，不调用发布。UI 返回状态不等同采集完成。
+- 账号 Agent 来源头只能访问同账号路径，不能跨账号读统计或改开关。未将新动态指标写入 account_context，也未新增固定 Prompt；日常页面读数据库不触发 MCP。
+- FeedbackService 与 Studio 生命周期绑定，先退出反馈再关闭发布服务。具体节流/状态持久化见 publication SPEC。测试区分真实平台只读反馈与隔离故障注入，不用测试发布验证。
+- 真实隔离 HTTP/SQLite `smoke_feedback_http` 通过：默认只读空投影不调 MCP，严格布尔/额外字段拒绝，跨账号 GET/PUT/POST 拒绝，开关往返与不存在账号错误；现有发布确认和账号作用域回归通过。
+- 正式服务 8765 已运行新代码：真实前端保存开启状态，后台心跳追加真实反馈，服务重启后开关/快照/节流保留；发布记录逐表保持不变。具体时间与数值见 publication SPEC。
+
 ## 发布单与网页确认（2026-10-16，已接线，真实发布待本人确认）
 
 - POST/GET `/api/runs/{id}/publication-request` 准备/读取冻结发布预览；GET `/api/publication-requests/{id}` 查状态，POST `reconcile` 核对，POST `metrics` 手动刷新互动快照。

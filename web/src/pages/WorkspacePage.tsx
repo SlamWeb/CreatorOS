@@ -10,6 +10,7 @@ import { AccountChatPanel } from "../components/AccountChatPanel";
 import { BrandMark } from "../components/BrandMark";
 import { SkillInspector } from "../components/SkillInspector";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
+import { AccountAnalytics } from "../components/AccountAnalytics";
 import "./workspace.css";
 
 export function WorkspaceRedirect() {
@@ -126,7 +127,7 @@ export function WorkspacePage() {
       const creatorId = owner === undefined ? selected?.creator_id : owner;
       if (creatorId) next.set("creator", creatorId);
       else next.delete("creator");
-      for (const key of ["topics", "offset", "select", "research", "operation", "topic"]) next.delete(key);
+      for (const key of ["topics", "offset", "select", "research", "operation", "topic", "view"]) next.delete(key);
       return next;
     });
   }
@@ -223,11 +224,14 @@ export function WorkspacePage() {
       {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {params.has("creator") && !account && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
+      {account && (series || params.get("view") !== "data") && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={() => setSeriesDraft({name:"",creatorId:scopedCreatorId})}>新建栏目</button>}
       </header>
+      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"}].map(tab => <button key={tab.value} type="button" aria-pressed={(params.get("view") === "data" ? "data" : "content") === tab.value}
+        onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value === "data") next.set("view","data"); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
+      {account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
       {!!accountSeries.some(item => item.topic_count > 0) && <><LibraryFilters />{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id)} onDiscuss={discuss}
         accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}
@@ -235,6 +239,7 @@ export function WorkspacePage() {
         <p>{account ? accountSeries.length ? "这个账号还没有选题。" : "这个账号还没有栏目。" : "还没有栏目。先在 Skill 页组合或在这里新建。"}</p>
         <button type="button" className="button button-primary" onClick={() => setSeriesDraft({ name: "", creatorId: scopedCreatorId ?? accounts[0]?.id ?? null })}>新建栏目</button>
       </div>}
+      </>}
       </>}
       {series && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
