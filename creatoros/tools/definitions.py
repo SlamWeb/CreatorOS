@@ -23,6 +23,7 @@ from .models import (
 )
 from .content import produce_content_pack
 from .publication import PreparePublicationArgs, GetPublicationArgs, prepare_publication, get_publication
+from .feedback import QueryFeedbackArgs, query_feedback
 from .chat_images import (
     ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs,
     read_image, extract_skill_from_images, import_content_images,
@@ -108,6 +109,8 @@ class Tool:
 tool_registry = {
     tool.name: tool
     for tool in [
+        Tool(name="query_feedback", description="只读本地已采集的账号反馈，比较最近 7 天已发布笔记的点赞、收藏等累计指标。支持分页，返回各笔记采样时间和栏目；不刷新平台、不发布、不新增选题。",
+             execute=query_feedback, args_model=QueryFeedbackArgs),
         Tool(name="prepare_publication", description="准备已有图文的发布预览，不发布。返回内容页供用户确认；重复请求复用发布单。",
              execute=prepare_publication, args_model=PreparePublicationArgs),
         Tool(name="get_publication", description="查询发布单，或按用户要求核对平台结果/刷新互动数据。不重新发送，不把未知当失败。",

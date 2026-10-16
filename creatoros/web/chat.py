@@ -27,7 +27,7 @@ from creatoros.events import AgentEvent
 from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.web.chat_attachments import ChatAttachments, MAX_IMAGES
 
-STUDIO_TOOLS = frozenset({"prepare_publication", "get_publication", "list_creators", "list_creator_series", "list_series_topics",
+STUDIO_TOOLS = frozenset({"query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "list_series_topics",
                           "start_content_run", "get_content_run", "install_producer_skill",
                           "get_skill_install", "list_producer_skills", "research_series_topics",
                           "get_producer_skill",
@@ -41,7 +41,7 @@ STUDIO_TOOLS = frozenset({"prepare_publication", "get_publication", "list_creato
                           "read_image", "extract_skill_from_images", "import_content_images",
                           "get_creator_tasks", "read_tool_result", "read_file"})
 ACCOUNT_TOOLS = frozenset({
-    "prepare_publication", "get_publication",
+    "query_feedback", "prepare_publication", "get_publication",
     "list_creators", "list_creator_series", "list_series_topics",
     "start_content_run", "get_content_run", "list_producer_skills",
     "get_producer_skill",
@@ -99,6 +99,8 @@ WORKER_POLICY = (
     "只有用户明确要求编辑 Skill 时才修改共享 Skill；普通作品讨论、偏好表达或一次性反馈不自动改写 Skill。"
 )
 PUBLICATION_POLICY = (
+    "分析账号表现先用 query_feedback 读取本地反馈，说明比较指标与数据时间；栏目分析按返回的栏目筛选，必要时继续分页，不能把账号汇总当栏目汇总。"
+    "缺失指标不是零，累计值不是期间增量；样本不足或同分时如实说明，不编造转化率或归因。推荐选题不代表授权调研、入队或生产。"
     "发布：用户要求发布已有图文时用 prepare_publication 准备发布单，交付内容页入口；"
     "发布前必须由用户在网页预览中确认账号、图片、文案与可见范围，你不能代为确认。"
     "查询用 get_publication；需要核对时 reconcile=true，用户要求刷新互动数据时 refresh_metrics=true。"

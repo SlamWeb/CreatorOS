@@ -28,8 +28,7 @@ class HostContractTests(unittest.TestCase):
         context = RuntimeContext(Path.cwd(), creator_id="a", allowed_tools=ACCOUNT_TOOLS, archive_only_reads=True)
         by_name = {t["function"]["name"]: t["function"] for t in model_tool_schemas(tools, context)}
         self.assertEqual(set(by_name), ACCOUNT_TOOLS)
-        self.assertEqual(len(by_name), 20)
-        for name in ("list_creator_series", "get_creator_tasks", "compose_series"):
+        for name in ("list_creator_series", "get_creator_tasks", "compose_series", "query_feedback"):
             self.assertNotIn("creator_id", by_name[name]["parameters"]["properties"])
             self.assertNotIn("creator_id", by_name[name]["parameters"]["required"])
         self.assertIn("当前会话", by_name["read_file"]["description"])

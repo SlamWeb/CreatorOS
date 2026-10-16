@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## Agent 读取已有反馈（2026-10-17）
+
+- 总入口与账号入口开放 query_feedback，沿现有 analytics 只读路由；账号参数由宿主绑定。没有修改反馈 HTTP/数据库契约、前端或固定账号上下文。
+- 业务提示要求按实际指标、采样时间解释，缺失和同分如实处理；选题建议不自动转成调研/入队/生产。细节及验证见 tools/SPEC.md。
+
 ## 账号反馈 API（2026-10-16）
 
 - GET `/api/creators/{id}/analytics` 只读 SQLite、no-store；PUT `analytics/settings` 严格布尔开关；POST `analytics/refresh` 提交短后台任务，重复点击复用在途采集，不调用发布。UI 返回状态不等同采集完成。
