@@ -22,6 +22,7 @@ from .models import (
     ZhihuSearchArgs,
 )
 from .content import produce_content_pack
+from .publication import PreparePublicationArgs, GetPublicationArgs, prepare_publication, get_publication
 from .chat_images import (
     ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs,
     read_image, extract_skill_from_images, import_content_images,
@@ -107,6 +108,10 @@ class Tool:
 tool_registry = {
     tool.name: tool
     for tool in [
+        Tool(name="prepare_publication", description="准备已有图文的发布预览，不发布。返回内容页供用户确认；重复请求复用发布单。",
+             execute=prepare_publication, args_model=PreparePublicationArgs),
+        Tool(name="get_publication", description="查询发布单，或按用户要求核对平台结果/刷新互动数据。不重新发送，不把未知当失败。",
+             execute=get_publication, args_model=GetPublicationArgs),
         Tool(
             name="get_current_time",
             description="获取当前本地时间。",

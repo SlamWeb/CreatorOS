@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, Creator, Database, Series, Topic, TopicRemoval, WriteReceipt
+from creatoros.storage import ContentRun, Creator, Database, Series, Topic, TopicRemoval, WriteReceipt, PublicationRequest
 
 
 _CREATOR_PATH = re.compile(r"^/api/creators/([^/]+)$")
@@ -192,6 +192,19 @@ class AgentScopeGuard:
         match = _RUN.fullmatch(path)
         if method == "GET" and match:
             return None if self._owns_run(match.group(1), creator_id) else self._denied()
+
+        match = re.fullmatch(r"/api/runs/([^/]+)/publication-request", path)
+        if match and method in {"GET", "POST"}:
+            return None if self._owns_run(match.group(1), creator_id) else self._denied()
+
+        match = re.fullmatch(r"/api/publication-requests/([^/]+)(?:/(reconcile|metrics))?", path)
+        if match and ((method == "GET" and match.group(2) is None)
+                      or (method == "POST" and match.group(2) in {"reconcile", "metrics"})):
+            with self.db.session() as transaction:
+                record = transaction.get(PublicationRequest, match.group(1))
+                allowed = bool(record and record.creator_id == creator_id
+                               and self._owns_run(record.content_run_id, creator_id))
+            return None if allowed else self._denied()
 
         match = _RUN_EXECUTE.fullmatch(path)
         if method == "POST" and match:

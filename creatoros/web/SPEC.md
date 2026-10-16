@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 发布单与网页确认（2026-10-16，已接线，真实发布待本人确认）
+
+- POST/GET `/api/runs/{id}/publication-request` 准备/读取冻结发布预览；GET `/api/publication-requests/{id}` 查状态，POST `reconcile` 核对，POST `metrics` 手动刷新互动快照。
+- POST `confirm` 只接受同源本机网页，拒绝账号/总览 Agent 来源头；以当前预览 digest 确认，服务再核实审批、版本、文件与实际平台账号。浏览器不是权限真相；单机防误操作不是对恶意本机程序的安全认证。
+- 账号 Agent 沿现有 ScopeGuard 校验发布单与 Run 的真实归属。只暴露准备/查询工具，不开放确认接口；网页确认后由宿主执行一次发布。
+- 外部发送任务脱离 HTTP 请求保存进度；超时/中断进入待核对，不自动重发。详细状态、去重与测试见 `creatoros/publication/SPEC.md`。
+- 集成验收：发布 HTTP smoke、账号 Scope smoke、旧人工发布回归通过；真实 MCP 只读账号/笔记可达。正式前端完成授权验收与准备发布单，重启后状态保留，发布确认由用户执行；没有把受控故障注入计为实际发帖。
+
 ## 聊天图片附件（2026-10-15，真实链路验证完成）
 
 - 用户授权代写：聊天 Ctrl+V/选图上传、DeepSeek 实际看图、查产物/参考图后由 CreatorOS 修改 Skill；Codex 不承担已有 Skill 修改。图片也可显式提炼 Skill 或导入指定栏目待人工验收，不自动生图、批准、发布。

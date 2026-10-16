@@ -27,7 +27,7 @@ from creatoros.events import AgentEvent
 from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.web.chat_attachments import ChatAttachments, MAX_IMAGES
 
-STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_topics",
+STUDIO_TOOLS = frozenset({"prepare_publication", "get_publication", "list_creators", "list_creator_series", "list_series_topics",
                           "start_content_run", "get_content_run", "install_producer_skill",
                           "get_skill_install", "list_producer_skills", "research_series_topics",
                           "get_producer_skill",
@@ -41,6 +41,7 @@ STUDIO_TOOLS = frozenset({"list_creators", "list_creator_series", "list_series_t
                           "read_image", "extract_skill_from_images", "import_content_images",
                           "get_creator_tasks", "read_tool_result", "read_file"})
 ACCOUNT_TOOLS = frozenset({
+    "prepare_publication", "get_publication",
     "list_creators", "list_creator_series", "list_series_topics",
     "start_content_run", "get_content_run", "list_producer_skills",
     "get_producer_skill",
@@ -97,6 +98,12 @@ WORKER_POLICY = (
     "讨论是只读的，不会保存为 Skill 反馈或修改作品；只有用户明确要求返工时才调用 request_content_revision，且该工具只创建待执行版本。"
     "只有用户明确要求编辑 Skill 时才修改共享 Skill；普通作品讨论、偏好表达或一次性反馈不自动改写 Skill。"
 )
+PUBLICATION_POLICY = (
+    "发布：用户要求发布已有图文时用 prepare_publication 准备发布单，交付内容页入口；"
+    "发布前必须由用户在网页预览中确认账号、图片、文案与可见范围，你不能代为确认。"
+    "查询用 get_publication；需要核对时 reconcile=true，用户要求刷新互动数据时 refresh_metrics=true。"
+    "结果未知不重新发布；批准产物不等于授权发布，工具提交成功不等于平台发布成功。"
+)
 WEB_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "你在 CreatorOS Studio 网页中帮助用户运营自有账号。只使用提供的工具，先查真实目录，不猜 ID。"
     "同名对象或多个候选不明确时先询问。只有用户明确要求生产才提交；提交不是完成，不轮询等待生图。"
@@ -104,7 +111,7 @@ WEB_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "执行边界：用户明确指定的选题入队用 queue_topics 直接写入；'看看/有哪些/建议一下'等查看意图不调用任何写工具。"
     "用户明确给出标题和栏目时，即使库中不存在该选题，也直接用 queue_topics 以 source=manual 新建入队，不追问；"
     "入队+生产的复合明确指令依次执行两个动作。"
-    "批量或模糊的新增/调整选题引导使用页面的运营指令 Preview 入口；删除、覆盖产物、发布不在本入口，用户提出时如实说明。"
+    "批量或模糊的新增/调整选题引导使用页面的运营指令 Preview 入口；删除、覆盖产物不在本入口，用户提出时如实说明。"
     "栏目调研用 research_series_topics，宿主等待同一批次并展示过程；工具返回终态后给出候选或解释具体失败原因。"
     "调研失败、观察中断或结果未知时不自动重新提交；保留批次链接，需要时查询同一批次。"
     "list_series_topics 是统一选题库，可查 pending 待选和 queued 已入队；queued 集合不代表任务正在排队。"
@@ -132,7 +139,7 @@ WEB_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "可通过 get_creator_tasks 查询账号现有调研、生产和讨论任务。讨论已验收作品用 discuss_content_run/get_content_discussion；"
     "讨论版本必须来自真实 Run 详情，传入 revision_id 与 artifact_digest；讨论不改作品。用户明确要求返工时可用 request_content_revision，之后仍需在页面执行。"
     "批准仍需打开 Run 页面；返工只创建待执行版本，不自动运行。不声称已发布。不支持的能力如实说明。"
-) + WORKER_POLICY + DISPLAY_SCOPE_RULE + SKILL_EDIT_POLICY + IMAGE_POLICY
+) + WORKER_POLICY + DISPLAY_SCOPE_RULE + SKILL_EDIT_POLICY + IMAGE_POLICY + PUBLICATION_POLICY
 
 ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "你是当前绑定账号的运营助手，根据用户目标和真实账号状态选择行动。"
@@ -152,8 +159,8 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "只按工具成功结果汇报，失败不声称成功；只根据allowed_actions建议后续操作。"
     "可用 get_creator_tasks 查询当前账号已有的调研、生产与讨论任务。用户要求讨论已验收作品时用 discuss_content_run/get_content_discussion，"
     "先从真实 Run 详情取得 revision_id 与 artifact_digest；只读讨论不改作品。只有用户明确要求返工才用 request_content_revision，提交后仍由用户显式执行。"
-    "批准去 Run 页面；返工须用户明确要求后先查询 Run version，再调用工具创建待执行版本。批准不代表发布，不编造效果反馈，不执行安装/转移、删除或发布。"
-) + WORKER_POLICY + DISPLAY_SCOPE_RULE + SKILL_EDIT_POLICY + IMAGE_POLICY
+    "批准去 Run 页面；返工须用户明确要求后先查询 Run version，再调用工具创建待执行版本。批准不代表发布，不编造效果反馈，不执行安装/转移、删除或直接发布；仅可准备发布单。"
+) + WORKER_POLICY + DISPLAY_SCOPE_RULE + SKILL_EDIT_POLICY + IMAGE_POLICY + PUBLICATION_POLICY
 
 
 def _now():

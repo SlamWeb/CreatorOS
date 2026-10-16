@@ -2,7 +2,7 @@
 
 这是独立学习探针，不是 CreatorOS 已上线的发布功能。不接正式数据库，不注册给账号 Agent，不发布、不点赞、不评论。先理解：`ClientSession` 负责 MCP 通信；小红书登录态由外部 Server 保管，两种 Session 不相同。
 
-**当前验证状态（2026-10-16）：** Docker 路径已通过初始化、18 个工具发现、本机绑定与认证（无 Token 返回 401）、未登录状态检查和真实二维码获取。等待本人扫码，尚未验证已登录。Windows 原生路径仍因防护拦截 `leakless.exe` 而停用，不为运行它关闭防护或添加排除项。文件哈希一致只能确认与上游发布文件一致，不能证明安全。
+**当前验证状态（2026-10-16）：** 本人扫码后已核实登录；Docker 路径通过初始化、18 个工具发现、本机认证、实际账号身份及本人已有笔记读取。探针仍只提供连通/登录命令；正式受控发布接入说明见 [publication/README](../../creatoros/publication/README.md)，尚未替用户发布。Windows 原生路径仍因防护拦截 `leakless.exe` 而停用，不关闭防护或添加排除项。
 
 本机后续已按用户授权重装 Docker Desktop 4.95.0：程序位于 `D:\DockerDesktop`，WSL 与容器磁盘位于 `D:\DockerData`，Linux Engine 29.8.2 的真实 version/info 检查通过。用户配置和日志仍可能留在 C 盘；这不是“整套 Docker 所有文件都迁出 C 盘”。旧数据保留于 `D:\DockerData-backup-20261016`，不要误当新引擎正在使用的目录。旧终端若找不到 credential helper，请重开终端加载新 PATH。Docker 引擎可用不代表小红书已登录，后续探针结果见 SPEC。
 
@@ -53,4 +53,4 @@ tmp/xhs-mcp-smoke/venv/Scripts/python.exe scripts/mcp/probe.py qr
 - 服务只监听 `127.0.0.1:18060`，不开放公网。随机 Token、Cookie、日志均在忽略目录；不要把原始日志或该目录上传。目录 ACL 不是加密，也不防本用户权限下的恶意进程。
 - `auth-token.txt` 只用于本机 Client 访问 MCP Server，不是小红书授权 Token；`cookies.json` 才是上游保存的网页登录态。启动时显式设置 COOKIES_PATH，避免捡到旧目录里的其他账号。
 - Cookie 有效时可复用，但不能保证永久登录。连接成功、工具执行成功、账号登录成功分别核验，未扫码不能声称已登录。
-- 当前探针固定 MCP SDK 1.30.0；使用该版本的 initialize/list_tools/call_tool，不混用其他协议版本示例。正式账号绑定、持续服务管理、二维码 UI、发布及结果核对全部暂不实现。
+- 当前探针固定 MCP SDK 1.30.0；使用该版本的 initialize/list_tools/call_tool，不混用其他协议版本示例。探针本身不发布；产品中的账号绑定、受控发布及结果核对见 [发布模块](../../creatoros/publication/README.md)。持续服务管理、二维码 UI 暂不实现。

@@ -190,7 +190,8 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await expect(page.getByText("✓ 已批准 · 尚未发布")).toBeVisible();
   await page.reload();
   await expect(page.getByText("✓ 已批准 · 尚未发布")).toBeVisible();
-  await page.getByRole("button", { name: "文案", exact: true }).click();
+  await page.getByRole("button", { name: "发布", exact: true }).click();
+  await page.getByRole("button", { name: "手动发布记录", exact: true }).click();
 
   // Isolated browser test: this link is deliberately not a real platform post.
   await expect(page.getByRole("link", { name: "下载已批准图片包" })).toBeVisible();
@@ -202,6 +203,8 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await page.getByRole("button", { name: "保存这次数据" }).click();
   await expect(page.getByText("历史回填 · 1 次")).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "发布", exact: true }).click();
+  await page.getByRole("button", { name: "手动发布记录", exact: true }).click();
   await expect(page.getByRole("link", { name: "打开笔记 ↗" })).toBeVisible();
   await page.getByText("历史回填 · 1 次").click();
   await expect(page.getByText(/阅读 120 · 赞 8/)).toBeVisible();

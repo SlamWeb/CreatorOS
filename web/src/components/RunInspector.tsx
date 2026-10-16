@@ -10,6 +10,8 @@ import { StatusPill, formatDate } from "./StatusPill";
 import { SkillInspector } from "./SkillInspector";
 import type { ProducerSkillItem } from "../api/types";
 import { RunDiscussion } from "./RunDiscussion";
+import { PublicationPanel } from "./PublicationPanel";
+import { publicationApi } from "../api/publication";
 import "./run-inspector.css";
 
 type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
@@ -37,7 +39,9 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const [selected, setSelected] = useState<string | null>(() => requestedRevision);
   useEffect(() => { setSelected(requestedRevision); }, [run.id, requestedRevision]);
   const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
-  const [panel, setPanel] = useState<"copy" | "discussion">(() => params.get("discussion") ? "discussion" : "copy");
+  const [panel, setPanel] = useState<"copy" | "discussion" | "publish">(() => params.get("discussion") ? "discussion" : params.get("publish") ? "publish" : "copy");
+  const [manualOpen, setManualOpen] = useState(false);
+  const publicationRequest = useQuery({ queryKey: ["publication-request", run.id], queryFn: () => publicationApi.forRun(run.id), enabled: false });
   const [historyOpen, setHistoryOpen] = useState(false);
   useEffect(() => { if (params.get("discussion")) setPanel("discussion"); }, [params]);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills, retry: false,
@@ -82,12 +86,16 @@ export function RunInspector({ run }: { run: RunDetail }) {
         <div className="run-panel-tabs" aria-label="内容面板">
           <button type="button" aria-pressed={panel === "copy"} onClick={() => setPanel("copy")}>文案</button>
           <button type="button" aria-pressed={panel === "discussion"} onClick={() => setPanel("discussion")}>讨论</button>
+          {current && revision?.publish_copy ? <button type="button" aria-pressed={panel === "publish"} onClick={() => setPanel("publish")}>发布</button> : null}
         </div>
         <div hidden={panel !== "copy"}>
           {revision?.publish_copy ? <Publication revision={revision} /> : <p className="run-empty-copy">文案尚未生成</p>}
-          {!old && revision && run.status === "approved" ? <ManualPublicationPanel run={run} revision={revision} /> : null}
         </div>
         <div hidden={panel !== "discussion"}>{revision ? <RunDiscussion key={revision.id} run={run} revision={revision} focusId={params.get("discussion")} /> : <p className="run-empty-copy">产物完成后可讨论</p>}</div>
+        {current && revision?.publish_copy ? <div hidden={panel !== "publish"}>
+          <PublicationPanel key={`${run.id}-${revision.id}`} run={run} revision={revision} active={panel === "publish"} />
+          {run.status === "approved" && publicationRequest.isSuccess && !publicationRequest.data ? <section className="manual-publication-fallback"><button className="button button-quiet" type="button" aria-expanded={manualOpen} onClick={() => setManualOpen(!manualOpen)}>{manualOpen ? "收起手动发布记录" : "手动发布记录"}</button>{manualOpen ? <ManualPublicationPanel run={run} revision={revision} /> : null}</section> : null}
+        </div> : null}
       </aside>
     </div>
     <section className="run-records">

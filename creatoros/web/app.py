@@ -19,7 +19,8 @@ from creatoros.operations.parser import LazyOperationParser, OperationParserUnav
 from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRepository
 from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
-from creatoros.publication import ManualPublicationService
+from creatoros.publication import ManualPublicationService, PublicationService
+from creatoros.publication.mcp_client import XhsMcpClient, XhsMcpError
 from creatoros.runs.ownership import ExecutionOwnershipError
 from creatoros.storage import ContentRunStatus, Database
 
@@ -62,6 +63,7 @@ from .schemas import (
 from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
 from .run_routes import review_routes
+from .publication_routes import publication_routes
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_image_actions import chat_image_action_routes
@@ -99,6 +101,7 @@ def create_app(
     topic_research_service=None,
     skill_extraction_service=None,
     content_discussion_service=None,
+    publication_client=None,
     eval_root: Path | None = None,
     eval_cases_path: Path | None = None,
 ) -> FastAPI:
@@ -116,6 +119,7 @@ def create_app(
     runs = run_service or ContentRunService(db)
     publications = ManualPublicationService(db)
     artifacts = StudioArtifacts(db, runs.output_root)
+    publishing = PublicationService(db, runs, artifacts, publication_client or XhsMcpClient())
     queries = StudioQueryService(db, artifacts=artifacts)
     executor = run_executor or ManagedRunExecutor(runs)
     db_file = db.engine.url.database
@@ -141,6 +145,7 @@ def create_app(
         try:
             _app.state.stop_observers = False
             executor.start()
+            publishing.start()
             try:
                 chat.start()
                 skill_installs.start()
@@ -149,6 +154,7 @@ def create_app(
                 discussions.start()
                 yield
             finally:
+                await publishing.shutdown()
                 # One timed-out service must not skip the remaining cleanup.
                 with ExitStack() as cleanup:
                     for service in (executor, skill_installs, research, extractions, chat, discussions):
@@ -165,6 +171,7 @@ def create_app(
         responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
     app.state.database = db
+    app.state.publishing = publishing
     app.state.queries = queries
     app.state.writes = writes
     app.state.executor = executor
@@ -185,6 +192,7 @@ def create_app(
     app.include_router(chat_routes(chat))
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))
+    app.include_router(publication_routes(publishing))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):
@@ -210,6 +218,10 @@ def create_app(
     @app.exception_handler(ContentRunError)
     async def run_error_handler(_request: Request, error: ContentRunError):
         return _error_response(error.status_code, error.code, str(error), run_id=error.run_id)
+
+    @app.exception_handler(XhsMcpError)
+    async def publication_transport_error(_request: Request, error: XhsMcpError):
+        return _error_response(502, "publication_transport_error", str(error))
 
     @app.exception_handler(CompositionError)
     async def composition_error_handler(_request: Request, error: CompositionError):

@@ -608,3 +608,36 @@ class PublicationMetric(Base):
     comments: Mapped[int | None] = mapped_column(Integer)
     shares: Mapped[int | None] = mapped_column(Integer)
     measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PublicationAccount(Base):
+    """A local creator is pinned to a stable platform identity, not a nickname."""
+    __tablename__ = "publication_accounts"
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id"), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    account_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PublicationRequest(TimestampMixin, Base):
+    __tablename__ = "publication_requests"
+    __table_args__ = (
+        UniqueConstraint("account_id", "content_digest"),
+        CheckConstraint("status IN ('draft','sending','verifying','unknown','published')", name="status_values"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    content_run_id: Mapped[str] = mapped_column(ForeignKey("content_runs.id"), unique=True, nullable=False)
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id"), nullable=False)
+    revision_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    artifact_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    account_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    post_url: Mapped[str | None] = mapped_column(String(1000))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    events_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

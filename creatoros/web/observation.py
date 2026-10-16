@@ -17,7 +17,7 @@ from sqlalchemy import inspect, select
 from creatoros.integrations.codex_public_events import sanitize_public
 from creatoros.storage import (ContentAttempt, ContentRevision, ContentRun, ContentRunEvent,
                                Creator, Series, Topic, PendingOperation, ManualPublication,
-                               PublicationMetric, OperationEvent)
+                               PublicationMetric, PublicationRequest, OperationEvent)
 
 
 ACTIVE = {"running", "researching", "producing", "validating"}
@@ -795,10 +795,13 @@ class ObservationService:
                 if kind == "run":
                     events = self._rows(ContentRunEvent, ContentRunEvent.content_run_id == row.id, order=ContentRunEvent.id)
                     section("业务状态时间线", [row_data(e) for e in events])
+                    publication_requests = self._rows(PublicationRequest, PublicationRequest.content_run_id == row.id)
+                    if publication_requests:
+                        section("发布单与确认记录", [row_data(item) for item in publication_requests])
                     publications = self._rows(ManualPublication, ManualPublication.content_run_id == row.id)
                     if publications:
                         publication = publications[0]
-                        section("人工发布记录", row_data(publication))
+                        section("发布记录", row_data(publication))
                         section("效果反馈", [row_data(r) for r in self._rows(PublicationMetric, PublicationMetric.publication_id == publication.id)])
                     result["links"].append({"label": "打开作品", "href": f"/runs/{row.id}"})
                     result["links"] += self._origins(node_id, data.get("input_snapshot_json", {}).get("creator_id"))

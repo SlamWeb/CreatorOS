@@ -10,7 +10,7 @@ from sqlalchemy import select
 from creatoros.runs.service import ContentRunError
 from creatoros.storage import (
     ContentRun, ContentRunStatus, Database, ManualPublication,
-    PublicationMetric, Topic, TopicStatus,
+    PublicationMetric, PublicationRequest, Topic, TopicStatus,
 )
 
 
@@ -42,6 +42,8 @@ class ManualPublicationService:
                 if (existing.revision_id, existing.artifact_digest, existing.post_url) == (revision_id, artifact_digest, post_url):
                     return
                 raise ContentRunError("此 Run 已登记另一条笔记；请先核对原记录。", code="already_published")
+            if session.scalar(select(PublicationRequest).where(PublicationRequest.content_run_id == run_id)):
+                raise ContentRunError("该内容已有发布单，请在发布单核对笔记链接。", code="publication_request_exists")
             if run.status is not ContentRunStatus.APPROVED or run.version != expected_version:
                 raise ContentRunError("请先重新检查并批准当前产物。")
             if (run.approved_revision_id, run.approved_artifact_digest) != (revision_id, artifact_digest):

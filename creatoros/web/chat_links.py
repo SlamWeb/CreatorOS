@@ -111,7 +111,7 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             kind, rows = "series", [data]
         elif name == "prepare_topic_selection":
             kind, rows = "preview", [data]
-        elif name in {"start_content_run", "get_content_run", "request_content_revision", "import_content_images"}:
+        elif name in {"start_content_run", "get_content_run", "request_content_revision", "import_content_images", "prepare_publication", "get_publication"}:
             kind, rows = "production", [data]
         else:
             return []

@@ -1,5 +1,11 @@
 # CreatorOS Storage SPEC
 
+## 发布确认与幂等（2026-10-16）
+
+- 迁移 `20261016_0010` 增加 `publication_accounts`（本地 Creator 对稳定平台用户 ID）和 `publication_requests`（Run 唯一、账号+内容摘要唯一、冻结 payload、状态、确认时间、核对证据事件）。不改写已有人工发布、指标、账号或生产数据。
+- 发布副作用之前使用 SQLite `BEGIN IMMEDIATE` 将 draft 原子改为 sending；外部调用发生在提交之后。unknown 不因超时/重启变回可重试。现有 `manual_publications` / `publication_metrics` 仍存最终凭证和追加指标。
+- 业务契约及验证见 `creatoros/publication/SPEC.md`。迁移/故障注入测试仅隔离库，正式库由应用启动的显式升级路径处理。
+
 ## 选题移除记录（2026-10-09，完成）
 
 - 只增加 TopicRemoval/`topic_removals`，保存 topic_id（可指向尚未入队的确定性候选）、series_id、当时账号归属、request_id、候选来源与状态（deleted/archived/dismissed）、时间。topic_id 不外键到 Topic，支持物理删除；series 外键保留归属。
