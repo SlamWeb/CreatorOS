@@ -1,5 +1,12 @@
 # 小红书 MCP 登录探针
 
+## 2026-10-16：Docker MCP 与二维码验证通过，等待本人扫码
+
+- 固定镜像 `xpzouying/xiaohongshu-mcp:v2.5.5` 拉取成功，实际 digest 为 `sha256:5bc690d0c7907f069886ddeb6b37abbe4bdd37bd431975b914c7c27435b1b602`，按此 digest 启动容器 `creatoros-xhs-login-probe`。
+- 仅映射 `127.0.0.1:18060`，未开公网；AUTH_TOKEN 从本地忽略文件读入环境，不打印、不写 Git。仅挂载 `tmp/xhs-mcp-smoke/docker-data` 到 `/app/data`，Cookie 路径显式固定，不读取个人浏览器或旧 Cookie；未挂载 Docker socket。容器无自动重启策略，不做自动发布。
+- 真实验收：initialize 协商 2025-11-25，tools/list 18 个；无认证 HTTP 401；check_login_status 成功返回“未登录”（非工具错误）；get_login_qrcode 成功保存 PNG 于忽略目录 `tmp/xhs-mcp-smoke/login-qr.png`，已展示给用户。
+- 仍未验证扫码后的登录成功，不调用发布/互动；等待账号本人扫码后仅再次 status。二维码与本地 Cookie/Token/原始日志不提交。Docker 成功绕开本次 Windows 原生启动失败路径，不意味着原生文件已被证明安全或所有后续调用均可靠。
+
 ## 2026-10-16：用户授权卸载并迁往 D 盘（引擎验证通过）
 
 - 用户明确允许恢复出厂，并进一步要求卸载重装、程序及大体积数据放 D 盘。先通过已验证 Docker Inc 有效签名的原安装器卸载，退出码 0；不操作其他 WSL 发行版或 CreatorOS 数据。

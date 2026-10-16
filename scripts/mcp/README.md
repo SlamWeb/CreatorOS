@@ -2,9 +2,22 @@
 
 这是独立学习探针，不是 CreatorOS 已上线的发布功能。不接正式数据库，不注册给账号 Agent，不发布、不点赞、不评论。先理解：`ClientSession` 负责 MCP 通信；小红书登录态由外部 Server 保管，两种 Session 不相同。
 
-**当前验证状态（2026-10-16）：** 初始化、18 个工具发现、本机绑定与访问认证通过。Windows 防护拦截了上游启动浏览器所用的 `leakless.exe`，因此登录检查未完成，二维码命令未实际运行。不要为运行此探针关闭防护或设置排除项；先处理此安全兼容问题或审查替代部署。文件哈希一致只能确认与上游发布文件一致，不能证明安全。
+**当前验证状态（2026-10-16）：** Docker 路径已通过初始化、18 个工具发现、本机绑定与认证（无 Token 返回 401）、未登录状态检查和真实二维码获取。等待本人扫码，尚未验证已登录。Windows 原生路径仍因防护拦截 `leakless.exe` 而停用，不为运行它关闭防护或添加排除项。文件哈希一致只能确认与上游发布文件一致，不能证明安全。
 
 本机后续已按用户授权重装 Docker Desktop 4.95.0：程序位于 `D:\DockerDesktop`，WSL 与容器磁盘位于 `D:\DockerData`，Linux Engine 29.8.2 的真实 version/info 检查通过。用户配置和日志仍可能留在 C 盘；这不是“整套 Docker 所有文件都迁出 C 盘”。旧数据保留于 `D:\DockerData-backup-20261016`，不要误当新引擎正在使用的目录。旧终端若找不到 credential helper，请重开终端加载新 PATH。Docker 引擎可用不代表小红书已登录，后续探针结果见 SPEC。
+
+## 当前本机 Docker 续跑
+
+已创建隔离容器 `creatoros-xhs-login-probe`，绑定本机 18060，Cookie 独立持久化在 `tmp/xhs-mcp-smoke/docker-data/`。退出客户端不会删 Cookie；容器不自动启动。Docker Desktop 启动后可执行：
+
+```powershell
+docker start creatoros-xhs-login-probe
+tmp/xhs-mcp-smoke/venv/Scripts/python.exe scripts/mcp/probe.py status
+# 仅未登录且本人准备好扫码时取码
+tmp/xhs-mcp-smoke/venv/Scripts/python.exe scripts/mcp/probe.py qr
+```
+
+停止服务用 `docker stop creatoros-xhs-login-probe`。不要同时启动下方 Windows 原生服务争用端口，也不要公开容器 inspect 输出（其中含访问 Token）。首次创建使用的镜像 digest 与验证范围见 SPEC。以下 Windows 启动说明仅供保留历史，不代表当前推荐路径。
 
 ## 本机准备（Windows）
 
