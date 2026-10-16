@@ -1,5 +1,13 @@
 # 小红书 MCP 登录探针
 
+## 2026-10-16：Docker 替代部署尝试（未连通）
+
+- 用户授权尝试 Docker；执行 `docker desktop start`，未拉取镜像、未创建容器、未调用发布工具。
+- Docker Desktop 4.84.0 启动日志明确记录 backend crashed：初始化 Inference manager 时无法访问/移除 `%LOCALAPPDATA%/Docker/run/dockerInference`，引擎随即关闭。此时不是小红书登录失败，而是容器运行环境尚未启动。
+- 只读检查发现该对象为 0 字节 ReparsePoint，最后修改时间为 2026-07-29。残留 socket 是候选解释，尚未确认其具体锁持有者或损坏原因。Docker 官方问题库存在同类报告：https://github.com/docker/desktop-feedback/issues/625 。
+- 未恢复出厂设置、删除 Docker 数据、关闭防护、修改系统配置或重启电脑。下一步先由用户决定是否修复本机 Docker；引擎可用后才继续固定镜像版本、仅本机映射端口、挂载独立 Cookie 目录并验证认证/list/status/qr。
+- 本轮不声称 Docker 部署或扫码成功；原 Windows 探针结果与生产数据保持不变。
+
 ## 2026-10-16：连通已验证，登录阻塞
 
 - 仅验证真实 MCP 初始化、工具发现、登录检查和人工扫码。暂不接 Agent Registry、正式账号数据或发布；不调用点赞、评论、删除登录态等工具。
