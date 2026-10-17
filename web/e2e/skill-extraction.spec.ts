@@ -183,6 +183,62 @@ async function submitOneImage(page: Page, instruction = "保持克制") {
   await page.getByRole("button", { name: "开始提炼" }).click();
 }
 
+test("nine renamed references deduplicate through real upload and Mind submission", async ({ page, request }, info) => {
+  // No browser API stubs: isolated HTTP/files are real; the server's extractor is controlled.
+  await page.goto("/skills");
+  await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  const samples = await page.evaluate(() => Array.from({ length: 8 }, (_, i) => {
+    const canvas = document.createElement("canvas"); canvas.width = 90; canvas.height = 120;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = `hsl(${i * 40},60%,80%)`; context.fillRect(0, 0, 90, 120);
+    return canvas.toDataURL("image/png").split(",")[1];
+  }));
+  const files = [...samples, samples[0]].map((data, i) => ({ name: `reference-${i + 1}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64") }));
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles(files);
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(9);
+  await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
+  await page.getByLabel("提炼要求", { exact: true }).fill("只提炼如何讲故事和内容，不用管IP形象");
+  const submitted = page.waitForResponse(r => r.url().endsWith("/api/skill-extractions") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  const response = await submitted;
+  expect(response.status()).toBe(202);
+  const sent = response.request().postDataJSON();
+  expect(sent.mode).toBe("mind"); expect(sent.source_text).toBe("");
+  expect(sent.instruction).toBe("只提炼如何讲故事和内容，不用管IP形象");
+  expect(sent.upload_ids).toHaveLength(8); expect(new Set(sent.upload_ids).size).toBe(8);
+  const jobId = (await response.json()).id;
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  await expect(page.getByText("已合并 1 张重复图片，使用 8 张参考图。", { exact: true })).toBeVisible();
+  const job = await (await request.get(`/api/skill-extractions/${jobId}`)).json();
+  expect(job.upload_ids).toEqual(sent.upload_ids); expect(job.skills.map((s: { role: string }) => s.role)).toEqual(["mind"]);
+  for (let i = 0; i < 8; i++) {
+    expect(await (await request.get(job.uploads[i].url)).body()).toEqual(files[i].buffer);
+  }
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`duplicate-mind-${width}.png`), fullPage: true });
+  }
+  await page.reload(); await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("extraction")).toBe(jobId);
+});
+
+test("duplicate references retry an unknown submission without reupload or a new request", async ({ page }) => {
+  const api = await installControlledApi(page, "ready", true);
+  await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  await page.getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "renamed.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
+  await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(2);
+  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
+  await expect(page.getByText("任务状态：待确认")).toBeVisible();
+  const creates = api.posts.filter(p => p.path === "/api/skill-extractions");
+  expect(creates).toHaveLength(2); expect(creates[0].body).toEqual(creates[1].body);
+  expect((creates[0].body as { upload_ids: string[] }).upload_ids).toEqual(["upload-e2e"]);
+  expect(api.posts.filter(p => p.path.endsWith("/uploads"))).toHaveLength(2);
+});
+
 test("long real-world draft paths wrap inside the mobile extraction detail", async ({ page }) => {
   await installControlledApi(page);
   const note = `已完成草稿：D:/CreatorOS/tmp/isolated/studio-producer-skills/extractions/jobs/${"a".repeat(64)}/draft/skill/SKILL.md；未入库。`;

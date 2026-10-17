@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 重复参考图提交修复（2026-10-17，已验证，服务待重启）
+
+- 复现：前端按文件名/大小/修改时间判断重复，上传接口按字节哈希返回 ID；同图不同名导致提交列表重复，旧校验整组拒绝，尚未调用 Codex。
+- 最小修复：先校验原始数量上限20，再按 ID 保留首次顺序去重，快照/幂等摘要/模型输入均用去重后的同一列表；同图不重复传给模型。无效图片、模式、空输入及更改顺序的幂等冲突仍拒绝。
+- 验收：9张含重复的真实隔离HTTP上传与仅Mind提交；重复/去重请求同幂等键返回同一任务，独立图片次序不变；前端原路径与失败重试/刷新，正式数据不动。提炼器受控，只证明接线，不计模型质量。
+- `tests.test_extraction_batch` 3/3通过（7.570s），核对八张原始字节、顺序、Mind角色与重试只调用一次；21个相同ID仍因原始数量超限拒绝。`tests.smoke_skill_extraction`通过，覆盖四模式、保存、故障、取消、恢复与资产。首轮旧smoke预期总任务8条，新规则多接受一条重复参考任务而失败；将明确计数更新为9后通过，不是正式任务异常。
+- 未向正式服务提交付费任务；检查时28条Run、无活动提炼、11个聊天idle。自动重启命令被宿主策略拒绝，未执行，不声称正式进程已加载后端修复；需用户重启服务。旧页面的已上传ID仍可直接重试，新校验会兼容旧客户端的重复列表。
+
 ## Studio 批量生产提交（2026-10-17）
 
 - StudioClient.start_batch 用一次 POST `/api/runs/batch` 提交最多100个选题，返回逐项真实结果；单项失败不使其他合法项失去回执。start(topic_id) 旧入口兼容，execute 改为持久化排队而非忙碌拒绝。
@@ -8,7 +16,7 @@
 ## 同类作品批量提炼（2026-10-15）
 
 - Skill 页面提炼/API/通用 `extract_skills_from_artifact` 工具统一最多 20 张参考图，每张仍最多 4 MiB。`MAX_REFERENCE_IMAGES` 为后端单一数量定义；普通聊天附件及会话图片提炼工具仍为 6 张，不扩大 DeepSeek 单轮图片上下文。
-- 用户选择的完整有序 upload_ids 被复制为 reference-01…reference-20，进入同一个提炼任务和同一个 Codex turn 的 LocalImageInput 列表；没有分批模型请求、静默截断或自动重试。纯文案仍可提炼；重复图 ID、21 张、同幂等 ID 改顺序拒绝。
+- 用户选择的完整有序 upload_ids 被复制为 reference-01…reference-20，进入同一个提炼任务和同一个 Codex turn 的 LocalImageInput 列表；没有分批模型请求、静默截断或自动重试。纯文案仍可提炼；21 张、同幂等 ID 改顺序拒绝。重复图 ID 的旧拒绝策略由上方修复替代。
 - 原生草稿与本地 Skill 注册共用 96 MiB 上限，覆盖 20 × 4 MiB 原图及配套文件，防止上传成功却在草稿或入库时碰到旧 32 MiB 限制。文件数量/路径安全/人工确认入库规则不变。GitHub 下载包和 Skill 融合来源的 32 MiB 上限保持不变，不将两种来源约束混为一谈。
 - `python -m unittest tests.test_extraction_batch -v`：3/3 通过（6.276 秒）。实际隔离 loopback HTTP 完成 20 次上传→单次提炼 handoff→草稿→显式入库，逐字节核对 20 个 assets 及顺序；21 张在 worker 前拒绝；大于旧 32 MiB 的本地目录可注册，大于 96 MiB 的草稿/注册均拒绝。
 - `tests.smoke_skill_draft_files`、`tests.smoke_skill_extraction`、`tests.smoke_producer_skills`、`tests.smoke_skill_merge` 通过。SDK 转换测试确认一个 turn 完整携带 20 个有序 LocalImageInput；此项及 HTTP 测试使用声明的受控提炼器验证本地接线，不计作真实 Codex 质量验收。真实前端/模型验证另见 web/SPEC.md；正式数据未修改。

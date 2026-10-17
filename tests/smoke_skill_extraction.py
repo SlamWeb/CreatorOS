@@ -64,7 +64,10 @@ def main():
             assert client.post(base + "/uploads", json=upload).json()["id"] == image["id"]
             assert client.get(base + "/uploads/not-an-id").status_code == 404
             assert client.post(base, json={"request_id": "empty", "upload_ids": []}).status_code == 422
-            assert client.post(base, json={"request_id": "duplicate", "upload_ids": [image["id"]] * 2}).status_code == 422
+            duplicate = client.post(base, json={"request_id": "duplicate", "upload_ids": [image["id"]] * 2})
+            assert duplicate.status_code == 202, duplicate.text
+            service.worker.join(5)
+            assert duplicate.json()["upload_ids"] == [image["id"]]
             assert client.post(base, json={"request_id": "missing", "upload_ids": ["0" * 64]}).status_code == 404
             initial = len(catalog.list())
             for mode in MODE_ROLES:
@@ -120,7 +123,7 @@ def main():
             # No creator/series/run was created, nor can foreign origins submit paid jobs.
             assert client.get("/api/creators").json()["page"]["total"] == 0
             assert client.post(base, json=body, headers={"Origin": "https://evil.example"}).status_code == 403
-            assert len(client.get(base).json()["items"]) == 8
+            assert len(client.get(base).json()["items"]) == 9  # Includes the accepted duplicate-reference batch.
 
             partial = service.submit("partial-register", [image["id"]], mode="pair")
             service.worker.join(5)

@@ -37,7 +37,7 @@ class ExtractionBatchTests(unittest.TestCase):
             async def controlled(directory, images, mode, instruction, cancel, on_thread):
                 # This observes the real service snapshot, not model quality.
                 calls.append([path.read_bytes() for path in images])
-                target = directory / "draft" / "skill"
+                target = directory / "draft" / ("mind" if mode == "mind" else "skill")
                 (target / "assets").mkdir(parents=True)
                 (target / "SKILL.md").write_text(skill_text(), encoding="utf-8")
                 for path in images:
@@ -85,6 +85,36 @@ class ExtractionBatchTests(unittest.TestCase):
                     for index, raw in enumerate(reversed(images[:20]), 1):
                         self.assertEqual((assets / f"reference-{index:02d}.png").read_bytes(), raw)
                     self.assertFalse((service.root / "jobs" / hashlib.sha256(b"too-many").hexdigest()).exists())
+                    # Same image under another filename reproduces the user's nine-image Mind batch.
+                    renamed = client.post(base + "/uploads", json={"name": "renamed-first.png",
+                        "data_base64": base64.b64encode(images[0]).decode()})
+                    self.assertEqual(renamed.json()["id"], ids[0])
+                    duplicate_ids = ids[:8] + [renamed.json()["id"]]
+                    body = {"request_id": "nine-mind", "upload_ids": duplicate_ids, "mode": "mind",
+                            "instruction": "只提炼如何讲故事和内容，不用管IP形象"}
+                    submitted = client.post(base, json=body)
+                    self.assertEqual(submitted.status_code, 202, submitted.text)
+                    mind_id = submitted.json()["id"]
+                    service.worker.join(10)
+                    mind = client.get(base + "/" + mind_id).json()
+                    self.assertEqual(mind["status"], "ready", mind)
+                    self.assertEqual(mind["upload_ids"], ids[:8])
+                    self.assertEqual(len(mind["uploads"]), 8)
+                    self.assertEqual(calls[-1], images[:8])
+                    self.assertEqual([s["role"] for s in mind["skills"]], ["mind"])
+                    for position, raw in enumerate(images[:8], 1):
+                        reference = service.root / "jobs" / mind_id / "references" / f"reference-{position:02d}.png"
+                        self.assertEqual(reference.read_bytes(), raw)
+                    # Duplicate and normalized retries are the same logical input, not another paid task.
+                    for references in (duplicate_ids, ids[:8]):
+                        retried = client.post(base, json={**body, "upload_ids": references})
+                        self.assertEqual(retried.status_code, 202, retried.text)
+                        self.assertEqual(retried.json()["id"], mind_id)
+                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(client.post(base, json={**body, "upload_ids": list(reversed(ids[:8]))}).status_code, 409)
+                    self.assertEqual(client.post(base, json={"request_id": "duplicate-over-limit", "upload_ids": [ids[0]] * 21}).status_code, 422)
+                    with self.assertRaises(ExtractionError):
+                        service.submit("direct-duplicate-over-limit", [ids[0]] * 21)
             finally:
                 db.close()
 

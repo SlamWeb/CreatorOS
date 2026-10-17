@@ -104,11 +104,12 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const reviseRequestIdRef = useRef<string | null>(null);
   const trialRequestIdRef = useRef<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState("");
+  const [referenceNotice, setReferenceNotice] = useState("");
   const createLock = useRef(false);
   const uploadedFilesRef = useRef<File[]>([]);
   const uploadedIdsRef = useRef<string[]>([]);
 
-  const resetCreateAttempt = () => { requestIdRef.current = null; uploadedFilesRef.current = []; uploadedIdsRef.current = []; };
+  const resetCreateAttempt = () => { requestIdRef.current = null; uploadedFilesRef.current = []; uploadedIdsRef.current = []; setReferenceNotice(""); };
   const resetReviseAttempt = () => { reviseRequestIdRef.current = null; };
   const resetTrialAttempt = () => { trialRequestIdRef.current = null; };
 
@@ -187,14 +188,17 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         uploadedIdsRef.current.push(uploaded.id);
       }
       setUploadProgress("正在提交提炼…");
+      const uploadIds = [...new Set(uploadedIdsRef.current)];
+      const duplicates = uploadedIdsRef.current.length - uploadIds.length;
+      setReferenceNotice(duplicates ? `已合并 ${duplicates} 张重复图片，使用 ${uploadIds.length} 张参考图。` : "");
       return studioApi.createSkillExtraction({
-        request_id: requestIdRef.current, upload_ids: [...uploadedIdsRef.current], source_text: text,
+        request_id: requestIdRef.current, upload_ids: uploadIds, source_text: text,
         mode, instruction: instruction.trim(),
       });
     },
     onSuccess: async job => {
       setFiles([]); setSourceText("");
-      resetCreateAttempt(); setPanelError("");
+      requestIdRef.current = null; uploadedFilesRef.current = []; uploadedIdsRef.current = []; setPanelError("");
       setNewWorkOpen(false);
       setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
       await Promise.all([cache.setQueryData(["skill-extraction", job.id], job), cache.invalidateQueries({ queryKey: ["skill-extractions"] })]);
@@ -341,6 +345,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         </button>
         </form>
       </div>
+      {referenceNotice && <p role="status" className="extraction-help">{referenceNotice}</p>}
       {panelError && <p role="alert" className="extraction-error">{panelError}</p>}
       {create.isError && !panelError && <p role="alert" className="extraction-error">{create.error.message}</p>}
       {jobs.isError && <p role="alert" className="extraction-error">任务列表读取失败：{jobs.error.message}</p>}

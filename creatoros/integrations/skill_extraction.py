@@ -381,9 +381,12 @@ class SkillExtractionService:
     def submit(self, request_id, upload_ids=None, mode="single", instruction="", source_text=""):
         upload_ids = upload_ids or []
         if (mode not in MODE_ROLES or not (upload_ids or source_text.strip()) or len(upload_ids) > MAX_REFERENCE_IMAGES
-                or len(set(upload_ids)) != len(upload_ids) or not request_id.strip()
+                or not request_id.strip()
                 or len(request_id) > 128 or len(instruction) > 4000 or len(source_text) > 20000):
-            raise ExtractionError(f"请提供文案或 1–{MAX_REFERENCE_IMAGES} 张不同参考图，并选择有效提炼模式。")
+            raise ExtractionError(f"请提供文案或 1–{MAX_REFERENCE_IMAGES} 张参考图，并选择有效提炼模式。")
+        # Upload IDs are content hashes: renamed copies must not reject the batch.
+        # Normalize before both the idempotency digest and the model snapshot.
+        upload_ids = list(dict.fromkeys(upload_ids))
         job_id = hashlib.sha256(request_id.encode()).hexdigest()
         inputs = {"request_id": request_id, "upload_ids": upload_ids, "mode": mode, "instruction": instruction, "source_text": source_text}
         digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
