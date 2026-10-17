@@ -145,7 +145,9 @@ test("isolated API rejects deleting an actively producing series without cancell
   const run = await create(request, "/api/runs", { topic_id: data.topicIds[0] });
   const started = await request.post(`/api/runs/${run.id}/execute`, { data: { expected_version: run.version } });
   expect(started.status()).toBe(202);
-  expect((await started.json()).status).toBe("producing");
+  // 202 means accepted by the durable queue, not already claimed by its worker.
+  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status,
+    { intervals: [50, 100, 200], timeout: 10_000 }).toBe("producing");
 
   const rejected = await request.delete(`/api/series/${data.series.id}`, {
     data: { expected_revision: data.series.revision, request_id: crypto.randomUUID().replaceAll("-", "") },

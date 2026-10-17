@@ -7,6 +7,8 @@ test("Skill composer can select the original account dropdown", async ({ page })
   await page.getByLabel("新账号名称").fill("定位预检账号");
   await page.getByLabel("新账号标识").fill("locator_preflight");
   await page.getByRole("button", { name: "创建", exact: true }).click();
+  // Creation refreshes the tree; an existing workspace selection is preserved.
+  await page.getByRole("button", { name: "查看账号 定位预检账号", exact: true }).click();
   await expect(page.getByRole("heading", { name: "定位预检账号", level: 1, exact: true })).toBeVisible();
   await page.goto("/skills");
   const composer = page.getByRole("region", { name: "组合栏目", exact: true });

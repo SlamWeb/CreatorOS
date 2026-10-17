@@ -61,6 +61,11 @@ def main():
         repo = ContentRepository(database)
         series_id = "agent-notes"
         library_url = f"/api/series/{series_id}/topic-library"
+        # Seed the completed artifact before the Web executor owns this DB.
+        # A direct service.execute during its dispatcher loop looks like an
+        # unaccounted external writer and correctly pauses the queue.
+        history_run = runs.create("review-1")
+        runs.execute(history_run.id)
 
         with serve(app) as base_url, httpx.Client(
             base_url=base_url, timeout=20, trust_env=False
@@ -90,8 +95,6 @@ def main():
 
             # Existing Run history is archived from workspaces without changing
             # the Topic, Run, events, revision metadata, or checked image bytes.
-            history_run = runs.create("review-1")
-            runs.execute(history_run.id)
             before_detail = client.get(f"/api/runs/{history_run.id}").json()
             assert before_detail["status"] == ContentRunStatus.AWAITING_APPROVAL.value
             before_version = before_detail["version"]

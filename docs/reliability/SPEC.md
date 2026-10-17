@@ -1,5 +1,12 @@
 # Reliability Baseline
 
+## 干净重做集成回归（2026-10-17）
+
+- 新增 fresh领域/API 联合验证，不扩大冻结 Agent Eval：35条联合测试通过。首轮统一 runner 为17/18，报告 `tmp/reliability-20261017-132132-320741/report.json` 保留。
+- 唯一失败 smoke_topic_remove 在 Web 执行器启动后直接 service.execute 播种旧工件，消费者观察到无账的外部执行日志而正确暂停；不是删题绕过或模型失败。将播种移到 Web 启动前，保留409拒绝移除后执行、图片/数据库不变等断言，不降低执行锁保护；单独重跑通过，全量另存新报告。
+- 浏览器首轮全站113/117及修复情况记录在账号工作区 SPEC；真实 DeepSeek/Codex 一张图及只读图片讨论由独立探针记录，不并入零付费 runner、不改旧分数。正式服务仍有生产，不强制重启。
+- 修正夹具执行顺序后，统一 runner 全量18/18通过：`tmp/reliability-20261017-133210-508074/report.json`，首轮17/18报告不覆盖。35条 fresh/工具/归属/链接联合测试再次通过；smoke_studio_api/native_artifact_web另通过。均不计为模型任务完成率。
+
 ## 批量生产增量（2026-10-17）
 
 - 统一 runner 新增 production_queue 组，涵盖10项串行队列故障注入与5项隔离真实 HTTP/工具边界验证；原17组保留，live 探针仍只能显式启动，不被 runner 自动发现。

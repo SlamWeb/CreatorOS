@@ -95,12 +95,13 @@ test("durable queue projection distinguishes waiting and attention; blocked work
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET") writes.push(new URL(req.url()).pathname); });
   // Controlled read projections cover queue states without executing or publishing.
+  // Capture the real DTO once; repeated poll intercepts must not keep an HTTP
+  // request alive past page teardown (which disposes route.fetch responses).
+  const library = await request.get(`/api/series/${data.series.id}/topic-library?state=all&offset=0&limit=20`).then(r => r.json());
+  library.items[0] = { ...library.items[0], existing_run_id: created.id, production_queue_status: "pending", production_queue_position: 2, available_actions: [] };
+  library.items[1] = { ...library.items[1], production_queue_status: "needs_attention", production_queue_position: null, available_actions: ["resume"] };
   await page.route(`**/api/series/${data.series.id}/topic-library?**`, async route => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.items[0] = { ...body.items[0], existing_run_id: created.id, production_queue_status: "pending", production_queue_position: 2, available_actions: [] };
-    body.items[1] = { ...body.items[1], production_queue_status: "needs_attention", production_queue_position: null, available_actions: ["resume"] };
-    await route.fulfill({ response, json: body });
+    await route.fulfill({ json: library });
   });
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
   await expect(page.getByTestId(`library-${data.topicIds[0]}`)).toContainText("排队中");
@@ -110,10 +111,8 @@ test("durable queue projection distinguishes waiting and attention; blocked work
   await expect(page.getByRole("checkbox", { name: /选择生产/ })).toHaveCount(1);
   await expect(page.getByTestId(`library-${data.topicIds[1]}`).getByRole("button", { name: "恢复生产", exact: true })).toBeVisible();
   await page.route(`**/api/runs/${created.id}`, async route => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.production_queue = { status: "pending", position: 2, submitted_at: new Date().toISOString(), blocked_reason: "受控暂停：Codex 环境未就绪" };
-    await route.fulfill({ response, json: body });
+    await route.fulfill({ json: { ...created, production_queue: { status: "pending", position: 2,
+      submitted_at: new Date().toISOString(), blocked_reason: "受控暂停：Codex 环境未就绪" } } });
   });
   await page.goto(`/runs/${created.id}`);
   await expect(page.getByText("生产队列已暂停 · 受控暂停：Codex 环境未就绪")).toBeVisible();
