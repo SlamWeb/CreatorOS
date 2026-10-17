@@ -349,6 +349,7 @@ export type SkillRole = "mind" | "production" | "legacy_end_to_end" | null;
 export interface ProducerSkillItem {
   id: string;
   name: string;
+  display_name?: string;
   description: string;
   carousel_compatible: boolean;
   compatibility_note: string;
@@ -369,6 +370,7 @@ export interface ProducerSkillFile {
 export interface ProducerSkillFiles {
   id: string;
   name: string;
+  display_name?: string;
   description: string;
   role: SkillRole;
   editable?: boolean;
@@ -383,6 +385,7 @@ export interface ProducerSkillText {
   digest: string;
   editable: boolean;
   name?: string;
+  display_name?: string;
   description?: string;
 }
 

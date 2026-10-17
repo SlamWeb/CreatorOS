@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## Skill 显示名（2026-10-18，已验证）
+
+- files/content PUT 增加可选 display_name，仅 SKILL.md 可用，复用原写权限、摘要CAS与原子保存；内部name/注册ID不变。目录/文件树/保存回执加display_name，旧客户端请求仍兼容。
+- 账号元数据树同步提供显示名别名以便自然语言定位，仍只暴露name/description层级，不增加正文、图片或动态数据；已有get/update Skill工具直接使用原接口，无新增工具。
+- 真HTTP/隔离文件与前端操作验证中文改名、合法YAML、旧摘要冲突/越权拒绝，正式库不试写。
+- Skill编辑/文件浏览与账号context/scope回归通过；正式服务已加载新Schema，目录与原文只读检查通过，正式35条Run、9个Skill保留。具体字段写入与前端回归分别见 integrations/web SPEC。
+
 ## 同选题从头重做（2026-10-17，已验证）
 
 - 复用 POST `/api/runs`，显式 `mode=fresh`、来源 Run、所见 version 与 request_id；新 Run 使用同一选题和栏目当前 Skill，旧 Run/图片不覆盖。不额外增加模型工具。

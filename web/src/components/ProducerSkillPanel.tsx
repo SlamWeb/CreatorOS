@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
 import "./producer-skills.css";
 
-type Skill = { id: string; name: string; description: string; carousel_compatible: boolean;
+type Skill = { id: string; name: string; display_name?: string; description: string; carousel_compatible: boolean;
   compatibility_note: string; commit: string | null; github_url: string | null };
 type Job = { id: string; github_url: string; status: string; message: string; skill: Skill | null };
 
@@ -40,7 +40,7 @@ export function ProducerSkillPanel({ seriesId, current }: { seriesId: string; cu
     {skills.error && <p className="form-error">{skills.error.message}</p>}
     <label>已安装技能<select aria-label="已安装技能" value={choice?.id ?? ""} onChange={e => { setChoice(e.target.value ? { id: e.target.value, expected: current } : null); bind.reset(); }}>
       <option value="">选择要绑定的技能版本</option>
-      {skills.data?.items.map(s => <option key={s.id} value={s.id} disabled={!s.carousel_compatible}>{s.name} · {s.commit?.slice(0, 8) ?? "内置"}{s.carousel_compatible ? "" : " · 非图片轮播"}</option>)}
+      {skills.data?.items.map(s => <option key={s.id} value={s.id} disabled={!s.carousel_compatible}>{s.display_name ?? s.name} · {s.commit?.slice(0, 8) ?? "内置"}{s.carousel_compatible ? "" : " · 非图片轮播"}</option>)}
     </select></label>
     {selected && <div className="notice-strip" style={{ overflowWrap: "anywhere" }}>
       <p>{selected.description}</p><p>{selected.compatibility_note}</p>

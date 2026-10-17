@@ -137,8 +137,8 @@ with TemporaryDirectory() as temporary:
             "---\nname: account-skill\ndescription: Invalid: unquoted colon\n---\nBody\n",
             "---\nname: account-skill\ndescription:\n  - list item\n---\nBody\n",
             "---\nname: [account, skill]\ndescription: Valid text\n---\nBody\n",
-            # The legacy metadata reader only supports single-line fields; reject rather than save a value it misreads.
-            "---\nname: account-skill\ndescription: |\n  Multiline text\n---\nBody\n",
+            "---\nname: 中文名称\ndescription: Valid text\n---\nBody\n",
+            "---\nname: account-skill\ndescription: Valid text\ncreatoros-display-name: [invalid]\n---\nBody\n",
         ]
         for invalid_content in invalid_documents:
             invalid = client.put(f"/api/producer-skills/{skill_id}/files/content", headers=headers_a,
@@ -166,6 +166,39 @@ with TemporaryDirectory() as temporary:
         assert quoted.status_code == 200, quoted.text
         assert quoted.json()["description"] == "Updated: quoted description"
         latest = quoted.json()["digest"]
+        # Previously valid block scalars were rejected by a second, incompatible parser.
+        for description, expected in [('>-\n  第一行：讲故事\n  第二行 # 保留文字', '第一行：讲故事 第二行 # 保留文字'),
+                                      ('|\n  第一行\n  第二行', '第一行\n第二行\n')]:
+            multiline = f'---\nname: account-skill\ndescription: {description}\ncreatoros-output: social-content-pack.image-carousel\n---\n\n正文不变。\n'
+            accepted = client.put(f"/api/producer-skills/{skill_id}/files/content", headers=headers_a,
+                json={"path": "SKILL.md", "content": multiline, "expected_digest": latest})
+            assert accepted.status_code == 200, accepted.text
+            assert accepted.json()["description"] == expected
+            latest = accepted.json()["digest"]
+        rename = client.put(f"/api/producer-skills/{skill_id}/files/content", headers=headers_a,
+            json={"path": "SKILL.md", "content": multiline, "expected_digest": latest, "display_name": "柯基漫画"})
+        assert rename.status_code == 200, rename.text
+        assert rename.json()["name"] == "account-skill" and rename.json()["skill_id"] == skill_id
+        assert rename.json()["display_name"] == "柯基漫画"
+        assert rename.json()["description"] == expected
+        assert rename.json()["content"].split("\n---\n", 1)[1] == multiline.split("\n---\n", 1)[1]
+        assert "creatoros-output: social-content-pack.image-carousel" in rename.json()["content"]
+        assert client.get(f"/api/producer-skills/{skill_id}/files").json()["display_name"] == "柯基漫画"
+        assert next(s for s in client.get("/api/producer-skills").json()["items"] if s["id"] == skill_id)["display_name"] == "柯基漫画"
+        from creatoros.web.account_context import CreatorContextBuilder
+        context_skill = CreatorContextBuilder(database, catalog).build("creator-a")["skills"][0]
+        assert context_skill["name"] == "account-skill" and context_skill["display_name"] == "柯基漫画"
+        with database.session() as session:
+            assert session.get(Series, "series-a").skill_name == skill_id
+        assert original.joinpath("SKILL.md").read_text(encoding="utf-8") == original_text
+        assert historical.joinpath("SKILL.md").read_text(encoding="utf-8") == original_text
+        latest = rename.json()["digest"]
+        before_bad_name = (working / "SKILL.md").read_bytes()
+        for value in (" ", "错\n误", "x" * 81):
+            rejected = client.put(f"/api/producer-skills/{skill_id}/files/content", headers=headers_a,
+                json={"path": "SKILL.md", "content": rename.json()["content"], "expected_digest": latest, "display_name": value})
+            assert rejected.status_code == 422, rejected.text
+            assert (working / "SKILL.md").read_bytes() == before_bad_name
         unsupported = client.put(f"/api/producer-skills/{skill_id}/files/content", headers=headers_a,
                                  json={"path": "missing.py", "content": "print(1)",
                                        "expected_digest": latest})

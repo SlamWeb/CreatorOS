@@ -26,6 +26,7 @@ class UpdateSkillFileRequest(BaseModel):
     path: str = Field(min_length=1, max_length=512)
     content: str = Field(max_length=512 * 1024)
     expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 def skill_routes(database, service):
@@ -90,6 +91,7 @@ def skill_routes(database, service):
         try:
             return JSONResponse(service.catalog.update_skill_file(
                 skill_id, request.path, request.content, request.expected_digest,
+                display_name=request.display_name,
             ), headers={"Cache-Control": "no-store"})
         except SkillDigestConflict as error:
             return JSONResponse(status_code=409, content={"error": {

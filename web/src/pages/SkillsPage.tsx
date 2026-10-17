@@ -31,6 +31,8 @@ function skillIcon(role: ProducerSkillItem["role"]) {
   return <CircleHelp size={15} strokeWidth={1.8} />;
 }
 
+function skillLabel(skill: ProducerSkillItem) { return skill.display_name ?? skill.name; }
+
 export function SkillsPage() {
   const client = useQueryClient();
   const [, setSearchParams] = useSearchParams();
@@ -203,7 +205,7 @@ export function SkillsPage() {
         onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } setInspected(skill); }}
         aria-haspopup="dialog">
         <span className="skill-icon">{skillIcon(skill.role)}</span>
-        <span className="skill-copy"><strong>{skill.name}</strong></span>
+        <span className="skill-copy"><strong>{skillLabel(skill)}</strong></span>
       </button>
     </div>;
   };
@@ -211,7 +213,7 @@ export function SkillsPage() {
   return <div className="space-page">
     <header className="space-head"><h1>Skill 库</h1></header>
     <ArtifactSkillExtraction onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
-      setSelectedIds([skill.id]); setNotice({ kind: "ok", text: `已选择「${skill.name}」，填写栏目名称后创建。` });
+      setSelectedIds([skill.id]); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
     }} />
     <div className="space-columns">
       <section className="space-col" aria-label="Mind">
@@ -251,10 +253,10 @@ export function SkillsPage() {
             className={`skill-basket ${draggingSkill ? (drag?.target === "skill-basket" ? "drop-ok" : "can-drop") : ""}`}>
             {!selectedIds.length && <p>把任意 Skill 拖到这里，或在详情中加入</p>}
             {selectedSkills.map(skill => <div className="basket-item" key={skill.id}>
-              <button type="button" className="basket-remove" disabled={busy} onClick={() => setSelectedIds(ids => ids.filter(id => id !== skill.id))} aria-label={`移除 ${skill.name}`}>
-                {skillIcon(skill.role)}<strong>{skill.name}</strong><span aria-hidden="true">×</span>
+              <button type="button" className="basket-remove" disabled={busy} onClick={() => setSelectedIds(ids => ids.filter(id => id !== skill.id))} aria-label={`移除 ${skillLabel(skill)}`}>
+                {skillIcon(skill.role)}<strong>{skillLabel(skill)}</strong><span aria-hidden="true">×</span>
               </button>
-              <button type="button" className="skill-slot-view" onClick={() => setInspected(skill)} aria-label={`查看 ${skill.name}`}>查看</button>
+              <button type="button" className="skill-slot-view" onClick={() => setInspected(skill)} aria-label={`查看 ${skillLabel(skill)}`}>查看</button>
             </div>)}
             {missingSkills && <p role="alert">部分 Skill 已不在库中。<button type="button" onClick={() => setSelectedIds(selectedSkills.map(s => s.id))}>移除失效选择</button></p>}
           </div>
@@ -281,7 +283,7 @@ export function SkillsPage() {
       </section>
     </div>
     {drag && <div className={`drag-ghost ${drag.target ? "on-target" : ""}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
-      {drag.payload.skill.name}
+      {skillLabel(drag.payload.skill)}
     </div>}
     {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={() => setInspected(null)}
       onAdd={() => {

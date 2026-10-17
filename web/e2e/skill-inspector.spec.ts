@@ -192,9 +192,11 @@ test("409 keeps the user's draft until they inspect and explicitly overwrite the
   await dialog.getByRole("button", { name: "读取当前版本并保留草稿" }).click();
   await expect(dialog.getByText(/已读取服务器当前版本；你的草稿仍保留。/, { exact: false })).toBeVisible();
   await expect(editor).toHaveValue(draft);
+  const overwriteExpectedDigest = currentTextDigest;
   await dialog.getByRole("button", { name: "覆盖保存", exact: true }).click();
   await expect(dialog.getByText("冲突草稿仍在。", { exact: true })).toBeVisible();
-  expect(saveDigests[1]).toBe(currentTextDigest);
+  expect(saveDigests[1]).toBe(overwriteExpectedDigest);
+  await page.unrouteAll({ behavior: "wait" });
 });
 
 test("Skill change request enters the existing Agent composer as a draft without sending", async ({ page }) => {
@@ -329,4 +331,92 @@ test("Run detail shows its frozen Skill and opens the current local card", async
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: info.outputPath("run-skill-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
+test("Chinese display name persists in the real library and basket without changing the Skill ID", async ({ page, request }, info) => {
+  const seeded = await request.post("/test/skill-files", { data: {} }).then(r => r.json());
+  const id = seeded.mind.id;
+  const path = `/api/producer-skills/${id}/files/content`;
+  const before = await request.get(`${path}?path=SKILL.md`).then(r => r.json());
+  try {
+    await openMind(page);
+    await page.getByRole("dialog").getByRole("button", { name: "加入组合", exact: true }).click();
+    await page.getByRole("button", { name: "查看 inspector-mind", exact: true }).click();
+    const card = page.getByRole("dialog");
+    await card.getByRole("button", { name: "改名", exact: true }).click();
+    const input = card.getByRole("textbox", { name: "Skill 显示名称", exact: true });
+    await input.fill("柯基漫画");
+    await expect(card.getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const rect = await input.boundingBox(); expect(rect!.x + rect!.width).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: info.outputPath(`skill-rename-${width}.png`) });
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const saved = page.waitForResponse(r => r.request().method() === "PUT" && new URL(r.url()).pathname === path);
+    await card.getByRole("button", { name: "保存名称", exact: true }).click();
+    const response = await saved; expect(response.status()).toBe(200);
+    await expect(card.getByRole("heading", { name: "柯基漫画", exact: true })).toBeVisible();
+    const actual = await request.get(`${path}?path=SKILL.md`).then(r => r.json());
+    expect(actual.content).toContain("name: inspector-mind");
+    expect(actual.content).toContain("creatoros-display-name: 柯基漫画");
+    expect(actual.content.split("\n---\n")[1]).toBe(before.content.split("\n---\n")[1]);
+    await card.getByRole("button", { name: "关闭 Skill 详情", exact: true }).click();
+    await expect(page.getByLabel("Skill 组合框", { exact: true })).toContainText("柯基漫画");
+    await expect(page.getByRole("button", { name: "柯基漫画", exact: true })).toBeVisible();
+    await page.reload(); await page.getByRole("button", { name: "柯基漫画", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "柯基漫画", exact: true })).toBeVisible();
+    const catalog = await request.get("/api/producer-skills").then(r => r.json());
+    expect(catalog.items.find((item: { id: string }) => item.id === id)).toMatchObject({ id, name: "inspector-mind", display_name: "柯基漫画" });
+  } finally {
+    // Restore only this isolated fixture; never touches an operating account's Skill.
+    const current = await request.get(`${path}?path=SKILL.md`).then(r => r.json());
+    const restored = await request.put(path, { data: { path: "SKILL.md", content: before.content, expected_digest: current.digest } });
+    expect(restored.ok(), await restored.text()).toBe(true);
+  }
+});
+
+test("legal multiline YAML saves and invalid internal names show a real 422 without losing the draft", async ({ page, request }) => {
+  const seeded = await request.post("/test/skill-files", { data: {} }).then(r => r.json());
+  const path = `/api/producer-skills/${seeded.mind.id}/files/content`;
+  const before = await request.get(`${path}?path=SKILL.md`).then(r => r.json());
+  try {
+    const card = await openMind(page);
+    await card.getByRole("button", { name: "编辑", exact: true }).click();
+    const editor = card.getByRole("textbox", { name: "编辑 SKILL.md", exact: true });
+    const multiline = before.content.replace(/^description:.*$/m, 'description: >-\n  第一行：讲故事\n  第二行也要保留');
+    await editor.fill(multiline);
+    await card.getByRole("button", { name: "保存文件", exact: true }).click();
+    await expect(card.getByText("第一行：讲故事 第二行也要保留", { exact: true })).toBeVisible();
+    await card.getByRole("button", { name: "编辑", exact: true }).click();
+    const badDraft = multiline.replace("name: inspector-mind", "name: 不该替换内部标识");
+    await editor.fill(badDraft);
+    await card.getByRole("button", { name: "保存文件", exact: true }).click();
+    await expect(card.getByRole("alert")).toContainText("name 必须");
+    await expect(editor).toHaveValue(badDraft);
+    expect((await request.get(`${path}?path=SKILL.md`).then(r => r.json())).content).toBe(multiline);
+  } finally {
+    const current = await request.get(`${path}?path=SKILL.md`).then(r => r.json());
+    const restored = await request.put(path, { data: { path: "SKILL.md", content: before.content, expected_digest: current.digest } });
+    expect(restored.ok(), await restored.text()).toBe(true);
+  }
+});
+
+test("a naming conflict keeps the name draft and never silently refreshes the save token", async ({ page }) => {
+  let posts = 0;
+  await page.route("**/api/producer-skills/*/files/content", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    posts++;
+    await route.fulfill({ status: 409, json: { error: { code: "skill_digest_conflict", message: "Skill 已被其他编辑更新。" } } });
+  });
+  const card = await openMind(page);
+  await card.getByRole("button", { name: "改名", exact: true }).click();
+  await card.getByRole("textbox", { name: "Skill 显示名称", exact: true }).fill("保留这个短名称");
+  await card.getByRole("button", { name: "保存名称", exact: true }).click();
+  await expect(card.getByRole("alert")).toContainText("Skill 已被其他编辑更新");
+  await expect(card.getByRole("textbox", { name: "Skill 显示名称", exact: true })).toHaveValue("保留这个短名称");
+  expect(posts).toBe(1);
+  await card.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(card.getByRole("textbox", { name: "Skill 显示名称", exact: true })).toHaveCount(0);
 });

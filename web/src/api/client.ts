@@ -105,7 +105,7 @@ export const studioApi = {
     `/api/producer-skills/${encodeURIComponent(id)}/files/content?${new URLSearchParams({ path })}`,
   producerSkillText: (id: string, path: string, signal?: AbortSignal) => request<ProducerSkillText>(
     studioApi.producerSkillFilePath(id, path), { signal }),
-  saveProducerSkillText: (id: string, input: { path: string; content: string; expected_digest: string }) =>
+  saveProducerSkillText: (id: string, input: { path: string; content: string; expected_digest: string; display_name?: string }) =>
     request<ProducerSkillText>(`/api/producer-skills/${encodeURIComponent(id)}/files/content`, {
       method: "PUT", body: JSON.stringify(input),
     }),

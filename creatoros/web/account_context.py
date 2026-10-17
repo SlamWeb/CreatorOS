@@ -53,6 +53,7 @@ class CreatorContextBuilder:
             if metadata is None:
                 raise ValueError("invalid metadata")
             return {"id": skill_id, "name": metadata.name,
+                    "display_name": metadata.display_name or metadata.name,
                     "description": self._text(metadata.description, skill_id, "description", omissions),
                     "available": True}
         except (ValueError, OSError, UnicodeError, KeyError):

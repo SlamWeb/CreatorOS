@@ -84,7 +84,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
           {usedSkills.map(item => {
             const current = skills.data?.items.find(skill => skill.id === item.id);
             return <button key={`${item.role}-${item.id}`} type="button" className="run-skill-link" disabled={!current}
-              title={current ? "查看或编辑本地 Skill" : "本地 Skill 暂不可读"} onClick={() => current && setInspectedSkill(current)}>{current?.name ?? item.name}</button>;
+              title={current ? "查看或编辑本地 Skill" : "本地 Skill 暂不可读"} onClick={() => current && setInspectedSkill(current)}>{current?.display_name ?? current?.name ?? item.name}</button>;
           })}
           {skills.isError ? <button type="button" className="text-link" onClick={() => void skills.refetch()}>Skill 读取失败，重试</button> : null}
         </section> : null}

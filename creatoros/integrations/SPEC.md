@@ -1,5 +1,14 @@
 # External Integrations SPEC
 
+## Skill 显示名与编辑校验（2026-10-18，已验证）
+
+- 用户确认中文显示名与内部英文标识分离。可选 `creatoros-display-name` 保存在本地 SKILL.md 的 YAML 头，最长80单行字符；未设置沿用 name。内部 name、注册ID、目录、栏目外键和旧快照不改。
+- Loader 与保存端复用安全 YAML 解析，接受合法 quoted escapes、多行说明及注释，不再以朴素单行解析结果比较而拒绝合法文档。非法类型/语法/内部name仍422，摘要冲突仍409，禁止覆盖旧文件或清空草稿。
+- 复用 files/content PUT，增加可选 display_name；仅 SKILL.md 支持，该改名表单规范化 YAML 头但不改正文及其他metadata语义。原始文件编辑不重排头部。读取文件树/目录/保存回执均投影 display_name，未增加 Agent 工具。
+- 验收：隔离HTTP保存中文显示名、合法多行/引号说明；核对稳定ID/绑定/原始版本与历史快照；非法语法、图片写入、越权及旧digest仍失败。正式Skill只读诊断，用户本次未提交内容不在访问日志中，不能据422日志断言具体修改内容。
+- 项目解释器的 Skill edit/catalog/files/local-import/loader/draft/role/account-context/account-scope 共9组smoke通过；编辑smoke走真实loopback HTTP与文件，断言中文名及两种多行YAML、非法值422零写入、来源与历史快照字节不变、目录与账号元数据别名一致。Loader另由子任务验证knowledge-to-carousel回归；均未调用真实模型。
+- 只读扫描正式9个Skill均可由新解析器读取；确认无活动生产/聊天/提炼/账号任务、6个queued无执行授权后重启Studio。新进程健康200，OpenAPI显示display_name可选字段，35个Run和9个Skill保留，目标柯基Skill摘要仍为原值；未替用户重命名或改写正式Skill。
+
 ## 重复参考图提交修复（2026-10-17，已验证，服务待重启）
 
 - 复现：前端按文件名/大小/修改时间判断重复，上传接口按字节哈希返回 ID；同图不同名导致提交列表重复，旧校验整组拒绝，尚未调用 Codex。

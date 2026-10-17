@@ -200,11 +200,11 @@ export function WorkspacePage() {
           {recipe === "pair" && <>
             <select aria-label="Mind" value={pairMind} onChange={event => setPairMind(event.target.value)}>
               <option value="">Mind…</option>
-              {(skills.data?.items ?? []).filter(s => s.role === "mind").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {(skills.data?.items ?? []).filter(s => s.role === "mind").map(s => <option key={s.id} value={s.id}>{s.display_name ?? s.name}</option>)}
             </select>
             <select aria-label="Visualize" value={pairVisual} onChange={event => setPairVisual(event.target.value)}>
               <option value="">Visualize…</option>
-              {(skills.data?.items ?? []).filter(s => s.role === "production").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {(skills.data?.items ?? []).filter(s => s.role === "production").map(s => <option key={s.id} value={s.id}>{s.display_name ?? s.name}</option>)}
             </select>
           </>}
           <div><button className="button button-primary" disabled={createSeries.isPending || (recipe === "pair" && (!pairMind || !pairVisual))}>创建</button>
@@ -309,7 +309,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
           {(series.skill_name ? [series.skill_name] : [series.mind_skill_id, series.production_skill_id].filter((id): id is string => !!id))
             .map((id, index) => {
               const bound = skills.find(item => item.id === id || item.name === id);
-              const label = bound?.name ?? "Skill 信息不可读取";
+              const label = bound?.display_name ?? bound?.name ?? "Skill 信息不可读取";
               return <span key={`${id}-${index}`}>
                 {index > 0 && <span aria-hidden="true"> × </span>}
                 {bound ? <button type="button" onClick={() => onInspectSkill(bound)}>{label}</button> : <span title={`当前 Skill 不在可查看目录中：${id}`}>{label}</span>}

@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from creatoros.skills.loader import SkillLoader, _NAME_PATTERN
+from creatoros.skills.loader import SkillLoader, parse_skill_frontmatter
 
 
 _SKILL_EDIT_LOCK = RLock()
@@ -32,26 +32,22 @@ class SkillDigestConflict(ValueError):
         self.current_digest = current_digest
 
 
-def _validate_skill_frontmatter(content: str) -> dict[str, str]:
-    lines = content.splitlines()
-    if not lines or lines[0].strip() != "---":
-        raise ValueError("SKILL.md 必须以 YAML frontmatter 起始。")
-    try:
-        closing = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---")
-    except StopIteration as error:
-        raise ValueError("SKILL.md 缺少 YAML frontmatter 结束标记。") from error
-    try:
-        metadata = yaml.safe_load("\n".join(lines[1:closing]))
-    except yaml.YAMLError as error:
-        raise ValueError("SKILL.md frontmatter 不是合法 YAML。") from error
-    if not isinstance(metadata, dict):
-        raise ValueError("SKILL.md frontmatter 必须是 YAML 键值对象。")
-    name, description = metadata.get("name"), metadata.get("description")
-    if (not isinstance(name, str) or not _NAME_PATTERN.fullmatch(name) or len(name) > 64):
-        raise ValueError("SKILL.md name 必须是小写字母、数字和单连字符组成的字符串名称。")
-    if not isinstance(description, str) or not description.strip() or len(description) > 1_024:
-        raise ValueError("SKILL.md description 必须是非空字符串且不超过 1024 字符。")
-    return {"name": name, "description": description}
+def _validate_skill_frontmatter(content: str) -> dict:
+    return parse_skill_frontmatter(content)
+
+
+def _with_display_name(content: str, display_name: str) -> str:
+    if not isinstance(display_name, str):
+        raise ValueError("显示名称必须是字符串。")
+    metadata = parse_skill_frontmatter(content)
+    metadata["creatoros-display-name"] = display_name.strip()
+    lines = content.splitlines(keepends=True)
+    closing = next(i for i, line in enumerate(lines[1:], 1) if line.strip() == "---")
+    # The naming form only normalizes YAML; preserve the complete Markdown body.
+    header = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False)
+    renamed = "---\n" + header + "---\n" + "".join(lines[closing + 1:])
+    parse_skill_frontmatter(renamed)
+    return renamed
 
 
 def skills_root_for(database) -> Path:
@@ -240,7 +236,7 @@ class ProducerSkillCatalog:
         if skill is None:
             raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
         receipt = _inspect_checkout(directory, ".")
-        current = {**data, "name": skill.name, "description": skill.description,
+        current = {**data, "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
                    "source_digest": data["digest"], "digest": _digest(directory),
                    "local_path": str(directory), "role": self._role(data),
                    "carousel_compatible": receipt.carousel_compatible,
@@ -273,7 +269,7 @@ class ProducerSkillCatalog:
         content = skill_file.read_text(encoding="utf-8")
         page = content[offset:offset + limit]
         has_more = offset + len(page) < len(content)
-        return {**item, "name": skill.name, "description": skill.description,
+        return {**item, "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
                 "content": page, "page": {"offset": offset, "limit": limit,
                                              "total_chars": len(content), "has_more": has_more,
                                              "next_offset": offset + len(page) if has_more else None}}
@@ -386,7 +382,7 @@ class ProducerSkillCatalog:
                 if len(files) > self.MAX_BROWSE_FILES:
                     raise ValueError("Skill 文件过多，无法安全展示。")
         files.sort(key=lambda entry: entry["path"].casefold())
-        return {**item, "name": skill.name, "description": skill.description,
+        return {**item, "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
                 "digest": _digest(directory), "files": files}
 
     def read_skill_file(self, skill_id: str, relative_path: str, *, text_only: bool = False) -> dict:
@@ -463,15 +459,19 @@ class ProducerSkillCatalog:
         raise TypeError("此文件类型不支持预览。")
 
     def update_skill_file(self, skill_id: str, relative_path: str, content: str,
-                          expected_digest: str) -> dict:
+                          expected_digest: str, *, display_name: str | None = None) -> dict:
         with _SKILL_EDIT_LOCK:
-            return self._update_skill_file_locked(skill_id, relative_path, content, expected_digest)
+            return self._update_skill_file_locked(skill_id, relative_path, content, expected_digest, display_name=display_name)
 
     def _update_skill_file_locked(self, skill_id: str, relative_path: str, content: str,
-                                  expected_digest: str) -> dict:
+                                  expected_digest: str, *, display_name: str | None = None) -> dict:
         """Atomically update one listed UTF-8 text file in an installed working copy."""
         if skill_id == self.BUILTIN_ID:
             raise ValueError("内置 Skill 只读，不能通过已安装 Skill 编辑入口修改。")
+        if display_name is not None:
+            if Path(relative_path).as_posix().casefold() != "skill.md":
+                raise ValueError("显示名称只能在 SKILL.md 中修改。")
+            content = _with_display_name(content, display_name)
         if not isinstance(content, str) or len(content.encode("utf-8")) > self.MAX_TEXT_BYTES:
             raise OverflowError("Skill 文本文件最多 512 KiB。")
         if not isinstance(expected_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
@@ -493,17 +493,13 @@ class ProducerSkillCatalog:
         try:
             # Validate SKILL.md metadata before publishing the replacement.
             if Path(relative_path).as_posix().casefold() == "skill.md":
-                frontmatter = _validate_skill_frontmatter(content)
+                _validate_skill_frontmatter(content)
                 from tempfile import NamedTemporaryFile
                 with NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
                                         prefix=".skill-edit-", suffix=".md",
                                         dir=directory, delete=False) as stream:
                     temporary = Path(stream.name)
                     stream.write(content)
-                parsed = SkillLoader([directory])._read_metadata(temporary)
-                if (parsed is None or parsed.name != frontmatter["name"]
-                        or parsed.description != frontmatter["description"]):
-                    raise ValueError("当前只支持与单行 frontmatter 解析一致的 name/description；多行块标量不能保存。")
             else:
                 from tempfile import NamedTemporaryFile
                 with NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
@@ -523,7 +519,9 @@ class ProducerSkillCatalog:
         updated = self.read_skill_file(skill_id, relative_path)
         described = self.describe(skill_id)
         return {"skill_id": skill_id, "path": updated["path"], "content": updated["content"],
+                "kind": updated["kind"],
                 "digest": described["digest"], "name": described["name"],
+                "display_name": described["display_name"],
                 "description": described["description"], "editable": True}
 
     def _record(self, skill_id: str) -> dict:

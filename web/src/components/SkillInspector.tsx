@@ -4,7 +4,7 @@ import { BookOpen, File, FileCode, FileImage, FileText, Folder, FolderOpen, X } 
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
-import type { ProducerSkillFile, ProducerSkillItem } from "../api/types";
+import type { ProducerSkillFile, ProducerSkillItem, ProducerSkillText } from "../api/types";
 import { skillEditPrompt, type SkillEditContext } from "./skillEditHandoff";
 import { useAgentChat } from "./AgentChatHost";
 import "./skill-inspector.css";
@@ -86,6 +86,9 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   const [agentOpen, setAgentOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(true);
   const [latestOpen, setLatestOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDirty, setRenameDirty] = useState(false);
+  const [renameBusy, setRenameBusy] = useState(false);
   const fileListId = useId();
   const latestId = useId();
   const files = useQuery({
@@ -101,16 +104,22 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     enabled: file?.kind === "markdown" || file?.kind === "text",
     retry: false, gcTime: 0,
   });
-  const dirty = editing && draft !== text.data?.content;
+  const dirty = (editing && draft !== text.data?.content) || renameDirty;
+  const busy = renameBusy;
+  const applySaved = (result: ProducerSkillText) => {
+    queryClient.setQueryData(["producer-skill-file", skill.id, result.path], result);
+    queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) => current
+      ? { ...current, digest: result.digest, name: result.name ?? current.name,
+        display_name: result.display_name, description: result.description ?? current.description } : current);
+    void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+    if (result.path !== selected) void queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id, selected] });
+  };
   const save = useMutation({
     mutationFn: () => studioApi.saveProducerSkillText(skill.id, {
       path: selected, content: draft, expected_digest: editDigest,
     }),
     onSuccess: result => {
-      queryClient.setQueryData(["producer-skill-file", skill.id, selected], result);
-      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) => current
-        ? { ...current, digest: result.digest, name: result.name, description: result.description } : current);
-      void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+      applySaved(result);
       setDraft(result.content); setEditing(false); setEditError(""); setLatestContent(null);
     },
     onError: error => setEditError(error.message),
@@ -135,10 +144,10 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   }, [text.data, editing]);
   const confirmDiscard = () => !dirty || window.confirm("当前文件有未保存修改。离开会丢弃草稿，仍要离开吗？");
   const selectFile = (path: string) => {
-    if (save.isPending || path === selected || !confirmDiscard()) return;
+    if (save.isPending || busy || renaming || path === selected || !confirmDiscard()) return;
     setEditing(false); setDraft(""); setEditError(""); setLatestContent(null); setSelected(path); setSource(false);
   };
-  const close = () => { if (!save.isPending && confirmDiscard()) onClose(); };
+  const close = () => { if (!save.isPending && !busy && confirmDiscard()) onClose(); };
   const readLatest = async () => {
     const [latestFiles, latestText] = await Promise.all([files.refetch(), text.refetch()]);
     if (latestFiles.data && latestText.data) {
@@ -148,7 +157,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     }
   };
   const handToAgent = () => {
-    if (!agentRequest.trim() || save.isPending || !confirmDiscard()) return;
+    if (!agentRequest.trim() || save.isPending || renaming || !confirmDiscard()) return;
     const payload = { ...editContext, skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
     if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
     chat.open({ creatorId: editContext?.creatorId ?? null, draftSeed: skillEditPrompt(payload) });
@@ -162,7 +171,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     } catch { return undefined; }
   };
   const role = files.data ? files.data.role : skill.role;
-  const name = files.data?.name ?? skill.name;
+  const name = files.data?.display_name ?? files.data?.name ?? skill.display_name ?? skill.name;
   const imageUrl = file?.kind === "image" ? apiUrl(studioApi.producerSkillFilePath(skill.id, file.path)) : "";
   const markdown = text.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "") ?? "";
 
@@ -171,7 +180,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     onKeyDown={event => {
       if (event.key !== "Tab") return;
       const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
-        'button:not(:disabled), a[href], summary, [tabindex="0"]',
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], summary, [tabindex="0"]',
       )).filter(node => node.offsetParent !== null);
       const first = controls[0], last = controls.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -180,14 +189,19 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     <header className="skill-inspector-header">
       <div className="skill-inspector-heading"><span className="skill-inspector-mark"><BookOpen size={23} /></span>
         <div><div className="skill-inspector-title"><h2 id={titleId}>{name}</h2>
+          {files.data?.editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending}
+            onClick={() => setRenaming(true)}>改名</button>}
           <span className="skill-inspector-role">{role === "mind" ? "Mind" : role === "production" ? "Visualize" : role ? "完整 Skill" : "未分类"}</span></div>
           <p>{files.data?.description ?? skill.description}</p>
+          {renaming && <SkillRenameForm skillId={skill.id} initialName={name} onDirty={setRenameDirty} onBusy={setRenameBusy}
+            onCancel={() => { setRenaming(false); setRenameDirty(false); }}
+            onSaved={result => { applySaved(result); setRenaming(false); setRenameDirty(false); }} />}
         </div>
       </div>
       <div className="skill-inspector-actions">
-        {onAdd && <button type="button" className="skill-inspector-add" disabled={save.isPending}
+        {onAdd && <button type="button" className="skill-inspector-add" disabled={save.isPending || busy}
           onClick={() => { if (confirmDiscard()) onAdd(); }}>加入组合</button>}
-        <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending} onClick={close}><X size={20} /></button>
+        <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending || busy} onClick={close}><X size={20} /></button>
       </div>
     </header>
     {files.isPending ? <p className="skill-inspector-state" role="status">正在读取 Skill 文件…</p>
@@ -197,25 +211,25 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
         <aside className="skill-inspector-sidebar">
           <button type="button" className="skill-files-trigger" aria-expanded={filesOpen} aria-controls={fileListId}
             onClick={() => setFilesOpen(value => !value)}>文件<span>{filesOpen ? "收起" : "展开"}</span></button>
-          <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending} /></nav>
+          <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending || renaming} /></nav>
         </aside>
         <section className="skill-inspector-preview" aria-label="文件预览">
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
             {files.data && <button type="button" className="skill-agent-trigger" aria-expanded={agentOpen}
-              aria-label="让 Agent 帮我修改当前 Skill" onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
+              aria-label="让 Agent 帮我修改当前 Skill" disabled={renaming} onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
             {(file?.kind === "markdown" || file?.kind === "text") && text.data && <div className="skill-file-modes">
               {editing ? <><button type="button" disabled={save.isPending} onClick={() => { if (confirmDiscard()) { setEditing(false); setDraft(text.data?.content ?? ""); setEditError(""); setLatestContent(null); } }}>取消编辑</button>
                 <button type="button" disabled={!dirty || save.isPending || !editDigest}
                   onClick={() => { setEditError(""); save.mutate(); }}>{save.isPending ? "正在保存…" : latestContent !== null ? "覆盖保存" : "保存文件"}</button></>
                 : <><button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
                   {file.kind === "markdown" && <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>}
-                  {files.data?.editable && <button type="button" onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
+                  {files.data?.editable && <button type="button" disabled={renaming} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
             </div>}
           </div>
           <div className="skill-file-content" key={selected}>
             {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
               <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
-              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending}>在 Agent 中继续</button></form></div>}
+              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending || renaming}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
             {file?.kind === "unsupported" && <p>不支持预览，请在本地查看。</p>}
             {file?.kind === "image" && <SkillImage key={imageUrl} url={imageUrl} path={file.path} />}
@@ -252,6 +266,36 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
         </section>
       </div>}
   </dialog>;
+}
+
+function SkillRenameForm({ skillId, initialName, onDirty, onBusy, onCancel, onSaved }: {
+  skillId: string; initialName: string; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void;
+  onCancel: () => void; onSaved: (result: ProducerSkillText) => void;
+}) {
+  const [value, setValue] = useState(initialName);
+  const submitting = useRef(false);
+  const snapshot = useQuery({ queryKey: ["producer-skill-rename", skillId],
+    queryFn: ({ signal }) => studioApi.producerSkillText(skillId, "SKILL.md", signal),
+    retry: false, gcTime: 0, staleTime: Infinity, refetchOnWindowFocus: false, refetchOnReconnect: false });
+  const rename = useMutation({ retry: false, mutationFn: () => studioApi.saveProducerSkillText(skillId, {
+    path: "SKILL.md", content: snapshot.data!.content, expected_digest: snapshot.data!.digest, display_name: value.trim(),
+  }), onSuccess: onSaved, onSettled: () => { submitting.current = false; } });
+  useEffect(() => { onDirty(value !== initialName); }, [value, initialName, onDirty]);
+  useEffect(() => { onBusy(rename.isPending); }, [rename.isPending, onBusy]);
+  useEffect(() => () => onBusy(false), [onBusy]);
+  return <form className="skill-rename-form" aria-label="修改 Skill 显示名称" onSubmit={event => {
+    event.preventDefault();
+    if (snapshot.data && !submitting.current && value.trim()) { submitting.current = true; rename.mutate(); }
+  }}>
+    <label>显示名称<input aria-label="Skill 显示名称" autoFocus maxLength={80} required value={value} disabled={rename.isPending}
+      onChange={event => setValue(event.target.value)} /></label>
+    <div><button type="submit" className="skill-inspector-add" disabled={!snapshot.data || rename.isPending || !value.trim() || value.trim() === initialName}>
+      {rename.isPending ? "正在保存…" : "保存名称"}</button>
+      <button type="button" className="skill-rename-cancel" disabled={rename.isPending} onClick={onCancel}>取消</button></div>
+    {snapshot.isPending && <span role="status">正在读取…</span>}
+    {snapshot.error && <span role="alert">{snapshot.error.message}<button type="button" onClick={() => void snapshot.refetch()}>重试读取</button></span>}
+    {rename.error && <span role="alert">{rename.error.message}{rename.error instanceof ApiError && rename.error.status === 409 ? " 请取消改名后重新打开，核对最新名称。" : ""}</span>}
+  </form>;
 }
 
 function SkillImage({ url, path }: { url: string; path: string }) {
