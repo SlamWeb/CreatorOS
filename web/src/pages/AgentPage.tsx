@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request, studioApi } from "../api/client";
@@ -11,6 +11,7 @@ import { DiscussionActivity, type DiscussionSnapshot } from "../components/Discu
 import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditHandoff";
 import { chatHref, type ChatLink } from "../components/chatLinks";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
+import { useAgentChat } from "../components/AgentChatHost";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
@@ -54,11 +55,13 @@ export type AgentConversationProps = {
   active?: boolean;
   draftSeed?: string | null;
   draftSeedId?: string | number;
+  selectedSessionId?: string;
 };
 
 export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, accountName,
-  active = true, draftSeed, draftSeedId }: AgentConversationProps) {
+  active = true, draftSeed, draftSeedId, selectedSessionId }: AgentConversationProps) {
   const [params, setParams] = useSearchParams();
+  const chatPanel = useAgentChat();
   const cache = useQueryClient();
   const standalone = mode === "standalone";
   const requestedCreatorId = standalone ? params.get("creator") : embeddedCreatorId;
@@ -66,6 +69,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
+  const historyId = useId();
   const [attachmentDrafts, setAttachmentDrafts] = useState<Record<string, ChatAttachment[]>>({});
   const [uploading, setUploading] = useState(false);
   const uploadLock = useRef(false);
@@ -144,6 +148,11 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     }, { replace: true });
   }, [standalone, id, requestedCreatorId, doc, setParams]);
   useEffect(() => { updateError(scopeKey, ""); setHistoryOpen(false); }, [id, scopeKey, updateError]);
+  useEffect(() => {
+    if (!active || standalone || !selectedSessionId) return;
+    writeSessionValue(selectedChatStorageKey(scopeKey), selectedSessionId);
+    setSelectedChats(previous => ({ ...previous, [scopeKey]: selectedSessionId }));
+  }, [active, standalone, scopeKey, selectedSessionId]);
   useEffect(() => {
     if (!draftSeed) { lastSeed.current = ""; return; }
     if (!active) return;
@@ -277,10 +286,20 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     }
   };
   const history = sessions.data?.items ?? [];
-  return <section className={`agent-workspace${standalone ? "" : " account-chat-workspace"}`}>
-    <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls="agent-history"
+  return <section className={`agent-workspace${standalone ? "" : " account-chat-workspace"}`} onClickCapture={event => {
+    // A full-page Agent can follow a task while continuing in the shared panel.
+    // Only navigation is handed off; never send a turn or infer a new scope.
+    if (!standalone || scopeMismatch || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor = event.target instanceof Element ? event.target.closest("a") : null;
+    if (!anchor || anchor.target === "_blank" || !anchor.getAttribute("href")) return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin || destination.pathname === "/agent") return;
+    if (id) writeSessionValue(selectedChatStorageKey(dataScopeKey), id);
+    chatPanel.open({ creatorId, accountName: accountName ?? creator.data?.display_name, sessionId: id ?? undefined });
+  }}>
+    <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls={historyId}
       onClick={() => setHistoryOpen(!historyOpen)}>历史对话</button>
-    <aside id="agent-history" className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
+    <aside id={historyId} className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
       <button type="button" className="agent-new" disabled={send.isPending} onClick={() => chooseSession(null)}><span aria-hidden="true">＋</span> 新对话</button>
       <p className="agent-history-label">最近对话</p>
       <nav aria-label="选择对话" className="agent-history-list">

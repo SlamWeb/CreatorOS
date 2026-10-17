@@ -177,7 +177,7 @@ test("account drawer keeps image drafts with their own session across account sw
   await expect(page.getByLabel("待发送图片").getByRole("img", { name: "甲.png" })).toBeVisible();
   await expect(page.getByRole("img", { name: "乙.png" })).toHaveCount(0);
   await page.reload();
-  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(page.locator(".account-chat-panel")).toBeVisible();
   await expect(page.getByLabel("待发送图片").getByRole("img", { name: "甲.png" })).toBeVisible();
   expect([...state.sessions.values()].map(value => value.creator_id)).toEqual([a.id, b.id]);
   expect(state.posts).toHaveLength(0);

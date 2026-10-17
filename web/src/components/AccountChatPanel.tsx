@@ -10,10 +10,11 @@ export type AccountChatPanelProps = {
   onClose: () => void;
   draftSeed?: string | null;
   draftSeedId?: string | number;
+  selectedSessionId?: string;
   openerRef?: RefObject<HTMLElement | null>;
 };
 
-export function AccountChatPanel({ creatorId, accountName, open, onClose, draftSeed, draftSeedId, openerRef }: AccountChatPanelProps) {
+export function AccountChatPanel({ creatorId, accountName, open, onClose, draftSeed, draftSeedId, selectedSessionId, openerRef }: AccountChatPanelProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -40,6 +41,6 @@ export function AccountChatPanel({ creatorId, accountName, open, onClose, draftS
       </button>
     </header>
     <AgentConversation mode="embedded" creatorId={creatorId} accountName={accountName} active={open}
-      draftSeed={draftSeed} draftSeedId={draftSeedId} />
+      draftSeed={draftSeed} draftSeedId={draftSeedId} selectedSessionId={selectedSessionId} />
   </aside>;
 }

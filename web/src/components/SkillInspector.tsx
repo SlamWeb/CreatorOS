@@ -1,12 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import { BookOpen, File, FileCode, FileImage, FileText, Folder, FolderOpen, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import type { ProducerSkillFile, ProducerSkillItem } from "../api/types";
 import { skillEditPrompt, type SkillEditContext } from "./skillEditHandoff";
+import { useAgentChat } from "./AgentChatHost";
 import "./skill-inspector.css";
 
 type TreeNode = { name: string; path: string; file?: ProducerSkillFile; children: TreeNode[] };
@@ -72,7 +72,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   editContext?: SkillEditContext; onAgentEdit?: (prompt: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const navigate = useNavigate();
+  const chat = useAgentChat();
   const queryClient = useQueryClient();
   const titleId = useId();
   const [selected, setSelected] = useState("SKILL.md");
@@ -151,19 +151,8 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     if (!agentRequest.trim() || save.isPending || !confirmDiscard()) return;
     const payload = { ...editContext, skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
     if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
-    const nonce = crypto.randomUUID();
-    try { window.sessionStorage.setItem(`creatoros.skill-edit-handoff:${nonce}`, JSON.stringify(payload)); }
-    catch { setEditError("无法保存本次聊天草稿，请检查浏览器会话存储后重试。"); return; }
-    const next = new URLSearchParams({ skill_edit: nonce });
-    if (editContext?.creatorId) {
-      next.set("creator", editContext.creatorId);
-      if (editContext.seriesId) next.set("series", editContext.seriesId);
-      navigate(`/?${next}`);
-    } else {
-      const existing = window.sessionStorage.getItem("creatoros.agent.selected-chat.v1:overview");
-      if (existing) next.set("chat", existing);
-      navigate(`/agent?${next}`);
-    }
+    chat.open({ creatorId: editContext?.creatorId ?? null, draftSeed: skillEditPrompt(payload) });
+    onClose();
   };
   const resolveReference = (value: string | undefined) => {
     if (!value || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value)) return undefined;

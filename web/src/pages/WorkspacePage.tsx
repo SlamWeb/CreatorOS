@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreators } from "../api/hooks";
@@ -6,8 +6,7 @@ import { studioApi } from "../api/client";
 import type { ProducerSkillItem, SeriesView, TopicView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { LibraryFilters, TopicLibrary } from "../components/TopicLibrary";
-import { AccountChatPanel } from "../components/AccountChatPanel";
-import { BrandMark } from "../components/BrandMark";
+import { useAgentChat } from "../components/AgentChatHost";
 import { SkillInspector } from "../components/SkillInspector";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
@@ -35,13 +34,17 @@ export function WorkspacePage() {
   const [pairVisual, setPairVisual] = useState("");
   const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
   const [treeOpen, setTreeOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatSeed, setChatSeed] = useState<{text:string; id:number} | null>(null);
-  const chatOpener = useRef<HTMLButtonElement>(null);
+  const chat = useAgentChat();
   const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
   useEffect(() => {
-    if (params.has("skill_edit")) setChatOpen(true);
-  }, [params]);
+    const items = creators.data?.items ?? [];
+    const selectedSeries = seriesAll.data?.find(item => item.id === params.get("series"));
+    const id = params.get("creator") ?? selectedSeries?.creator_id ?? (params.has("series") ? null : items[0]?.id ?? null);
+    const current = items.find(item => item.id === id);
+    if (!current) return;
+    if (params.has("skill_edit")) chat.open({ creatorId: current.id, accountName: current.display_name });
+    else chat.setDefault({ creatorId: current.id, accountName: current.display_name });
+  }, [params, creators.data, seriesAll.data, chat.isOpen, chat.open, chat.setDefault]);
 
   const refresh = async () => {
     await Promise.all([
@@ -119,7 +122,10 @@ export function WorkspacePage() {
   const accountSeries = allSeries.filter(s => s.creator_id === scopedCreatorId);
 
   function selectSeries(id: string, owner?: string | null) {
-    setTreeOpen(false); setChatSeed(null);
+    setTreeOpen(false);
+    const target = allSeries.find(item => item.id === id);
+    const creator = accounts.find(item => item.id === (owner === undefined ? target?.creator_id : owner));
+    if (chat.isOpen && creator) chat.open({ creatorId: creator.id, accountName: creator.display_name });
     setParams(previous => {
       const next = new URLSearchParams(previous);
       next.set("series", id);
@@ -133,7 +139,9 @@ export function WorkspacePage() {
   }
 
   function selectAccount(id: string) {
-    setTreeOpen(false); setChatSeed(null);
+    setTreeOpen(false);
+    const selected = accounts.find(item => item.id === id);
+    if (chat.isOpen && selected) chat.open({ creatorId: selected.id, accountName: selected.display_name });
     setParams(previous => {
       const next = new URLSearchParams(previous); next.set("creator", id);
       for (const key of ["series", "topics", "offset", "select", "research", "operation", "topic", "chat"]) next.delete(key);
@@ -141,10 +149,10 @@ export function WorkspacePage() {
     });
   }
   const discuss = (title: string) => {
-    setChatSeed({text:`我们讨论一下选题「${title}」，先不要生产。`,id:Date.now()}); setChatOpen(true);
+    chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」，先不要生产。` });
   };
 
-  return <div className={`workspace${chatOpen ? " chat-open" : ""}`}>
+  return <div className={`workspace${chat.isOpen ? " chat-open" : ""}`}>
     <button type="button" className="workspace-tree-toggle" aria-expanded={treeOpen} onClick={() => setTreeOpen(!treeOpen)}>账号与栏目 · {series?.name ?? account?.display_name ?? "选择账号"}</button>
     <aside className={`workspace-rail${treeOpen ? " is-open" : ""}`} aria-label="账号与栏目">
       {accounts.map(account => <section className="rail-group" key={account.id}>
@@ -252,15 +260,10 @@ export function WorkspacePage() {
         }} deletePending={deleteSeries.isPending}
         deleteError={deleteSeries.variables?.id === series.id ? deleteSeries.error?.message ?? null : null} />}
     </main>
-    <button ref={chatOpener} type="button" className="workspace-chat-launcher" aria-label={chatOpen ? "关闭账号对话" : "打开账号对话"} aria-expanded={chatOpen}
-      disabled={!account} title={account ? `与 ${account.display_name} 对话` : "先选择一个账号"}
-      onClick={() => {setChatSeed(null);setChatOpen(!chatOpen);}}><BrandMark /></button>
-    <AccountChatPanel creatorId={account?.id ?? null} accountName={account?.display_name ?? "全部账号"} open={chatOpen && !!account}
-      onClose={() => {setChatOpen(false);setChatSeed(null);}} openerRef={chatOpener} draftSeed={chatSeed?.text} draftSeedId={chatSeed?.id} />
     {inspectedSkill && <SkillInspector skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: account?.id, seriesId: series?.id }}
       onAgentEdit={account ? prompt => {
-        setInspectedSkill(null); setChatSeed({ text: prompt, id: Date.now() }); setChatOpen(true);
+        setInspectedSkill(null); chat.open({ creatorId: account.id, accountName: account.display_name, draftSeed: prompt });
       } : undefined} />}
   </div>;
 }

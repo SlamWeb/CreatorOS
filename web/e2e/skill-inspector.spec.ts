@@ -204,11 +204,27 @@ test("Skill change request enters the existing Agent composer as a draft without
   await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill", exact: true }).click();
   await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("保留现有结构，把目标读者调整为刚入门的创作者。");
   await dialog.getByRole("button", { name: "在 Agent 中继续", exact: true }).click();
-  await expect(page).toHaveURL(/\/agent/);
+  await expect(page).toHaveURL(/\/skills/);
+  await expect(page.locator(".account-chat-panel")).toBeVisible();
   const composer = page.getByRole("textbox", { name: "给 Agent 的消息" });
   await expect(composer).toHaveValue(/inspector-mind[\s\S]*保留现有结构/);
   await expect(composer).toHaveValue(/目标文件：SKILL\.md/);
   expect(writes).toEqual([]);
+});
+
+test("prefilling a Skill edit never silently discards an unsent Agent draft", async ({ page }) => {
+  const dialog = await openMind(page);
+  await page.evaluate(() => sessionStorage.setItem("creatoros.agent.draft.v1:overview", "原来的草稿，不能静默覆盖。"));
+  let writes = 0;
+  page.on("request", event => { if (event.method() === "POST") writes++; });
+  await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill", exact: true }).click();
+  await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("新的修改要求");
+  page.once("dialog", async confirmation => { expect(confirmation.message()).toContain("已有未发送"); await confirmation.dismiss(); });
+  await dialog.getByRole("button", { name: "在 Agent 中继续", exact: true }).click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("原来的草稿，不能静默覆盖。");
+  expect(writes).toBe(0);
 });
 
 test("workspace Skill editing stays in the account drawer and survives refresh without sending", async ({ page, request }, info) => {
@@ -241,7 +257,7 @@ test("workspace Skill editing stays in the account drawer and survives refresh w
   await page.screenshot({ path: info.outputPath("account-skill-edit-mobile.png") });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.reload();
-  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(panel).toBeVisible();
   await expect(composer).toHaveValue(/不要额外标题/);
   expect(posts).toBe(0);
 });
@@ -274,8 +290,8 @@ test("Run Skill editing carries the displayed revision into its account, not the
   const panel = page.locator(".account-chat-panel");
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue(/作品 Run ID：run-edit-context[\s\S]*Revision ID：revision-one/);
-  expect(new URL(page.url()).searchParams.get("creator")).toBe(account.id);
-  expect(new URL(page.url()).searchParams.get("series")).toBe(series.id);
+  expect(new URL(page.url()).pathname).toBe("/runs/run-edit-context");
+  expect(new URL(page.url()).searchParams.get("revision")).toBe("revision-one");
   await expect.poll(() => new URL(page.url()).searchParams.has("skill_edit")).toBe(false);
   expect(posts).toBe(0);
 });

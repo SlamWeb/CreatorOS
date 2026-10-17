@@ -45,5 +45,10 @@ test("host navigation survives model URL errors, copy, reload and real click", a
   await navigation.getByRole("link", { name: "查看栏目", exact: true }).click();
   await expect(page).toHaveURL(url => url.pathname === "/" && url.searchParams.get("series") === series.id);
   await expect(page.getByRole("heading", { name: "链接目的栏目", exact: true })).toBeVisible();
+  const continued = page.locator(".account-chat-panel");
+  await expect(continued).toBeVisible();
+  await expect(continued.getByRole("heading", { name: "全部账号", exact: true })).toBeVisible();
+  await expect(continued.locator(".chat-answer")).toContainText("状态已核实。");
+  expect(await page.evaluate(() => sessionStorage.getItem("creatoros.agent.selected-chat.v1:overview"))).toBe("host-links");
   expect(posts).toBe(0);
 });

@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-route
 import { Activity, ClipboardCheck, LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 import { BrandMark } from "./BrandMark";
+import { AgentChatProvider } from "./AgentChatHost";
 
 const navItems = [
   { to: "/", label: "账号与栏目", icon: LayoutGrid },
@@ -16,7 +17,7 @@ export function Layout() {
   const [, setParams] = useSearchParams();
   const section = location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
   return (
-    <div className={`studio-shell ${location.pathname === "/" ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
+    <AgentChatProvider><div className={`studio-shell ${location.pathname === "/" ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">
         <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
         <nav className="primary-nav" aria-label="主导航">
@@ -37,6 +38,6 @@ export function Layout() {
         <div className="page-container"><Outlet /></div>
         <OperationDrawer />
       </main>
-    </div>
+    </div></AgentChatProvider>
   );
 }
