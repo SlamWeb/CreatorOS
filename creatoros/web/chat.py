@@ -150,6 +150,8 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "只使用提供的工具，不猜ID；同名或指代有歧义时澄清。查看/建议不调用写工具。"
     "明确标题和栏目时可queue_topics入队；明确入队并生产时依次执行；批量模糊修改引导页面Preview。"
     "选题pending是待选，queued是已确认入队，不代表任务正在排队。只有用户明确要求生产才start_content_run。"
+    "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台自动串行执行。"
+    "任务接受不等于完成；旧失败/中断不被批量提交自动恢复。人工验收和发布确认仍保留。"
     "research_series_topics由宿主等待同一批次并展示过程，返回候选后继续回复；失败直接解释，不自动重新提交。"
     "调研观察中断或状态未知时先查询同一批次，不重提；生产仍提交后给链接，不轮询等待生图。"
     "可用共享Skill目录元数据组成新栏目；compose_series创建，update_series_composition修改前先取得当前revision。"

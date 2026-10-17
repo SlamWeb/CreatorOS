@@ -96,7 +96,7 @@ class StudioClient:
     def run_summary(self, run: dict, *, accepted: bool = False) -> dict:
         fields = ("id", "creator_id", "creator_name", "series_id", "series_name", "topic_id",
                   "topic_title", "status", "version", "active_revision_number", "allowed_actions",
-                  "error_type", "error_message", "card_count")
+                  "error_type", "error_message", "card_count", "production_queue")
         result = {key: run.get(key) for key in fields}
         result["run_id"] = result.pop("id")
         result["revisions"] = [
@@ -109,7 +109,7 @@ class StudioClient:
         result["accepted"] = accepted
         result["url"] = f"{self.base_url}/runs/{quote(run['id'], safe='')}"
         result["message"] = (
-            "已提交后台执行；以 status 为准，accepted 不表示内容已完成。" if accepted
+            "已进入持久化生产队列，后台逐条执行；accepted 不表示内容已完成，仍需人工验收。" if accepted
             else "返回已有任务状态；本次没有重新执行。仅可使用 allowed_actions 列出的动作；"
                  "cancelled/approved 为只读终态，不可恢复或返工，approved 也不代表已发布。"
         )
@@ -131,3 +131,6 @@ class StudioClient:
             error.run_id = run["id"]
             raise
         return self.run_summary(result, accepted=True)
+
+    def start_batch(self, topic_ids: list[str]) -> dict:
+        return self.request("POST", "/api/runs/batch", payload={"topic_ids": topic_ids})

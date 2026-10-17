@@ -1,9 +1,12 @@
 from pathlib import Path
+from contextlib import ExitStack
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
 
 from creatoros.runs import ContentRunRepository
@@ -23,17 +26,20 @@ from creatoros.storage import (
 )
 
 
-with TemporaryDirectory() as temporary:
+with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     path = Path(temporary) / "creatoros.db"
     url = f"sqlite:///{path.as_posix()}"
     upgrade_database(url)
     database = Database(url)
+    cleanup.callback(database.close)
     assert {"content_runs", "content_revisions", "content_attempts", "content_run_events"} <= set(
         inspect(database.engine).get_table_names()
     )
     with database.engine.connect() as connection:
         context = MigrationContext.configure(connection)
-        assert context.get_current_revision() == "20260923_0006"
+        from creatoros.config import PROJECT_ROOT
+        head = ScriptDirectory.from_config(Config(str(PROJECT_ROOT / "alembic.ini"))).get_current_head()
+        assert context.get_current_revision() == head
         drift = compare_metadata(context, Base.metadata)
         assert drift == [], drift
 
@@ -100,10 +106,11 @@ with TemporaryDirectory() as temporary:
     database.close()
 
     restarted = Database(url)
+    cleanup.callback(restarted.close)
     restored = ContentRunRepository(restarted)
     assert restored.get_run(run_id).status is ContentRunStatus.QUEUED
     assert len(restored.list_revisions(run_id)) == 1
     assert len(restored.list_events(run_id)) == 1
     restarted.close()
 
-print("content_run_storage_smoke=passed revision=20260923_0006 restart=passed")
+print(f"content_run_storage_smoke=passed revision={head} restart=passed")

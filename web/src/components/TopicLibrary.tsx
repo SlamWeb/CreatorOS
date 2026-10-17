@@ -13,14 +13,16 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
   sources: { title: string; url: string }[]; available_actions: string[] };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
-export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss }: {
+export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false }: {
   seriesId: string; startButton: (topic: TopicView) => ReactNode; compact?: boolean;
-  onDiscuss?: (topic: string) => void;
+  onDiscuss?: (topic: string) => void; productionEnabled?: boolean;
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const client = useQueryClient();
   const [researchOpen, setResearchOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const submitting = useRef(false);
   const researchPanelId = useId();
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
   const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
@@ -35,6 +37,29 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     refetchInterval: q => q.state.data?.items.some(t => t.selection_state === "queued" &&
       ["queued", "producing", "validating"].includes(t.existing_run_status ?? "")) ? 3000 : false,
     retry: false });
+  const eligible = query.data?.items.filter((topic): topic is TopicView & { selection_state: "queued" } =>
+    topic.selection_state === "queued" && topic.available_actions.includes("start")) ?? [];
+  const selectedTopics = eligible.filter(topic => selected.includes(topic.id));
+  const batch = useMutation({
+    retry: false,
+    mutationFn: (topics: { id: string; title: string }[]) => studioApi.batchProduction(topics.map(topic => topic.id)),
+    onSuccess: result => {
+      const accepted = new Set(result.items.filter(item => item.accepted).map(item => item.topic_id));
+      setSelected(current => current.filter(id => !accepted.has(id)));
+    },
+    onSettled: async () => {
+      try {
+        await Promise.all(["topics", "series", "overview", "runs", "series-all", "creator-tasks"].map(key =>
+          client.invalidateQueries({ queryKey: key === "topics" || key === "series" ? [key, seriesId] : [key] })));
+      } finally { submitting.current = false; }
+    },
+  });
+  useEffect(() => { setSelected([]); batch.reset(); }, [seriesId, state, offset]);
+  const submitBatch = () => {
+    if (submitting.current || !productionEnabled || !selectedTopics.length) return;
+    submitting.current = true;
+    batch.mutate(selectedTopics.map(topic => ({ id: topic.id, title: topic.title })));
+  };
   const change = (key: string, value: string) => setParams(p => {
     const next = new URLSearchParams(p); next.set(key, value); next.delete("topic"); return next;
   });
@@ -96,6 +121,25 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </header>
     {!compact && <LibraryFilters />}
     {!compact && researchOpen && <div id={researchPanelId} className="library-research"><TopicResearchPanel seriesId={seriesId} controlsOnly /></div>}
+    {productionEnabled && !!eligible.length && <div className="library-batch-toolbar" aria-label="批量生产">
+      <label><input type="checkbox" aria-label="全选本页可生产选题" disabled={batch.isPending || !!query.error}
+        checked={!!eligible.length && eligible.every(topic => selected.includes(topic.id))}
+        ref={element => { if (element) element.indeterminate = selectedTopics.length > 0 && selectedTopics.length < eligible.length; }}
+        onChange={event => setSelected(event.target.checked ? eligible.map(topic => topic.id) : [])} />全选本页</label>
+      <span>{selectedTopics.length ? `已选 ${selectedTopics.length} 项` : `${eligible.length} 项可生产`}</span>
+      {!!selectedTopics.length && <button type="button" className="button button-secondary" disabled={batch.isPending} onClick={() => setSelected([])}>取消选择</button>}
+      <button type="button" className="button button-primary" disabled={!selectedTopics.length || batch.isPending || !!query.error} onClick={submitBatch}>
+        {batch.isPending ? "正在提交…" : `批量生产${selectedTopics.length ? `（${selectedTopics.length}）` : ""}`}</button>
+    </div>}
+    {batch.isError && <p className="form-error" role="alert">{batch.error.message} 请先刷新核对任务状态；选择已保留，不会自动重提。</p>}
+    {batch.data && <section className="library-batch-result" aria-label="批量提交结果">
+      <p role="status">{batch.data.accepted_count > 0 ? `已受理 ${batch.data.accepted_count} 项，后台依次生产。` : "本次没有任务被受理。"}</p>
+      <ul>{batch.data.items.map((item, index) => <li key={`${item.topic_id}-${index}`}>
+        {item.run_id ? <Link to={`/runs/${encodeURIComponent(item.run_id)}`}>{item.topic_title ?? batch.variables?.find(topic => topic.id === item.topic_id)?.title ?? "查看任务"}</Link>
+          : <span>{item.topic_title ?? batch.variables?.find(topic => topic.id === item.topic_id)?.title ?? "选题"}</span>}
+        <span className={item.accepted ? "batch-accepted" : "form-error"}>{item.accepted ? "已受理" : item.error ?? "未受理，请查看任务状态"}</span>
+      </li>)}</ul>
+    </section>}
     {query.isPending && <p role="status">正在读取内容…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
     {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "queued" ? "还没有已入队选题。" : state === "pending" ? "暂无待选建议。" : "还没有选题。"}</p>}
@@ -105,7 +149,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
         <div className="content-card-copy"><h3>{topic.title}</h3>
           {(pending ? topic.angle : topic.brief) && <p>{pending ? topic.angle : topic.brief}</p>}
         </div></>;
-      return <article className="content-card" key={topic.id} data-testid={`library-${topic.id}`}>
+      return <article className={`content-card${selected.includes(topic.id) ? " is-selected" : ""}`} key={topic.id} data-testid={`library-${topic.id}`}>
         {!pending && topic.existing_run_id
           ? <Link id={`topic-card-${topic.id}`} className="content-card-main" aria-label={`查看内容 ${topic.title}`}
               to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(location.pathname + location.search)}`}
@@ -113,8 +157,14 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
         <footer className="content-card-footer">
+          {productionEnabled && !pending && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
+            aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending}
+            onChange={event => setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />}
             {pending ? <span className="library-pending">待选</span>
-            : <StatusPill status={topic.existing_run_status ?? topic.status} />}
+            : <StatusPill status={topic.production_queue_status === "pending" ? "production_pending"
+              : topic.production_queue_status === "needs_attention" ? "needs_attention" : topic.existing_run_status ?? topic.status} />}
+          {!pending && topic.production_queue_status === "pending" && topic.production_queue_position
+            ? <small>第 {topic.production_queue_position} 项</small> : null}
           {!pending && topic.card_count ? <small>{topic.card_count} 张</small> : null}
           {!pending && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
           <details className="content-card-menu" onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>

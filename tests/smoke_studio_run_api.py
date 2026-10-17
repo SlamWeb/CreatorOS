@@ -78,10 +78,10 @@ with TemporaryDirectory() as temporary:
         assert monotonic() - submitted_at < 2 and producer.started.wait(1)
         assert client.get("/api/overview").json()["counts"]["producing_count"] == 1
         second = client.post("/api/runs", json={"topic_id": "topic-2"}).json()
-        busy = client.post(f"/api/runs/{second['id']}/execute", json={"expected_version": second["version"]})
-        assert busy.status_code == 409 and busy.json()["error"]["code"] == "producer_busy"
-        assert busy.json()["error"]["run_id"] == run_id
-        assert client.get("/api/series/series-1").json()["available_topic_count"] == 1
+        queued = client.post(f"/api/runs/{second['id']}/execute", json={"expected_version": second["version"]})
+        assert queued.status_code == 202 and queued.json()["production_queue"]["status"] == "pending"
+        assert queued.json()["production_queue"]["position"] == 1
+        assert client.get("/api/series/series-1/topics").json()["items"][1]["available_actions"] == ["view"]
         denied = client.post("/api/runs", json={"topic_id": "topic-2"}, headers={"Origin": "https://external.example"})
         assert denied.status_code == 403
         created_series = client.post("/api/creators/creator-1/series", json={"name": "During production", "description": "Test", "audience": "Beginners"})
@@ -101,7 +101,10 @@ with TemporaryDirectory() as temporary:
         assert late_duplicate.status_code == 200 and late_duplicate.json()["id"] == run_id
         sleep(0.05)
         assert len(client.get(f"/api/runs/{run_id}").json()["revisions"][0]["attempts"]) == 1
-        assert client.get("/api/overview").json()["counts"]["awaiting_approval_count"] == 1
+        deadline = monotonic() + 5
+        while monotonic() < deadline and client.get(f"/api/runs/{second['id']}").json()["status"] != "awaiting_approval":
+            sleep(.02)
+        assert client.get("/api/overview").json()["counts"]["awaiting_approval_count"] == 2
     database.close()
 
 print("studio_run_api_smoke=passed submit=202 duplicate=idempotent poll=approval")

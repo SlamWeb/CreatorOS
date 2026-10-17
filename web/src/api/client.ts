@@ -1,4 +1,5 @@
 import type {
+  BatchProductionResult,
   CreatorView,
   CreatorTaskList,
   CreatorCreateInput,
@@ -88,6 +89,7 @@ export const studioApi = {
   createRunDiscussion: (id: string, input: { request_id: string; revision_id: string; artifact_digest: string; message: string }) =>
     request<DiscussionEntry>(`/api/runs/${encodeURIComponent(id)}/discussion`, { method: "POST", body: JSON.stringify(input) }),
   startRun: (input: RunStartInput) => request<RunDetail>("/api/runs", { method: "POST", body: JSON.stringify(input) }),
+  batchProduction: (topicIds: string[]) => request<BatchProductionResult>("/api/runs/batch", { method: "POST", body: JSON.stringify({ topic_ids: topicIds }) }),
   executeRun: (id: string, version: number) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/execute`, { method: "POST", body: JSON.stringify({ expected_version: version }) }),
   cancelRun: (id: string, input: RunCancelInput) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),
   approveRun: (id: string, input: { expected_version: number; revision_id: string; artifact_digest: string }) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify(input) }),

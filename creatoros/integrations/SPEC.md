@@ -1,5 +1,10 @@
 # External Integrations SPEC
 
+## Studio 批量生产提交（2026-10-17）
+
+- StudioClient.start_batch 用一次 POST `/api/runs/batch` 提交最多100个选题，返回逐项真实结果；单项失败不使其他合法项失去回执。start(topic_id) 旧入口兼容，execute 改为持久化排队而非忙碌拒绝。
+- accepted 表示执行授权已保存，不代表生图/验收完成；查询原 Run 可读 production_queue。未知网络结果不自动重发，不自动恢复旧 Attempt 或未经提交的 queued Run。
+
 ## 同类作品批量提炼（2026-10-15）
 
 - Skill 页面提炼/API/通用 `extract_skills_from_artifact` 工具统一最多 20 张参考图，每张仍最多 4 MiB。`MAX_REFERENCE_IMAGES` 为后端单一数量定义；普通聊天附件及会话图片提炼工具仍为 6 张，不扩大 DeepSeek 单轮图片上下文。

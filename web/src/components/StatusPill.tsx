@@ -2,6 +2,7 @@ const labels: Record<string, string> = {
   queued: "待开始", producing: "生产中", validating: "验收中", awaiting_approval: "待批准",
   interrupted: "已中断", failed: "失败", approved: "已批准", cancelled: "已取消",
   active: "运营中", draft: "草稿", ready: "就绪",
+  production_pending: "排队中", needs_attention: "待核对",
 };
 
 export function StatusPill({ status }: { status: string | null | undefined }) {

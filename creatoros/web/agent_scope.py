@@ -188,6 +188,18 @@ class AgentScopeGuard:
                 return None  # Let the route return its normal JSON validation error.
             return None if isinstance(payload, dict) and payload.get("creator_id") == creator_id else self._denied()
 
+        if method == "POST" and path == "/api/runs/batch":
+            try:
+                payload = await request.json()
+            except Exception:
+                return None
+            topic_ids = payload.get("topic_ids") if isinstance(payload, dict) else None
+            # Validate the whole boundary before any item can be submitted.
+            allowed = (isinstance(topic_ids, list) and bool(topic_ids)
+                       and all(isinstance(topic_id, str) and self._owns_topic(topic_id.strip(), creator_id)
+                               for topic_id in topic_ids))
+            return None if allowed else self._denied()
+
         if method == "POST" and path == "/api/runs":
             try:
                 payload = await request.json()

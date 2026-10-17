@@ -571,6 +571,29 @@ class ContentRunEvent(Base):
     content_run: Mapped[ContentRun] = relationship(back_populates="events")
 
 
+class ProductionQueueItem(Base):
+    """Explicit authorization to execute a Run revision, not another Run state machine."""
+    __tablename__ = "production_queue_items"
+    __table_args__ = (
+        UniqueConstraint("run_id", "revision_id"),
+        CheckConstraint("expected_version > 0", name="expected_version_positive"),
+        CheckConstraint(
+            "status IN ('pending','running','succeeded','failed','needs_attention','cancelled')",
+            name="status_values",
+        ),
+        Index("ix_production_queue_pending", "status", "submitted_at", "id"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("content_runs.id", ondelete="CASCADE"), nullable=False)
+    revision_id: Mapped[str] = mapped_column(ForeignKey("content_revisions.id", ondelete="CASCADE"), nullable=False)
+    expected_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
 class ManualPublication(Base):
     __tablename__ = "manual_publications"
     __table_args__ = (CheckConstraint("platform = 'xiaohongshu'", name="platform_values"),)

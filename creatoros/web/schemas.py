@@ -51,6 +51,8 @@ class TopicView(ApiModel):
     existing_run_id: str | None = None
     existing_run_status: str | None = None
     existing_run_version: int | None = None
+    production_queue_status: str | None = None
+    production_queue_position: int | None = None
     cover_url: str | None = None
     card_count: int | None = Field(default=None, ge=1)
     available_actions: list[str]
@@ -198,6 +200,7 @@ class RunDetail(RunSummary):
     publication: ManualPublicationView | None = None
     production_progress: ProductionProgress | None = None
     partial_cards: list[PartialCardView] = Field(default_factory=list)
+    production_queue: dict[str, Any] | None = None
 
 
 class ManualPublicationRequest(ApiModel):
@@ -296,6 +299,32 @@ class WriteRequest(ApiModel):
 
 class RunStartRequest(WriteRequest):
     topic_id: str = Field(min_length=1, max_length=80)
+
+
+class RunBatchStartRequest(WriteRequest):
+    topic_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def valid_ids(self):
+        if any(not value.strip() or len(value) > 80 for value in self.topic_ids):
+            raise ValueError("请选择有效选题。")
+        self.topic_ids = list(dict.fromkeys(value.strip() for value in self.topic_ids))
+        return self
+
+
+class RunBatchItem(ApiModel):
+    topic_id: str
+    run_id: str | None = None
+    status: str
+    accepted: bool
+    error: str | None = None
+    error_code: str | None = None
+    url: str | None = None
+
+
+class RunBatchResponse(ApiModel):
+    items: list[RunBatchItem]
+    accepted_count: int = Field(ge=0)
 
 
 class RunExecuteRequest(WriteRequest):

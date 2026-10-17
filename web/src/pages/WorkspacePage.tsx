@@ -336,7 +336,8 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
       {addTopic.isError && <p className="form-error" role="alert">{addTopic.error.message}</p>}
     </form>}
     {runMutation.isError && <p className="form-error" role="alert">{runMutation.error.message}</p>}
-    {runMutation.isSuccess && <p className="queue-submitted" role="status">已提交后台。<Link to={`/runs/${runMutation.data.id}`}>查看本次运行 →</Link></p>}
-    <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss} />
+    {runMutation.isSuccess && <p className="queue-submitted" role="status">已加入生产队列。<Link to={`/runs/${runMutation.data.id}`}>查看任务 →</Link></p>}
+    <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss}
+      productionEnabled={series.is_active && !!series.creator_id} />
   </section>;
 }

@@ -60,7 +60,7 @@ def main():
                     assert tool("list_creators", limit=101).error_type == "invalid_arguments"
                     submitted = json.loads(tool("start_content_run", topic_id="review-1").content)
                     run_id = submitted["run_id"]
-                    assert submitted["accepted"] and submitted["status"] == "producing", submitted
+                    assert submitted["accepted"] and submitted["status"] in {"queued", "producing"}, submitted
                     assert started.wait(2)
                     # Another actual CLI process can exit Agent mode while Studio owns this database.
                     script = (
@@ -76,8 +76,11 @@ def main():
                     assert (root / "agent-session.json").exists()
                     assert client.get_run(run_id)["status"] == "producing"
                     assert client.start("review-1")["accepted"] is False
-                    busy = expect("producer_busy", lambda: client.start("review-2"))
-                    assert busy.run_id == run_id
+                    queued = client.start("review-2")
+                    assert queued["accepted"] and queued["status"] == "queued"
+                    assert client.get_run(queued["run_id"])["production_queue"]["status"] == "pending"
+                    client.request("POST", f"/api/runs/{queued['run_id']}/cancel",
+                                   payload={"expected_version": queued["version"]})
                     release.set()
                     deadline = monotonic() + 5
                     while client.get_run(run_id)["status"] in {"producing", "validating"} and monotonic() < deadline:
@@ -87,13 +90,14 @@ def main():
                     assert not client.start("review-1")["accepted"] and producer.calls == 1
                     assert len(detail["revisions"][0]["attempts"]) == 1
                     summary = json.loads(tool("get_content_run", run_id=run_id).content)
-                    assert summary["status"] == detail["status"] and "revisions" not in summary
+                    assert summary["status"] == detail["status"] and "cards" not in summary
                     assert summary["url"] == base + f"/runs/{run_id}"
                     # A new human revision is not an implicit production command.
                     service.request_revision(run_id, "测试返工", expected_version=detail["version"])
                     assert not client.start("review-1")["accepted"] and producer.calls == 1
                     fresh = client.request("POST", "/api/runs", payload={"topic_id": "review-2"})
-                    expect("version_conflict", lambda: client.request("POST", f"/api/runs/{fresh['id']}/execute",
+                    # Cancellation is checked before version: no stale request may revive it.
+                    expect("conflict", lambda: client.request("POST", f"/api/runs/{fresh['id']}/execute",
                                                               payload={"expected_version": 999}))
                     for status in (ContentRunStatus.INTERRUPTED, ContentRunStatus.FAILED, ContentRunStatus.CANCELLED):
                         # Inject terminal/pause states, verifying start does not turn into resume.
@@ -113,7 +117,8 @@ def main():
         def timeout(request):
             requests.append(request)
             if request.url.path == "/api/runs":
-                return httpx.Response(200, json=fresh)
+                # Fault fixture must describe an unstarted Run, not the cancelled one above.
+                return httpx.Response(200, json={**fresh, "status": "queued"})
             raise httpx.ReadTimeout("injected", request=request)
         fault = StudioClient("http://127.0.0.1:8765", client=httpx.Client(transport=httpx.MockTransport(timeout)))
         try:
@@ -128,7 +133,7 @@ def main():
             expect("studio_unavailable", lambda: fault.start("review-2"))
         finally:
             fault.close()
-    print("agent_studio_smoke=passed directory=passed same_run=passed duplicate=passed busy=passed cli_lock=passed outcome_unknown=passed")
+    print("agent_studio_smoke=passed directory=passed same_run=passed duplicate=passed queue=passed cli_lock=passed outcome_unknown=passed")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 from creatoros.config import PROJECT_ROOT
@@ -23,6 +24,7 @@ def _alembic_config(database_url: str) -> Config:
 with TemporaryDirectory() as temporary:
     database_path = Path(temporary) / "legacy-0008.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
+    head = ScriptDirectory.from_config(_alembic_config(database_url)).get_current_head()
 
     # Build a genuine 0008 database and preserve representative Topic/Run rows
     # across the schema upgrade, downgrade, and re-upgrade.
@@ -53,11 +55,12 @@ with TemporaryDirectory() as temporary:
     database = Database(database_url)
     try:
         with database.engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261009_0009"
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == head
             assert connection.execute(text("SELECT * FROM topics WHERE id='migration-topic'")).one() == before_topic
             assert connection.execute(text("SELECT COUNT(*) FROM topic_removals")).scalar_one() == 0
             assert not connection.execute(text("PRAGMA foreign_key_check")).all()
             assert not compare_metadata(MigrationContext.configure(connection), Base.metadata)
+            assert connection.execute(text("SELECT COUNT(*) FROM production_queue_items")).scalar_one() == 0
         legacy_run = ContentRunService(database, output_root=Path(temporary) / "outputs").create("migration-topic")
         with database.engine.connect() as connection:
             before_run = connection.execute(text("SELECT * FROM content_runs WHERE id=:id"),
@@ -90,4 +93,4 @@ with TemporaryDirectory() as temporary:
     finally:
         database.close()
 
-print("topic_remove_migration_smoke=passed predecessor=0008 revision=0009 legacy_rows=preserved downgrade=preserved fk=clean drift=0")
+print(f"topic_remove_migration_smoke=passed predecessor=0008 revision={head} legacy_rows=preserved downgrade=preserved fk=clean drift=0")

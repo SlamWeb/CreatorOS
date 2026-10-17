@@ -206,7 +206,7 @@ tool_registry = {
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs),
-        Tool(name="start_content_run", description="用户明确要求生产时，把真实选题提交 Studio 后台，返回 Run 链接与当前状态；提交不等于完成。不会自动恢复旧任务。busy 或网络结果未知时不要自动重试，也不要轮询等待整篇完成。",
+        Tool(name="start_content_run", description="用户明确要求生产时，用 topic_id 提交一条，或用 topic_ids 批量提交真实已入队选题到持久化生产队列；后台串行执行，单项失败不堵后续。返回逐项状态和内容链接；接受不等于完成，不会批准或发布，不自动恢复旧失败任务。网络结果未知先查询原任务，不要自动重提，也不要轮询等待整批完成。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),

@@ -30,11 +30,13 @@ _TOPIC = (
     "status", "position", "selection_state", "batch_id", "candidate_id",
     "research_angle", "stale", "existing_run_id", "existing_run_status",
     "existing_run_version", "available_actions",
+    "production_queue_status", "production_queue_position",
 )
 _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
     "topic_id", "topic_title", "status", "version", "active_revision_number",
     "allowed_actions", "error_type", "error_message", "accepted", "card_count", "url",
+    "production_queue",
 )
 _REVISION = (
     "id", "revision_id", "revision_number", "instruction", "artifact_digest",
@@ -149,6 +151,9 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["files"] = _list(data["files"], lambda file: _pick(file, ("path", "kind", "size")))
         return result
     if tool_name in _RUN_TOOLS:
+        if "items" in data:
+            return _pick(data, ("accepted_count",)) | {"items": _list(data["items"], lambda item:
+                _pick(item, ("topic_id", "run_id", "status", "accepted", "error", "error_code", "url")))}
         return _run(data)
     if tool_name in _RESEARCH_TOOLS:
         result = _pick(data, _RESEARCH)

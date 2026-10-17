@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## 显式批量生产队列（2026-10-17）
+
+- 用户授权直接实现：Web 多选与 Agent 的 start_content_run(topic_ids) 共用 `/api/runs/batch`；SQLite 保存明确执行授权，单消费者自动顺序生产，普通单项失败继续后续。不是并发 Codex，也不自动消耗选题库全部库存。
+- Run/Revision/Attempt、冻结输入、Checkpoint、lease 与 OS 执行守卫继续复用；旧 queued Run 无授权不启动，pending 重启可续，运行结果未知保留待核对，已有交付离线重验而非直接重生图。人工验收保留，发布/互动、定时发布及多容器本轮不改。
+- 契约与验证见 `creatoros/runs/SPEC.md`、`creatoros/web/SPEC.md`、`web/SPEC.md`。本轮隔离测试与真实模型探针分列，不改既有 Eval 成绩或正式运营内容；新表由既有启动迁移创建。
+
 ## 聊天图片与现成作品导入（2026-10-15）
 
 - 用户明确授权新增 Ctrl+V 图片：实际图片交给 DeepSeek，CreatorOS 经受控工具看参考图/产物并编辑已有 Skill；新 Skill 提炼仍委托既有 Codex 服务。既有栏目运营与账号权限保留，不把图片里的文字当指令。

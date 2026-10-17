@@ -60,6 +60,9 @@ from .schemas import (
     RunCancelRequest,
     RunStartRequest,
     RunExecuteRequest,
+    RunBatchStartRequest,
+    RunBatchItem,
+    RunBatchResponse,
 )
 from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
@@ -514,7 +517,7 @@ def create_app(
         result = queries.get_run(run_id)
         if result is None:
             raise HTTPException(status_code=404, detail="ContentRun 不存在。")
-        return result
+        return result.model_copy(update={"production_queue": executor.queue_snapshot(run_id)})
 
     @app.post("/api/runs", response_model=RunDetail, status_code=201)
     def start_run(payload: RunStartRequest, response: Response, request: Request) -> RunDetail:
@@ -531,6 +534,46 @@ def create_app(
             raise HTTPException(status_code=503, detail="Run 已创建，但读取状态失败。")
         return result
 
+    @app.post("/api/runs/batch", response_model=RunBatchResponse, status_code=202)
+    def start_batch(payload: RunBatchStartRequest, request: Request) -> RunBatchResponse:
+        items = []
+        session_id = request.headers.get("x-creatoros-agent-session")
+        for topic_id in payload.topic_ids:
+            run_id = None
+            try:
+                existing = runs.repository.get_by_idempotency_key(f"content:{topic_id}")
+                if existing is None and session_id and chat.get(session_id).get("scope_kind") == "creator":
+                    topic = ContentRepository(db).get_topic(topic_id)
+                    if topic is not None:
+                        account_context.require_series_skills(topic.series_id)
+                run = runs.create(topic_id, origin_session_id=session_id)
+                run_id = run.id
+                detail = queries.get_run(run_id)
+                queue = executor.queue_snapshot(run_id)
+                fresh = (detail.status == "queued" and detail.active_revision_number == 1
+                         and len(detail.revisions) == 1 and not detail.revisions[0].attempts
+                         and (queue is None or queue["status"] == "pending"))
+                accepted = False
+                if fresh or (queue and queue["status"] in {"pending", "running"}):
+                    executor.submit(run_id, expected_version=detail.version)
+                    accepted = True
+                current = queries.get_run(run_id)
+                items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status=current.status,
+                                          accepted=accepted, url=f"/runs/{run_id}"))
+            except ContentRunError as error:
+                items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
+                                          accepted=False, error=str(error), error_code=error.code,
+                                          url=f"/runs/{run_id}" if run_id else None))
+            except HTTPException as error:
+                items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
+                                          accepted=False, error=str(error.detail), error_code="invalid_skill",
+                                          url=f"/runs/{run_id}" if run_id else None))
+            except ExecutionOwnershipError:
+                items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
+                                          accepted=False, error="执行环境需要核对，请查看运行记录后再提交。",
+                                          error_code="execution_ownership", url=f"/runs/{run_id}" if run_id else None))
+        return RunBatchResponse(items=items, accepted_count=sum(item.accepted for item in items))
+
     @app.post("/api/runs/{run_id}/resume", response_model=RunDetail, status_code=202)
     @app.post("/api/runs/{run_id}/execute", response_model=RunDetail, status_code=202)
     def resume_run(run_id: str, payload: RunExecuteRequest) -> RunDetail:
@@ -543,7 +586,7 @@ def create_app(
         result = queries.get_run(run_id)
         if result is None:
             raise HTTPException(status_code=404, detail="ContentRun 不存在。")
-        return result
+        return result.model_copy(update={"production_queue": executor.queue_snapshot(run_id)})
 
     @app.post("/api/runs/{run_id}/cancel", response_model=RunDetail)
     def cancel_run(run_id: str, payload: RunCancelRequest) -> RunDetail:

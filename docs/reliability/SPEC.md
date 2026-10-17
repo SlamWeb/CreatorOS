@@ -1,5 +1,13 @@
 # Reliability Baseline
 
+## 批量生产增量（2026-10-17）
+
+- 统一 runner 新增 production_queue 组，涵盖10项串行队列故障注入与5项隔离真实 HTTP/工具边界验证；原17组保留，live 探针仍只能显式启动，不被 runner 自动发现。
+- 首轮18组报告 `tmp/reliability-20261017-110517-592951/report.json` 为17/18：唯一失败是旧移除迁移 smoke 把升级到 head 的结果写死为0009（此前 head 已为0011），非本轮队列执行失败。修正为读取当前迁移 head，仍保留升级/降级/重新升级、旧行不变、外键及 metadata 零漂移断言，并检查不回填生产授权；旧报告不覆盖。
+- 单独存储 smoke 同类旧版本0006断言修为 migration head，失败时通过 ExitStack 关闭数据库，避免 Windows 清理错误覆盖原失败。上述属于本地回归脚本维护，不修改冻结 Agent Eval 的题目、分数或历史记录。
+- 真实 DeepSeek/Codex 小批次与测试目录 Windows ACL 错误分列于 runs/web SPEC；实际生成与故障注入不混计成功率。
+- 修正测试前提后，全量重跑18/18组通过，报告 `tmp/reliability-20261017-110959-403692/report.json`；没有覆盖首轮17/18报告。另浏览器9/9通过、真实 DeepSeek/Codex HTTP 两条串行生产待验收通过，后者不纳入零付费 runner。
+
 ## 本轮范围（2026-10-09）
 
 修复真实 Skill 提炼中的 Windows 文件访问失败，并审计 SDK 执行、诊断记录、业务验收和测试之间的边界。后续按用户授权补讨论／调研收尾隔离。不换模型/SDK、不重构全部服务，不自动重试模型、不改正式任务或 Skill，不启动正式生图、调研或发布。

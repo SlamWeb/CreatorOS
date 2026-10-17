@@ -97,7 +97,7 @@ test("workspace first use to revision and approval survives refresh", async ({ p
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(entry) });
   });
-  await page.getByRole("link", { name: "查看本次运行" }).click();
+  await page.getByRole("link", { name: "查看任务", exact: false }).click();
   await expect(page.getByText(/Codex 正在生产/)).toBeVisible();
   await page.getByRole("button", { name: "讨论", exact: true }).click();
   const discussPanel = page.getByRole("region", { name: "第 1 版的 Codex 讨论" });

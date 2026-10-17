@@ -1,5 +1,19 @@
 # ContentRun SPEC
 
+## 显式批量生产持久化队列（2026-10-17）
+
+- `ManagedRunExecutor.submit` 从容量满即拒绝改为持久化授权后返回；单项 execute 与批量入口共用该方法。新增 `ProductionQueue` 保存当前 Run/Revision 的明确提交，旧 `Topic.queued` 或 `Run.queued` 不补授权、不自动生产。
+- `production_queue_items` 是调度回执而非另一套生产状态机：pending 等待、running 已派发，完成时依据 Run 得出 succeeded/failed/cancelled/needs_attention。Run/Revision/Attempt、lease、执行日志和产物校验继续是执行/验收权威。
+- 单消费者依 FIFO 串行消费；只有执行当前项时才 claim/new Attempt，不让排队项提前占 lease 或冻结首次执行 Skill。已接受请求的响应丢失重试不会追加 Attempt；同一 Run/Revision 唯一，原 expected_version 或当前 version 可识别正在排队/执行的原请求，其他过期 version 拒绝。失败/中断重投必须显式携带当前 version，仍受原 retryable 门禁。
+- 普通生产失败记账后继续下一项；外部执行者未确认退出、dirty journal 阻止继续派发，不因想清空队列越过独占锁。取消待执行项不会调用 Producer；直接业务状态变化在实际 claim 时再次检查。
+- 消费者因执行所有权不明、数据库读取/错误落盘失败而暂停时，pending 保留原 FIFO/授权；`blocked_reason` 对外可见，尽力将原因保存到 pending 的 last_error。已暂停或意外死亡的消费者拒绝新提交，不返回虚假的 accepted；数据库不可写时仍保留内存暂停状态和日志。新实例只有通过原 guard/recovery 后才清除等待项的暂停标记，继续未开始任务，不自动恢复 running。
+- 重启只自动消费 pending；历史 running 先经过既有 `recover_inflight`，已落盘 validating 可以离线重验为待批准，其余保留 interrupted/needs_attention，绝不自动重新生图。崩溃恰好发生在 dispatch 标记与 claim 之间也保守等待显式恢复。关机时未开始任务仍为 pending。
+- `queue_snapshot(run_id)` 提供当前 Revision 的调度状态、待执行位置、时间和错误；无参只返回 pending/running/needs_attention，用于可观察性，不改变业务 Run version。
+- 不改人工批准，不增加自动发布、定时发布、多容器、多 Worker 或自动付费重试。
+- 验证使用隔离 SQLite 与无费用本地 Producer 进行失败/重启注入，不能作为真实 Codex 图像质量验收。`tests.test_production_queue` 覆盖迁移零漂移、旧排队不自动执行、FIFO/失败继续、重复提交、pending 重启、inflight 显式恢复、已交付离线验收、取消及 dirty journal；`tests.smoke_studio_executor` 已按新排队语义更新并通过。
+- 真实模型集成：`tmp/live-batch-production-1deebc2ec51b/report.json` 通过。HTTP 账号会话的真实 DeepSeek 一次 start_content_run(topic_ids) 提交两条；真实 Codex gpt-6-luna/xhigh 串行执行，各1 Attempt/独立 thread/1张最终图片，图片 HTTP 均200，两条均 awaiting_approval，未批准或发布。不是浏览器真实模型 E2E，不计入旧 Eval 或成功率统计；两张最终卡不代表原生生产内部绝无有界图像修订。
+- 首轮失败报告 `tmp/live-batch-production-q54tuu4z/report.json` 保留：测试目录 mkdtemp 在 Windows 下私有 ACL 导致 Codex sandbox 无法读 Skill/写交付，并非队列丢任务；第一条失败后第二条仍自动执行。只将 opt-in 测试脚本改为普通 mkdir 继承 tmp 目录权限，未放宽系统 ACL 或改变生产 Runtime；重新冻结后一轮通过，不覆盖原失败。
+
 ## 移除选题的生产门禁（2026-10-09，完成）
 
 - create、claim/恢复与 request_revision 在权威事务中检查 TopicRemoval；已移除拒绝新生产/返工，不改原 Run 状态、version、审批或已有文件。移除与本机 executor claim 共享 `_write_lock`，生产/验收进行中不能移除。

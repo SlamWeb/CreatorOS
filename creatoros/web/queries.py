@@ -191,8 +191,30 @@ class StudioQueryService:
                     .order_by(ContentRun.updated_at.desc())
                 )
             ) if topic_ids else []
+            from creatoros.storage.models import ProductionQueueItem, ContentRevision
+            queue_rows = session.scalars(select(ProductionQueueItem).join(
+                ContentRevision, ProductionQueueItem.revision_id == ContentRevision.id).join(
+                ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
+                ContentRun.id.in_([run.id for run in runs]),
+                ContentRevision.revision_number == ContentRun.active_revision_number)) if runs else []
+            queue_by_run = {item.run_id: item for item in queue_rows}
+            pending_ids = list(session.scalars(select(ProductionQueueItem.id).where(
+                ProductionQueueItem.status == "pending").order_by(
+                ProductionQueueItem.submitted_at, ProductionQueueItem.id))) if queue_by_run else []
+            items = []
+            for topic in topics:
+                view = self._topic_view(topic, runs)
+                queue = queue_by_run.get(view.existing_run_id)
+                if queue is not None:
+                    view.production_queue_status = queue.status
+                    view.production_queue_position = pending_ids.index(queue.id) + 1 if queue.id in pending_ids else None
+                    if queue.status in {"pending", "running"}:
+                        view.available_actions = [action for action in view.available_actions if action != "start"]
+                    elif queue.status == "needs_attention" and view.existing_run_status == "queued":
+                        view.available_actions = ["resume", "view"]
+                items.append(view)
             return PageResponse(
-                items=[self._topic_view(topic, runs) for topic in topics],
+                items=items,
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 

@@ -84,9 +84,25 @@ export interface TopicView {
   existing_run_id: string | null;
   existing_run_status: string | null;
   existing_run_version: number | null;
+  production_queue_status?: string | null;
+  production_queue_position?: number | null;
   available_actions: string[];
   cover_url?: string | null;
   card_count?: number | null;
+}
+
+export interface BatchProductionResult {
+  accepted_count: number;
+  items: {
+    topic_id: string;
+    topic_title?: string;
+    run_id?: string | null;
+    status: string;
+    accepted: boolean;
+    error?: string | null;
+    error_code?: string | null;
+    url?: string | null;
+  }[];
 }
 
 export interface PageInfo {
@@ -187,6 +203,7 @@ export interface RunEventView {
 }
 
 export interface RunDetail extends RunSummary {
+  production_queue?: { status: string; position: number | null; submitted_at: string; last_error?: string | null; blocked_reason?: string | null } | null;
   input_snapshot: Record<string, unknown>;
   producer_thread_id: string | null;
   revisions: RevisionView[];

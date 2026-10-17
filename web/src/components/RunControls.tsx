@@ -18,7 +18,9 @@ export function RunControls({ run }: { run: RunDetail }) {
       : studioApi.cancelRun(run.id, { expected_version: run.version }),
     onSettled: () => queryClient.invalidateQueries(),
   });
-  const canStart = run.allowed_actions.includes("execute") || run.allowed_actions.includes("resume");
+  const queued = run.production_queue?.status === "pending";
+  const blockedReason = queued ? run.production_queue?.blocked_reason : null;
+  const canStart = !queued && (run.allowed_actions.includes("execute") || run.allowed_actions.includes("resume"));
   const active = ["producing", "validating"].includes(run.status);
   const stale = active && run.lease_expires_at && Date.parse(run.lease_expires_at) < Date.now();
   const latest = run.revisions.at(-1)?.attempts.at(-1);
@@ -30,6 +32,8 @@ export function RunControls({ run }: { run: RunDetail }) {
   const collectingReceipt = progress?.status === "completed" && active;
   const showProgress = active || ["failed", "interrupted"].includes(run.status);
   return <div className="run-controls">
+    {queued && <p className="muted" role="status">{blockedReason ? `生产队列已暂停 · ${blockedReason}`
+      : `已加入生产队列${run.production_queue?.position ? ` · 排队第 ${run.production_queue.position} 项` : ""}`}</p>}
     {active ? <p className="muted" role="status">{stale ? "执行状态待核实，请检查本地服务。" : `${run.status === "validating" ? "正在检查产物" : "Codex 正在生产"} · 已运行 ${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</p> : null}
     {showProgress && progress ? <div className="muted run-live-progress" aria-label="生产阶段进度">
       <p>{stageLabels[progress.stage]} · {collectingReceipt ? "正在整理回执/验收" : ({ running: "进行中", completed: "阶段已完成", failed: "阶段失败", interrupted: "阶段中断" } as const)[progress.status]}</p>
@@ -39,7 +43,7 @@ export function RunControls({ run }: { run: RunDetail }) {
       <p>已完成工具调用 {progress.completed_tool_calls} 次</p>
     </div> : active ? <p className="muted">未记录阶段进度</p> : null}
     <div className="form-actions">
-      {canStart ? <button className="button button-primary" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" ? "开始生产" : "恢复生产"}</button> : null}
+      {canStart ? <button className="button button-primary" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" && run.production_queue?.status !== "needs_attention" ? "开始生产" : "恢复生产"}</button> : null}
       {run.allowed_actions.includes("cancel") ? <button className="button button-quiet" disabled={mutation.isPending} onClick={() => mutation.mutate("cancel")}>取消此任务</button> : null}
     </div>
     {mutation.isError ? <p className="form-error" role="alert">{mutation.error.message} {mutation.error instanceof ApiError && mutation.error.runId ? <Link to={`/runs/${mutation.error.runId}`}>查看当前运行 →</Link> : null}</p> : null}

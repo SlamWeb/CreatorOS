@@ -5,7 +5,7 @@ from typing import Literal
 from urllib.parse import quote
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
@@ -71,7 +71,18 @@ class TopicsArgs(PageArgs):
 
 class StartRunArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    topic_id: str = Field(min_length=1, description="从 list_series_topics 取得的真实选题 ID；用户明确要求生产后才提交。")
+    topic_id: str | None = Field(default=None, min_length=1, max_length=80,
+        description="单个真实选题 ID；与 topic_ids 二选一。")
+    topic_ids: list[str] | None = Field(default=None, min_length=1, max_length=100,
+        description="用户明确要求批量生产的真实选题 ID 列表；后台串行执行，不批准或发布。")
+
+    @model_validator(mode="after")
+    def exactly_one(self):
+        if (self.topic_id is None) == (self.topic_ids is None):
+            raise ValueError("topic_id 与 topic_ids 必须二选一。")
+        if self.topic_ids and any(not value.strip() or len(value) > 80 for value in self.topic_ids):
+            raise ValueError("请选择有效选题。")
+        return self
 
 
 class GetRunArgs(BaseModel):
@@ -306,7 +317,9 @@ def list_series_topics(series_id, offset=0, limit=20, context=None, state="all")
     return _call(query, context)
 
 
-def start_content_run(topic_id, context=None):
+def start_content_run(topic_id=None, context=None, topic_ids=None):
+    if topic_ids is not None:
+        return _call(lambda client: client.start_batch(topic_ids), context)
     return _call(lambda client: client.start(topic_id), context)
 
 

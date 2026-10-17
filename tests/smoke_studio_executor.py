@@ -128,9 +128,11 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     cleanup.callback(executor.shutdown)
     executor.submit(first.id, expected_version=first.version)
     assert producer.started.wait(2)
-    expect_error("already_running", lambda: executor.submit(first.id, expected_version=first.version))
-    expect_error("producer_busy", lambda: executor.submit(second.id, expected_version=second.version))
+    assert executor.submit(first.id, expected_version=first.version).accepted
+    assert executor.submit(second.id, expected_version=second.version).accepted
     assert service.get(second.id).status is ContentRunStatus.QUEUED
+    assert executor.queue_snapshot(second.id)["status"] == "pending"
+    assert service.repository.list_attempts(service.get_active_revision(second.id).id) == ()
     expect_error("conflict", lambda: service.cancel(first.id, expected_version=service.get(first.id).version))
     before = service.get(first.id)
     event_count = len(service.repository.list_events(first.id))
@@ -151,10 +153,9 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     producer.release.set()
     wait_until(lambda: not executor.is_submitted(first.id))
     assert service.get(first.id).status is ContentRunStatus.AWAITING_APPROVAL
-    assert producer.calls == 1  # The second item never auto-starts.
-    expect_error("version_conflict", lambda: executor.submit(second.id, expected_version=99))
-    executor.submit(second.id, expected_version=second.version)
     wait_until(lambda: not executor.is_submitted(second.id))
+    assert producer.calls == 2  # Explicitly queued second item starts without another click.
+    expect_error("version_conflict", lambda: executor.submit(second.id, expected_version=99))
     second_result = service.get(second.id)
     assert second_result.status is ContentRunStatus.AWAITING_APPROVAL, (
         second_result.status, second_result.error_type, second_result.error_message)
@@ -231,12 +232,9 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     cleanup.callback(executor.shutdown)
     executor.start()
     executor._pool.shutdown()  # Fault injection: claim succeeds but scheduler rejects.
-    try:
-        executor.submit(run.id, expected_version=run.version)
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError("closed scheduler must reject")
+    executor.submit(run.id, expected_version=run.version)
+    wait_until(lambda: not executor.is_submitted(run.id))
+    assert executor.queue_snapshot(run.id)["status"] == "needs_attention"
     assert service.get(run.id).status is ContentRunStatus.INTERRUPTED
     assert not service.guard.journal.exists()
     executor.shutdown()
@@ -260,4 +258,4 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     assert len(service.repository.list_attempts(prepared["revision_id"])) == 1
     database.close()
 
-print("studio_executor_smoke=passed busy=explicit claim=atomic heartbeat=stable_version restart=explicit validating=rechecked late_writeback=rejected failures=recovered")
+print("studio_executor_smoke=passed queued=durable claim=on_consume heartbeat=stable_version restart=explicit validating=rechecked late_writeback=rejected failures=recovered")

@@ -1,5 +1,12 @@
 # CreatorOS Storage SPEC
 
+## 显式生产队列（2026-10-17）
+
+- 迁移 `20261017_0012` 仅新增 `production_queue_items`：Run/Revision 外键、唯一组合、expected_version、调度状态、提交/开始/结束时间及错误。索引按 status/submitted_at/id 领取 FIFO；不回填旧 Run，不改旧数据、图片、审批或发布记录。
+- 表保存“明确授权的执行请求”而非主题库存或业务生命周期；pending 尚未创建 Attempt，不占 lease。running 在调用原 claim 前落盘，异常重启不能因为 Run 仍 queued 而误重投。
+- 当前仅本机单消费者，由数据库绑定 OS guard 保证唯一执行者；数据库不承担模型调用、不锁住长事务。幂等在短事务内基于 Run/Revision 唯一约束和同实例串行写锁；未开始授权会随 SQLite 保存，消费不是纯内存队列。
+- 隔离新库 Alembic 升级与 ORM compare_metadata 零漂移；故障注入见 `tests.test_production_queue`。迁移无自动生产副作用，正式库仍由既有启动路径升级；本次测试不写正式运营数据。
+
 ## 自动反馈采集（2026-10-16）
 
 - 迁移 `20261016_0011` 新增 `publication_feedback_settings`（按账号保存自动更新开关、检查时间和安全错误摘要）与 `publication_feedback_states`（每发布单的尝试时间、下次尝试、连续失败次数及安全摘要）。默认未开启，不改已有发布单或指标。

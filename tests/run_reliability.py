@@ -11,6 +11,7 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
     *[(name, ["-m", "tests." + name]) for name in (

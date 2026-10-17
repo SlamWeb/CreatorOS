@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## 批量生产（2026-10-17）
+
+- 不增加模型工具：start_content_run 兼容 topic_id，新增 topic_ids（二选一，最多100），经 StudioClient 调共用 `/api/runs/batch`。投影保留逐项接受状态/错误/Run 链接，原回执仍在 Trace。
+- 只有用户明确选择的已入队选题可提交；调研待选不自动入队或生产，旧失败/中断不自动恢复，批准与发布不变。账号 Guard 在路由写入前检查整批归属。
+- 宿主交付逐项内容入口；普通回答简短说明已排队数量，不把技术状态当生成成功，不让模型轮询等待整组图片。
+- 真实 DeepSeek HTTP 账号会话验证：查询现有选题后，一次使用 topic_ids 提交两条，最终回复与两个实际 Run 链接均保存；Codex 后台串行完成、待验收。记录见 runs SPEC，浏览器受控用例另列，不混称真实模型浏览器评测。
+
 ## 已有反馈只读查询（2026-10-17）
 
 - 新增 query_feedback：只 GET 现有账号 analytics，沿 StudioClient 及账号 Guard 读取 SQLite，不刷新 MCP、不发布、不写入内容。总入口显式账号；账号会话隐藏并宿主注入账号参数，执行前拒绝显式跨账号参数。
