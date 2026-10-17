@@ -206,7 +206,11 @@ class AgentScopeGuard:
             except Exception:
                 return None
             topic_id = payload.get("topic_id") if isinstance(payload, dict) else None
-            return None if isinstance(topic_id, str) and self._owns_topic(topic_id, creator_id) else self._denied()
+            allowed = isinstance(topic_id, str) and self._owns_topic(topic_id, creator_id)
+            if allowed and payload.get("mode") == "fresh":
+                source_id = payload.get("source_run_id")
+                allowed = isinstance(source_id, str) and self._owns_run(source_id, creator_id)
+            return None if allowed else self._denied()
 
         match = _RUN.fullmatch(path)
         if method == "GET" and match:

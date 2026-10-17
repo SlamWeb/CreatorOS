@@ -12,6 +12,7 @@ import type { ProducerSkillItem } from "../api/types";
 import { RunDiscussion } from "./RunDiscussion";
 import { PublicationPanel } from "./PublicationPanel";
 import { publicationApi } from "../api/publication";
+import { useAgentChat } from "./AgentChatHost";
 import "./run-inspector.css";
 
 type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
@@ -30,6 +31,7 @@ function runSkills(run: RunDetail): RunSkillSnapshot[] {
 }
 
 export function RunInspector({ run }: { run: RunDetail }) {
+  const agentChat = useAgentChat();
   const [params] = useSearchParams();
   const requestedReturn = params.get("return");
   const requestedRevision = params.get("revision");
@@ -53,6 +55,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const old = revision ? revision.revision_number !== run.active_revision_number : false;
   const missingRevision = Boolean(selected) && !revision;
   const current = !old && !missingRevision;
+  const latestRun = !run.latest_run_id || run.latest_run_id === run.id;
   const partialCards = current && !revision?.cards.length ? [...(run.partial_cards ?? [])].sort((a, b) => a.order - b.order) : [];
   const eventNames: Record<string, string> = { created: "创建内容任务", started: "开始生产", resumed: "恢复生产", produced: "产物已返回", validated: "文件检查通过", approved: "人工批准", revision_requested: "提出返工", interrupted: "执行中断", failed: "执行失败", cancelled: "取消任务" };
   return <article className="run-workbench">
@@ -63,10 +66,12 @@ export function RunInspector({ run }: { run: RunDetail }) {
     <div className="run-actionbar">
       <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)} disabled={!run.revisions.length}>{missingRevision ? <option value="" disabled>版本不存在</option> : null}{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select>
       {!old && revision ? <ReviewActions run={run} revision={revision} onRevision={() => setSelected(null)} /> : null}
+      {current && run.allowed_actions.includes("fresh") ? <FreshProductionAction key={`${run.id}-${run.version}`} run={run} returnTo={returnTo} /> : null}
       {current ? <RunControls run={run} /> : null}
-      {current ? <RunRemoval run={run} returnTo={returnTo} /> : null}
+      {current && latestRun ? <RunRemoval run={run} returnTo={returnTo} /> : null}
     </div>
     {old ? <div className="review-warning">正在查看历史版本，仅供对照，不能批准或修改。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本 →</button></div> : null}
+    {run.latest_run_id && run.latest_run_id !== run.id ? <div className="review-warning">这篇内容已从头重做。<Link to={`/runs/${run.latest_run_id}?return=${encodeURIComponent(returnTo)}`}>查看最新制作</Link></div> : null}
     {missingRevision ? <div className="review-warning" role="alert">找不到这个内容版本。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本</button></div> : null}
     {run.error_message ? <p className="review-warning" role="alert">{run.error_message}</p> : null}
     <div className="inspector-grid">
@@ -85,14 +90,15 @@ export function RunInspector({ run }: { run: RunDetail }) {
         </section> : null}
         <div className="run-panel-tabs" aria-label="内容面板">
           <button type="button" aria-pressed={panel === "copy"} onClick={() => setPanel("copy")}>文案</button>
-          <button type="button" aria-pressed={panel === "discussion"} onClick={() => setPanel("discussion")}>讨论</button>
-          {current && revision?.publish_copy ? <button type="button" aria-pressed={panel === "publish"} onClick={() => setPanel("publish")}>发布</button> : null}
+          <button type="button" onClick={() => agentChat.open({ creatorId: run.creator_id, accountName: run.creator_name,
+            draftSeed: `我想讨论作品「${run.topic_title}」${revision ? `的第 ${revision.revision_number} 版` : ""}。\nRun ID：${run.id}\n${revision ? `Revision ID：${revision.id}\n` : ""}请先查看这版实际图片，再和我讨论；不要自动改 Skill 或生产。\n我的问题：` })}>讨论</button>
+          {current && latestRun && revision?.publish_copy ? <button type="button" aria-pressed={panel === "publish"} onClick={() => setPanel("publish")}>发布</button> : null}
         </div>
         <div hidden={panel !== "copy"}>
           {revision?.publish_copy ? <Publication revision={revision} /> : <p className="run-empty-copy">文案尚未生成</p>}
         </div>
-        <div hidden={panel !== "discussion"}>{revision ? <RunDiscussion key={revision.id} run={run} revision={revision} focusId={params.get("discussion")} /> : <p className="run-empty-copy">产物完成后可讨论</p>}</div>
-        {current && revision?.publish_copy ? <div hidden={panel !== "publish"}>
+        {panel === "discussion" ? <div>{revision ? <RunDiscussion key={revision.id} run={run} revision={revision} focusId={params.get("discussion")} readOnly /> : null}</div> : null}
+        {current && latestRun && revision?.publish_copy ? <div hidden={panel !== "publish"}>
           <PublicationPanel key={`${run.id}-${revision.id}`} run={run} revision={revision} active={panel === "publish"} />
           {run.status === "approved" && publicationRequest.isSuccess && !publicationRequest.data ? <section className="manual-publication-fallback"><button className="button button-quiet" type="button" aria-expanded={manualOpen} onClick={() => setManualOpen(!manualOpen)}>{manualOpen ? "收起手动发布记录" : "手动发布记录"}</button>{manualOpen ? <ManualPublicationPanel run={run} revision={revision} /> : null}</section> : null}
         </div> : null}
@@ -101,6 +107,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
     <section className="run-records">
       <button className="button button-quiet" type="button" aria-expanded={historyOpen} aria-controls="run-history" onClick={() => setHistoryOpen(!historyOpen)}>{historyOpen ? "收起生产记录" : "生产记录"} · {events.length}</button>
       <Link className="button button-quiet" to={`/observation?node=${encodeURIComponent(observationNode)}`}>Observation</Link>
+      <button type="button" className="button button-quiet" onClick={() => setPanel("discussion")}>旧讨论记录</button>
       <span className="stream-status" role="status">{connection}</span>
       <div id="run-history" hidden={!historyOpen}>
       {revision?.instruction ? <div className="revision-note"><h3>本版返工要求</h3><p>{revision.instruction}</p></div> : null}
@@ -112,6 +119,47 @@ export function RunInspector({ run }: { run: RunDetail }) {
     {inspectedSkill && <SkillInspector key={inspectedSkill.id} skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: run.creator_id, seriesId: run.series_id, runId: run.id, revisionId: revision?.id }} />}
   </article>;
+}
+
+function FreshProductionAction({ run, returnTo }: { run: RunDetail; returnTo: string }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [created, setCreated] = useState<string | null>(null);
+  const requestId = useRef<string | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const submit = useMutation({ retry: false,
+    mutationFn: async () => {
+      const key = `creatoros.fresh-production:${run.id}:${run.version}`;
+      if (!requestId.current) {
+        try { requestId.current = sessionStorage.getItem(key); } catch { /* Optional storage. */ }
+        requestId.current ??= crypto.randomUUID();
+        try { sessionStorage.setItem(key, requestId.current); } catch { /* Retain in memory. */ }
+      }
+      const next = await studioApi.startRun({ topic_id: run.topic_id, mode: "fresh", source_run_id: run.id,
+        expected_version: run.version, request_id: requestId.current });
+      if (mounted.current) setCreated(next.id);
+      // Creation replay may already have finished. Never restart that attempt.
+      if (next.status === "queued" && next.active_revision_number === 1 && !next.revisions[0]?.attempts.length) {
+        return studioApi.executeRun(next.id, next.version);
+      }
+      return next;
+    },
+    onSuccess: next => {
+      queryClient.setQueryData(["run", next.id], next);
+      void queryClient.invalidateQueries();
+      if (mounted.current) navigate(`/runs/${next.id}?return=${encodeURIComponent(returnTo)}`);
+    },
+  });
+  return <div className="fresh-production">
+    <button className="button button-quiet" type="button" disabled={submit.isPending} onClick={() => setConfirming(true)}>从头重做</button>
+    {confirming ? <div className="fresh-production-confirm" role="group" aria-label="确认从头重做">
+      <p>同一选题，使用最新 Skill 和全新对话。旧图与记录保留。</p>
+      <div className="form-actions"><button type="button" className="button button-primary" disabled={submit.isPending} onClick={() => submit.mutate()}>{submit.isPending ? "正在提交…" : submit.isError ? "核对并继续同一请求" : "确认重做"}</button><button type="button" className="button button-secondary" disabled={submit.isPending} onClick={() => setConfirming(false)}>取消</button></div>
+      {submit.isError ? <p className="form-error" role="alert">{submit.error.message} 不会自动重试。{created ? <Link to={`/runs/${created}`}>查看已创建任务</Link> : "可用同一请求核对，不会重复创建。"}</p> : null}
+    </div> : null}
+  </div>;
 }
 
 function PartialPreviews({ pages }: { pages: PartialCardView[] }) {

@@ -75,6 +75,11 @@ class StartRunArgs(BaseModel):
         description="单个真实选题 ID；与 topic_ids 二选一。")
     topic_ids: list[str] | None = Field(default=None, min_length=1, max_length=100,
         description="用户明确要求批量生产的真实选题 ID 列表；后台串行执行，不批准或发布。")
+    mode: Literal["start", "fresh"] = Field(default="start",
+        description="start 普通提交；用户明确要求清空旧上下文、按最新 Skill 从头重做时用 fresh，仅支持单选题。")
+    source_run_id: str | None = Field(default=None, min_length=1, max_length=80,
+        description="fresh 模式的原 Run ID，先查 get_content_run 确认。")
+    expected_version: int | None = Field(default=None, gt=0, description="fresh 模式所见原 Run version。")
 
     @model_validator(mode="after")
     def exactly_one(self):
@@ -82,6 +87,10 @@ class StartRunArgs(BaseModel):
             raise ValueError("topic_id 与 topic_ids 必须二选一。")
         if self.topic_ids and any(not value.strip() or len(value) > 80 for value in self.topic_ids):
             raise ValueError("请选择有效选题。")
+        if self.mode == "fresh" and (self.topic_id is None or self.source_run_id is None or self.expected_version is None):
+            raise ValueError("从头重做仅支持单选题，且需要来源 Run 和当前版本。")
+        if self.mode == "start" and (self.source_run_id is not None or self.expected_version is not None):
+            raise ValueError("普通生产不接受从头重做参数。")
         return self
 
 
@@ -317,9 +326,18 @@ def list_series_topics(series_id, offset=0, limit=20, context=None, state="all")
     return _call(query, context)
 
 
-def start_content_run(topic_id=None, context=None, topic_ids=None):
+def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None):
     if topic_ids is not None:
         return _call(lambda client: client.start_batch(topic_ids), context)
+    if mode == "fresh":
+        # Host-owned identity is stable across repeated tool calls in one user turn.
+        # A new user turn is a new request, still guarded by the source version/latest Run.
+        turn = getattr(context, "user_request_id", None)
+        session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
+        identity = json.dumps(["fresh-production-v1", session, turn, source_run_id], ensure_ascii=False)
+        request_id = sha256(identity.encode()).hexdigest() if turn else uuid4().hex
+        return _call(lambda client: client.start(topic_id, mode=mode, source_run_id=source_run_id,
+            expected_version=expected_version, request_id=request_id), context)
     return _call(lambda client: client.start(topic_id), context)
 
 

@@ -96,7 +96,7 @@ class StudioClient:
     def run_summary(self, run: dict, *, accepted: bool = False) -> dict:
         fields = ("id", "creator_id", "creator_name", "series_id", "series_name", "topic_id",
                   "topic_title", "status", "version", "active_revision_number", "allowed_actions",
-                  "error_type", "error_message", "card_count", "production_queue")
+                  "error_type", "error_message", "card_count", "production_queue", "latest_run_id")
         result = {key: run.get(key) for key in fields}
         result["run_id"] = result.pop("id")
         result["revisions"] = [
@@ -115,9 +115,13 @@ class StudioClient:
         )
         return result
 
-    def start(self, topic_id: str) -> dict:
+    def start(self, topic_id: str, *, mode: str = "start", source_run_id: str | None = None,
+              expected_version: int | None = None, request_id: str | None = None) -> dict:
         # Creation is idempotent on the server. Never automatically resume an old attempt/revision.
-        run = self.request("POST", "/api/runs", payload={"topic_id": topic_id})
+        payload = {"topic_id": topic_id}
+        if mode == "fresh":
+            payload.update(mode=mode, source_run_id=source_run_id, expected_version=expected_version, request_id=request_id)
+        run = self.request("POST", "/api/runs", payload=payload)
         revisions = run["revisions"]
         fresh = (run["status"] == "queued" and run["active_revision_number"] == 1
                  and len(revisions) == 1 and not revisions[0]["attempts"])

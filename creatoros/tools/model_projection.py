@@ -36,7 +36,7 @@ _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
     "topic_id", "topic_title", "status", "version", "active_revision_number",
     "allowed_actions", "error_type", "error_message", "accepted", "card_count", "url",
-    "production_queue",
+    "production_queue", "latest_run_id",
 )
 _REVISION = (
     "id", "revision_id", "revision_number", "instruction", "artifact_digest",

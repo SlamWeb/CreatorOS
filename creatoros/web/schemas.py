@@ -145,6 +145,7 @@ class RevisionView(ApiModel):
 
 class RunSummary(ApiModel):
     id: str
+    latest_run_id: str | None = None
     creator_id: str
     creator_name: str
     series_id: str
@@ -299,6 +300,19 @@ class WriteRequest(ApiModel):
 
 class RunStartRequest(WriteRequest):
     topic_id: str = Field(min_length=1, max_length=80)
+    mode: Literal["start", "fresh"] = "start"
+    source_run_id: str | None = Field(default=None, min_length=1, max_length=80)
+    expected_version: int | None = Field(default=None, gt=0)
+    request_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @model_validator(mode="after")
+    def valid_mode(self):
+        fields = (self.source_run_id, self.expected_version, self.request_id)
+        if self.mode == "fresh" and any(value is None for value in fields):
+            raise ValueError("从头重做需要原任务、当前版本与请求标识。")
+        if self.mode == "start" and any(value is not None for value in fields):
+            raise ValueError("普通生产不能附带从头重做参数。")
+        return self
 
 
 class RunBatchStartRequest(WriteRequest):

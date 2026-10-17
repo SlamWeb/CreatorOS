@@ -8,7 +8,7 @@
 .run-title-row h1 { margin: 0; font-size: 1.5rem; line-height: 1.4; font-weight: 650; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .run-title-row .status-pill { flex-shrink: 0; padding-top: .5rem; }
 .run-actionbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .75rem 0; margin-bottom: 1.5rem; background: var(--canvas); border-bottom: 1px solid var(--line); }
-.run-actionbar:has(form, .run-remove-confirm, .form-error, .run-live-progress) { position: static; }
+.run-actionbar:has(form, .run-remove-confirm, .fresh-production-confirm, .form-error, .run-live-progress) { position: static; }
 .run-actionbar select { max-width: 100%; padding: .6rem .75rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); font: inherit; font-size: .82rem; }
 .run-workbench .review-actions { display: contents; }
 .run-workbench .review-actions > .button { margin: 0; }
@@ -21,6 +21,8 @@
 .run-remove-confirm { padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); margin-top: .5rem; max-width: 25rem; }
 .run-remove-confirm > p { margin: 0; font-size: .85rem; line-height: 1.6; }
 .run-remove-confirm .button-danger { color: var(--danger); background: var(--danger-soft); }
+.fresh-production-confirm { padding: 1rem; background: var(--surface); border-radius: var(--radius-sm); margin-top: .5rem; max-width: 26rem; }
+.fresh-production-confirm p { margin: 0 0 .75rem; font-size: .85rem; line-height: 1.6; overflow-wrap: anywhere; }
 .run-workbench .run-controls { display: contents; }
 .run-controls > .form-actions { display: contents; }
 .run-controls > .form-error { flex: 1 0 100%; }

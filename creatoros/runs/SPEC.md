@@ -1,5 +1,16 @@
 # ContentRun SPEC
 
+## 同一选题按当前 Skill 从头重做（2026-10-17）
+
+- 不把“从头重做”伪装为旧 Revision 的技术恢复。显式请求创建同一 Topic 的新 Run / Revision 1，重新读取当前栏目与 Skill 绑定，使用独立输出根目录；不复制旧 thread、页文、Prompt、讨论或 checkpoint。
+- `restart_fresh(source_run_id, expected_version, request_id)` 校验来源所见版本、当前最新 Run、账号/栏目启用和 Topic 未移除；仅已结束/暂停的来源可重做，排队和执行中不能重做。外部导入没有生产 Skill，拒绝该操作。
+- 请求标识持久保存为新 Run 幂等键，CREATED 事件保存来源 Run/version；相同请求响应丢失可返回同一 Run，不同要求冒用标识拒绝。保存本身不执行，仍须经过既有持久化队列显式授权。
+- 历史 Run/Revision/Attempt/文件保持原样；旧 Run 不可再次执行、返工或取消，以免覆盖同一 Topic 的当前状态。历史批准仅改自己的验收记录，领域层仍安全保留；网页可统一只读旧历史。
+- 同一 Topic 的当前 Run 按 created_at（而非最后活动时间）确定；普通 create 返回最新记录，不因默认旧幂等键又跳回首篇。显式自定义幂等键仍按原请求重放。首次执行仍按既有契约冻结当时的当前 Skill 文件；新 Run 从不使用来源 Run 的冻结目录。
+- 验证：`tests.test_fresh_content_run` 9/9 通过，覆盖请求并发/重放、CAS、活跃/归档/外部导入门禁、结束状态、单/双 Skill 当前绑定与 assets、独立目录/空旧 thread/空前稿、旧文件与事件不变、旧 Run 不能改当前 Topic。`tests.test_production_queue` 10/10、`smoke_content_run_service`、`smoke_producer_skills` 通过。均为隔离 SQLite、本地 Skill 与故障夹具，没有调用模型或写正式数据；不能当作真实图像质量测试。
+- 集成另验证 `tests.test_fresh_production_api` 3条真实 loopback HTTP/SQLite 用例及工具、作用域、链接等联合35/35通过；浏览器重做覆盖响应丢失后同一 request_id 重放、新 Run 一次执行授权、刷新零重提、同 Topic/旧图不变。旧 Run 页面禁止删除本 Topic/发布新内容入口，防止历史操作影响新制作。
+- 真实 CUA 前端发送自然语言重做→DeepSeek 一次 start_content_run(mode=fresh)→实际 Codex 生图通过：新 Run `22eb3de8-3ef4-4bc4-890f-2b6399085bc6`，新 thread `01a14a06-0b00-7590-bdce-7b4435006914`，1个 Revision/1个 Attempt/1张图片，最终 awaiting_approval，队列 succeeded。请求 previous_pages/revision_instruction 均空、最新 Skill digest 与旧记录不同；图片 HTTP200，无批准/发布。耗时约2分钟，证据与用量保存在 `tmp/fresh-live-probe/run-372295dfb7/report.json`，不是 Eval 分数。来源失败记录由隔离夹具播种（不是历史生产成功声明）；正式 SQLite、Skill 与产物未修改。
+
 ## 显式批量生产持久化队列（2026-10-17）
 
 - `ManagedRunExecutor.submit` 从容量满即拒绝改为持久化授权后返回；单项 execute 与批量入口共用该方法。新增 `ProductionQueue` 保存当前 Run/Revision 的明确提交，旧 `Topic.queued` 或 `Run.queued` 不补授权、不自动生产。

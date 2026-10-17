@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Literal
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill
@@ -127,14 +127,60 @@ class ContentRunService:
         origin_session_id: str | None = None,
         context_snapshot_ref: str | None = None,
     ) -> ContentRun:
+        return self._create(
+            topic_id, idempotency_key=idempotency_key, origin_session_id=origin_session_id,
+            context_snapshot_ref=context_snapshot_ref,
+        )
+
+    @_serialized
+    def restart_fresh(
+        self,
+        source_run_id: str,
+        *,
+        expected_version: int,
+        request_id: str,
+        origin_session_id: str | None = None,
+        context_snapshot_ref: str | None = None,
+    ) -> ContentRun:
+        """Start the same Topic from current Skills, never from the old Run's history."""
+        token = request_id.strip()
+        if not token or len(token) > 128:
+            raise ContentRunError("重做请求标识必须为 1～128 个字符。", code="invalid_request", status_code=422)
+        source = self.get(source_run_id)
+        return self._create(
+            source.topic_id, idempotency_key=f"fresh:{token}",
+            origin_session_id=origin_session_id, context_snapshot_ref=context_snapshot_ref,
+            fresh_source=(source_run_id, expected_version),
+        )
+
+    def _create(
+        self,
+        topic_id: str,
+        *,
+        idempotency_key: str | None = None,
+        origin_session_id: str | None = None,
+        context_snapshot_ref: str | None = None,
+        fresh_source: tuple[str, int] | None = None,
+    ) -> ContentRun:
         key = (idempotency_key or f"content:{topic_id}").strip()
         if not key:
             raise ContentRunError("idempotency_key 不能为空。")
         with self.database.session() as session:
             if session.get(TopicRemoval, topic_id) is not None:
                 raise ContentRunError("选题已移除，不能开始生产。", code="topic_removed")
-        existing = self.repository.get_by_idempotency_key(key)
+        existing = (self.get_latest_for_topic(topic_id) if idempotency_key is None
+                    else self.repository.get_by_idempotency_key(key))
         if existing is not None:
+            if existing.topic_id != topic_id:
+                raise ContentRunError("请求标识已用于另一个选题。", code="idempotency_conflict")
+            if fresh_source is not None:
+                event = next((item for item in self.repository.list_events(existing.id)
+                              if item.event_type is ContentRunEventType.CREATED), None)
+                payload = event.payload_json if event is not None else {}
+                if (payload or {}).get("fresh_source") != {
+                    "run_id": fresh_source[0], "version": fresh_source[1],
+                }:
+                    raise ContentRunError("重做请求标识已用于不同的要求。", code="idempotency_conflict")
             return existing
 
         with self.database.session() as session:
@@ -147,7 +193,20 @@ class ContentRunService:
             creator = series.creator
             if not series.is_active or creator is None or not creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
-            if topic.status is not TopicStatus.QUEUED:
+            if fresh_source is not None:
+                repository = ContentRunRepository(self.database, session=session)
+                source = self._require(repository, fresh_source[0])
+                if source.version != fresh_source[1]:
+                    raise ContentRunError("运行状态已变化，请重新查看后再重做。", code="version_conflict")
+                self._assert_current_run(session, source)
+                if source.input_snapshot_json.get("production_protocol") == "external-import":
+                    raise ContentRunError("外部导入作品没有生产 Skill，不能从头重做。", code="external_import_readonly")
+                if source.status not in {
+                    ContentRunStatus.AWAITING_APPROVAL, ContentRunStatus.FAILED,
+                    ContentRunStatus.INTERRUPTED, ContentRunStatus.APPROVED, ContentRunStatus.CANCELLED,
+                }:
+                    raise ContentRunError("请等待当前生产结束后再从头重做。", code="run_active")
+            elif topic.status is not TopicStatus.QUEUED:
                 raise ContentRunError("仅待生产选题可以创建 Run。")
             pair_fields = {}
             if series.skill_name is None:
@@ -208,9 +267,26 @@ class ContentRunService:
                 ContentRunEventType.CREATED,
                 revision_id=revision_id,
                 to_status=ContentRunStatus.QUEUED,
-                payload={"idempotency_key": key},
+                payload={"idempotency_key": key, **({"fresh_source": {
+                    "run_id": fresh_source[0], "version": fresh_source[1],
+                }} if fresh_source is not None else {})},
             )
+            if fresh_source is not None:
+                topic.status = TopicStatus.QUEUED
             return content_run
+
+    @staticmethod
+    def _assert_current_run(session, content_run: ContentRun) -> None:
+        latest = session.scalar(select(ContentRun.id).where(ContentRun.topic_id == content_run.topic_id)
+                                .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
+        if latest != content_run.id:
+            raise ContentRunError("该选题已有新的生产记录，请打开最新记录操作。",
+                                  code="run_superseded", run_id=latest)
+
+    def get_latest_for_topic(self, topic_id: str) -> ContentRun | None:
+        with self.database.session() as session:
+            return session.scalar(select(ContentRun).where(ContentRun.topic_id == topic_id)
+                                  .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
 
     def execute(self, run_id: str, *, owner_id: str | None = None) -> RunExecutionResult:
         with self.guard:
@@ -395,6 +471,7 @@ class ContentRunService:
             content_run = self._require(repository, run_id)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再返工。")
+            self._assert_current_run(session, content_run)
             if content_run.input_snapshot_json.get("production_protocol") == "external-import":
                 raise ContentRunError("外部导入作品不支持自动返工，请修改后重新导入。", code="external_import_readonly")
             if session.get(TopicRemoval, content_run.topic_id) is not None:
@@ -438,6 +515,7 @@ class ContentRunService:
             content_run = self._require(repository, run_id)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再取消。")
+            self._assert_current_run(session, content_run)
             if content_run.status is ContentRunStatus.APPROVED:
                 raise ContentRunError("已批准的运行不能取消。")
             if content_run.status in {ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING}:
@@ -515,6 +593,7 @@ class ContentRunService:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
+            self._assert_current_run(session, content_run)
             if content_run.input_snapshot_json.get("production_protocol") == "external-import":
                 raise ContentRunError("外部导入作品不进入生产执行器。", code="external_import_readonly")
             if session.get(TopicRemoval, content_run.topic_id) is not None:

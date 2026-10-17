@@ -117,6 +117,7 @@ export interface PageResponse<T> {
 }
 
 export interface RunSummary {  id: string;
+  latest_run_id?: string | null;
   creator_id: string;
   creator_name: string;
   series_id: string;
@@ -139,9 +140,9 @@ export interface RunSummary {  id: string;
   card_count: number | null;
 }
 
-export interface RunStartInput {
-  topic_id: string;
-}
+export type RunStartInput = { topic_id: string; mode?: "start" } | {
+  topic_id: string; mode: "fresh"; source_run_id: string; expected_version: number; request_id: string;
+};
 
 export interface RunCancelInput {
   expected_version: number;

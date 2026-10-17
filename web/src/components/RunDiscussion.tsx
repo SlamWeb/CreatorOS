@@ -34,7 +34,7 @@ function saveDraft(runId: string, revisionId: string, draft: Draft) {
   try { localStorage.setItem(storageKey(runId, revisionId), JSON.stringify(draft)); } catch { /* Keep the draft in memory. */ }
 }
 
-export function RunDiscussion({ run, revision, focusId }: { run: RunDetail; revision: RevisionView; focusId?: string | null }) {
+export function RunDiscussion({ run, revision, focusId, readOnly = false }: { run: RunDetail; revision: RevisionView; focusId?: string | null; readOnly?: boolean }) {
   const client = useQueryClient();
   const [draft, setDraft] = useState(() => loadDraft(run.id, revision.id, revision.review_digest ?? ""));
   const [checkedAfterFailure, setCheckedAfterFailure] = useState(false);
@@ -115,15 +115,15 @@ export function RunDiscussion({ run, revision, focusId }: { run: RunDetail; revi
   const unknownOutcome = !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
 
   return <section className="run-discussion" aria-label={`第 ${revision.revision_number} 版的 Codex 讨论`}>
-    {blockedReason && <p className="discussion-note" role="status">{blockedReason}</p>}
-    {!draftMatchesCurrent && <div className="discussion-note" role="status"><p>页面所显示的版本摘要已变化。旧请求不会自动改用新版本。</p><button type="button" className="text-link" onClick={startNewRequest}>确认当前版本并新建请求</button></div>}
+    {!readOnly && blockedReason && <p className="discussion-note" role="status">{blockedReason}</p>}
+    {!readOnly && !draftMatchesCurrent && <div className="discussion-note" role="status"><p>页面所显示的版本摘要已变化。旧请求不会自动改用新版本。</p><button type="button" className="text-link" onClick={startNewRequest}>确认当前版本并新建请求</button></div>}
     {discussions.isError && <p className="discussion-error" role="alert">讨论记录读取失败：{discussions.error.message} <button type="button" className="text-link" onClick={() => void discussions.refetch()}>重新读取</button></p>}
     {discussions.isPending && <p className="discussion-note" role="status">读取讨论…</p>}
     {visibleEntries.length > 0 && <ol className="discussion-list">
       {visibleEntries.map(entry => <DiscussionMessage entry={entry} key={entry.id} />)}
     </ol>}
 
-    {draft.submitted ? <div className="discussion-pending-check">
+    {readOnly ? (!visibleEntries.length && !discussions.isPending ? <p>没有旧讨论记录</p> : null) : draft.submitted ? <div className="discussion-pending-check">
       {matchingRequest ? <button type="button" className="button button-quiet" onClick={continueDiscussion}>继续讨论</button>
         : mutation.isError && !unknownOutcome ? <><p className="discussion-error" role="alert">{error?.message ?? "请求未被接受。"} 可以调整正文或稍后使用新请求编号重试。</p><button type="button" className="button button-secondary" onClick={startNewRequest}>编辑消息并新建请求</button></>
         : <><p role={mutation.isError ? "alert" : "status"}>{mutation.isError && unknownOutcome ? `${error?.message ?? "响应无法读取。"} 结果可能尚未返回。` : "上次提交状态尚未确认。"}先查询记录，再决定是否用同一请求编号重试。</p>

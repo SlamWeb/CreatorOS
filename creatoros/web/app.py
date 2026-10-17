@@ -521,13 +521,27 @@ def create_app(
 
     @app.post("/api/runs", response_model=RunDetail, status_code=201)
     def start_run(payload: RunStartRequest, response: Response, request: Request) -> RunDetail:
-        existing = runs.repository.get_by_idempotency_key(f"content:{payload.topic_id}")
         session_id = request.headers.get("x-creatoros-agent-session")
+        if payload.mode == "fresh":
+            source = runs.get(payload.source_run_id)
+            if source.topic_id != payload.topic_id:
+                raise ContentRunError("来源任务与选题不匹配。", status_code=409, code="source_mismatch")
+            if session_id and chat.get(session_id).get("scope_kind") == "creator":
+                topic = ContentRepository(db).get_topic(payload.topic_id)
+                if topic is not None:
+                    account_context.require_series_skills(topic.series_id)
+            content_run = runs.restart_fresh(payload.source_run_id, expected_version=payload.expected_version,
+                request_id=payload.request_id, origin_session_id=session_id)
+            result = queries.get_run(content_run.id)
+            if result is None:
+                raise HTTPException(status_code=503, detail="新任务已创建，请使用同一请求标识核对。")
+            return result
+        existing = runs.repository.get_by_idempotency_key(f"content:{payload.topic_id}")
         if existing is None and session_id and chat.get(session_id).get("scope_kind") == "creator":
             topic = ContentRepository(db).get_topic(payload.topic_id)
             if topic is not None:
                 account_context.require_series_skills(topic.series_id)
-        content_run = runs.create(payload.topic_id)
+        content_run = runs.create(payload.topic_id, origin_session_id=session_id)
         response.status_code = 200 if existing is not None else 201
         result = queries.get_run(content_run.id)
         if result is None:

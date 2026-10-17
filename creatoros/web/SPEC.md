@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 同选题从头重做（2026-10-17，已验证）
+
+- 复用 POST `/api/runs`，显式 `mode=fresh`、来源 Run、所见 version 与 request_id；新 Run 使用同一选题和栏目当前 Skill，旧 Run/图片不覆盖。不额外增加模型工具。
+- 创建和执行仍分开：新 Run 经既有 `/execute` 进入持久化串行队列。响应丢失可用同一 request_id 核对，不能再次新建付费任务；来源正在运行、已经被替代或版本冲突时拒绝。
+- 账号请求同时核验来源 Run 与选题归属，跨账号零写入。网页清楚区分“提出返工”（保留原生产依据）和“从头重做”（最新 Skill、干净上下文）；普通作品讨论走 CreatorOS 看图，不自动编辑 Skill/生产。
+- 验收：隔离 SQLite/真实 HTTP 的幂等与权限、最新 Run 投影及新旧工件；浏览器点击从头重做并刷新，原任务可读、新任务待验收、一次执行授权。模型行为验证与本地故障注入分列，正式内容与既有 Eval 不改。
+- 已验证联合35条测试、smoke_studio_api/native_artifact_web通过；真实 CUA→DeepSeek→Codex 单图重做待批准，旧 Run未改、最新关联正确。完整范围/证据见 runs SPEC；正式8765仍有在途生产，本轮没有重启或终止它，须结束后重启才加载后台新规则。
+
 ## 批量生产队列（2026-10-17）
 
 - 用户明确提交多个已入队选题，Web/Agent 共用 POST `/api/runs/batch`，每项独立返回接受或失败；重复提交复用同 Topic Run，不恢复旧失败/中断/返工版本。仅 `/execute` 显式授权恢复。

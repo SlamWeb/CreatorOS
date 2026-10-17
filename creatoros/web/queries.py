@@ -245,9 +245,10 @@ class StudioQueryService:
             series_by_id = {item.id: item for item in session.scalars(select(Series))}
             topics_by_id = {item.id: item for item in session.scalars(select(Topic))}
             removed = set(session.scalars(select(TopicRemoval.topic_id)))
+            latest = self._latest_run_ids(session)
             return PageResponse(
                 items=[self._run_summary(run, creator_by_id, series_by_id, topics_by_id,
-                                         removed=run.topic_id in removed) for run in rows],
+                                         removed=run.topic_id in removed, latest_run_id=latest.get(run.topic_id)) for run in rows],
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 
@@ -292,6 +293,7 @@ class StudioQueryService:
                 {series.id: series} if series else {},
                 {topic.id: topic} if topic else {},
                 removed=session.get(TopicRemoval, run.topic_id) is not None,
+                latest_run_id=self._latest_run_ids(session, run.topic_id).get(run.topic_id),
             )
             revisions = list(
                 session.scalars(
@@ -426,7 +428,9 @@ class StudioQueryService:
             series_by_id = {item.id: item for item in series}
             topics_by_id = {item.id: item for item in topics}
             runs = [run for run in runs if run.topic_id not in removed]
-            run_views = [self._run_summary(run, creator_by_id, series_by_id, topics_by_id) for run in runs]
+            latest = self._latest_run_ids(session)
+            run_views = [self._run_summary(run, creator_by_id, series_by_id, topics_by_id,
+                latest_run_id=latest.get(run.topic_id)) for run in runs]
             counts = OverviewCounts(
                 creator_count=len(creators),
                 active_creator_count=sum(item.is_active for item in creators),
@@ -475,7 +479,7 @@ class StudioQueryService:
 
     @staticmethod
     def _series_view(series: Series, topics: list[Topic], runs: list[ContentRun]) -> SeriesView:
-        latest_status = max(runs, key=lambda run: run.updated_at).status.value if runs else None
+        latest_status = max(runs, key=lambda run: (run.created_at, run.id)).status.value if runs else None
         available = sum("start" in StudioQueryService._topic_view(topic, runs).available_actions for topic in topics)
         return SeriesView(
             id=series.id,
@@ -495,7 +499,7 @@ class StudioQueryService:
 
     @staticmethod
     def _topic_view(topic: Topic, runs: list[ContentRun]) -> TopicView:
-        related = sorted((run for run in runs if run.topic_id == topic.id), key=lambda item: item.updated_at, reverse=True)
+        related = sorted((run for run in runs if run.topic_id == topic.id), key=lambda item: (item.created_at, item.id), reverse=True)
         run = related[0] if related else None
         if run is None:
             actions = ["start"] if topic.status.value == "queued" else ["view"]
@@ -519,7 +523,17 @@ class StudioQueryService:
             available_actions=actions,
         )
 
-    def _run_summary(self, run, creators, series_by_id, topics_by_id, *, removed: bool = False) -> RunSummary:
+    @staticmethod
+    def _latest_run_ids(session, topic_id=None):
+        statement = select(ContentRun.topic_id, ContentRun.id).order_by(ContentRun.created_at.desc(), ContentRun.id.desc())
+        if topic_id is not None:
+            statement = statement.where(ContentRun.topic_id == topic_id)
+        latest = {}
+        for topic, run_id in session.execute(statement):
+            latest.setdefault(topic, run_id)
+        return latest
+
+    def _run_summary(self, run, creators, series_by_id, topics_by_id, *, removed: bool = False, latest_run_id=None) -> RunSummary:
         snapshot = run.input_snapshot_json or {}
         creator = creators.get(snapshot.get("creator_id"))
         series = series_by_id.get(snapshot.get("series_id"))
@@ -535,6 +549,7 @@ class StudioQueryService:
                     cover_url = f"/api/runs/{run.id}/revisions/{revision.id}/cards/{info['order']}?digest={revision.artifact_digest}&checksum={info['sha256']}"
         return RunSummary(
             id=run.id,
+            latest_run_id=latest_run_id or run.id,
             creator_id=snapshot.get("creator_id", series.creator_id if series else ""),
             creator_name=creator.display_name if creator else snapshot.get("creator_id", "unknown"),
             series_id=snapshot.get("series_id", series.id if series else ""),
@@ -552,7 +567,7 @@ class StudioQueryService:
             error_stage=run.failure_stage,
             error_type=run.error_type,
             error_message=_error_message(run.error_message),
-            allowed_actions=["view"] if removed else StudioQueryService._run_actions(run),
+            allowed_actions=["view"] if removed or (latest_run_id and latest_run_id != run.id) else StudioQueryService._run_actions(run),
             cover_url=cover_url,
             card_count=card_count,
         )
@@ -564,11 +579,13 @@ class StudioQueryService:
         if run.status is ContentRunStatus.QUEUED:
             return ["execute", "cancel"]
         if run.status is ContentRunStatus.INTERRUPTED or (run.status is ContentRunStatus.FAILED and run.retryable):
-            return ["resume", "revise", "cancel"]
+            return ["resume", "revise", "cancel", "fresh"]
         if run.status is ContentRunStatus.AWAITING_APPROVAL:
-            return ["approve", "revise", "cancel"]
+            return ["approve", "revise", "cancel", "fresh"]
         if run.status is ContentRunStatus.FAILED:
-            return ["revise", "cancel"]
+            return ["revise", "cancel", "fresh"]
+        if run.status in {ContentRunStatus.APPROVED, ContentRunStatus.CANCELLED}:
+            return ["view", "fresh"]
         return ["view"]
 
     @staticmethod

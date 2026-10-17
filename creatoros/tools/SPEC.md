@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## 从头重做与直接改 Skill（2026-10-17，已验证）
+
+- start_content_run 保留单选题/批量接口，增加显式 fresh 模式（单个来源 Run、所见版本）；用宿主本轮身份生成幂等 request_id，不让模型管理 thread 或复制选题。仅用户明确要求清空上下文/按最新 Skill 重做时调用。
+- CreatorOS 通过 read_image 核实图片、既有文件编辑工具改共享 Skill，不再为普通作品讨论要求委派 Codex；旧只读 Codex 讨论记录保留可查，明确请求专家讨论的旧入口兼容。
+- 新任务是同一选题的新 Run，不复用旧页、旧提示词、旧图或旧检查点；技术恢复与从头重做不是同一动作。人工批准和发布边界不变。
+- 联合35条本地/真实 loopback 用例通过；真实浏览器中 DeepSeek 正确使用 fresh 参数提交一次，随后另一轮直接看图仅 get_content_run/read_image，没有新 Codex 讨论或生产。既有 Skill 文件编辑及冲突浏览器用例通过；未因本轮修改正式共享 Skill。集成证据见 runs SPEC。
+
 ## 批量生产（2026-10-17）
 
 - 不增加模型工具：start_content_run 兼容 topic_id，新增 topic_ids（二选一，最多100），经 StudioClient 调共用 `/api/runs/batch`。投影保留逐项接受状态/错误/Run 链接，原回执仍在 Trace。
