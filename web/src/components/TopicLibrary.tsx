@@ -22,6 +22,9 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const client = useQueryClient();
   const [researchOpen, setResearchOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
+  const [pendingSelection, setPendingSelection] = useState<string[]>([]);
+  const pendingSubmitting = useRef(false);
+  const pendingRequestIds = useRef(new Map<string, string>());
   const submitting = useRef(false);
   const researchPanelId = useId();
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
@@ -40,6 +43,45 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const eligible = query.data?.items.filter((topic): topic is TopicView & { selection_state: "queued" } =>
     topic.selection_state === "queued" && topic.available_actions.includes("start")) ?? [];
   const selectedTopics = eligible.filter(topic => selected.includes(topic.id));
+  const pendingTopics = query.data?.items.filter((topic): topic is PendingTopic => topic.selection_state === "pending"
+    && !topic.stale && topic.available_actions.includes("prepare_topic_selection")) ?? [];
+  const selectedPending = pendingTopics.filter(topic => pendingSelection.includes(topic.id));
+  const pendingQueue = useMutation({
+    retry: false,
+    mutationFn: async (topics: PendingTopic[]) => {
+      const groups = new Map<string, PendingTopic[]>();
+      for (const topic of topics) groups.set(topic.batch_id, [...(groups.get(topic.batch_id) ?? []), topic]);
+      const accepted: string[] = [];
+      const failures: string[] = [];
+      for (const [batchId, items] of groups) {
+        const selections = items.map(topic => ({ candidate_id: topic.candidate_id, title: topic.title, angle: topic.angle }));
+        const key = JSON.stringify([batchId, selections]);
+        const requestId = pendingRequestIds.current.get(key) ?? crypto.randomUUID().replaceAll("-", "");
+        pendingRequestIds.current.set(key, requestId);
+        try {
+          await request(`/api/topic-research/${encodeURIComponent(batchId)}/queue`, {
+            method: "POST", body: JSON.stringify({ selections, request_id: requestId }),
+          });
+          accepted.push(...items.map(topic => topic.id));
+        } catch (error) {
+          failures.push(`${items[0].title}等 ${items.length} 项：${error instanceof Error ? error.message : "入队结果未知"}`);
+        }
+      }
+      return { accepted, failures };
+    },
+    onSuccess: result => setPendingSelection(current => current.filter(id => !result.accepted.includes(id))),
+    onSettled: async () => {
+      try {
+        await Promise.all([["topics"], ["research"], ["research-history", seriesId], ["series", seriesId],
+          ["series-all"], ["overview"], ["creator-tasks"]].map(queryKey => client.invalidateQueries({ queryKey })));
+      } finally { pendingSubmitting.current = false; }
+    },
+  });
+  const submitPending = () => {
+    if (pendingSubmitting.current || !selectedPending.length || query.isError) return;
+    pendingSubmitting.current = true;
+    pendingQueue.mutate(selectedPending);
+  };
   const batch = useMutation({
     retry: false,
     mutationFn: (topics: { id: string; title: string }[]) => studioApi.batchProduction(topics.map(topic => topic.id)),
@@ -54,7 +96,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       } finally { submitting.current = false; }
     },
   });
-  useEffect(() => { setSelected([]); batch.reset(); }, [seriesId, state, offset]);
+  useEffect(() => { setSelected([]); setPendingSelection([]); batch.reset(); pendingQueue.reset(); }, [seriesId, state, offset]);
   const submitBatch = () => {
     if (submitting.current || !productionEnabled || !selectedTopics.length) return;
     submitting.current = true;
@@ -121,6 +163,21 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </header>
     {!compact && <LibraryFilters />}
     {!compact && researchOpen && <div id={researchPanelId} className="library-research"><TopicResearchPanel seriesId={seriesId} controlsOnly /></div>}
+    {!!pendingTopics.length && !query.isError && <div className="library-batch-toolbar" role="group" aria-label="批量入队">
+      <label><input type="checkbox" aria-label="全选本页待选" disabled={pendingQueue.isPending}
+        checked={pendingTopics.every(topic => pendingSelection.includes(topic.id))}
+        ref={element => { if (element) element.indeterminate = selectedPending.length > 0 && selectedPending.length < pendingTopics.length; }}
+        onChange={event => setPendingSelection(event.target.checked ? pendingTopics.map(topic => topic.id) : [])} />全选本页待选</label>
+      <span>{selectedPending.length ? `已选 ${selectedPending.length} 项` : `${pendingTopics.length} 项可入队`}</span>
+      {!!selectedPending.length && <button type="button" className="button button-secondary" disabled={pendingQueue.isPending} onClick={() => setPendingSelection([])}>取消选择</button>}
+      <button type="button" className="button button-primary" disabled={!selectedPending.length || pendingQueue.isPending} onClick={submitPending}>
+        {pendingQueue.isPending ? "正在入队…" : `确认入队${selectedPending.length ? `（${selectedPending.length}）` : ""}`}</button>
+    </div>}
+    {pendingQueue.data && <div className="library-batch-result" aria-label="入队结果">
+      {!!pendingQueue.data.accepted.length && <p role="status">已入队 {pendingQueue.data.accepted.length} 项。</p>}
+      {!!pendingQueue.data.failures.length && <div role="alert" className="form-error">{pendingQueue.data.failures.map(message => <p key={message}>{message}</p>)}
+        请先刷新核对；未确认成功的选择已保留，不会自动重提。</div>}
+    </div>}
     {productionEnabled && !!eligible.length && <div className="library-batch-toolbar" aria-label="批量生产">
       <label><input type="checkbox" aria-label="全选本页可生产选题" disabled={batch.isPending || !!query.error}
         checked={!!eligible.length && eligible.every(topic => selected.includes(topic.id))}
@@ -149,7 +206,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
         <div className="content-card-copy"><h3>{topic.title}</h3>
           {(pending ? topic.angle : topic.brief) && <p>{pending ? topic.angle : topic.brief}</p>}
         </div></>;
-      return <article className={`content-card${selected.includes(topic.id) ? " is-selected" : ""}`} key={topic.id} data-testid={`library-${topic.id}`}>
+      return <article className={`content-card${selected.includes(topic.id) || (pending && pendingSelection.includes(topic.id)) ? " is-selected" : ""}`} key={topic.id} data-testid={`library-${topic.id}`}>
         {!pending && topic.existing_run_id
           ? <Link id={`topic-card-${topic.id}`} className="content-card-main" aria-label={`查看内容 ${topic.title}`}
               to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(location.pathname + location.search)}`}
@@ -157,6 +214,9 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
         <footer className="content-card-footer">
+          {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
+            aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending}
+            onChange={event => setPendingSelection(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />}
           {productionEnabled && !pending && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
             aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending}
             onChange={event => setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />}
