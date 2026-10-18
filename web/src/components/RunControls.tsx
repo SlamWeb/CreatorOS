@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, studioApi } from "../api/client";
 import type { RunDetail } from "../api/types";
@@ -10,7 +11,9 @@ const activityLabels = {
 } as const;
 const phaseLabels = { planning: "准备内容", rendering: "逐页制图", assembling: "整理产物" } as const;
 
-export function RunControls({ run }: { run: RunDetail }) {
+export function RunControls({ run, compact = false }: { run: RunDetail; compact?: boolean }) {
+  const detailId = useId();
+  const [detailOpen, setDetailOpen] = useState(false);
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (action: "execute" | "cancel") => action === "execute"
@@ -37,10 +40,14 @@ export function RunControls({ run }: { run: RunDetail }) {
     {active ? <p className="muted" role="status"><span className={!stale && !noRecentActivity ? "task-running-text" : undefined}>{stale ? "执行状态待核实，请检查本地服务。" : `${run.status === "validating" ? "正在检查产物" : "Codex 正在生产"}`}</span>{!stale && ` · 已运行 ${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</p> : null}
     {showProgress && progress ? <div className="muted run-live-progress" aria-label="生产阶段进度">
       <p>{stageLabels[progress.stage]} · {collectingReceipt ? "正在整理回执/验收" : ({ running: "进行中", completed: "阶段已完成", failed: "阶段失败", interrupted: "阶段中断" } as const)[progress.status]}</p>
-      <p>{collectingReceipt ? "回执/验收整理中" : activityLabels[progress.activity]} · 最近活动 {noRecentActivity ? `暂无新活动 · ${new Date(lastActivity).toLocaleString("zh-CN")}` : Number.isFinite(lastActivity) ? new Date(lastActivity).toLocaleString("zh-CN") : "时间未记录"}</p>
+      {compact && noRecentActivity && <p className="review-warning" role="status">暂无新活动 · {new Date(lastActivity).toLocaleString("zh-CN")}</p>}
       {progress.phase ? <p>{phaseLabels[progress.phase]}{progress.current_page !== null ? ` · 第 ${progress.current_page} 页` : ""}{progress.page_attempt > 0 ? ` · 第 ${progress.page_attempt} 次尝试` : ""} · 已完成 {progress.completed_pages} 页</p> : progress.completed_pages > 0 ? <p>已完成 {progress.completed_pages} 页</p> : null}
+      {compact && <button type="button" className="text-link run-progress-toggle" aria-expanded={detailOpen} aria-controls={detailId} onClick={() => setDetailOpen(value => !value)}>{detailOpen ? "收起运行详情" : "运行详情"}</button>}
+      <div id={detailId} hidden={compact && !detailOpen}>
+      <p>{collectingReceipt ? "回执/验收整理中" : activityLabels[progress.activity]} · 最近活动 {noRecentActivity ? `暂无新活动 · ${new Date(lastActivity).toLocaleString("zh-CN")}` : Number.isFinite(lastActivity) ? new Date(lastActivity).toLocaleString("zh-CN") : "时间未记录"}</p>
       {progress.total_pages !== null ? <p>共 {progress.total_pages} 页</p> : null}
       <p>已完成工具调用 {progress.completed_tool_calls} 次</p>
+      </div>
     </div> : active ? <p className="muted">未记录阶段进度</p> : null}
     <div className="form-actions">
       {canStart ? <button className="button button-primary" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" && run.production_queue?.status !== "needs_attention" ? "开始生产" : "恢复生产"}</button> : null}
