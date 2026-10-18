@@ -162,6 +162,12 @@
 - Web production_progress 在 Run 已终结时由数据库状态校准，不继续展示旧进度文件中的 running；GET 不修改文件或数据库版本。
 - 回归：smoke_worker_delivery、smoke_studio_production_progress、smoke_content_run_service、smoke_studio_executor、smoke_studio_run_api 通过；真实历史隔离回放见 docs/single-thread-production/SPEC.md。
 
+### 2026-10-18：索引拒收后的零生图恢复
+
+- 0张核验不代表0张已生成；native Producer先重验磁盘交付与成功回执，current-thread原图的work副本仅通过SHA一致性归一化。修复次数耗尽在SDK前停止，显示核验页数、真正索引错误及“非账户额度”，不先安排production。
+- 已授权的正式失败Run经数据库备份/真实材料隔离回放后，通过普通execute创建Attempt3并进入待人工验收；两个旧failed Attempt/用量/错误和原文件字节保留，新Attempt用量全0。通过普通ProductionQueue.finish核对当前队列结果，不把旧Attempt改为成功，未批准或发布。
+- HTTP读取详情与图片200，1254×1254图像哈希与原始生图一致，前端路由可达；没有修改前端组件，不声称浏览器视觉验收。新增19条故障回归及相关native/worker/Run服务回归通过，详见integrations/SPEC.md。
+
 ## 外部图片导入（2026-10-15）
 
 - 增加明确 `external-import` 输入协议：图片来自会话附件，不声称由栏目 Skill/Codex 生成；复用 SocialContentPack、Run、Revision、Attempt 与原图校验，状态直接为待人工验收。不会批准或发布。

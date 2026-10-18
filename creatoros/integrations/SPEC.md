@@ -1,5 +1,19 @@
 # External Integrations SPEC
 
+## 原生交付路径与离线恢复（2026-10-18，已验证）
+
+- 真实故障：英语replace/substitute/supplant/displace Run两次均有1254×1254原生图，索引改指work副本而宿主只接受当前thread原生目录；首次还把SKILL.md写到Revision根少一层Attempt。首次修复耗尽，恢复把0张核验误当0张生成，多生一张后又拒收。
+- 路径处理：work副本仅在字节SHA256与当前thread原生图一致时归一到原始路径；拒绝跨thread、未匹配副本、链接/篡改。Skill只归一当前Revision根下精确skills后缀这一种错层，存在的误层文件必须与冻结目标一致；不泛化任意同名路径。保留raw索引，新Attempt记录宿主路径解析证据。
+- 恢复先重验已有文件与completed回执，成功则离线组装；索引无效且已有图时不再先执行production，修复已耗尽在SDK前停止并显示真正错误。合法部分交付仍可沿用原机制补未完成项，不自动重画已保存页。
+- 用户已授权此篇离线恢复到待人工验收，新增Attempt保留两个旧失败/日志/索引/图片，零模型/生图/批准/发布；先隔离回放及回归，再检查执行锁和活动任务，避免打断其他生产。
+- 验证：纯路径/SDK边界故障注入（不得伪称真实模型测试），当前thread/跨thread/伪造/链接/预算/回执/原始文件不变；相关native/worker/Run恢复回归，正式恢复后实际HTTP/SQLite与图片哈希核对。
+- 新增 `tests.test_native_delivery_recovery` 19/19通过：包括当前thread副本、跨thread/篡改/链接拒绝、精确错层Skill、两次连续离线恢复、旧Attempt整树哈希不变、修复耗尽零SDK、仅索引修复调度。首轮发现新增审计dict误传仅支持Pydantic的atomic_json，修为原子文本写入并补审计链接负例后通过；没有掩盖此轮测试失败。
+- 真实材料先在SQLite副本隔离回放通过，再备份正式数据库，通过原ContentRunService.execute新增同Revision的Attempt3：复用最新原图，1254×1254、3,112,509 bytes；状态awaiting_approval，两个旧failed Attempt各字段及原文件SHA树不变，原生生图目录不变。SDK client调用0、图片生成0、新Attempt用量0；未批准/发布。普通队列finish核对当前派发状态为succeeded，历史失败保留在Attempt与事件，不倒改为成功。
+- 诊断发现正式服务仍运行旧代码，数据库停在0012；隔离及正式恢复均先备份，再执行已有启动迁移0013（仅加nullable reference_id），不新写迁移、不重写旧输入。确认无活动生产/授权队列/调研/提炼/聊天/讨论/发布后重启Studio。真实HTTP详情、受控图片及前端路由均200，图片SHA与当前thread原图一致；未声称完成浏览器视觉验收。
+- 证据仅在忽略目录：`tmp/native-recovery-20261018-202338-615750/report.json`（隔离）、`tmp/native-recovery-20261018-202411-716975/report.json`及before.sqlite（正式）、`tmp/native-recovery-http-20261018.json`（HTTP）。没有为本次修复调用真实模型，SDK故障单测不计作模型质量评测。
+- 限制：恢复有匹配completed回执且文件齐全时完全不创建SDK；需模型修索引时宿主只调delivery_repair、不再先调production，禁止生图仍为提示词约束，未宣称SDK硬关闭imagegen。缺成功回执的完整索引提前停止，不凭文件存在伪造成功；合法未完成页仍沿用部分交付续跑。
+- 收尾回归：`tests.test_topic_references` 15/15、`tests.test_production_queue` 10/10通过；`smoke_native_production`、`smoke_codex_completed_turn`、`smoke_worker_delivery`、`smoke_native_run_wiring`、`smoke_content_run_service`、`smoke_native_artifact_web`、`smoke_studio_production_progress`、`smoke_studio_executor`八组通过。队列故障用例中的磁盘拒写/未核实执行者/关闭线程池日志是预期注入；既存Starlette/httpx弃用警告未改依赖。编译及diff-check通过，未更改前端。
+
 ## Skill 显示名与编辑校验（2026-10-18，已验证）
 
 - 用户确认中文显示名与内部英文标识分离。可选 `creatoros-display-name` 保存在本地 SKILL.md 的 YAML 头，最长80单行字符；未设置沿用 name。内部 name、注册ID、目录、栏目外键和旧快照不改。

@@ -2,6 +2,12 @@
 
 状态：2026-10-02 已实现并完成真实一图试产；最后回归结果见下。
 
+## 2026-10-18：交付路径归一化与已有图片恢复
+
+- 原始生图路径与复制到work的路径不是一回事。宿主只在副本SHA256与当前thread原图一致时兼容，归一化在内存和新的delivery_path_resolution.json中留证；不改旧索引，不接受其他thread图片。参考Skill仅兼容本Revision遗漏Attempt层级的精确后缀，不凭同名文件猜路径。
+- 同Revision恢复先离线核对最新work索引和completed回执；成功直接组装，无SDK调用。不能恢复时，已有图片只安排索引修复turn，不先重新production；修复已耗尽提前显示根因而非模型额度提示。禁止索引修复turn内生图仍为指令约束，不宣称工具级硬禁。
+- 新增19条回归通过，覆盖安全边界、两次连续恢复、旧字节/失败记录不变及修复预算；真实失败一图先在SQLite副本回放后正式恢复，Attempt1/2仍failed，Attempt3 succeeded，Run待验收，SDK/新生图/新用量均0。详情和图片真实HTTP200、SHA与原图一致。未重新生图、未批准发布、未声称视觉质量变好。证据与服务重启/迁移记录见creatoros/integrations/SPEC.md。
+
 ## 双 Skill 组合协调（2026-10-02）
 
 - 保留两份独立 Skill，不生成第三份合并 Skill，不增加 PageSpec 协议。栏目约定沿用 series_description，本次要求沿用 topic_brief / revision_instruction。

@@ -27,6 +27,7 @@ from .codex_turn_guard import require_completed_turn
 from .visual_production import atomic_json, input_digest
 from .worker_protocol import record_task, record_thread, completed_delivery_turn
 from .topic_references import TaskReferences, frozen_references, prepare_references, reference_prompt
+from .atomic_file import atomic_write_text
 
 CHECKPOINT = "native_checkpoint.json"
 
@@ -100,7 +101,8 @@ class NativeProgress(ProgressWriter):
 
 def safe_file(root: Path, path: Path, limit: int | None = None) -> Path:
     root, path = root.resolve(), path.absolute()
-    if not path.resolve().is_relative_to(root) or any(p.is_symlink() for p in [path, *path.parents] if p != root):
+    if not path.resolve().is_relative_to(root) or any(p.is_symlink() or getattr(p, "is_junction", lambda: False)()
+            for p in [path, *path.parents] if p != root):
         raise ValueError("文件越界或为链接。")
     if not path.is_file() or (limit is not None and path.stat().st_size > limit):
         raise ValueError("文件缺失或过大。")
@@ -130,7 +132,36 @@ def safe_reference(directory: Path, path: Path) -> Path:
     references = frozen_references(directory)
     if references and path.absolute() in {Path(item.path).absolute() for item in references.images}:
         return safe_file(directory / "references", path)
+    # A known producer mistake omits exactly the Attempt segment. Only this
+    # Revision's precise frozen-skill suffix is recoverable, never a global name.
+    misplaced = directory.parent / "skills"
+    if path.absolute().is_relative_to(misplaced):
+        target = safe_file(directory / "skills", directory / "skills" / path.absolute().relative_to(misplaced))
+        if path.exists() or path.is_symlink():
+            original = safe_file(misplaced, path)
+            if original.read_bytes() != target.read_bytes():
+                raise ValueError("错层参考文件与本次冻结 Skill 不一致。")
+        return target
     raise ValueError("参考文件必须属于本次冻结 Skill 或本次任务参考图。")
+
+
+def native_image_source(directory: Path, generated_thread: Path, raw: str) -> Path:
+    """Accept a work copy only when it proves the exact current-thread bytes."""
+    path = Path(raw)
+    if not path.is_absolute():
+        path = directory / "work" / path
+    if path.resolve().is_relative_to(generated_thread.resolve()):
+        return safe_file(generated_thread, path)
+    copy = safe_file(directory / "work", path)
+    digest = hashlib.sha256(copy.read_bytes()).hexdigest()
+    if generated_thread.is_dir():
+        for candidate in sorted(generated_thread.iterdir()):
+            if candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                continue
+            original = safe_file(generated_thread, candidate)
+            if hashlib.sha256(original.read_bytes()).hexdigest() == digest:
+                return original
+    raise ValueError("工作目录图片未匹配当前 thread 的原始生图文件，拒绝接收；不会重新生图。")
 
 
 def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifact]:
@@ -208,6 +239,9 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
                         for ref in item.reference_assets]
                     if item.content_file and Path(item.content_file).is_absolute():
                         item.content_file = Path(item.content_file).relative_to(previous / "work").as_posix()
+                    source = Path(item.source_image_path)
+                    if source.is_absolute() and source.is_relative_to(previous / "work"):
+                        item.source_image_path = str(directory / "work" / source.relative_to(previous / "work"))
                 atomic_json(prior_index, latest)
                 if generated_root is not None:
                     ingest(directory, value, generated_root)
@@ -224,7 +258,8 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
 
 def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Delivery:
     path = safe_file(directory / "work", directory / "work/delivery.json", 8_000_000)
-    delivery = Delivery.model_validate_json(path.read_text(encoding="utf-8-sig"))
+    raw = path.read_bytes()
+    delivery = Delivery.model_validate_json(raw.decode("utf-8-sig"))
     generated_thread = generated_root / checkpoint.thread_id
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", checkpoint.thread_id) or not generated_thread.resolve().is_relative_to(generated_root.resolve()):
         raise ValueError("生成 thread 目录越界。")
@@ -235,8 +270,9 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
     # While the worker is running these are previews, not immutable deliverables.
     # Validate the whole new index before publishing it, retaining previous images
     # by hash so a failed/partial write cannot corrupt a visible checkpoint.
-    pages = []
+    pages, resolutions = [], []
     for item in delivery.artifacts:
+        original_item = item.model_dump()
         refs = []
         for ref in item.reference_assets:
             candidate = Path(ref) if Path(ref).is_absolute() else directory / ref
@@ -248,12 +284,17 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
             file = safe_file(directory / "work", file, 2_000_000)
             content = file.read_text(encoding="utf-8-sig")
             content_file = file.relative_to(directory / "work").as_posix()
-        source = safe_file(generated_thread, Path(item.source_image_path))
+        source = native_image_source(directory, generated_thread, item.source_image_path)
+        item.source_image_path = str(source)
         if source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
             raise ValueError("不支持的图片格式。")
         with Image.open(source) as image:
             image.verify()
         sha = hashlib.sha256(source.read_bytes()).hexdigest()
+        if original_item["source_image_path"] != str(source) or original_item["reference_assets"] != refs:
+            resolutions.append({"order": item.order, "source_image_path": original_item["source_image_path"],
+                "verified_source_image_path": str(source), "sha256": sha,
+                "reference_assets": original_item["reference_assets"], "verified_reference_assets": refs})
         if sha in {p.sha256 for p in pages}:
             raise ValueError("多个页重复交付同一图片。")
         target = directory / "partial-images" / f"{item.order:02d}-{sha}{source.suffix.lower()}"
@@ -274,6 +315,14 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
         pages.append(page)
     if checkpoint.turn_completed and delivery != checkpoint.delivery:
         raise ValueError("最终交付已冻结，不能修改交付索引。")
+    if resolutions:
+        audit = {"thread_id": checkpoint.thread_id, "raw_index_sha256": hashlib.sha256(raw).hexdigest(),
+                 "resolutions": resolutions}
+        audit_path = directory / "delivery_path_resolution.json"
+        if audit_path.is_symlink() or getattr(audit_path, "is_junction", lambda: False)():
+            raise ValueError("路径解析证据不能为链接。")
+        if not audit_path.is_file() or json.loads(audit_path.read_text(encoding="utf-8")) != audit:
+            atomic_write_text(audit_path, json.dumps(audit, ensure_ascii=False, indent=2))
     changed = [p.order for p in pages if p.order > len(checkpoint.pages)
                or p != checkpoint.pages[p.order - 1]]
     if changed:
@@ -311,6 +360,7 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
             "必须用原生生图工具生成实际图片，不用代码绘图或占位图。不要自动审美重画。"
             "每完成一张图片就更新 delivery.json（当前 cwd 内），先写临时文件再替换。"
             "保留全部已完成项，order 从 1 开始。每项提供实际工具返回的图片绝对路径、真正使用的完整 Prompt。"
+            "source_image_path保留原生工具返回的原始路径，不要换成重命名副本；原生图片无需由你搬到work。"
             "生产期间可以补充内容稿或修正同页图片，索引须指向最终采用的版本，Prompt 记录相关修正。"
             "reference_assets 只列实际使用的本次冻结 Skill 文件或本次 references 中的原图，填绝对路径，无参考图可为空。"
             "content_file 指向 work 内对应内容稿，可以多图共享整篇稿。不要把参考素材当交付图。"
@@ -392,6 +442,25 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
     deadline = monotonic() + producer.timeout_seconds
     try:
         require_ready(checkpoint.composition_review if checkpoint else None)
+        repair_only, delivery_error = False, None
+        if checkpoint:
+            # Zero verified pages does not mean zero generated images. Inspect
+            # local recovery evidence before even constructing the SDK client.
+            try:
+                prior_delivery = ingest(directory, checkpoint, producer.generated_images_root)
+                if prior_delivery.complete and checkpoint.pages:
+                    raise CodexProducerError("图片索引完整，但缺少成功结束的执行回执；请核对原任务，未调用模型或重新生图。",
+                                             error_type="native_delivery_failed")
+                delivery_error = ValueError("图片索引未声明完整交付。")
+                valid_partial = bool(checkpoint.pages)
+            except (ValueError, OSError) as error:
+                delivery_error, valid_partial = error, False
+            if checkpoint.repair_attempted:
+                raise ValueError(f"交付索引修复次数已达上限（本版本最多1次，非账户额度）；原始验收错误：{delivery_error}")
+            locations = [directory / "work", producer.generated_images_root / checkpoint.thread_id]
+            images_exist = any(location.is_dir() and any(p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+                for p in location.iterdir()) for location in locations)
+            repair_only = not valid_partial and (images_exist or bool(checkpoint.pages))
         async with _production_client(deadline, cancel_event) as client:
             options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write, developer_instructions=PRODUCTION_RULES)
@@ -423,15 +492,19 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 prompt += f"\n已确认的组合适配：{checkpoint.composition_review.note}\n"
             progress.page("planning", None, len(checkpoint.pages))
             (directory / "production_instructions.txt").write_text(prompt, encoding="utf-8")
-            for repair in (False, True):
+            for repair in ((True,) if repair_only else (False, True)):
                 progress.worker_phase = "delivery_repair" if repair else "production"
                 if repair:
                     if checkpoint.repair_attempted:
-                        raise ValueError("交付索引的一次修复额度已用完。")
+                        raise ValueError(f"交付索引修复次数已达上限（本版本最多1次，非账户额度）；原始验收错误：{delivery_error}")
                     checkpoint.repair_attempted = True
                     atomic_json(directory / CHECKPOINT, checkpoint)
                     prompt = ("只修复当前 work/delivery.json 的文件索引，不得调用生图工具，不得重新研究或重画。"
-                              "根据已经产生的真实图片和实际 Prompt 补齐索引，无法恢复则说明失败。\n" + str(delivery_error))
+                              "根据已经产生的真实图片和实际 Prompt 补齐索引，无法恢复则说明失败。"
+                              "source_image_path 应保留原生生图工具返回的当前 thread 图片路径；"
+                              "工作目录副本只有与该 thread 原图字节一致时才可交付。"
+                              "reference_assets 必须指向本 Attempt/skills 或本次 references，不能遗漏 Attempt 层级。\n"
+                              + str(delivery_error))
                 inputs = [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]]
                 if not repair:
                     inputs.extend(LocalImageInput(str(path)) for path in images)
@@ -487,7 +560,8 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
         progress.finish("interrupted" if getattr(error, "error_type", "") == "codex_interrupted" else "failed")
         if isinstance(error, CodexProducerError):
             raise
-        raise CodexProducerError(f"单会话生产失败；已验收文件保留：{error}", error_type="native_delivery_failed") from error
+        count = len(progress.checkpoint.pages) if progress.checkpoint else 0
+        raise CodexProducerError(f"单会话生产失败；已核验 {count} 张，现有文件保留：{error}", error_type="native_delivery_failed") from error
 
 
 def produce_native(producer, **request):
