@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, History } from "lucide-react";
+import { Check, Copy, History, Plus, X } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
@@ -56,10 +56,11 @@ export type AgentConversationProps = {
   draftSeed?: string | null;
   draftSeedId?: string | number;
   selectedSessionId?: string;
+  onClose?: () => void;
 };
 
 export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, accountName,
-  active = true, draftSeed, draftSeedId, selectedSessionId }: AgentConversationProps) {
+  active = true, draftSeed, draftSeedId, selectedSessionId, onClose }: AgentConversationProps) {
   const [params, setParams] = useSearchParams();
   const chatPanel = useAgentChat();
   const cache = useQueryClient();
@@ -320,10 +321,20 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     if (id) writeSessionValue(selectedChatStorageKey(dataScopeKey), id);
     chatPanel.open({ creatorId, accountName: accountName ?? creator.data?.display_name, sessionId: id ?? undefined });
   }}>
-    <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls={historyId}
-      onClick={() => setHistoryOpen(!historyOpen)}><History size={16} aria-hidden="true" /><span>历史对话</span></button>
+    {!standalone && <header className="account-chat-panel-header">
+      <h2 title={creatorId ? accountName ?? creator.data?.display_name ?? "当前账号" : "全部账号"}>{creatorId ? accountName ?? creator.data?.display_name ?? "当前账号" : "全部账号"}</h2>
+      <div className="account-chat-panel-actions">
+        <button type="button" aria-label="历史对话" title="历史对话" aria-expanded={historyOpen} aria-controls={historyId}
+          onClick={() => setHistoryOpen(value => !value)}><History size={16} aria-hidden="true" /><span>历史</span></button>
+        <button type="button" disabled={send.isPending} onClick={() => { chooseSession(null); window.requestAnimationFrame(() => composerInput.current?.focus()); }}>
+          <Plus size={16} aria-hidden="true" /><span>新对话</span></button>
+        <button type="button" className="account-chat-panel-close" aria-label="关闭账号对话" title="关闭" onClick={onClose ?? chatPanel.close}><X size={18} aria-hidden="true" /></button>
+      </div>
+    </header>}
+    {standalone && <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls={historyId}
+      onClick={() => setHistoryOpen(!historyOpen)}><History size={16} aria-hidden="true" /><span>历史对话</span></button>}
     <aside id={historyId} className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
-      <button type="button" className="agent-new" disabled={send.isPending} onClick={() => chooseSession(null)}><span aria-hidden="true">＋</span> 新对话</button>
+      {standalone && <button type="button" className="agent-new" disabled={send.isPending} onClick={() => chooseSession(null)}><Plus size={16} aria-hidden="true" />新对话</button>}
       <p className="agent-history-label">最近对话</p>
       <nav aria-label="选择对话" className="agent-history-list">
         {sessions.isPending && <p className="agent-note">正在读取…</p>}
@@ -336,10 +347,10 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       </nav>
     </aside>
     <div className="agent-conversation">
-    <div className="agent-heading"><div><h1>{doc?.title ?? (creatorId ? "账号对话" : "把想法交给 Agent")}</h1>
+    {standalone && <div className="agent-heading"><div><h1>{doc?.title ?? (creatorId ? "账号对话" : "把想法交给 Agent")}</h1>
       <span className="agent-connection">{creatorId ? `账号：${accountName ?? creator.data?.display_name ?? (creator.isPending ? "读取中…" : creatorId)}` : "全部账号"}{standalone && creatorId && <> · <Link to={`/?creator=${encodeURIComponent(creatorId)}`}>返回账号工作台</Link></>}</span>
       {id && <span className="agent-connection">{doc?.status === "running" ? (connected ? "实时连接" : "连接中 · 自动刷新") : "记录已保存"}</span>}</div>
-      {standalone && <Link className="text-link" to={(() => { const next = new URLSearchParams(params); next.set("command", "new"); return `?${next.toString()}`; })()}>添加 / 调整选题 ↗</Link>}</div>
+      {standalone && <Link className="text-link" to={(() => { const next = new URLSearchParams(params); next.set("command", "new"); return `?${next.toString()}`; })()}>添加 / 调整选题 ↗</Link>}</div>}
     {(session.isError || sessions.isError || accountError || accountInactive || scopeMismatch) && <p role="alert" className="review-warning">
       {scopeMismatch ? "这个对话属于其他账号范围，不能在当前账号上下文中继续发送。" : accountInactive ? "该账号已停用，不能发送新的对话指令。" : accountError ? `无法读取账号，已阻止发送：${creator.error?.message ?? "账号不存在或暂不可用。"}` : session.error?.message ?? sessions.error?.message}
     </p>}
@@ -347,7 +358,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     }} aria-label="对话记录">
       {id && session.isPending && <p className="agent-note">正在读取对话…</p>}
-      {(!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
+      {standalone && (!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
         <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
       {doc?.entries.map((entry, index) => <ChatEntry key={`${doc.id}-${index}`} entry={entry} sessionId={doc.id} sessionStatus={doc.status} />)}
