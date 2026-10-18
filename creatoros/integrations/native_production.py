@@ -28,6 +28,7 @@ from .visual_production import atomic_json, input_digest
 from .worker_protocol import record_task, record_thread, completed_delivery_turn
 from .topic_references import TaskReferences, frozen_references, prepare_references, reference_prompt
 from .atomic_file import atomic_write_text
+from .native_image_assets import INVENTORY, VIEW, ImageAssetStore
 
 CHECKPOINT = "native_checkpoint.json"
 
@@ -49,7 +50,8 @@ class CompositionReview(ProductionModel):
 
 class Artifact(ProductionModel):
     order: int = Field(ge=1)
-    source_image_path: str = Field(min_length=1)
+    asset_id: str | None = Field(default=None, pattern=r"^img_[a-f0-9]{24}$")
+    source_image_path: str | None = Field(default=None, min_length=1)
     image_prompt: str = Field(min_length=1)
     reference_assets: list[str] = Field(default_factory=list)
     content_file: str | None = None
@@ -64,6 +66,7 @@ class Delivery(ProductionModel):
 
 
 class SavedArtifact(Artifact):
+    source_image_path: str = Field(min_length=1)
     image_path: str
     sha256: str
     content: str = ""
@@ -176,6 +179,10 @@ def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifac
             raise ValueError("已保存图片发生变化。")
         with Image.open(path) as image:
             image.verify()
+        if page.asset_id is not None:
+            asset, _ = ImageAssetStore(directory, Path(), checkpoint.thread_id, checkpoint.input_digest).resolve(page.asset_id)
+            if asset.sha256 != page.sha256 or asset.source_image_path != page.source_image_path:
+                raise ValueError("最终图片与SDK接收记录不一致。")
         for ref in page.reference_assets:
             safe_reference(directory, directory / ref)
     return checkpoint.pages
@@ -205,6 +212,7 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
         value = load_checkpoint(previous, digest)
         if value is None:
             raise ValueError("上次生产输入或证据变化，拒绝自动恢复。")
+        ImageAssetStore(directory, generated_root or Path(), value.thread_id, digest).restore_from(previous)
         (directory / "partial-images").mkdir(exist_ok=True)
         for page in value.pages:
             target = directory / "partial-images" / Path(page.image_path).name
@@ -239,9 +247,10 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
                         for ref in item.reference_assets]
                     if item.content_file and Path(item.content_file).is_absolute():
                         item.content_file = Path(item.content_file).relative_to(previous / "work").as_posix()
-                    source = Path(item.source_image_path)
-                    if source.is_absolute() and source.is_relative_to(previous / "work"):
-                        item.source_image_path = str(directory / "work" / source.relative_to(previous / "work"))
+                    if item.source_image_path:
+                        source = Path(item.source_image_path)
+                        if source.is_absolute() and source.is_relative_to(previous / "work"):
+                            item.source_image_path = str(directory / "work" / source.relative_to(previous / "work"))
                 atomic_json(prior_index, latest)
                 if generated_root is not None:
                     ingest(directory, value, generated_root)
@@ -284,16 +293,28 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
             file = safe_file(directory / "work", file, 2_000_000)
             content = file.read_text(encoding="utf-8-sig")
             content_file = file.relative_to(directory / "work").as_posix()
-        source = native_image_source(directory, generated_thread, item.source_image_path)
-        item.source_image_path = str(source)
+        store = ImageAssetStore(directory, generated_root, checkpoint.thread_id, checkpoint.input_digest)
+        if store.path.exists() or store.path.is_symlink():
+            if item.asset_id:
+                asset, source = store.resolve(item.asset_id)
+            elif item.source_image_path:
+                asset, source = store.resolve_path(item.source_image_path)
+            else:
+                raise ValueError(f"交付缺少图片编号；请读取 {VIEW} 后选择，不要重新生图。")
+            item.asset_id, item.source_image_path = asset.asset_id, asset.source_image_path
+        else:
+            if item.asset_id or not item.source_image_path:
+                raise ValueError("该图片编号没有本次SDK接收记录。")
+            source = native_image_source(directory, generated_thread, item.source_image_path)
+            item.source_image_path = str(source)
         if source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
             raise ValueError("不支持的图片格式。")
         with Image.open(source) as image:
             image.verify()
         sha = hashlib.sha256(source.read_bytes()).hexdigest()
-        if original_item["source_image_path"] != str(source) or original_item["reference_assets"] != refs:
+        if original_item["source_image_path"] != item.source_image_path or original_item["reference_assets"] != refs:
             resolutions.append({"order": item.order, "source_image_path": original_item["source_image_path"],
-                "verified_source_image_path": str(source), "sha256": sha,
+                "verified_source_image_path": item.source_image_path, "asset_id": item.asset_id, "sha256": sha,
                 "reference_assets": original_item["reference_assets"], "verified_reference_assets": refs})
         if sha in {p.sha256 for p in pages}:
             raise ValueError("多个页重复交付同一图片。")
@@ -345,11 +366,21 @@ def evidence_files(directory: Path, composition=None) -> list[Path]:
             role: getattr(composition, role).digest for role in ("mind", "production")}:
         raise ValueError("产物与栏目 Skill 版本不一致。")
     return [directory / CHECKPOINT, directory / "production_request.txt",
+            *([directory / INVENTORY] if (directory / INVENTORY).is_file() else []),
             *sorted(p for p in (directory / "skills").rglob("*") if p.is_file()),
             *sorted(p for p in (directory / "references").rglob("*") if p.is_file())]
 
 
 def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str, checkpoint=None) -> str:
+    assets = (directory / INVENTORY).is_file()
+    image_contract = (
+        f"生图完成后由CreatorOS自动接收、命名和保存，不需要你复制或移动图片。读取当前cwd的{VIEW}，"
+        "从已接收列表中选择最终图片，artifacts每项只填asset_id编号，不填source_image_path。"
+        "如刚生图但列表尚未更新，重读清单，不要重新生图。"
+        "清单由宿主更新，不要修改。候选图片不等于最终交付，必须明确选择并保留真正使用的完整Prompt。"
+        if assets else "每项提供实际工具返回的图片绝对路径、真正使用的完整Prompt。"
+        "source_image_path保留原生工具返回的原始路径，不要换成重命名副本；原生图片无需由你搬到work。")
+    example_image = '"asset_id":"img_清单中的实际编号",' if assets else '"source_image_path":"工具返回的真实图片路径",'
     return (PRODUCTION_RULES + "\n同一会话完成本次内容与呈现，不拆子会话，不主动调用其他 Skill。\n"
             + "\n".join(f"@{name}：先完整读取 {path.resolve()}；资源相对该文件目录。" for name, path in refs)
             + "\n内容与视觉可在本会话内衔接，宿主不强制 PageSpec，所选 Skill 可以自行采用；最终交付需要文件索引。"
@@ -359,14 +390,13 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
             + "把内容稿和来源写到当前 work 目录；不要写工作目录以外的项目文件。"
             "必须用原生生图工具生成实际图片，不用代码绘图或占位图。不要自动审美重画。"
             "每完成一张图片就更新 delivery.json（当前 cwd 内），先写临时文件再替换。"
-            "保留全部已完成项，order 从 1 开始。每项提供实际工具返回的图片绝对路径、真正使用的完整 Prompt。"
-            "source_image_path保留原生工具返回的原始路径，不要换成重命名副本；原生图片无需由你搬到work。"
+            "保留全部已完成项，order 从 1 开始。" + image_contract +
             "生产期间可以补充内容稿或修正同页图片，索引须指向最终采用的版本，Prompt 记录相关修正。"
             "reference_assets 只列实际使用的本次冻结 Skill 文件或本次 references 中的原图，填绝对路径，无参考图可为空。"
             "content_file 指向 work 内对应内容稿，可以多图共享整篇稿。不要把参考素材当交付图。"
             "图片全部完成后才置 complete=true。不要发布。无需最终重复输出整份 JSON。\n"
             'delivery.json 示例：{"title":"标题","text":"发布草稿","hashtags":[],"complete":false,'
-            '"artifacts":[{"order":1,"source_image_path":"工具返回的真实图片路径",'
+            '"artifacts":[{"order":1,' + example_image +
             '"image_prompt":"实际 Prompt","reference_assets":[],"content_file":"content.md"}]}\n'
             + f"当前唯一工作目录：{directory / 'work'}\n本次任务：{request}\n"
             + (f"本 Revision 技术恢复。保留已完成 {len(checkpoint.pages)} 张，不要重画它们。"
@@ -457,7 +487,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 delivery_error, valid_partial = error, False
             if checkpoint.repair_attempted:
                 raise ValueError(f"交付索引修复次数已达上限（本版本最多1次，非账户额度）；原始验收错误：{delivery_error}")
-            locations = [directory / "work", producer.generated_images_root / checkpoint.thread_id]
+            locations = [directory / "work", directory / "received-images", producer.generated_images_root / checkpoint.thread_id]
             images_exist = any(location.is_dir() and any(p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
                 for p in location.iterdir()) for location in locations)
             repair_only = not valid_partial and (images_exist or bool(checkpoint.pages))
@@ -470,6 +500,11 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             checkpoint = checkpoint or Checkpoint(input_digest=request_digest(directory), thread_id=thread.id,
                 skill_digests={role: _digest(path.parent) for role, path in skill_refs(directory)})
             progress.checkpoint = checkpoint
+            # Existing Attempts without an inventory keep their exact old protocol.
+            assets = (ImageAssetStore(directory, producer.generated_images_root, thread.id, checkpoint.input_digest)
+                      if recovered is None or (directory / INVENTORY).exists() else None)
+            if assets:
+                assets.initialize()
             record_thread(directory, thread.id)
             atomic_json(directory / CHECKPOINT, checkpoint)
             if on_thread_started:
@@ -501,8 +536,9 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     atomic_json(directory / CHECKPOINT, checkpoint)
                     prompt = ("只修复当前 work/delivery.json 的文件索引，不得调用生图工具，不得重新研究或重画。"
                               "根据已经产生的真实图片和实际 Prompt 补齐索引，无法恢复则说明失败。"
-                              "source_image_path 应保留原生生图工具返回的当前 thread 图片路径；"
-                              "工作目录副本只有与该 thread 原图字节一致时才可交付。"
+                              + (f"现有图片已由宿主保存；读取当前cwd的{VIEW}选择正确asset_id，"
+                                 "不要移动图片或填写图片绝对路径。" if assets else
+                                 "source_image_path应保留当前thread原始路径，副本须与原图字节一致。") +
                               "reference_assets 必须指向本 Attempt/skills 或本次 references，不能遗漏 Attempt 层级。\n"
                               + str(delivery_error))
                 inputs = [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]]
@@ -510,7 +546,11 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     inputs.extend(LocalImageInput(str(path)) for path in images)
                 turn = await _bounded_sdk(thread.turn(inputs, cwd=str(directory / "work"), effort=CODEX_EFFORT,
                                                        model=CODEX_MODEL, sandbox=Sandbox.workspace_write), deadline, cancel_event)
-                collector = asyncio.create_task(collect_observed_turn(turn, progress))
+                if assets:
+                    assets.expected_turn_id = turn.id
+                collector = asyncio.create_task(collect_observed_turn(turn, progress,
+                    public_observer=assets.observe if assets else None, public_observer_is_diagnostic=False))
+                terminal_received = False
                 try:
                     while not collector.done():
                         if cancel_event is not None and cancel_event.is_set():
@@ -526,18 +566,20 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                             pass  # incomplete writes are not a production failure
                         await asyncio.wait({collector}, timeout=0.5)
                     result = await collector  # SDK failed turn must never look completed
+                    terminal_received = True
                     require_completed_turn(result)
                     if result.usage is not None:
                         progress.record_usage(producer._sdk_usage(result.usage).model_dump())
                     (directory / ("production_repair_response.txt" if repair else "production_response.txt")).write_text(
                         result.final_response or "", encoding="utf-8")
                 finally:
-                    if not collector.done():
+                    if not terminal_received:
                         try:
                             await asyncio.wait_for(turn.interrupt(), timeout=5)
                         except Exception:
                             pass
-                        collector.cancel()
+                        if not collector.done():
+                            collector.cancel()
                         await asyncio.gather(collector, return_exceptions=True)
                     try:
                         ingest(directory, checkpoint, producer.generated_images_root)

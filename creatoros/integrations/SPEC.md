@@ -1,5 +1,23 @@
 # External Integrations SPEC
 
+## SDK事件收图与编号交付（2026-10-18，已实现并完成真实一图验证）
+
+- 用户授权：新生产直接消费imageGeneration完成事件，由宿主校验/保存原图；Codex只选择图片编号与内容，不再负责抄路径/搬文件。旧任务、失败记录和冻结快照不改，批准/发布边界不变。
+- 最小实现：Attempt根保存native_image_assets.json和received-images，work/generated-assets.json仅为可读清单；绑定thread/turn/item、原始路径、图片SHA和尺寸，源文件须属于当前thread且非链接。清单以外/失败事件/外thread/篡改图片不得交付。候选图不等于最终选图。
+- 新任务按asset_id交付；旧source_image_path协议兼容，不能凭模型填地址绕过新任务的SDK事件收图。保存、去重、命名、复制由宿主完成；图已接住但索引失败时仅修选图/文案，不重新安排生产。已有库存/回执支持离线恢复且不回写旧Attempt。
+- 不引入新的数据库表/MCP/业务工具，不更改前端或全局Skill。事件收图是关键业务回调，失败必须停止原turn并保留错误；公开Trace仍独立诊断。图片文件原子写入，重复事件幂等；编号清单不是授权依据。
+- 验收：真实历史事件/文件隔离回放、事件/路径/编号/重复/中断/恢复/篡改故障回归、旧native与Run/队列回归；再隔离真实Codex一图生产及真实HTTP读取，不改正式内容、不批准发布。模型工具级禁生图不是本步实现内容。
+- 实现：`native_image_assets.py`接收当前turn的typed SDK完成事件，复制图片并原子写库存，按thread/turn/item生成稳定编号；工作清单不暴露原始绝对路径。`native_production.py`新任务使用asset_id选图，兼容旧路径时也必须匹配已经收下的SDK图片，不能凭有效目录补造事件。新增库存加入产物摘要；旧Attempt没有库存时保持旧证据列表，正式已恢复Run的既有artifact_digest只读重验未变。
+- 关键接收回调不是可降级Trace：I/O失败传播并中断原turn，不再开启repair/第二轮生产；正常SDK interrupted终态不再重复interrupt。图片二进制写入复用唯一临时文件和5/32/33有限重试，永久拒写保留旧字节，不吞权威保存错误。
+- `tests.test_native_image_assets`新增32/32通过：包含真实SDK对象、本地图片、重复/跨thread与turn/失败事件/坏图/链接/清单篡改/未知编号/库存拒写/二进制原子写入；原图删除后编号仍可交付、两候选只选一张、旧目录哈希不变。SDK用受控transport进行故障注入，不计作模型质量验证。
+- 真实历史完成事件及原图在`tmp/native-assets-history-20261018-b/report.json`隔离回放成功：收到一张、重复幂等、旧Attempt整树哈希不变、零SDK/生图调用。首版回放遗漏公开日志外层的thread/turn字段而无法重建typed envelope；补齐外层身份后通过，失败目录保留；该回放不把诊断日志升级为正式业务授权来源。
+- 真实隔离Codex一次一图：`tmp/native-assets-live-20261018-c/report.json`，Run `12c1ea1f-5c29-47dd-b7cd-54f645c872e0`，thread `01a14f34-fbdf-7363-9456-9e44e427b0f7`；1536×1024，SDK事件自动收下一张，原始delivery仅asset_id无图片路径、一次production无需索引repair，状态awaiting_approval。真实loopback HTTP详情与图片均200，返回字节SHA与库存一致；未批准发布，不写正式库。SDK input164968/cached136448/output4541/reasoning2441，非单次上下文长度，不宣称优化收益。
+- 试产a/b在调用SDK前被Skill兼容门禁拒绝：测试Skill先漏写、后误写creatoros-output标记；改为既有social-content-pack.image-carousel后新隔离目录c成功，不修改生产门禁、不删失败材料。
+- 验证边界：新增的是宿主收图与编号协议，不是控制模型每一次内部工具调用的沙箱；工作清单可被模型写坏，但不能据此注册或篡改权威库存。库存缺失/坏字节/未收到完成事件不凭文件存在判成功；故障后保留图像，不盲目重生成。不更改全局Skill、模型/推理档位、审批和发布。
+- 收尾：新32项＋旧恢复19项＋任务参考15项＋I/O8项联合74/74通过；native_production、worker_delivery、native_artifact_web、native_run_wiring、codex_completed_turn、content_run_service六组smoke通过，生产队列10/10通过。studio_executor首轮并行运行未在2秒内启动而失败，单独重跑通过；未放宽超时断言。正常SDK interrupted被本轮新中断保护重复interrupt的回归失败，区分“已收到终态”与“业务成功”后原测试通过。
+- 另有既存smoke_composition_run_flow在allowed_actions精确集合断言失败：旧断言不含已实现的fresh操作；进程内加载HEAD改动前native模块仍在同一断言失败，证实不是本轮收图引入。本次不改该独立流程或倒改失败记录，不计该组通过。既有Starlette/httpx弃用警告不涉及本步。
+- 已核对正式37个Run、无活动生产/授权队列/调研/提炼/聊天/讨论/发布后重启Studio加载新代码；健康200，旧恢复Run仍awaiting_approval、Attempt仍failed/failed/succeeded、旧图HTTP200且SHA不变。无前端改动，未跑浏览器测试或宣称视觉验收；真实新增生产仅在隔离SQLite中。
+
 ## 原生交付路径与离线恢复（2026-10-18，已验证）
 
 - 真实故障：英语replace/substitute/supplant/displace Run两次均有1254×1254原生图，索引改指work副本而宿主只接受当前thread原生目录；首次还把SKILL.md写到Revision根少一层Attempt。首次修复耗尽，恢复把0张核验误当0张生成，多生一张后又拒收。

@@ -1,4 +1,4 @@
-"""Atomic text publication with bounded Windows file-sharing retries."""
+"""Atomic file publication with bounded Windows file-sharing retries."""
 from __future__ import annotations
 
 import logging
@@ -23,12 +23,21 @@ def write_diagnostic_text(path: Path, text: str) -> bool:
 
 
 def atomic_write_text(path: Path, text: str) -> None:
+    _atomic_write(path, text)
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    _atomic_write(path, data)
+
+
+def _atomic_write(path: Path, data: str | bytes) -> None:
     # Unique, exclusively created sibling files inherit the destination ACL.
     # A fixed .tmp name can be overwritten by another writer.
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
-        with temporary.open("x", encoding="utf-8") as stream:
-            stream.write(text)
+        options = {"encoding": "utf-8"} if isinstance(data, str) else {}
+        with temporary.open("x" if isinstance(data, str) else "xb", **options) as stream:
+            stream.write(data)
         for attempt in range(len(RETRY_DELAYS) + 1):
             try:
                 os.replace(temporary, path)

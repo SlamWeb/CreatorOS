@@ -2,6 +2,13 @@
 
 状态：2026-10-02 已实现并完成真实一图试产；最后回归结果见下。
 
+## 2026-10-18：图片由宿主接收，Codex按编号选图
+
+- 新任务不再让Codex负责抄图片路径或复制文件。宿主从当前thread/turn的imageGeneration完成事件取得实际路径，核对图片后保存到received-images，原子登记native_image_assets.json；work/generated-assets.json只提供编号、预览相对位置和必要说明。
+- delivery.json用asset_id明确选择最终图并关联内容/Prompt；候选图不自动成为最终产物，成功仍须completed执行回执、complete=true及完整文件验收。旧source_image_path任务保持兼容，新增任务即使用旧路径也必须匹配SDK已接收图片。
+- 技术恢复复制本Revision已核对库存和图像，原生临时目录丢图后仍能用宿主副本交付；不能凭目录里有图就伪造SDK完成。关键接收失败停止原turn、保留文件，不重启生产；模型工具级禁生图仍非本步范围。
+- 新增32条事件/库存/安全/恢复/I/O故障测试通过。真实隔离SDK生产一张1536×1024图，Codex按编号交付且原始交付不含图片绝对路径，真实HTTP读取成功，待人工验收、未发布；记录在tmp/native-assets-live-20261018-c/report.json。另用真实历史事件零SDK回放，并只读重验既有正式冻结摘要未变，详见integrations/SPEC.md。
+
 ## 2026-10-18：交付路径归一化与已有图片恢复
 
 - 原始生图路径与复制到work的路径不是一回事。宿主只在副本SHA256与当前thread原图一致时兼容，归一化在内存和新的delivery_path_resolution.json中留证；不改旧索引，不接受其他thread图片。参考Skill仅兼容本Revision遗漏Attempt层级的精确后缀，不凭同名文件猜路径。

@@ -91,6 +91,7 @@ class NativeTransport:
                 NativeTransport.turn_numbers[thread_id] = turn_no
                 NativeTransport.calls.append((thread_id, inputs, controls, turn_no))
                 mode = NativeTransport.mode
+                before_generated = dict(NativeTransport.generated)
                 if mode == "cancel":
                     return Turn(thread_id, None)
 
@@ -114,8 +115,11 @@ class NativeTransport:
                             invalid_content_path=("../outside.md" if mode == "repair-fails" else None))
                 elif mode == "success":
                     NativeTransport.write_artifact(thread_id, controls, 1, "single source image", complete=True)
+                emitted = [NativeTransport.source_for(tid, order)
+                    for (tid, order), count in NativeTransport.generated.items()
+                    if tid == thread_id and count != before_generated.get((tid, order), 0)]
                 return Turn(thread_id, json.dumps({"complete": mode != "repair-fails"}, ensure_ascii=False),
-                            NativeTransport.usage_total(mode, turn_no))
+                            NativeTransport.usage_total(mode, turn_no), image_paths=emitted, turn_id=f"turn-{turn_no}")
 
         return Thread()
 
@@ -162,8 +166,9 @@ class NativeTransport:
 
 
 class Turn:
-    def __init__(self, thread_id, final_text, usage_total=(3, 2), *, is_review=False):
-        self.id, self.final_text, self.usage_total = "turn-1", final_text, usage_total
+    def __init__(self, thread_id, final_text, usage_total=(3, 2), *, is_review=False, image_paths=(), turn_id="turn-1"):
+        self.id, self.final_text, self.usage_total = turn_id, final_text, usage_total
+        self.thread_id, self.image_paths = thread_id, image_paths
         self.is_review = is_review
 
     async def interrupt(self):
@@ -173,6 +178,12 @@ class Turn:
         if NativeTransport.mode == "cancel":
             await asyncio.sleep(30)
             return
+        for path in self.image_paths:
+            yield Notification("item/completed", sdk_types.ItemCompletedNotification.model_validate({
+                "threadId": self.thread_id, "turnId": self.id, "completedAtMs": 1,
+                "item": {"type": "imageGeneration", "id": "image-" + Path(path).name,
+                         "status": "completed", "result": "", "savedPath": path},
+            }))
         input_tokens, output_tokens = self.usage_total
         usage = sdk_types.ThreadTokenUsageUpdatedNotification.model_validate({
             "threadId": "native-thread", "turnId": self.id,
