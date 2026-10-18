@@ -164,7 +164,7 @@ export function WorkspacePage() {
             confirmingAccount === account.id
               ? <button type="button" className="rail-add rail-delete" disabled={deleteAccount.isPending}
                   onClick={() => deleteAccount.mutate(account.id)}>确认删除</button>
-              : <button type="button" className="rail-add" aria-label={`删除账号 ${account.display_name}`}
+              : <button type="button" className="rail-add action-danger" aria-label={`删除账号 ${account.display_name}`}
                   title="删除账号" onClick={() => setConfirmingAccount(account.id)}>×</button>
           )}
           <button type="button" className="rail-add" aria-label={`在 ${account.display_name} 下新建栏目`}
@@ -324,7 +324,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
         <option value="">未分配</option>
         {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
       </select>
-      {onDelete && <button type="button" className="button button-secondary workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
+      {onDelete && <button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
         disabled={deletePending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>}
       </div>}
     </header>

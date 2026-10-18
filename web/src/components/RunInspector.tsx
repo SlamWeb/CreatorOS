@@ -303,7 +303,7 @@ function RunRemoval({ run, returnTo }: { run: RunDetail; returnTo: string }) {
     onSuccess: async () => { await client.invalidateQueries(); if (mounted.current) navigate(returnTo); },
   });
   return <div className="run-removal">
-    <button type="button" className="button button-quiet" aria-label="删除该条内容" disabled={remove.isPending} onClick={() => setConfirming(true)}><Trash2 size={16} /><span>删除</span></button>
+    <button type="button" className="button button-danger" aria-label="删除该条内容" disabled={remove.isPending} onClick={() => setConfirming(true)}><Trash2 size={16} /><span>删除</span></button>
     {confirming ? <div className="run-remove-confirm" role="group" aria-label="确认删除内容">
       <p>从栏目移除这条内容？图片和生产记录会保留。</p>
       <div className="form-actions"><button type="button" className="button button-danger" disabled={remove.isPending} onClick={() => remove.mutate()}>{remove.isPending ? "正在删除…" : remove.isError ? "重试删除" : "确认删除"}</button><button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => { setConfirming(false); remove.reset(); }}>取消</button></div>

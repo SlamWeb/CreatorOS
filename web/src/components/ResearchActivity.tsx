@@ -45,7 +45,7 @@ export function ResearchActivity({ research, links }: { research: ResearchSnapsh
   const href = target?.kind === "internal" ? target.href : null;
   return <section className={`research-activity${failed ? " research-activity-failed" : ""}`} aria-label="选题调研活动">
     <div className="research-activity-heading">
-      <strong>{stages[research.status] ?? (running ? "调研中" : research.status)}</strong>
+      <strong className={running && research.status !== "queued" && !quiet ? "task-running-text" : undefined}>{stages[research.status] ?? (running ? "调研中" : research.status)}</strong>
       {research.progress?.stage && running && <span>{stages[research.progress.stage] ?? research.progress.stage}</span>}
     </div>
     {research.note && <p className="research-activity-note">{research.note}</p>}

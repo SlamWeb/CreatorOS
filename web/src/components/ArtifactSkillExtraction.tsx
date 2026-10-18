@@ -353,7 +353,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         <h3>提炼任务</h3>
         {jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
           onClick={() => selectJob(job.id)}>
-          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong>{statusLabels[job.status] ?? "状态更新"}</strong>
+          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
         </button>)}
       </div> : null}
       {selectionPrompt && <div className="extraction-confirm-switch" role="group" aria-label="放弃未保存编辑">
@@ -369,7 +369,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       {selected.isError && <p role="alert" className="extraction-error">任务读取失败：{selected.error.message}</p>}
       {activeJob && <div className="extraction-detail" aria-label="提炼任务详情">
         {draftStorageError && <p role="alert" className="extraction-error">{draftStorageError}</p>}
-        <div className="extraction-status"><strong>任务状态：{statusLabels[activeJob.status] ?? "状态更新"}</strong>
+        <div className="extraction-status"><strong>任务状态：<span className={activeJob.status === "running" ? "task-running-text" : undefined}>{statusLabels[activeJob.status] ?? "状态更新"}</span></strong>
           {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && <span>{activeJob.note}</span>}
         </div>

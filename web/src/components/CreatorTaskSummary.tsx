@@ -31,7 +31,8 @@ export function CreatorTaskSummary({ creatorId, seriesId }: { creatorId: string;
     <header><h2>任务</h2>{summary.length ? <p>{summary.join(" · ")}</p> : null}</header>
     {items.length ? <ul>{items.map(item => {
       const activity = item.last_activity_at ?? item.updated_at;
-      const content = <><span className="creator-task-kind">{kindLabels[item.kind]}</span><span className="creator-task-title">{item.title}</span><span className={`creator-task-status creator-task-status-${item.status}`}>{statusLabels[item.status] ?? item.status}</span><time>{formatDate(activity)}</time></>;
+      const executing = ["running", "researching", "producing", "validating"].includes(item.status);
+      const content = <><span className="creator-task-kind">{kindLabels[item.kind]}</span><span className="creator-task-title">{item.title}</span><span className={`creator-task-status creator-task-status-${item.status}`}><span className={executing ? "task-running-text" : undefined}>{statusLabels[item.status] ?? item.status}</span></span><time>{formatDate(activity)}</time></>;
       return <li key={item.id}>{item.url?.startsWith("/") && !item.url.startsWith("//") ? <Link to={item.url}>{content}</Link> : <div>{content}</div>}</li>;
     })}</ul> : null}
   </section>;

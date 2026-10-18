@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, MoreHorizontal, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
 import type { PageResponse, TopicView } from "../api/types";
 import { StatusPill } from "./StatusPill";
@@ -156,8 +156,8 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
     className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
     <header className="library-heading">{!compact && <h2>内容</h2>}
-      {!compact && <button type="button" className="button button-secondary library-research-trigger" aria-expanded={researchOpen}
-        aria-controls={researchPanelId} onClick={() => setResearchOpen(value => !value)}>{researchOpen ? "收起调研" : "调研选题"}</button>}
+      {!compact && <button type="button" className="button button-primary library-research-trigger" aria-expanded={researchOpen}
+        aria-controls={researchPanelId} onClick={() => setResearchOpen(value => !value)}><Search size={16} aria-hidden="true" />{researchOpen ? "收起调研" : "调研选题"}</button>}
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
     </header>
@@ -230,7 +230,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           <details className="content-card-menu" onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>
             <summary aria-label={`选题操作 ${topic.title}`}><MoreHorizontal size={18} /></summary>
             <div><button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id); }}>详情与编辑</button>
-              <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id, true); }}>移除</button>
+              <button type="button" className="action-danger" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id, true); }}>移除</button>
               {onDiscuss && <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); onDiscuss(topic.title); }}>与 Agent 讨论</button>}</div>
           </details>
         </footer>
@@ -315,14 +315,14 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
           {!remove.isPending && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
           <button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => setEditing(true)}>编辑</button>
         </>}
-      <button type="button" className="button button-quiet" disabled={remove.isPending || save.isPending} onClick={() => setConfirmRemove(true)}>移除</button>
+      <button type="button" className="button button-danger" disabled={remove.isPending || save.isPending} onClick={() => setConfirmRemove(true)}>移除</button>
       {onDiscuss && <button type="button" className="button button-quiet" disabled={remove.isPending} onClick={() => {onClose();onDiscuss(topic.title);}}>与 Agent 讨论</button>}
     </div>
     {confirmRemove && <div className="topic-remove-confirm" role="group" aria-label="确认移除选题">
       <p>{pending ? "移除这条待选建议？移除后会从候选列表隐藏。" : topic.existing_run_id
         ? "移除这张内容卡片？已有产物、生产记录和 Trace 会保留，仍可从原 Run 查看。"
         : "移除这条未生产选题？它会从内容列表删除。"}</p>
-      <div><button type="button" className="button button-quiet" disabled={remove.isPending || save.isPending} onClick={() => remove.mutate()}>
+      <div><button type="button" className="button button-danger" disabled={remove.isPending || save.isPending} onClick={() => remove.mutate()}>
         {remove.isPending ? "正在移除…" : remove.isError ? "重试移除" : "确认移除"}
       </button><button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => { remove.reset(); setConfirmRemove(false); }}>取消</button></div>
     </div>}

@@ -1,7 +1,8 @@
 .studio-shell.agent-studio .page-container { width: 100%; padding: 24px; }
 .agent-workspace { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 28px; height: calc(100dvh - 112px); min-height: 520px; }
 .agent-history { min-width: 0; display: flex; flex-direction: column; border-right: 1px solid #e8e8eb; padding-right: 20px; }
-.agent-history-toggle { display: none; }
+.agent-history-toggle { display: none; align-items: center; gap: 7px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; transition: background .15s, color .15s; }
+.agent-history-toggle:hover, .agent-history-toggle[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .agent-new { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 9px; border: 0; border-radius: 980px; background: #e8e8ed; color: var(--ink); font-weight: 550; font-size: 13px; }
 .agent-new:hover { background: #dedee3; }
 .agent-new span { font-size: 17px; color: var(--muted); }
@@ -99,7 +100,8 @@
 .chat-usage { font-size: 10px; color: var(--muted); margin: 0 0 22px; }
 .chat-usage summary { cursor: pointer; }
 .agent-composer { width: 100%; max-width: 860px; margin: 8px auto 0; border: 1px solid var(--line); border-radius: 22px; padding: 12px 16px; background: var(--canvas); }
-.agent-composer textarea { width: 100%; resize: vertical; min-height: 46px; max-height: 140px; border: none; background: transparent; color: var(--ink); font: inherit; font-size: 14px; line-height: 1.7; outline: none; }
+.agent-composer textarea { display: block; width: 100%; resize: none; height: 30px; min-height: 30px; max-height: min(220px, 30dvh); overflow-y: hidden; padding: 3px 0; margin: 0 0 8px; border: none; border-radius: 0; background: transparent; color: var(--ink); font: inherit; font-size: 14px; line-height: 24px; outline: none; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.studio-shell .agent-composer textarea:focus { outline: none; box-shadow: none; }
 .agent-composer:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
 .agent-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .agent-composer span { font-size: 11px; color: var(--muted); }
@@ -113,7 +115,7 @@
 @media (max-width: 760px) {
   .studio-shell.agent-studio .page-container { padding: 14px; }
   .agent-workspace { display: flex; flex-direction: column; gap: 12px; height: auto; min-height: 0; }
-  .agent-history-toggle { display: block; align-self: flex-start; border: 0; border-radius: 980px; background: #e8e8ed; color: var(--ink); padding: 8px 14px; font-size: 12px; }
+  .agent-history-toggle { display: inline-flex; align-self: flex-start; }
   .agent-history { display: none; border-right: 0; padding: 12px; border: 0; border-radius: var(--radius-md); background: var(--surface); }
   .agent-history.is-open { display: flex; }
   .agent-history-list { max-height: 200px; }
@@ -131,6 +133,7 @@
   .chat-trace-incomplete, .chat-trace-redacted { margin: 10px 16px 0; }
   .chat-trace-metadata dl { grid-template-columns: minmax(0, 1fr); }
   .agent-composer { padding: 12px; }
+  .agent-composer textarea { font-size: 16px; }
   .agent-conversation > .agent-note { text-align: left; }
 }
 
@@ -160,7 +163,7 @@
 .account-chat-panel-close:hover { background: var(--surface); color: var(--ink); }
 .account-chat-panel-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .account-chat-workspace { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; width: 100%; height: auto; min-height: 0; padding: 12px 16px 16px; overflow: hidden; }
-.account-chat-workspace .agent-history-toggle { display: block; align-self: flex-start; flex: 0 0 auto; margin-bottom: 8px; border: 0; border-radius: 980px; background: #e8e8ed; color: var(--ink); padding: 7px 12px; font-size: 11px; cursor: pointer; }
+.account-chat-workspace .agent-history-toggle { display: inline-flex; align-self: flex-start; flex: 0 0 auto; margin-bottom: 10px; }
 .account-chat-workspace .agent-history { display: none; flex: 0 0 auto; max-height: 220px; min-height: 0; margin-bottom: 8px; padding: 10px; overflow: hidden; border: 0; border-radius: 12px; background: var(--surface); }
 .account-chat-workspace .agent-history.is-open { display: flex; }
 .account-chat-workspace .agent-history-label { margin: 4px 8px 6px; }

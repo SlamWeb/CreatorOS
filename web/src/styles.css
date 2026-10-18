@@ -66,6 +66,28 @@ details[open] > summary:not(:has(svg))::after { content: "−"; }
 .button-secondary:hover { background: #dedee3; }
 .button-quiet { color: var(--accent); background: transparent; border: 0; }
 .button-quiet:hover { text-decoration: underline; }
+.studio-shell .button-danger { color: var(--danger); background: var(--danger-soft); }
+.studio-shell .button-danger:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, var(--canvas)); }
+.studio-shell button.action-danger { color: var(--danger); }
+.studio-shell button.action-danger:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
+
+/* Only executing labels use motion; waiting, failed and completed labels stay still. */
+.studio-shell .task-running-text { color: var(--accent-strong); font-weight: 550; }
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .studio-shell .task-running-text {
+    background: linear-gradient(100deg, #154c94 20%, #2375d1 45%, #123f7f 70%);
+    background-size: 240% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: task-text-sweep 2.4s linear infinite;
+  }
+}
+@keyframes task-text-sweep { from { background-position: 180% 0; } to { background-position: -60% 0; } }
+[hidden] .task-running-text { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+  .studio-shell .task-running-text { animation: none; background: none; color: var(--accent-strong); }
+}
 
 /* Metrics — 灰卡大数字 */
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 44px; }

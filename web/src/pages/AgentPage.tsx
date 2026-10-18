@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, History } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
@@ -80,6 +80,29 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const scopeKey = creatorScopeId ? `creator:${creatorScopeId}` : "overview";
   scopeKeyRef.current = scopeKey;
   const draft = drafts[scopeKey] ?? readSessionValue(draftStorageKey(scopeKey));
+  const composerInput = useRef<HTMLTextAreaElement>(null);
+  const fitComposer = useCallback(() => {
+    const input = composerInput.current;
+    if (!input || !input.getClientRects().length) return;
+    const limit = Math.min(220, window.innerHeight * .3);
+    input.style.height = "0px";
+    const height = input.scrollHeight;
+    input.style.height = `${Math.min(height, limit)}px`;
+    input.style.overflowY = height > limit ? "auto" : "hidden";
+  }, []);
+  useLayoutEffect(fitComposer, [draft, active, fitComposer]);
+  useEffect(() => {
+    const parent = composerInput.current?.parentElement;
+    if (!parent) return;
+    let width = -1;
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0].contentRect.width;
+      if (nextWidth !== width) { width = nextWidth; fitComposer(); }
+    });
+    observer.observe(parent);
+    window.addEventListener("resize", fitComposer);
+    return () => { observer.disconnect(); window.removeEventListener("resize", fitComposer); };
+  }, [fitComposer]);
   const id = standalone ? params.get("chat") : ((selectedChats[scopeKey] ?? readSessionValue(selectedChatStorageKey(scopeKey))) || null);
   viewRef.current = `${scopeKey}:${id ?? "new"}`;
   const attachments = id ? (attachmentDrafts[id] ?? readAttachmentDraft(id)) : [];
@@ -298,7 +321,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     chatPanel.open({ creatorId, accountName: accountName ?? creator.data?.display_name, sessionId: id ?? undefined });
   }}>
     <button type="button" className="agent-history-toggle" aria-expanded={historyOpen} aria-controls={historyId}
-      onClick={() => setHistoryOpen(!historyOpen)}>历史对话</button>
+      onClick={() => setHistoryOpen(!historyOpen)}><History size={16} aria-hidden="true" /><span>历史对话</span></button>
     <aside id={historyId} className={`agent-history ${historyOpen ? "is-open" : ""}`} aria-label="历史对话">
       <button type="button" className="agent-new" disabled={send.isPending} onClick={() => chooseSession(null)}><span aria-hidden="true">＋</span> 新对话</button>
       <p className="agent-history-label">最近对话</p>
@@ -333,7 +356,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
       {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending}
         remove={imageId => { if (id) saveAttachments(id, attachments.filter(image => image.id !== imageId)); }} />}
-      <textarea aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={2}
+      <textarea ref={composerInput} aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={1}
         onChange={e => updateDraft(scopeKey, e.target.value)} onPaste={e => {
           const files = Array.from(e.clipboardData.items).filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter((file): file is File => !!file);
           if (files.length) { e.preventDefault(); void addImages(files); }
@@ -341,7 +364,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
       <div><ImagePicker disabled={uploading || send.isPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
-        <span className="agent-compose-status" role="status">{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]} · Enter 发送</span>
+        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]}</span> · Enter 发送</span>
         <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}

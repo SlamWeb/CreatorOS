@@ -5,7 +5,7 @@
 .library-count { color:var(--muted); font-size:12px; }
 .library-refresh { display:grid; place-items:center; padding:6px; border:0; background:transparent; color:var(--muted); border-radius:6px; }
 .library-refresh:hover { background:var(--surface); color:var(--ink); }
-.library-research-trigger { min-height:34px; padding:7px 13px; font-size:12px; }
+.library-research-trigger { display:inline-flex; align-items:center; gap:7px; min-height:38px; padding:9px 16px; font-size:13px; flex-shrink:0; }
 .library-filters { display:flex; gap:8px; margin:16px 0 22px; }
 .library-filters button { border:0; border-radius:980px; padding:8px 18px; background:var(--surface); color:var(--muted); font-size:13px; }
 .library-filters button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); font-weight:550; }

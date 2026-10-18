@@ -34,7 +34,7 @@ export function RunControls({ run }: { run: RunDetail }) {
   return <div className="run-controls">
     {queued && <p className="muted" role="status">{blockedReason ? `生产队列已暂停 · ${blockedReason}`
       : `已加入生产队列${run.production_queue?.position ? ` · 排队第 ${run.production_queue.position} 项` : ""}`}</p>}
-    {active ? <p className="muted" role="status">{stale ? "执行状态待核实，请检查本地服务。" : `${run.status === "validating" ? "正在检查产物" : "Codex 正在生产"} · 已运行 ${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</p> : null}
+    {active ? <p className="muted" role="status"><span className={!stale && !noRecentActivity ? "task-running-text" : undefined}>{stale ? "执行状态待核实，请检查本地服务。" : `${run.status === "validating" ? "正在检查产物" : "Codex 正在生产"}`}</span>{!stale && ` · 已运行 ${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</p> : null}
     {showProgress && progress ? <div className="muted run-live-progress" aria-label="生产阶段进度">
       <p>{stageLabels[progress.stage]} · {collectingReceipt ? "正在整理回执/验收" : ({ running: "进行中", completed: "阶段已完成", failed: "阶段失败", interrupted: "阶段中断" } as const)[progress.status]}</p>
       <p>{collectingReceipt ? "回执/验收整理中" : activityLabels[progress.activity]} · 最近活动 {noRecentActivity ? `暂无新活动 · ${new Date(lastActivity).toLocaleString("zh-CN")}` : Number.isFinite(lastActivity) ? new Date(lastActivity).toLocaleString("zh-CN") : "时间未记录"}</p>

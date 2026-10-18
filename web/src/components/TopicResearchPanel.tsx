@@ -69,7 +69,7 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
   const canSelect = data?.status === "ready" && !data.stale && data.series_id === seriesId;
   return <section className="research-panel" aria-label="选题候选">
     <div className="research-heading"><h2>{controlsOnly ? "选题调研" : "选择本批次选题"}</h2>
-      <button className="button button-secondary" disabled={referenceBusy} aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}><RefreshCw size={14} />{batchId ? "重新调研" : "调研选题"}</button></div>
+      <button className="button button-primary" disabled={referenceBusy} aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}><RefreshCw size={14} />{batchId ? "重新调研" : "调研选题"}</button></div>
     <div hidden={!researchOpen}><TopicReferenceComposer key={seriesId} seriesId={seriesId} researching={data?.status === "researching"}
       onBusy={setReferenceBusy} onResearch={id => { chooseBatch(id); void history.refetch(); }} /></div>
     {history.data?.items.length ? <div className="research-toolbar">
@@ -79,7 +79,7 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
     </div> : null}
     {(batch.error || history.error) && <p className="form-error" role="alert">{(batch.error || history.error)?.message}<button onClick={() => { void batch.refetch(); void history.refetch(); }}>重新读取</button></p>}
     {batchId && batch.isPending && <p role="status">正在读取候选…</p>}
-    {data?.status === "researching" && <p className="research-notice" role="status">正在联网调研 · 第 {data.attempt || 1} 次尝试</p>}
+    {data?.status === "researching" && <p className="research-notice" role="status"><span className="task-running-text">正在联网调研</span> · 第 {data.attempt || 1} 次尝试</p>}
     {data && data.status !== "ready" && data.status !== "researching" && <p className="form-error" role="status">{labels[data.status]} · {data.note}</p>}
     {data?.stale && <p className="form-error" role="alert">当前栏目或 Skill 不可用，请修复配置后再选择；已保存的候选不会过期。</p>}
     {data?.status === "ready" && !data.candidates.length && <p className="research-empty">{data.note || "本次未找到适合的候选，可调整偏好重新调研。"}</p>}

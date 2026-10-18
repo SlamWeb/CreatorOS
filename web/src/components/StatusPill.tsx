@@ -7,7 +7,7 @@ const labels: Record<string, string> = {
 
 export function StatusPill({ status }: { status: string | null | undefined }) {
   const value = status ?? "unknown";
-  return <span className={`status-pill status-${value}`}><span className="status-pill-dot" />{labels[value] ?? value}</span>;
+  return <span className={`status-pill status-${value}`}><span className="status-pill-dot" /><span className={["producing", "validating"].includes(value) ? "task-running-text" : undefined}>{labels[value] ?? value}</span></span>;
 }
 
 export function formatDate(value: string | null | undefined) {

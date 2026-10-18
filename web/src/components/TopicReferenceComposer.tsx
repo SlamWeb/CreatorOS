@@ -97,7 +97,7 @@ export function TopicReferenceComposer({ seriesId, researching, onResearch, onBu
         <small>{files.length ? "扩展为待选；直接制作进入生产队列。" : "使用 Codex 额度，结果保存为待选。"}</small>
       </div>
     </fieldset>
-    {activity && <p className="topic-reference-status" role="status">{activity}</p>}
+    {activity && <p className="topic-reference-status" role="status"><span className="task-running-text">{activity}</span></p>}
     {error && <p className="form-error" role="alert">{error}</p>}
   </form>;
 }
