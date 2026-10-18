@@ -30,6 +30,9 @@
 .run-live-progress { display: flex; flex-wrap: wrap; flex: 1 0 100%; gap: .25rem 1rem; }
 .run-live-progress p { margin: .25rem 0; }
 .run-workbench .inspector-grid { grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); gap: 2rem; }
+.artifact-download { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; margin-bottom: .75rem; }
+.artifact-download > .button { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; }
+.artifact-download > .form-error { flex-basis: 100%; margin: 0; }
 .run-workbench .carousel-stage { border-radius: 12px; min-height: 0; background: var(--surface); }
 .run-workbench .image-open { padding: 1rem; }
 .run-workbench .image-open img { height: min(65vh, 760px); }

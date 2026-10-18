@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 按版本下载原图（2026-10-18，已验证）
+
+- 新增只读 GET `/api/runs/{run_id}/revisions/{revision_id}/download?digest=…`；复用 Run/Revision归属、Manifest身份、路径范围、整体摘要、逐图摘要与格式校验。只返回所选版本完整原图；单张返回真实图片MIME/扩展名，多张返回按页码命名的ZIP（不含内部快照/日志）。旧 `/download` 已批准发布包不变。
+- 无新增依赖/数据库表/Agent工具，不触发模型、审批、发布或写业务状态；文件缺失/变更/跨Run/摘要过期则整体拒绝，不交付缺页ZIP。响应attachment/no-store/nosniff，文件名不使用调用者路径。
+- 验收覆盖单张、多张、历史版本、坏摘要、缺图/篡改/路径逃逸及零写入；前端回归真实本地HTTP与独立SQLite，正式服务不启动。
+- `smoke_studio_artifacts`通过：1/5/6图、ZIP顺序与逐图原字节、跨Run404、无摘要422、旧摘要/缺图/坏图/CRC坏图/Manifest及图片逃逸409、旧验证无逐图hash兼容；下载不改变Run/事件/Producer调用次数，旧已批准ZIP仍包含文案。额外拦截Pillow的SyntaxError/解压炸弹异常，避免下载失败抛裸500。
+- `smoke_native_artifact_web`通过：native-v1 checkpoint原图原字节导出、冻结Skill篡改拒绝；`smoke_studio_api`关联回归通过。浏览器隔离真实HTTP最终4/4，详见web SPEC；不改正式文件/状态，不把本地工件测试写成付费模型Eval。
+
 ## Skill 显示名（2026-10-18，已验证）
 
 - files/content PUT 增加可选 display_name，仅 SKILL.md 可用，复用原写权限、摘要CAS与原子保存；内部name/注册ID不变。目录/文件树/保存回执加display_name，旧客户端请求仍兼容。

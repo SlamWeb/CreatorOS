@@ -124,6 +124,10 @@ def main():
             assert client.get(f"/api/runs/{run_id}/partial-cards/1?checksum={'0' * 64}").status_code == 409
             download = client.get(f"/api/runs/{run_id}/download")
             assert download.status_code == 200 and download.headers["content-type"] == "application/zip"
+            revision_download = f"/api/runs/{run_id}/revisions/{revision_id}/download?digest={checked.artifact_digest}"
+            original_download = client.get(revision_download)
+            assert original_download.status_code == 200 and original_download.headers["content-type"] == "image/png"
+            assert original_download.content == image_bytes
 
             with database.session() as session:
                 version_before = session.get(ContentRun, run_id).version
@@ -136,6 +140,7 @@ def main():
             invalid = client.get(f"/api/runs/{run_id}")
             assert invalid.status_code == 200 and invalid.json()["partial_cards"] == []
             assert client.get(f"/api/runs/{run_id}/partial-cards/1?checksum={image_checksum}").status_code == 404
+            assert client.get(revision_download).status_code == 409
         database.close()
     print("studio_native_artifact_web_smoke=passed native_page_projection=passed partial_image_checksum=passed frozen_skill_tamper=blocked readonly=passed")
 

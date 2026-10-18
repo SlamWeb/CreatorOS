@@ -1,6 +1,8 @@
 from pathlib import Path
 import hashlib
 from tempfile import TemporaryDirectory
+from io import BytesIO
+from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 from creatoros.runs import ContentRunRepository
@@ -31,6 +33,27 @@ with TemporaryDirectory() as temporary:
             assert response.status_code == 200 and response.headers["content-type"] == "image/png"
             assert response.headers["cache-control"] == "no-store"
         assert len(client.get(f"/api/runs/{other.id}").json()["revisions"][0]["cards"]) == 1
+        download = f"{base}/revisions/{first['id']}/download?digest={first['review_digest']}"
+        exported = client.get(download)
+        assert exported.status_code == 200 and exported.headers["content-type"] == "application/zip"
+        assert exported.headers["cache-control"] == "no-store"
+        assert exported.headers["x-content-type-options"] == "nosniff"
+        assert "attachment" in exported.headers["content-disposition"]
+        with ZipFile(BytesIO(exported.content)) as archive:
+            assert archive.namelist() == [f"{n:02d}.png" for n in range(1, 6)]
+            for n, card in enumerate(first["cards"], 1):
+                assert archive.read(f"{n:02d}.png") == client.get(card["url"]).content
+        single = client.get(f"/api/runs/{other.id}").json()["revisions"][0]
+        single_download = client.get(f"/api/runs/{other.id}/revisions/{single['id']}/download?digest={single['review_digest']}")
+        assert single_download.status_code == 200 and single_download.headers["content-type"] == "image/png"
+        assert single_download.content == client.get(single["cards"][0]["url"]).content
+        assert single_download.headers["content-disposition"].endswith('.png"')
+        assert client.get(download.replace(first["review_digest"], "0" * 64)).status_code == 409
+        assert client.get(download.replace(run.id, other.id)).status_code == 404
+        assert client.get(download.split("?digest=")[0]).status_code == 422
+        assert client.get(base).json() == detail
+        # The previous approved-only publication export keeps its existing guard.
+        assert client.get(base + "/download").status_code == 409
         assert len(repository.list_events(run.id)) == before and producer.calls == 2
         wrong_run = first["cards"][0]["url"].replace(run.id, other.id)
         assert client.get(wrong_run).status_code == 404
@@ -46,6 +69,12 @@ with TemporaryDirectory() as temporary:
         service.execute(run.id)
         current = client.get(base).json()
         second = current["revisions"][1]
+        second_download = f"{base}/revisions/{second['id']}/download?digest={second['review_digest']}"
+        with ZipFile(BytesIO(client.get(download).content)) as archive, ZipFile(BytesIO(exported.content)) as original_zip:
+            assert {name: archive.read(name) for name in archive.namelist()} == {
+                name: original_zip.read(name) for name in original_zip.namelist()}
+        with ZipFile(BytesIO(client.get(second_download).content)) as archive:
+            assert archive.namelist() == [f"{n:02d}.png" for n in range(1, 7)]
         assert len(second["cards"]) == 6 and len(current["revisions"][0]["cards"]) == 5
         assert client.post(base + "/approve", json={**approval, "expected_version": current["version"]}).status_code == 409
         directory = Path(repository.get_revision(second["id"]).artifact_directory)
@@ -53,21 +82,30 @@ with TemporaryDirectory() as temporary:
         original = image.read_bytes()
         expected = {"revision_id": second["id"], "artifact_digest": second["review_digest"], "expected_version": current["version"]}
         image.write_bytes(original + b"modified")
+        assert client.get(second_download).status_code == 409
         assert client.get(second["cards"][0]["url"]).status_code == 409
         forged = second["cards"][0]["url"].split("&checksum=")[0] + "&checksum=" + hashlib.sha256(image.read_bytes()).hexdigest()
         assert client.get(forged).status_code == 409
         assert client.get(base).json()["revisions"][1]["artifact_error"]
         assert client.post(base + "/approve", json=expected).status_code == 409
         image.write_bytes(b"bad image")
+        assert client.get(second_download).status_code == 409
+        broken_crc = bytearray(original)
+        broken_crc[45] ^= 1
+        image.write_bytes(broken_crc)
+        assert client.get(second_download).status_code == 409
+        image.write_bytes(b"bad image")
         assert client.get(second["cards"][0]["url"]).status_code == 409
         assert client.post(base + "/approve", json=expected).status_code == 409
         image.unlink()
+        assert client.get(second_download).status_code == 409
         assert client.get(base).json()["revisions"][1]["artifact_error"]
         assert client.post(base + "/approve", json=expected).status_code == 409
         image.write_bytes(original)
         manifest = directory / "social_content_pack.json"
         manifest_original = manifest.read_text(encoding="utf-8")
         manifest.write_text(manifest_original.replace("images/01.png", "../outside.png"), encoding="utf-8")
+        assert client.get(second_download).status_code == 409
         assert client.get(second["cards"][0]["url"]).status_code == 409
         manifest.write_text(manifest_original, encoding="utf-8")
         # A symlink outside the package must fail even when it points to valid image bytes.
@@ -75,6 +113,7 @@ with TemporaryDirectory() as temporary:
         outside.write_bytes(original)
         image.unlink()
         image.symlink_to(outside)
+        assert client.get(second_download).status_code == 409
         assert client.get(second["cards"][0]["url"]).status_code == 409
         try:
             validate_artifact(directory)
@@ -88,6 +127,7 @@ with TemporaryDirectory() as temporary:
         external_manifest.write_text(manifest_original, encoding="utf-8")
         manifest.unlink()
         manifest.symlink_to(external_manifest)
+        assert client.get(second_download).status_code == 409
         assert client.get(second["cards"][0]["url"]).status_code == 409
         manifest.unlink()
         manifest.write_text(manifest_original, encoding="utf-8")
@@ -101,10 +141,15 @@ with TemporaryDirectory() as temporary:
             revision.validation_json = {**revision.validation_json, "images": [
                 {key: value for key, value in item.items() if key != "sha256"} for item in revision.validation_json["images"]]}
         assert client.get(second["cards"][0]["url"]).status_code == 200
+        assert client.get(second_download).status_code == 200
         approved = client.post(base + "/approve", json=expected)
         assert approved.status_code == 200 and approved.json()["status"] == "approved", approved.text
         assert client.post(base + "/approve", json=expected).status_code == 409
         assert client.get(first["cards"][0]["url"]).status_code == 200
+        legacy_export = client.get(base + "/download")
+        assert legacy_export.status_code == 200
+        with ZipFile(BytesIO(legacy_export.content)) as archive:
+            assert "publish_copy.txt" in archive.namelist()  # Existing publishing contract unchanged.
         assert producer.calls == 3
     db.close()
 print("studio_artifacts_smoke=passed cards=1,5,6 version=digest=guarded missing=bad=escape=blocked history=retained approval=not_publishing")

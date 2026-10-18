@@ -148,3 +148,21 @@ export const studioApi = {
 };
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
+
+export async function downloadRunImages(runId: string, revisionId: string, digest: string, signal: AbortSignal) {
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(`/api/runs/${encodeURIComponent(runId)}/revisions/${encodeURIComponent(revisionId)}/download?digest=${encodeURIComponent(digest)}`), { signal });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new ApiError("下载连接中断，请重试。", 0, "network_error");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(body?.error?.message ?? `下载失败（${response.status}），请重试。`, response.status);
+  }
+  const extensions: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "application/zip": "zip" };
+  const extension = extensions[response.headers.get("Content-Type")?.split(";")[0] ?? ""];
+  if (!extension) throw new ApiError("下载格式异常，请刷新详情后重试。", response.status);
+  return { blob: await response.blob(), extension };
+}

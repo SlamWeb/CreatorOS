@@ -6,6 +6,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from fastapi import APIRouter, Header, Path, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
+from PIL import Image
 
 from creatoros.runs import ContentRunError
 from creatoros.runs.artifacts import validate_artifact
@@ -33,6 +34,44 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
                       checksum: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")]):
         raw, mime = artifacts.partial_image(run_id, order, checksum=checksum)
         return Response(raw, media_type=mime, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @router.get("/{run_id}/revisions/{revision_id}/download")
+    def download_revision(run_id: str, revision_id: str,
+                          digest: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")]):
+        """Export exactly the viewed revision; downloading never implies approval."""
+        try:
+            root, recorded, data, _ = artifacts.locate(run_id, revision_id)
+            if recorded != digest:
+                raise ValueError("图片版本已变化。")
+            checked = validate_artifact(root, composition=data.composition,
+                                        production_protocol=data.production_protocol)
+            if checked.artifact_digest != digest:
+                raise ValueError("产物已变化。")
+            # Read the verified bytes before constructing any response. One bad
+            # page fails the whole export rather than silently shipping a partial ZIP.
+            images = []
+            extensions = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
+            for image in checked.images:
+                raw, mime = artifacts.image(run_id, revision_id, image.order,
+                                            digest=digest, checksum=image.sha256)
+                images.append((f"{image.order:02d}{extensions[mime]}", raw, mime))
+            if len(images) == 1:
+                name, raw, mime = images[0]
+                filename = f"creatoros-{name}"
+            else:
+                buffer = BytesIO()
+                with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+                    for name, content, _mime in images:
+                        archive.writestr(name, content)
+                raw, mime, filename = buffer.getvalue(), "application/zip", "creatoros-images.zip"
+            return Response(raw, media_type=mime, headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            })
+        except ContentRunError:
+            raise
+        except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
+            raise ContentRunError("图片缺失或已变化，请刷新详情后重试下载。", code="artifact_changed") from error
 
     @router.post("/{run_id}/approve", response_model=RunDetail)
     def approve(run_id: str, payload: RunApproveRequest):

@@ -13,6 +13,7 @@ import { RunDiscussion } from "./RunDiscussion";
 import { PublicationPanel } from "./PublicationPanel";
 import { publicationApi } from "../api/publication";
 import { useAgentChat } from "./AgentChatHost";
+import { ArtifactDownload } from "./ArtifactDownload";
 import "./run-inspector.css";
 
 type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
@@ -76,6 +77,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
     {run.error_message ? <p className="review-warning" role="alert">{run.error_message}</p> : null}
     <div className="inspector-grid">
       <section className="inspector-visual" aria-label="产物图片">
+        {revision?.cards.length && revision.review_digest ? <ArtifactDownload key={`${run.id}-${revision.id}-${revision.review_digest}`} runId={run.id} title={run.topic_title} revision={revision} /> : null}
         {revision?.cards.length ? <Carousel key={revision.id} cards={revision.cards} /> : partialCards.length ? null : <div className="artifact-empty"><h2>{revision?.artifact_error ? "图片无法读取" : run.status === "producing" ? "正在制作图片" : "还没有图片"}</h2>{revision?.artifact_error ? <p role="alert">{revision.artifact_error}</p> : null}</div>}
         {partialCards.length ? <PartialPreviews pages={partialCards} /> : null}
       </section>
