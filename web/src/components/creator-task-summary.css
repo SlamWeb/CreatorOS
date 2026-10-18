@@ -1,7 +1,10 @@
-.creator-task-summary { margin: 0 0 1.1rem; padding: .8rem 0; border-bottom: 1px solid var(--line, #e5e7eb); }
-.creator-task-summary header { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+.creator-task-summary { margin: 0 0 16px; padding: 4px 0 8px; border-bottom: 1px solid var(--line, #e5e7eb); }
+.creator-task-summary header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 32px; }
 .creator-task-summary h2 { margin: 0; font-size: .98rem; }
 .creator-task-summary header p { margin: 0; color: var(--ink-muted, #667085); font-size: .82rem; }
+.creator-task-toggle { margin-left:auto; padding:6px 8px; min-height:32px; border:0; border-radius:6px; color:var(--accent); background:transparent; font:inherit; font-size:12px; }
+.creator-task-toggle:hover { background:var(--accent-soft); }
+.creator-task-failure { color:var(--danger); font-size:13px; font-weight:550; }
 .creator-task-summary ul { display: grid; gap: .25rem; margin: .55rem 0 0; padding: 0; list-style: none; }
 .creator-task-summary li > a, .creator-task-summary li > div { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto auto; align-items: baseline; gap: .65rem; padding: .35rem .4rem; border-radius: 6px; color: inherit; text-decoration: none; }
 .creator-task-summary li > a:hover { background: #f1f5f9; }

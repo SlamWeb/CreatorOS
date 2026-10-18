@@ -1,6 +1,19 @@
 .topic-library { margin:24px 0; min-width:0; }
 .topic-library:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:8px; }
-.library-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.library-heading { display:flex; flex-wrap:wrap; align-items:center; gap:12px 20px; margin-bottom:12px; }
+.library-heading-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; }
+.library-browse-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin-bottom:16px; }
+.library-browse-toolbar .library-filters { margin:0; }
+.library-browse-actions { display:flex; align-items:center; gap:10px; margin-left:auto; }
+.library-select-menu { position:relative; }
+.library-select-menu > summary { display:flex; align-items:center; gap:6px; list-style:none; padding:7px 8px; color:var(--muted); border-radius:6px; font-size:12px; cursor:pointer; }
+.library-select-menu > summary::-webkit-details-marker { display:none; }
+.library-select-menu > summary:hover { background:var(--surface); color:var(--ink); }
+.library-select-menu > div { position:absolute; right:0; top:100%; z-index:8; width:190px; padding:4px; background:var(--canvas); border:1px solid var(--line); border-radius:8px; }
+.library-select-menu button { width:100%; padding:10px; border:0; border-radius:5px; background:transparent; color:var(--ink); text-align:left; font:inherit; font-size:12px; }
+.library-select-menu button:hover:not(:disabled) { background:var(--surface); }
+.library-selection-dock { position:sticky; bottom:max(16px,env(safe-area-inset-bottom)); z-index:12; margin:16px 72px 0 0; }
+.library-selection-dock .library-batch-toolbar { margin:0; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--canvas); }
 .library-heading h2 { margin:0 auto 0 0; font-size:18px; font-weight:600; }
 .library-count { color:var(--muted); font-size:12px; }
 .library-refresh { display:grid; place-items:center; padding:6px; border:0; background:transparent; color:var(--muted); border-radius:6px; }

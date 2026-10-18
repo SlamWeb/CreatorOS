@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { ChevronLeft, ChevronRight, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListChecks, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
 import type { PageResponse, TopicView } from "../api/types";
 import { StatusPill } from "./StatusPill";
@@ -13,9 +13,11 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
   sources: { title: string; url: string }[]; available_actions: string[] };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
-export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false }: {
+export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false,
+  heading, headerActions, headerPanels }: {
   seriesId: string; startButton: (topic: TopicView) => ReactNode; compact?: boolean;
   onDiscuss?: (topic: string) => void; productionEnabled?: boolean;
+  heading?: ReactNode; headerActions?: ReactNode; headerPanels?: ReactNode;
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -155,38 +157,36 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   </section>;
   return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
     className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
-    <header className="library-heading">{!compact && <h2>内容</h2>}
-      {!compact && <button type="button" className="button button-primary library-research-trigger" aria-expanded={researchOpen}
-        aria-controls={researchPanelId} onClick={() => setResearchOpen(value => !value)}><Search size={16} aria-hidden="true" />{researchOpen ? "收起调研" : "调研选题"}</button>}
+    {!compact && <header className="library-heading">{heading ?? <h2>内容</h2>}
+      <div className="library-heading-actions"><button type="button" className="button button-primary library-research-trigger" aria-expanded={researchOpen}
+        aria-controls={researchPanelId} onClick={() => setResearchOpen(value => !value)}><Search size={16} aria-hidden="true" />{researchOpen ? "收起调研" : "调研选题"}</button>
+      {headerActions}</div>
+    </header>}
+    {headerPanels}
+    <div className="library-browse-toolbar">
+      {!compact && <LibraryFilters />}
+      <div className="library-browse-actions">
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
-    </header>
-    {!compact && <LibraryFilters />}
+      {!compact && !query.isError && (!!pendingTopics.length || (productionEnabled && !!eligible.length)) && <details className="library-select-menu" onKeyDown={event => {
+        if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
+      }}><summary><ListChecks size={15} aria-hidden="true" />选择</summary><div>
+        {!!pendingTopics.length && <button type="button" disabled={pendingQueue.isPending || batch.isPending} onClick={event => {
+          setSelected([]); setPendingSelection(pendingTopics.map(topic => topic.id));
+          const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus();
+        }}>全选本页待选</button>}
+        {productionEnabled && !!eligible.length && <button type="button" disabled={pendingQueue.isPending || batch.isPending} onClick={event => {
+          setPendingSelection([]); setSelected(eligible.map(topic => topic.id));
+          const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus();
+        }}>全选本页可生产选题</button>}
+      </div></details>}
+      </div>
+    </div>
     {!compact && researchOpen && <div id={researchPanelId} className="library-research"><TopicResearchPanel seriesId={seriesId} controlsOnly /></div>}
-    {!!pendingTopics.length && !query.isError && <div className="library-batch-toolbar" role="group" aria-label="批量入队">
-      <label><input type="checkbox" aria-label="全选本页待选" disabled={pendingQueue.isPending}
-        checked={pendingTopics.every(topic => pendingSelection.includes(topic.id))}
-        ref={element => { if (element) element.indeterminate = selectedPending.length > 0 && selectedPending.length < pendingTopics.length; }}
-        onChange={event => setPendingSelection(event.target.checked ? pendingTopics.map(topic => topic.id) : [])} />全选本页待选</label>
-      <span>{selectedPending.length ? `已选 ${selectedPending.length} 项` : `${pendingTopics.length} 项可入队`}</span>
-      {!!selectedPending.length && <button type="button" className="button button-secondary" disabled={pendingQueue.isPending} onClick={() => setPendingSelection([])}>取消选择</button>}
-      <button type="button" className="button button-primary" disabled={!selectedPending.length || pendingQueue.isPending} onClick={submitPending}>
-        {pendingQueue.isPending ? "正在入队…" : `确认入队${selectedPending.length ? `（${selectedPending.length}）` : ""}`}</button>
-    </div>}
     {pendingQueue.data && <div className="library-batch-result" aria-label="入队结果">
       {!!pendingQueue.data.accepted.length && <p role="status">已入队 {pendingQueue.data.accepted.length} 项。</p>}
       {!!pendingQueue.data.failures.length && <div role="alert" className="form-error">{pendingQueue.data.failures.map(message => <p key={message}>{message}</p>)}
         请先刷新核对；未确认成功的选择已保留，不会自动重提。</div>}
-    </div>}
-    {productionEnabled && !!eligible.length && <div className="library-batch-toolbar" aria-label="批量生产">
-      <label><input type="checkbox" aria-label="全选本页可生产选题" disabled={batch.isPending || !!query.error}
-        checked={!!eligible.length && eligible.every(topic => selected.includes(topic.id))}
-        ref={element => { if (element) element.indeterminate = selectedTopics.length > 0 && selectedTopics.length < eligible.length; }}
-        onChange={event => setSelected(event.target.checked ? eligible.map(topic => topic.id) : [])} />全选本页</label>
-      <span>{selectedTopics.length ? `已选 ${selectedTopics.length} 项` : `${eligible.length} 项可生产`}</span>
-      {!!selectedTopics.length && <button type="button" className="button button-secondary" disabled={batch.isPending} onClick={() => setSelected([])}>取消选择</button>}
-      <button type="button" className="button button-primary" disabled={!selectedTopics.length || batch.isPending || !!query.error} onClick={submitBatch}>
-        {batch.isPending ? "正在提交…" : `批量生产${selectedTopics.length ? `（${selectedTopics.length}）` : ""}`}</button>
     </div>}
     {batch.isError && <p className="form-error" role="alert">{batch.error.message} 请先刷新核对任务状态；选择已保留，不会自动重提。</p>}
     {batch.data && <section className="library-batch-result" aria-label="批量提交结果">
@@ -215,11 +215,11 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
               onClick={() => openDetail(topic.id)}>{content}</button>}
         <footer className="content-card-footer">
           {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
-            aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending}
-            onChange={event => setPendingSelection(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />}
+            aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending || batch.isPending}
+            onChange={event => { if (event.target.checked) setSelected([]); setPendingSelection(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
           {productionEnabled && !pending && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
-            aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending}
-            onChange={event => setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />}
+            aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending || pendingQueue.isPending}
+            onChange={event => { if (event.target.checked) setPendingSelection([]); setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
             {pending ? <span className="library-pending">待选</span>
             : <StatusPill status={topic.production_queue_status === "pending" ? "production_pending"
               : topic.production_queue_status === "needs_attention" ? "needs_attention" : topic.existing_run_status ?? topic.status} />}
@@ -241,6 +241,27 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       <span>{Math.floor(offset / 20) + 1} / {Math.max(1, Math.ceil(query.data.page.total / 20))}</span>
       <button aria-label="下一页" disabled={query.isFetching || offset + 20 >= query.data.page.total} onClick={() => change(offsetKey, String(offset + 20))}><ChevronRight size={15} /></button>
     </nav>}
+    {(selectedPending.length > 0 || pendingQueue.isPending || (productionEnabled && (selectedTopics.length > 0 || batch.isPending))) && <div className="library-selection-dock">
+      {(selectedPending.length > 0 || pendingQueue.isPending) ? <div className="library-batch-toolbar" role="group" aria-label="批量入队">
+        <label><input type="checkbox" aria-label="全选本页待选" disabled={pendingQueue.isPending || query.isError}
+          checked={!!pendingTopics.length && pendingTopics.every(topic => pendingSelection.includes(topic.id))}
+          ref={element => { if (element) element.indeterminate = selectedPending.length > 0 && selectedPending.length < pendingTopics.length; }}
+          onChange={event => setPendingSelection(event.target.checked ? pendingTopics.map(topic => topic.id) : [])} />全选本页待选</label>
+        <span>已选 {pendingQueue.isPending ? pendingQueue.variables?.length ?? selectedPending.length : selectedPending.length} 项</span>
+        <button type="button" className="button button-secondary" disabled={pendingQueue.isPending} onClick={() => setPendingSelection([])}>取消选择</button>
+        <button type="button" className="button button-primary" disabled={!selectedPending.length || pendingQueue.isPending || query.isError} onClick={submitPending}>
+          {pendingQueue.isPending ? "正在入队…" : `确认入队（${selectedPending.length}）`}</button>
+      </div> : <div className="library-batch-toolbar" role="group" aria-label="批量生产">
+        <label><input type="checkbox" aria-label="全选本页可生产选题" disabled={batch.isPending || query.isError}
+          checked={!!eligible.length && eligible.every(topic => selected.includes(topic.id))}
+          ref={element => { if (element) element.indeterminate = selectedTopics.length > 0 && selectedTopics.length < eligible.length; }}
+          onChange={event => setSelected(event.target.checked ? eligible.map(topic => topic.id) : [])} />全选本页</label>
+        <span>已选 {batch.isPending ? batch.variables?.length ?? selectedTopics.length : selectedTopics.length} 项</span>
+        <button type="button" className="button button-secondary" disabled={batch.isPending} onClick={() => setSelected([])}>取消选择</button>
+        <button type="button" className="button button-primary" disabled={!selectedTopics.length || batch.isPending || query.isError} onClick={submitBatch}>
+          {batch.isPending ? "正在提交…" : `批量生产（${selectedTopics.length}）`}</button>
+      </div>}
+    </div>}
     {detail && <TopicDetail key={detail.id} topic={detail} onClose={() => closeDetail(detail.id)}
       onRemoved={() => { removeRequestIds.current.delete(detail.id); closeDetail(detail.id, true); }}
       requestId={() => {

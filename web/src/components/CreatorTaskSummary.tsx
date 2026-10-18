@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useEffect, useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { studioApi } from "../api/client";
 import { formatDate } from "./StatusPill";
@@ -11,6 +12,11 @@ const statusLabels: Record<string, string> = {
 };
 
 export function CreatorTaskSummary({ creatorId, seriesId }: { creatorId: string; seriesId?: string | null }) {
+  const listId = useId();
+  const scope = `${creatorId}:${seriesId ?? "all"}`;
+  const [expandedScope, setExpandedScope] = useState<string | null>(null);
+  const expanded = expandedScope === scope;
+  useEffect(() => setExpandedScope(null), [scope]);
   const tasks = useQuery({
     queryKey: ["creator-tasks", creatorId, seriesId ?? null],
     queryFn: () => studioApi.creatorTasks(creatorId, seriesId ?? undefined),
@@ -23,17 +29,21 @@ export function CreatorTaskSummary({ creatorId, seriesId }: { creatorId: string;
   const summary = [
     data.summary.active ? `进行中 ${data.summary.active}` : "",
     data.summary.awaiting_approval ? `待批准 ${data.summary.awaiting_approval}` : "",
-    data.summary.failed ? `失败 ${data.summary.failed}` : "",
   ].filter(Boolean);
   const items = data.items.slice(0, 5);
-  if (!items.length && !summary.length) return null;
+  if (!items.length && !summary.length && !data.summary.failed) return null;
   return <section className="creator-task-summary" aria-label="任务">
-    <header><h2>任务</h2>{summary.length ? <p>{summary.join(" · ")}</p> : null}</header>
-    {items.length ? <ul>{items.map(item => {
+    <header><h2>任务</h2>{summary.length ? <p>{summary.join(" · ")}</p> : null}
+      {!!data.summary.failed && <span className="creator-task-failure" role="status">失败 {data.summary.failed}</span>}
+      {!summary.length && !data.summary.failed && <p>最近 {items.length} 项</p>}
+      <button type="button" className="creator-task-toggle" aria-expanded={expanded} aria-controls={listId}
+        onClick={() => setExpandedScope(expanded ? null : scope)}>{expanded ? "收起任务" : "查看任务"}</button>
+    </header>
+    <div id={listId} hidden={!expanded}>{items.length ? <ul>{items.map(item => {
       const activity = item.last_activity_at ?? item.updated_at;
       const executing = ["running", "researching", "producing", "validating"].includes(item.status);
       const content = <><span className="creator-task-kind">{kindLabels[item.kind]}</span><span className="creator-task-title">{item.title}</span><span className={`creator-task-status creator-task-status-${item.status}`}><span className={executing ? "task-running-text" : undefined}>{statusLabels[item.status] ?? item.status}</span></span><time>{formatDate(activity)}</time></>;
       return <li key={item.id}>{item.url?.startsWith("/") && !item.url.startsWith("//") ? <Link to={item.url}>{content}</Link> : <div>{content}</div>}</li>;
-    })}</ul> : null}
+    })}</ul> : <p className="creator-task-error">暂无可展示的最近记录。</p>}</div>
   </section>;
 }

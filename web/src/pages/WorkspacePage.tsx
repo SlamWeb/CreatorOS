@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Plus, Settings2 } from "lucide-react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreators } from "../api/hooks";
@@ -279,6 +280,13 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
 }) {
   const client = useQueryClient();
   const [topicTitle, setTopicTitle] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const addId = useId();
+  const settingsId = useId();
+  const titleInput = useRef<HTMLInputElement>(null);
+  const addTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (addOpen) titleInput.current?.focus(); }, [addOpen]);
   const runMutation = useMutation({
     retry: false,
     mutationFn: async (topic: TopicView) => {
@@ -294,6 +302,8 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
     mutationFn: (title: string) => studioApi.queueTopics(series.id, [{ title }]),
     onSuccess: async () => {
       setTopicTitle("");
+      setAddOpen(false);
+      addTrigger.current?.focus();
       await Promise.all([["topics"], ["series", series.id], ["series-all"]].map(key => client.invalidateQueries({ queryKey: key })));
     },
   });
@@ -301,9 +311,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
     disabled={!series.is_active || !series.creator_id || runMutation.isPending}
     title={!series.creator_id ? "先分配账号" : undefined}
     onClick={() => runMutation.mutate(topic)}>{runMutation.isPending && runMutation.variables?.id === topic.id ? "提交中…" : topic.available_actions.includes("resume") ? "恢复生产" : "生产"}</button>;
-  return <section className={overview ? "account-series-section" : "series-content-section"}>
-    <header className={overview ? "account-series-head" : "workspace-head"}>
-      <div>
+  const heading = <div className="workspace-title-group">
         {overview ? <h2><button type="button" onClick={onSelect}>{series.name} <span aria-hidden="true">→</span></button></h2> : <h1>{series.name}</h1>}
         {!overview && <><div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
           {(series.skill_name ? [series.skill_name] : [series.mind_skill_id, series.production_skill_id].filter((id): id is string => !!id))
@@ -316,31 +324,44 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
               </span>;
             })}
         </div>
-        {series.description ? <p className="workspace-meta">{series.description}</p> : null}</>}
-      </div>
-      {!overview && <div className="workspace-series-controls">
-      <select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
+        </>}
+      </div>;
+  const headerActions = <>
+    <button ref={addTrigger} type="button" className="button button-secondary workspace-add-trigger" aria-expanded={addOpen} aria-controls={addId}
+      onClick={() => setAddOpen(value => !value)}><Plus size={16} aria-hidden="true" />{addOpen ? "收起添加" : "添加选题"}</button>
+    <button type="button" className="button button-quiet workspace-settings-trigger" aria-expanded={settingsOpen} aria-controls={settingsId}
+      onClick={() => setSettingsOpen(value => !value)}><Settings2 size={16} aria-hidden="true" /><span>栏目设置</span></button>
+  </>;
+  const headerPanels = <>
+    {!overview && <div id={settingsId} className="workspace-series-settings" hidden={!settingsOpen}>
+      {series.description && <p className="workspace-meta">{series.description}</p>}
+      <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
         onChange={event => onAssign(event.target.value || null)}>
         <option value="">未分配</option>
         {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-      </select>
+      </select></label>
       {onDelete && <button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
         disabled={deletePending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>}
-      </div>}
-    </header>
+      </div>
+    </div>}
     {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
-    {!overview && <form className="workspace-add" onSubmit={event => {
+    {!overview && <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {
       event.preventDefault();
       if (topicTitle.trim()) addTopic.mutate(topicTitle.trim());
     }}>
-      <input aria-label="新选题标题" placeholder="加一个选题…" maxLength={240} value={topicTitle}
+      <input ref={titleInput} aria-label="新选题标题" placeholder="加一个选题…" maxLength={240} value={topicTitle}
         onChange={event => setTopicTitle(event.target.value)} />
       <button className="button button-primary" disabled={!topicTitle.trim() || addTopic.isPending}>添加</button>
+      <button type="button" className="button button-quiet" disabled={addTopic.isPending} onClick={() => { setAddOpen(false); addTrigger.current?.focus(); }}>取消</button>
       {addTopic.isError && <p className="form-error" role="alert">{addTopic.error.message}</p>}
     </form>}
     {runMutation.isError && <p className="form-error" role="alert">{runMutation.error.message}</p>}
     {runMutation.isSuccess && <p className="queue-submitted" role="status">已加入生产队列。<Link to={`/runs/${runMutation.data.id}`}>查看任务 →</Link></p>}
+  </>;
+  return <section className={overview ? "account-series-section" : "series-content-section"}>
+    {overview && <header className="account-series-head">{heading}</header>}
     <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss}
+      heading={!overview ? heading : undefined} headerActions={!overview ? headerActions : undefined} headerPanels={headerPanels}
       productionEnabled={series.is_active && !!series.creator_id} />
   </section>;
 }

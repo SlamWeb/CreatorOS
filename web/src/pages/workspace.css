@@ -63,6 +63,19 @@
 .workspace-bound-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 5px; color: var(--muted); font-size: 12px; }
 .workspace-bound-skills button { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; text-align: left; cursor: pointer; }
 .workspace-bound-skills button:hover { text-decoration: underline; }
+.workspace-title-group { flex:1; min-width:180px; }
+.workspace-title-group h1 { margin:0; font-size:clamp(24px,2.5vw,30px); font-weight:650; letter-spacing:-.025em; line-height:1.2; overflow-wrap:anywhere; }
+.workspace-title-group .workspace-bound-skills { margin-top:6px; }
+.series-content-section > .topic-library { margin:0; }
+.workspace-add-trigger, .workspace-settings-trigger { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:38px; }
+.workspace-series-settings { margin:0 0 12px; padding:12px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.workspace-series-settings .workspace-meta { margin:0 0 12px; }
+.workspace-series-settings .workspace-series-controls { justify-content:flex-start; flex-wrap:wrap; }
+.workspace-series-settings label { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+.workspace-series-settings[hidden], .workspace-add[hidden] { display:none; }
+.workspace-add { flex-wrap:wrap; }
+.workspace-add input { min-width:140px; }
+.workspace-add input:focus { box-shadow:none; }
 .workspace-series-controls { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .workspace-delete-series { color: var(--danger); }
 .workspace-meta { font-size: 13px; }
