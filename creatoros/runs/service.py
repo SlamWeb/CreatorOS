@@ -228,6 +228,12 @@ class ContentRunService:
                     pair_fields = dict(skill_path=str(directory), skill_digest=_digest(directory))
                 except (ValueError, OSError) as error:
                     raise ContentRunError(str(error), code="invalid_skill") from error
+            if topic.reference_id:
+                from creatoros.integrations.topic_references import TopicReferenceStore
+                try:
+                    pair_fields["task_references"] = TopicReferenceStore(self.database).load(series.id, topic.reference_id)
+                except (ValueError, OSError) as error:
+                    raise ContentRunError("选题参考图片缺失或已变化，请检查后再生产。", code="invalid_references") from error
             snapshot = ContentRunInput(
                 **pair_fields,
                 production_protocol=self.production_protocol,
@@ -348,6 +354,8 @@ class ContentRunService:
                 topic_id=prepared["input"].topic_id,
                 topic_title=prepared["input"].topic_title,
                 topic_brief=prepared["input"].topic_brief,
+                **({"task_references": prepared["input"].task_references.model_dump(mode="json")}
+                   if prepared["input"].task_references else {}),
                 series_description=prepared["input"].series_description,
                 audience=prepared["input"].audience,
                 skill_name=prepared["input"].skill_name,

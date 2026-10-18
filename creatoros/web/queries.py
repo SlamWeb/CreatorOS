@@ -312,9 +312,15 @@ class StudioQueryService:
             attempts_by_revision: dict[str, list[ContentAttempt]] = {}
             for attempt in attempts:
                 attempts_by_revision.setdefault(attempt.revision_id, []).append(attempt)
+            snapshot = dict(run.input_snapshot_json)
+            if snapshot.get("task_references"):
+                ref = snapshot["task_references"]
+                snapshot["task_references"] = {**ref, "images": [
+                    {key: value for key, value in image.items() if key != "path"}
+                    for image in ref["images"]]}
             detail = RunDetail(
                 **summary.model_dump(),
-                input_snapshot=dict(run.input_snapshot_json),
+                input_snapshot=snapshot,
                 producer_thread_id=run.producer_thread_id,
                 revisions=[
                     self._revision_view(revision, attempts_by_revision.get(revision.id, []))

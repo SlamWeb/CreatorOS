@@ -448,6 +448,7 @@ class QueueTopicItem(ApiModel):
     title: str = Field(min_length=1, max_length=240)
     brief: str | None = Field(default=None, max_length=4_000)
     source: Literal["research", "manual"] = "manual"
+    reference_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class QueueTopicsRequest(WriteRequest):

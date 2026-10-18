@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
+import hashlib
 from pathlib import Path
 from time import sleep
 
@@ -21,6 +23,13 @@ class E2EProducer:
         sleep(1.5)
         directory = Path(request["directory"])
         (directory / "images").mkdir(parents=True)
+        if request.get("task_references"):
+            ref = request["task_references"]
+            (directory / "reference-transport.json").write_text(json.dumps({
+                "instructions": ref["instructions"], "reference_presentation": ref["reference_presentation"],
+                "reference_id": ref["id"],
+                "images": [{"name": image["name"], "sha256": hashlib.sha256(Path(image["path"]).read_bytes()).hexdigest()}
+                           for image in ref["images"]]}, ensure_ascii=False), encoding="utf-8")
         cards = []
         for order, color in enumerate(("#292837", "#48536c", "#77719a"), 1):
             relative = f"images/{order:02d}.png"
@@ -49,6 +58,41 @@ app = create_app(database=database, run_service=runs, eval_root=root / "eval-run
 # Browser tests exercise real uploads/snapshots without accidentally starting paid Codex extraction.
 from tests.smoke_skill_extraction import controlled as controlled_extraction
 app.state.skill_extractions.extractor = controlled_extraction
+
+# Only the reference branch uses this explicit transport fixture. It proves
+# Web -> real HTTP/SQLite/files, not Codex vision or image-generation quality.
+original_researcher = app.state.topic_research.researcher
+class ReferenceResearchFixture:
+    def research(self, snapshot, count, instructions, workspace, cancel):
+        if not snapshot.get("task_references"):
+            return original_researcher.research(snapshot, count, instructions, workspace, cancel)
+        from types import SimpleNamespace
+        from creatoros.integrations.topic_research import ResearchReceipt
+        from creatoros.integrations.topic_references import TaskReferences, prepare_references
+        ref = TaskReferences.model_validate(snapshot["task_references"])
+        prepare_references(ref, workspace)
+        return SimpleNamespace(thread_id="controlled-reference-research", usage=CodexUsage(), receipt=ResearchReceipt(
+            note="[受控浏览器夹具] 原图与完整要求已接收，尚未生产。", candidates=[
+                {"title": f"参考选题 {n}", "angle": f"借鉴作品切入点 {n}", "rationale": "隔离接线验证",
+                 "sources": [{"title": "Python文档（受控来源）", "url": "https://docs.python.org/3/"}]}
+                for n in range(1, min(count, 2) + 1)]))
+app.state.topic_research.researcher = ReferenceResearchFixture()
+
+@app.get("/test/topic-references/{run_id}")
+def reference_evidence(run_id: str):
+    from creatoros.storage import ContentRun, Topic, ContentRevision, ContentAttempt
+    from sqlalchemy import select
+    with database.session() as session:
+        run = session.get(ContentRun, run_id)
+        topic = session.get(Topic, run.topic_id)
+        revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run_id))
+        attempt = session.scalar(select(ContentAttempt).where(ContentAttempt.revision_id == revision.id))
+        path = Path(attempt.output_directory) / "reference-transport.json" if attempt else None
+        return {"topic_reference_id": topic.reference_id, "producer": json.loads(path.read_text(encoding="utf-8"))
+                if path and path.is_file() else None}
+
+# create_app already registered the SPA catch-all; test evidence must precede it.
+app.router.routes.insert(0, app.router.routes.pop())
 
 # Only this isolated test executable exposes fixture creation, never the production app.
 @app.post("/test/series/{series_id}/research")

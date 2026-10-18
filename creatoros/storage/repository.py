@@ -138,7 +138,11 @@ class ContentRepository:
         title: str,
         source: TopicSource,
         brief: str | None = None,
+        reference_id: str | None = None,
     ) -> Topic:
+        if reference_id:
+            from creatoros.integrations.topic_references import TopicReferenceStore
+            TopicReferenceStore(self.database).load(series_id, reference_id)
         with self._session() as session:
             if session.get(TopicRemoval, topic_id) is not None:
                 raise ValueError("该选题已移除，不能重新入队；请创建新的选题。")
@@ -150,6 +154,7 @@ class ContentRepository:
                 series_id=series_id,
                 title=title,
                 brief=brief,
+                reference_id=reference_id,
                 source=source,
                 status=TopicStatus.QUEUED,
                 position=(current_max or 0) + 1,

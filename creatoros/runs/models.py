@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.integrations.skill_pair import SkillPair
+from creatoros.integrations.topic_references import TaskReferences
 
 
 class RunModel(BaseModel):
@@ -29,6 +30,7 @@ class ContentRunInput(RunModel):
     topic_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     topic_title: str = Field(min_length=1)
     topic_brief: str | None = None
+    task_references: TaskReferences | None = None
 
     @model_validator(mode="after")
     def binding(self):

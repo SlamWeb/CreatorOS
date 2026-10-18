@@ -1,5 +1,10 @@
 # ContentRun SPEC
 
+## 参考作品直接制作（2026-10-18）
+
+- Topic.reference_id 解引用不可变任务参考组，Run/Revision保存task_references，Attempt独立references目录；按当前Skill直接制作，不先另调模型生成候选。原图真实作为SDK LocalImageInput，默认只参考内容，呈现由显式选项控制，不写共享Skill。
+- 参考组ID与每图hash纳入native输入/证据/Checkpoint校验，旧无参考输入digest不变；有图不能退回legacy协议丢图。直接入口复用持久化串行队列，人工验收/发布门禁不变。设计、恢复/隔离与真实模型证据见 `docs/topic-references/SPEC.md`。
+
 ## 同一选题按当前 Skill 从头重做（2026-10-17）
 
 - 不把“从头重做”伪装为旧 Revision 的技术恢复。显式请求创建同一 Topic 的新 Run / Revision 1，重新读取当前栏目与 Skill 绑定，使用独立输出根目录；不复制旧 thread、页文、Prompt、讨论或 checkpoint。

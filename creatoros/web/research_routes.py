@@ -12,6 +12,7 @@ from .topic_library import topic_library
 class ResearchRequest(WriteRequest):
     count: int = Field(default=10, ge=1, le=30)
     instructions: str = Field(default="", max_length=3000)
+    reference_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class SelectionRequest(WriteRequest):
@@ -35,6 +36,12 @@ def research_routes(service, queries):
 
     @router.post("/series/{series_id}/topic-research", status_code=202)
     def research(series_id: str, request: ResearchRequest):
+        if request.reference_id is not None:
+            try:
+                return service.submit(series_id, request.count, request.instructions, reference_id=request.reference_id)
+            except (ValueError, OSError) as error:
+                raise HTTPException(status_code=422, detail=str(error) if isinstance(error, ValueError)
+                                    else "参考输入不存在或不可读取，请重新选择参考作品。") from error
         return service.submit(series_id, request.count, request.instructions)
 
     @router.get("/series/{series_id}/topic-research")

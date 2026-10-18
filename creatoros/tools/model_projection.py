@@ -26,6 +26,7 @@ _SKILL = (
     "github_url",
 )
 _TOPIC = (
+    "reference_id",
     "id", "series_id", "title", "brief", "angle", "rationale", "source",
     "status", "position", "selection_state", "batch_id", "candidate_id",
     "research_angle", "stale", "existing_run_id", "existing_run_status",
@@ -43,6 +44,7 @@ _REVISION = (
     "artifact_available", "artifact_error",
 )
 _RESEARCH = (
+    "reference_id",
     "id", "batch_id", "series_id", "requested_count", "instructions", "status", "note",
     "stale", "error_type", "error", "last_known_status", "url",
 )

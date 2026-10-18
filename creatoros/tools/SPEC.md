@@ -183,3 +183,8 @@
 - `import_content_images` 导入已完成作品为待验收内容，不是生图队列。宿主绑定 session/turn 幂等，模型不可选择其他会话或任意路径。
 - 隔离回归包含实际 HTTP 图片读取、账号拒绝、幂等导入、待验收状态、图片可读、批准校验及禁止生产/返工；正式数据不变。
 - `tests.smoke_chat_image_actions` 已通过：Skill 图片按绑定账号读取、非图片/越界拒绝、ToolResult 图片引用、跨会话隔离、提炼任务所有权、外部成品事务与文件校验。此项是工具/HTTP 回归，不冒充真实模型视觉或提炼质量验收。
+
+## 任务参考工具输入（2026-10-18）
+
+- 不新增模型可见工具：research_series_topics支持当前会话attachment_ids与reference_presentation；start_content_run新增参考作品直接制作分支，与已有Topic/fresh参数互斥。queue_topics保留候选reference_id，生产不只收到标题。
+- 图片由宿主绑定会话/栏目验证，不接受本地路径；宿主保存用户原话，模型整理的instructions不能替代原话。同会话同参考意图跨turn复用请求键；未知结果携带request_id/topic_id/回执入口，终态重放不伪称重新入队。验证和局限见 `docs/topic-references/SPEC.md`。

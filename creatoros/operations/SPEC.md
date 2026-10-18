@@ -95,3 +95,8 @@
 - 独立 ORM version 与草稿 revision；CLI/Web 的 edit/confirm/cancel 均提交所见版本。CONFIRMED 记录原确认请求凭证，只允许同一成功请求重放；并发冲突不能覆盖新状态。
 - Preview 保存名称和 Topic 标题/brief；proposed/edited 逐次保存 usage。它不是完整 Agent Trajectory。
 - 原关联 smoke 与新 HTTP 故障/竞争测试通过；真实 4 次 DeepSeek 的新增调序、同计划编辑、歧义及越界请求通过。详细矩阵见 docs/studio/s6/SPEC.md。
+
+## 任务参考输入补充（2026-10-18）
+
+- TopicDraft可携带reference_id，Preview/执行均验证参考归属；入队事务同步保存到Topic。无参考字段从旧确认token原像剔除，历史Preview可确认、旧queue回执和Agent幂等键不漂移；隔离真实HTTP兼容回归通过。
+- 参考作品功能边界及证据见 `docs/topic-references/SPEC.md`，不新增模型决策权限或跳过审批。

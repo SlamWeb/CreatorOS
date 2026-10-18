@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 
 from creatoros.content import SocialContentPack
@@ -28,6 +29,15 @@ class ExtractRequest(ExtractSkillImagesArgs):
 
 class ImportRequest(ImportContentImagesArgs):
     request_id: str = Field(min_length=1, max_length=128)
+
+
+class ReferenceRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    series_id: str = Field(min_length=1)
+    attachment_ids: list[str] = Field(min_length=1, max_length=20)
+    instructions: str = Field(default="", max_length=3000)
+    reference_presentation: bool = False
+    origin_turn_id: str | None = Field(default=None, max_length=128)
 
 
 def _identity(sid, request_id):
@@ -77,6 +87,37 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
     def require(allowed):
         if not allowed:
             raise HTTPException(403, "图片或栏目不属于当前账号。")
+
+    @router.post("/reference")
+    def reference(session_id: str, payload: ReferenceRequest, request: Request):
+        creator_id = session(session_id, request)
+        require(not creator_id or scope._owns_series(payload.series_id, creator_id))
+        from creatoros.integrations.topic_references import TopicReferenceStore
+        store = TopicReferenceStore(runs.database)
+        # Resolve every attachment against the bound session before making a bundle.
+        sources = [(chat.attachments.get(session_id, aid), chat.attachments.path(session_id, aid).read_bytes())
+                   for aid in payload.attachment_ids]
+        # Preserve the exact human turn as well as the model's task formulation.
+        # The same semantic request reuses its first frozen source turn, so an
+        # "is it done / retry" turn cannot silently authorize duplicate work.
+        identity = hashlib.sha256(json.dumps([session_id, payload.model_dump(exclude={"origin_turn_id"})],
+                                  sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        marker = _managed_path(chat.root, chat.root / "reference-requests" / f"{identity}.json")
+        if marker.is_file():
+            old_id = json.loads(marker.read_text(encoding="utf-8"))["reference_id"]
+            ref = store.load(payload.series_id, old_id)
+            return {"id": ref.id, "image_count": len(ref.images)}
+        doc = chat.get(session_id)
+        source_text = next((entry["text"] for entry in reversed(doc.get("entries", []))
+                            if payload.origin_turn_id and entry.get("kind") == "user"
+                            and entry.get("turn_id") == payload.origin_turn_id), "")
+        image_ids = [store.upload(payload.series_id, info["name"], base64.b64encode(raw).decode())["id"]
+                     for info, raw in sources]
+        ref = store.freeze(payload.series_id, image_ids, payload.instructions, payload.reference_presentation,
+                           source_user_text=source_text)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(marker, json.dumps({"reference_id": ref.id}, ensure_ascii=False))
+        return {"id": ref.id, "image_count": len(ref.images)}
 
     @router.post("/read")
     def read(session_id: str, payload: ReadImageArgs, request: Request):

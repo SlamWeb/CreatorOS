@@ -26,6 +26,7 @@ from .production_progress import ProgressWriter, collect_observed_turn
 from .codex_turn_guard import require_completed_turn
 from .visual_production import atomic_json, input_digest
 from .worker_protocol import record_task, record_thread, completed_delivery_turn
+from .topic_references import TaskReferences, frozen_references, prepare_references, reference_prompt
 
 CHECKPOINT = "native_checkpoint.json"
 
@@ -115,7 +116,21 @@ def request_digest(directory: Path) -> str:
     if not refs:
         raise ValueError("缺少本次冻结的 Skill。")
     request = safe_file(directory, directory / "production_request.txt", 2_000_000)
-    return input_digest(request.read_text(encoding="utf-8"), refs)
+    digest = input_digest(request.read_text(encoding="utf-8"), refs)
+    references = frozen_references(directory)
+    # Old tasks keep byte-for-byte compatible digests. The bundle identity covers
+    # original instructions, presentation mode, ordering and every original hash.
+    return (hashlib.sha256((digest + "\nreferences:" + references.id).encode()).hexdigest()
+            if references else digest)
+
+
+def safe_reference(directory: Path, path: Path) -> Path:
+    if path.resolve().is_relative_to((directory / "skills").resolve()):
+        return safe_file(directory / "skills", path)
+    references = frozen_references(directory)
+    if references and path.absolute() in {Path(item.path).absolute() for item in references.images}:
+        return safe_file(directory / "references", path)
+    raise ValueError("参考文件必须属于本次冻结 Skill 或本次任务参考图。")
 
 
 def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifact]:
@@ -131,7 +146,7 @@ def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifac
         with Image.open(path) as image:
             image.verify()
         for ref in page.reference_assets:
-            safe_file(directory / "skills", directory / ref)
+            safe_reference(directory, directory / ref)
     return checkpoint.pages
 
 
@@ -225,7 +240,7 @@ def ingest(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> Del
         refs = []
         for ref in item.reference_assets:
             candidate = Path(ref) if Path(ref).is_absolute() else directory / ref
-            refs.append(safe_file(directory / "skills", candidate).relative_to(directory).as_posix())
+            refs.append(safe_reference(directory, candidate).relative_to(directory).as_posix())
         content, content_file = "", None
         if item.content_file:
             file = Path(item.content_file)
@@ -281,7 +296,8 @@ def evidence_files(directory: Path, composition=None) -> list[Path]:
             role: getattr(composition, role).digest for role in ("mind", "production")}:
         raise ValueError("产物与栏目 Skill 版本不一致。")
     return [directory / CHECKPOINT, directory / "production_request.txt",
-            *sorted(p for p in (directory / "skills").rglob("*") if p.is_file())]
+            *sorted(p for p in (directory / "skills").rglob("*") if p.is_file()),
+            *sorted(p for p in (directory / "references").rglob("*") if p.is_file())]
 
 
 def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str, checkpoint=None) -> str:
@@ -296,7 +312,7 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
             "每完成一张图片就更新 delivery.json（当前 cwd 内），先写临时文件再替换。"
             "保留全部已完成项，order 从 1 开始。每项提供实际工具返回的图片绝对路径、真正使用的完整 Prompt。"
             "生产期间可以补充内容稿或修正同页图片，索引须指向最终采用的版本，Prompt 记录相关修正。"
-            "reference_assets 只列实际使用的本次冻结 Skill 文件，填绝对路径，无参考图可为空。"
+            "reference_assets 只列实际使用的本次冻结 Skill 文件或本次 references 中的原图，填绝对路径，无参考图可为空。"
             "content_file 指向 work 内对应内容稿，可以多图共享整篇稿。不要把参考素材当交付图。"
             "图片全部完成后才置 complete=true。不要发布。无需最终重复输出整份 JSON。\n"
             'delivery.json 示例：{"title":"标题","text":"发布草稿","hashtags":[],"complete":false,'
@@ -328,14 +344,19 @@ def require_ready(review: CompositionReview | None) -> None:
 
 async def review_composition(thread, producer, directory, refs, request, progress, deadline, cancel_event=None):
     """One text-only turn in the production thread; no separate planning agent."""
-    from openai_codex import Sandbox, SkillInput, TextInput
+    from openai_codex import LocalImageInput, Sandbox, SkillInput, TextInput
 
     prompt = composition_prompt(refs, request)
+    references = frozen_references(directory)
+    images = [Path(item.path) for item in references.images] if references else []
+    if references:
+        prompt += reference_prompt(references, images)
     (directory / "composition_request.txt").write_text(prompt, encoding="utf-8")
     progress.page("planning", None, 0)
     progress.worker_phase = "composition"
     turn = await _bounded_sdk(thread.turn(
-        [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]],
+        [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs],
+         *[LocalImageInput(str(path)) for path in images]],
         cwd=str(directory / "work"), effort=CODEX_EFFORT, model=CODEX_MODEL,
         output_schema=CompositionReview.model_json_schema(), sandbox=Sandbox.read_only), deadline, cancel_event)
     try:
@@ -366,7 +387,7 @@ async def review_composition(thread, producer, directory, refs, request, progres
 
 
 async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event):
-    from openai_codex import ApprovalMode, Sandbox, SkillInput, TextInput
+    from openai_codex import ApprovalMode, LocalImageInput, Sandbox, SkillInput, TextInput
     progress = NativeProgress(directory, checkpoint)
     deadline = monotonic() + producer.timeout_seconds
     try:
@@ -394,6 +415,10 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 require_ready(await review_composition(thread, producer, directory, refs, request,
                                                        progress, deadline, cancel_event))
             prompt = delivery_prompt(directory, refs, request, checkpoint if recovered else None)
+            references = frozen_references(directory)
+            images = [Path(item.path) for item in references.images] if references else []
+            if references:
+                prompt += reference_prompt(references, images)
             if not recovered and checkpoint.composition_review:
                 prompt += f"\n已确认的组合适配：{checkpoint.composition_review.note}\n"
             progress.page("planning", None, len(checkpoint.pages))
@@ -408,6 +433,8 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     prompt = ("只修复当前 work/delivery.json 的文件索引，不得调用生图工具，不得重新研究或重画。"
                               "根据已经产生的真实图片和实际 Prompt 补齐索引，无法恢复则说明失败。\n" + str(delivery_error))
                 inputs = [TextInput(text=prompt), *[SkillInput(name=n, path=str(p.resolve())) for n, p in refs]]
+                if not repair:
+                    inputs.extend(LocalImageInput(str(path)) for path in images)
                 turn = await _bounded_sdk(thread.turn(inputs, cwd=str(directory / "work"), effort=CODEX_EFFORT,
                                                        model=CODEX_MODEL, sandbox=Sandbox.workspace_write), deadline, cancel_event)
                 collector = asyncio.create_task(collect_observed_turn(turn, progress))
@@ -472,6 +499,12 @@ def produce_native(producer, **request):
     directory = Path(request["directory"]).resolve()
     directory.mkdir(parents=True, exist_ok=False)
     (directory / "work").mkdir()
+    task_references = request.get("task_references")
+    if task_references is not None:
+        task_references = TaskReferences.model_validate(task_references)
+        if task_references.series_id != request.get("series_id"):
+            raise ValueError("参考输入不属于当前栏目。")
+        prepare_references(task_references, directory)
     pair = request.get("composition")
     if pair is not None:
         snapshot = directory.parent.parent / "skill-snapshot"

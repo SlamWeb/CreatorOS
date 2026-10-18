@@ -26,7 +26,13 @@ from .codex_turn_guard import require_completed_turn
 from .atomic_file import atomic_write_text, write_diagnostic_text
 from .extraction_activity import field, safe_text
 from .production_progress import ProgressWriter, collect_observed_turn
-from .producer_skills import ProducerSkillCatalog, _digest, _write
+from .producer_skills import ProducerSkillCatalog, _digest
+
+
+def _write(path, value):
+    """Authoritative research state uses the shared bounded Windows-safe writer."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2))
 
 
 class ResearchSource(ProductionModel):
@@ -92,6 +98,18 @@ class CodexTopicResearcher:
 
     def research(self, snapshot, count, instructions, workspace, cancel, *, public_observer=None):
         self.preflight()
+        workspace = Path(workspace)
+        # Reference works belong to this task, not to the shared Skill library.
+        # Keep the original bytes as real multimodal inputs, rather than reducing
+        # them to the short titles eventually returned by this research call.
+        images = []
+        reference_context = ""
+        if snapshot.get("task_references"):
+            from .topic_references import TaskReferences, prepare_references, reference_prompt
+            references = TaskReferences.model_validate(snapshot["task_references"])
+            images = prepare_references(references, workspace)
+            reference_context = "\n" + reference_prompt(references, images)
+        public_snapshot = {key: value for key, value in snapshot.items() if key != "task_references"}
         prompt = (
             "你是栏目选题研究员，只调研，不执行 Skill，不生成图片或内容，不安装、不发布、不修改项目。\n"
             "必须使用联网搜索并打开来源，优先官方文档/一手来源；不能把固有知识伪装为本次检索。\n"
@@ -99,17 +117,16 @@ class CodexTopicResearcher:
             "避免重复已有选题及未入队候选；选题须各自有具体切入点、推荐理由与真实参考页面。不要编造热度或打分。\n"
             "你只能看到下面提供的当前栏目快照，不代表已读取整个账号、其他栏目或账号 Agent 的聊天。\n"
             f"请求最多 {count} 条，不足可少给，note 说明。不要选择最终生产项、不要直接入队。中文输出。\n"
-            f"用户补充要求：{instructions}\n栏目输入：{json.dumps(snapshot, ensure_ascii=False)}"
+            f"用户补充要求：{instructions}{reference_context}\n栏目输入：{json.dumps(public_snapshot, ensure_ascii=False)}"
         )
-        workspace = Path(workspace)
         (workspace / "research_request.txt").write_text(prompt, encoding="utf-8")
         from .worker_protocol import record_task
         record_task(workspace, kind="research", scope={"series": snapshot.get("series", {})},
                     input_ref="research_request.txt", deliverable="ResearchReceipt returned to host; response.txt is an optional copy")
-        return asyncio.run(self._research_async(prompt, count, workspace, cancel, public_observer))
+        return asyncio.run(self._research_async(prompt, count, workspace, cancel, public_observer, images=images))
 
-    async def _research_async(self, prompt, count, workspace, cancel, public_observer):
-        from openai_codex import ApprovalMode, Sandbox, TextInput
+    async def _research_async(self, prompt, count, workspace, cancel, public_observer, *, images=()):
+        from openai_codex import ApprovalMode, LocalImageInput, Sandbox, TextInput
         deadline = monotonic() + self.timeout_seconds
         progress = ProgressWriter(workspace, "research")
         searched = False
@@ -162,7 +179,7 @@ class CodexTopicResearcher:
                       "model": CODEX_MODEL, "reasoning_effort": CODEX_EFFORT})
                 from .worker_protocol import record_thread
                 record_thread(workspace, thread.id)
-                turn = await _bounded_sdk(thread.turn([TextInput(prompt)], model=CODEX_MODEL, effort=CODEX_EFFORT,
+                turn = await _bounded_sdk(thread.turn([TextInput(prompt), *[LocalImageInput(str(path.resolve())) for path in images]], model=CODEX_MODEL, effort=CODEX_EFFORT,
                     sandbox=Sandbox.read_only, output_schema=ResearchReceipt.model_json_schema()), deadline, cancel)
                 try:
                     result = await _bounded_sdk(collect_observed_turn(
@@ -290,18 +307,27 @@ class TopicResearchService:
     def _same_config(a, b):
         return a["series"] == b["series"] and a["skill_digest"] == b["skill_digest"]
 
-    def submit(self, series_id, count=10, instructions=""):
+    def submit(self, series_id, count=10, instructions="", *, reference_id=None):
         if not 1 <= count <= 30 or len(instructions) > 3000:
             raise ValueError("候选数须为 1–30，补充要求最多 3000 字。")
         with self.lock:
             # Serialize the initial ownership/configuration read with series
             # deletion, so a submission cannot start against a deleted series.
             snapshot = self.snapshot(series_id)
+            references = None
+            if reference_id is not None:
+                from .topic_references import TopicReferenceStore
+                try:
+                    references = TopicReferenceStore(self.database).load(series_id, reference_id)
+                except OSError as error:
+                    raise ValueError("参考输入不存在或不可读取，请重新选择参考作品。") from error
+                snapshot["task_references"] = references.model_dump(mode="json")
             if self.worker and self.worker.is_alive():
                 if self.active_batch_id:
                     job = self._load(self.active_batch_id)
                     if (job["status"] == "researching" and job["series_id"] == series_id
                             and job["count"] == count and self._normalized(job["instructions"]) == self._normalized(instructions)
+                            and (job.get("task_references") or {}).get("id") == reference_id
                             and self._same_config(job["snapshot"], snapshot)):
                         return self.get(job["id"])
                 raise ValueError("已有选题调研进行中；请先查看该任务，本步不自动排队。")
@@ -311,6 +337,8 @@ class TopicResearchService:
                       "created_at": datetime.now(timezone.utc).isoformat(), "snapshot": snapshot,
                       "candidates": [], "note": "正在连接 Codex 调研执行器。", "attempts": [],
                       "progress": {"stage": "starting", "last_activity_at": None, "events": []}}
+            if references is not None:
+                record["task_references"] = references.model_dump(mode="json")
             try:
                 if hasattr(self.researcher, "preflight"):
                     self.researcher.preflight()
@@ -377,6 +405,11 @@ class TopicResearchService:
                 if self.cancel.is_set():
                     raise RuntimeError("stopped")
                 snapshot = self.snapshot(record["series_id"])
+                if record.get("task_references"):
+                    from .topic_references import TaskReferences, TopicReferenceStore
+                    references = TaskReferences.model_validate(record["task_references"])
+                    TopicReferenceStore(self.database).verify(references)
+                    snapshot["task_references"] = references.model_dump(mode="json")
                 record.update(snapshot=snapshot, attempt=attempt)
                 with self.lock:
                     _write(self._path(batch_id), record)
@@ -428,9 +461,19 @@ class TopicResearchService:
         removed = self.repository.removed_topic_ids(record["series_id"])
         candidates = [{**c, "queued": self.repository.get_topic(self.topic_id(batch_id, c["id"])) is not None}
                       for c in record["candidates"] if self.topic_id(batch_id, c["id"]) not in removed]
-        return {key: value for key, value in record.items() if key not in {"snapshot", "candidates"}} | {
+        result = {key: value for key, value in record.items() if key not in {"snapshot", "candidates", "task_references"}} | {
             "series_context": record["snapshot"]["series"], "stale": stale,
             "candidates": candidates, "url": f"/series/{record['series_id']}?research={batch_id}"}
+        if record.get("task_references"):
+            references = record["task_references"]
+            result["reference_id"] = references["id"]
+            for candidate in candidates:
+                candidate["reference_id"] = references["id"]
+            result["reference_summary"] = {
+                "image_count": len(references["images"]),
+                "reference_presentation": references["reference_presentation"],
+            }
+        return result
 
     def list(self, series_id):
         with self.lock:
@@ -495,7 +538,8 @@ class TopicResearchService:
                 *[f"- {s['title']}: {s['url']}" for s in candidate["sources"]],
                 f"调研批次：{batch_id} / {selection.candidate_id}",
             ])
-            drafts.append(TopicDraft(topic_id=topic_id, title=selection.title or candidate["title"], brief=brief, source="research"))
+            drafts.append(TopicDraft(topic_id=topic_id, title=selection.title or candidate["title"], brief=brief,
+                                     source="research", reference_id=(record.get("task_references") or {}).get("id")))
         plan = OperationPlan(operations=[AddTopicsOperation(
             series_id=record["series_id"], topics=drafts,
             expected_series=SeriesResearchContext(**current["series"]))])

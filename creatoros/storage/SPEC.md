@@ -1,5 +1,10 @@
 # CreatorOS Storage SPEC
 
+## 任务参考选题（2026-10-18）
+
+- 迁移 `20261018_0013` 仅为 topics 新增 nullable reference_id；旧Topic/Run/产物不回写。原图与完整要求保存在数据库同级独立任务参考组，Run/Revision冻结输入。跨栏目参考拒绝，原有Preview token和入队幂等兼容。
+- 隔离新库升级/旧生产队列ORM回归通过，正式库未由本轮测试修改。完整设计及真实/受控验证分别见 `docs/topic-references/SPEC.md`。
+
 ## 显式生产队列（2026-10-17）
 
 - 迁移 `20261017_0012` 仅新增 `production_queue_items`：Run/Revision 外键、唯一组合、expected_version、调度状态、提交/开始/结束时间及错误。索引按 status/submitted_at/id 领取 FIFO；不回填旧 Run，不改旧数据、图片、审批或发布记录。

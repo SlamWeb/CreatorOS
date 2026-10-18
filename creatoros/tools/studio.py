@@ -18,6 +18,8 @@ class ResearchTopicsArgs(BaseModel):
     series_id: str = Field(min_length=1, description="真实栏目 ID。使用当前栏目定位、受众和绑定 Skill。")
     count: int = Field(default=10, ge=1, le=30, description="最多候选数；允许调研不足，不凑数。")
     instructions: str = Field(default="", max_length=3000, description="本次选题偏好、排除方向等用户要求。")
+    attachment_ids: list[str] = Field(default_factory=list, max_length=20, description="用户提供的当前会话参考图片ID；原图与要求一起交给Codex，不用图片路径或凭空猜ID。")
+    reference_presentation: bool = Field(default=False, description="默认只借鉴图片内容；用户明确要求借鉴画面风格/版式时才设为true。")
 
 
 class ResearchBatchArgs(BaseModel):
@@ -30,10 +32,12 @@ class SelectResearchArgs(ResearchBatchArgs):
         description="按用户要求的入队顺序列出候选 ID；可改 title/angle，省略则保留原文。只生成 Preview，不确认。")
 
 
-def research_series_topics(series_id, count=10, instructions="", context=None):
+def research_series_topics(series_id, count=10, instructions="", context=None, attachment_ids=None, reference_presentation=False):
     def research(client):
+        reference_id = _prepare_task_reference(client, context, series_id, attachment_ids, instructions, reference_presentation)
         batch = client.request("POST", f"/api/series/{quote(series_id, safe='')}/topic-research",
-                               payload={"count": count, "instructions": instructions})
+                               payload={"count": count, "instructions": instructions,
+                                        **({"reference_id": reference_id} if reference_id else {})})
         return observe_research(client, batch, context)
     return _call(research, context)
 
@@ -80,9 +84,20 @@ class StartRunArgs(BaseModel):
     source_run_id: str | None = Field(default=None, min_length=1, max_length=80,
         description="fresh 模式的原 Run ID，先查 get_content_run 确认。")
     expected_version: int | None = Field(default=None, gt=0, description="fresh 模式所见原 Run version。")
+    series_id: str | None = Field(default=None, min_length=1, description="按用户给的参考作品直接制作时的目标栏目；不要先另调候选调研。")
+    title: str | None = Field(default=None, min_length=1, max_length=240, description="直接制作的简短选题名称，仅用于展示，不替代原始要求。")
+    instructions: str = Field(default="", max_length=3000, description="用户对参考作品的完整原始要求；不要缩成标题后丢弃。")
+    attachment_ids: list[str] = Field(default_factory=list, max_length=20, description="当前会话参考图片的已有ID，直接制作必须提供。")
+    reference_presentation: bool = Field(default=False, description="默认只借鉴内容，用户明确要求同时参考呈现才为true。")
 
     @model_validator(mode="after")
     def exactly_one(self):
+        if self.attachment_ids:
+            if not self.series_id or not self.title or self.topic_id or self.topic_ids or self.mode != "start" or self.source_run_id or self.expected_version:
+                raise ValueError("参考作品直接制作需要series_id、title和attachment_ids，不能混用已有选题/重做参数。")
+            return self
+        if self.series_id or self.title or self.instructions or self.reference_presentation:
+            raise ValueError("参考制作参数必须与当前会话图片一起提供。")
         if (self.topic_id is None) == (self.topic_ids is None):
             raise ValueError("topic_id 与 topic_ids 必须二选一。")
         if self.topic_ids and any(not value.strip() or len(value) > 80 for value in self.topic_ids):
@@ -138,6 +153,7 @@ class QueueTopicItem(BaseModel):
     title: str = Field(min_length=1, max_length=240, description="选题标题。")
     brief: str | None = Field(default=None, max_length=4_000, description="切入点/简介；保留候选来源信息。")
     source: Literal["research", "manual"] = Field(default="manual", description="调研候选为 research，手动添加为 manual。")
+    reference_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", description="候选返回的reference_id原样保留，使生产继续读取原图和要求；没有就省略，不能猜测。")
 
 
 class QueueTopicsArgs(BaseModel):
@@ -177,6 +193,9 @@ def _series_receipt(data):
 
 def queue_topics(series_id, topics, summary=None, context=None):
     items = [QueueTopicItem.model_validate(t).model_dump() for t in topics]
+    for item in items:
+        if item.get("reference_id") is None:
+            item.pop("reference_id", None)
     request_id, marker = _queue_identity(series_id, items, context)
     payload = {"topics": items, "summary": summary, "request_id": request_id}
     def submit(client):
@@ -326,7 +345,39 @@ def list_series_topics(series_id, offset=0, limit=20, context=None, state="all")
     return _call(query, context)
 
 
-def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None):
+def _prepare_task_reference(client, context, series_id, attachment_ids, instructions, reference_presentation):
+    if not attachment_ids:
+        return None
+    sid = getattr(context, "agent_session_id", None)
+    if not sid:
+        raise StudioClientError("图片参考需要当前Studio对话。", code="session_required")
+    ref = client.request("POST", f"/api/agent/sessions/{quote(sid, safe='')}/image-actions/reference", payload={
+        "series_id": series_id, "attachment_ids": attachment_ids, "instructions": instructions,
+        "reference_presentation": reference_presentation, "origin_turn_id": getattr(context, "user_request_id", None)})
+    return ref["id"]
+
+
+def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None,
+                      series_id=None, title=None, instructions="", attachment_ids=None, reference_presentation=False):
+    if attachment_ids:
+        def direct(client):
+            ref = _prepare_task_reference(client, context, series_id, attachment_ids, instructions, reference_presentation)
+            # The same reference brief in this conversation is the same request,
+            # including a later turn asking about an unknown response. Deliberate
+            # regeneration uses the explicit fresh-Run path, not a new hidden key.
+            identity = ["reference-production-v1", getattr(context, "agent_session_id", None), series_id, ref, title]
+            request_id = sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
+            try:
+                result = client.request("POST", f"/api/series/{quote(series_id, safe='')}/reference-production",
+                    payload={"reference_id": ref, "title": title, "request_id": request_id})
+            except StudioClientError as error:
+                error.details.update(request_id=request_id, series_id=series_id,
+                    topic_id="reference-" + sha256(json.dumps([series_id, request_id]).encode()).hexdigest()[:24],
+                    receipt_url=f"/api/series/{series_id}/queue/receipts/{request_id}", url=f"/series/{series_id}")
+                raise
+            queue = result.get("production_queue") or {}
+            return client.run_summary(result, accepted=queue.get("status") in {"pending", "running"})
+        return _call(direct, context)
     if topic_ids is not None:
         return _call(lambda client: client.start_batch(topic_ids), context)
     if mode == "fresh":

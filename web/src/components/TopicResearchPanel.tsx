@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { request } from "../api/client";
+import { TopicReferenceComposer } from "./TopicReferenceComposer";
 import "./topic-research.css";
 
 type Candidate = { id: string; title: string; angle: string; rationale: string;
@@ -25,9 +26,8 @@ export function TopicResearchPanel({ seriesId, controlsOnly = false }: { seriesI
 function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId: string; batchId: string | null; controlsOnly: boolean;
   history: ReturnType<typeof useQuery<{ items: Batch[] }>> }) {
   const [, setParams] = useSearchParams();
-  const [count, setCount] = useState(10);
-  const [instructions, setInstructions] = useState("");
   const [researchOpen, setResearchOpen] = useState(!batchId);
+  const [referenceBusy, setReferenceBusy] = useState(false);
   const [selected, setSelected] = useState<Selection[]>([]);
   const [edits, setEdits] = useState<Record<string, Selection>>({});
   const [editing, setEditing] = useState<Selection | null>(null);
@@ -38,10 +38,6 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
     queryFn: () => request<Batch>(`/api/topic-research/${encodeURIComponent(batchId!)}`),
     refetchInterval: query => query.state.data?.status === "researching" ? 3000 : false });
   const chooseBatch = (id: string) => setParams(p => { p.set("research", id); return p; });
-  const start = useMutation({ retry: false,
-    mutationFn: () => request<Batch>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`, {
-      method: "POST", body: JSON.stringify({ count, instructions }) }),
-    onSuccess: data => { chooseBatch(data.id); void history.refetch(); } });
   const preview = useMutation({ retry: false,
     mutationFn: () => request<{ id: string }>(`/api/topic-research/${batchId}/preview`, {
       method: "POST", body: JSON.stringify({ selections: selected }) }),
@@ -73,14 +69,9 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
   const canSelect = data?.status === "ready" && !data.stale && data.series_id === seriesId;
   return <section className="research-panel" aria-label="选题候选">
     <div className="research-heading"><h2>{controlsOnly ? "选题调研" : "选择本批次选题"}</h2>
-      <button className="button button-secondary" aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}><RefreshCw size={14} />{batchId ? "重新调研" : "调研选题"}</button></div>
-    {researchOpen && <form className="research-form" onSubmit={e => { e.preventDefault(); start.mutate(); }}>
-      <label>候选数量<input type="number" min={1} max={30} required value={count} onChange={e => setCount(e.target.valueAsNumber)} /></label>
-      <label>本次偏好<input maxLength={3000} placeholder="例如：面向初学者，暂不讨论模型训练" value={instructions} onChange={e => setInstructions(e.target.value)} /></label>
-      <button className="button button-primary" disabled={start.isPending || data?.status === "researching"}>开始联网调研</button>
-      <small>使用 Codex 额度，结果保存为待选。</small>
-    </form>}
-    {start.error && <p className="form-error" role="alert">{start.error.message} 结果未知时先查历史批次，勿连续重发。</p>}
+      <button className="button button-secondary" disabled={referenceBusy} aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}><RefreshCw size={14} />{batchId ? "重新调研" : "调研选题"}</button></div>
+    <div hidden={!researchOpen}><TopicReferenceComposer key={seriesId} seriesId={seriesId} researching={data?.status === "researching"}
+      onBusy={setReferenceBusy} onResearch={id => { chooseBatch(id); void history.refetch(); }} /></div>
     {history.data?.items.length ? <div className="research-toolbar">
       <label>调研记录<select value={batchId ?? ""} disabled={!!editing || preview.isPending} onChange={e => chooseBatch(e.target.value)}>
         {history.data.items.map(b => <option key={b.id} value={b.id}>{new Date(b.created_at).toLocaleDateString()} · {labels[b.status] ?? b.status}</option>)}

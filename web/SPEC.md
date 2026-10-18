@@ -1,5 +1,12 @@
 # CreatorOS Studio Web SPEC
 
+## 多图参考选题/制作（2026-10-18，已验证）
+
+- 在现有栏目调研区复用多图选择器（20张/4MiB，多选/拖拽/预览删除），默认只参考内容，可选同时参考呈现。有图提供「扩展选题／直接制作」，无图原调研入口保留；原图和要求完整提交，不把标题当完整输入。沿用现有颜色、Logo与按钮，不另造页面。
+- 已上传缓存、输入与稳定request_id保留；同参考要求重试同一Run，切栏目或离页旧响应不导航回来。收起表单保留草稿；生产任务由原队列维护，刷新不重新提交，仍人工验收。
+- 改前旧调研1/1；最终浏览器新4+旧7共11/11通过（47.7s），真实HTTP/SQLite，research/producer为显式受控夹具，不算真实模型Eval。桌面1440×900与模拟手机390×844已检查，单次detector无发现；截图`.impeccable/review/topic-references/`。build通过，既有主包>500KiB提醒保留。
+- 原三轮10/11失败分别是旧通用input规则撑宽sr-only上传框、测试Producer写证据前未mkdir、只读测试GET被SPA吞；分别限定CSS/修测试夹具/证据路由后整组重跑，不删原失败。证据在 `tmp/topic-references-{initial,confirm,final,regression}-20261018/`，真实DeepSeek/Codex另记 `docs/topic-references/SPEC.md`。
+
 ## 产物图片下载（2026-10-18，已验证）
 
 - 图片预览旁提供一个下载按钮：单张「下载图片」，多张「下载全部（N）」并交付 ZIP。绑定用户所选 Revision，历史版可下载；无完整可读产物时不提供整包下载，逐页生产预览不冒充最终成品。

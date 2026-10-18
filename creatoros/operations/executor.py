@@ -53,6 +53,7 @@ class OperationExecutor:
                         title=topic.title,
                         brief=topic.brief,
                         source=TopicSource(topic.source),
+                        reference_id=topic.reference_id,
                     )
             else:
                 repository.reorder_topics(
@@ -113,6 +114,12 @@ class OperationExecutor:
             before = list(orders[operation.series_id])
             if isinstance(operation, AddTopicsOperation):
                 for topic in operation.topics:
+                    if topic.reference_id:
+                        from creatoros.integrations.topic_references import TopicReferenceStore
+                        try:
+                            TopicReferenceStore(repository.database).load(operation.series_id, topic.reference_id)
+                        except (ValueError, OSError) as error:
+                            raise OperationPlanError("选题参考不可用或不属于当前栏目。") from error
                     if repository.get_topic_removal(topic.topic_id) is not None:
                         raise OperationConflictError("选题已移除，请重新查看后再选择。")
                     if repository.get_topic(topic.topic_id) is not None:
@@ -148,6 +155,9 @@ class OperationExecutor:
         for operation in plan_payload["operations"]:
             if operation.get("expected_series") is None:
                 operation.pop("expected_series", None)
+            for topic in operation.get("topics", []):
+                if topic.get("reference_id") is None:
+                    topic.pop("reference_id", None)  # Preserve historical confirmation tokens.
         token_payload = {
             "plan": plan_payload,
             "initial_orders": initial_orders,

@@ -320,3 +320,8 @@
 - 在 `tmp/sdk-studio-qa` 独立 SQLite/输出目录启动 8879 服务，浏览器真实走通创建账号、创建栏目、手动添加选题、Preview、确认入队、开始生产、打开 Run 和刷新页面；刷新没有创建第二个 Attempt。
 - 该 Studio Run 的生产请求被 Codex Plus usage limit 拒绝，Run 持久化为 `failed / codex_usage_limit`，页面保留可解释错误且没有批准入口；本次不重试、不写正式运营库。
 - 已在此前独立 Producer 验收真实生图与 resume；本轮 Studio 只补真实 UI 状态与失败持久化证据。内置 Codex image tool 的当前官方文档标注为 `gpt-image-2`，CreatorOS 没有指定或声称使用 GPT Image 2.5；`gpt-5.6-luna/xhigh` 是执行模型配置，不是底层生图模型。
+
+## 任务专属参考图（2026-10-18）
+
+- 新TopicReferenceStore按数据库/栏目隔离图片与不可变输入组，原字节不进共享Skill；支持PNG/JPEG/WebP，GIF明确拒绝避免静默转码。调研和native生产实际传多张LocalImageInput，默认内容借鉴，可选呈现；完整原要求和宿主保存的用户原话一起交付。
+- 生产references纳入摘要/恢复/验收，索引修复不重复传图或重画；旧任务兼容。真实追加调研暴露固定.tmp短暂Windows占用失败，调研状态已复用既有atomic_write_text独占临时文件+有界重试，不自动重跑模型。完整测试与保留失败见 `docs/topic-references/SPEC.md`。

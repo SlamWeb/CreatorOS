@@ -70,9 +70,13 @@ class AgentScopeGuard:
             return None if allowed and analytics.group(1) == creator_id else self._denied()
 
         # Image actions bind their own resource checks to this exact conversation.
-        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|import)", path)
+        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|import|reference)", path)
         if image_action and method == "POST":
             return None if image_action.group(1) == session_id else self._denied()
+
+        reference = re.fullmatch(r"/api/series/([^/]+)/(reference-images(?:/[a-f0-9]{64})?|reference-inputs|reference-production)", path)
+        if reference and method in {"GET", "POST"}:
+            return None if self._owns_series(reference.group(1), creator_id) else self._denied()
         extraction = re.fullmatch(r"/api/skill-extractions/([a-f0-9]{64})(?:/(draft|save|cancel|events)(?:/[0-9]+)?)?", path)
         if extraction:
             from .chat_image_actions import owns_extraction

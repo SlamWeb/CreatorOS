@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 多图参考选题/制作（2026-10-18）
+
+- 增加按栏目归属的reference-images上传/只读图片、reference-inputs冻结、reference-production直接生产；调研既有路由可接reference_id。账号Agent以当前会话附件调用image-actions/reference，所有资源再次核验。原图不进共享Skill。
+- 直接制作预检有效账号/Skill，持久保存同一Topic/Run/执行授权；同请求不同内容409，响应丢失重放不重画。候选入队无论Web专用选择还是Agent通用queue均保留引用；公开Run只返回参考元数据，不返回image.path。旧协议与状态边界不变，详见 `docs/topic-references/SPEC.md`。
+
 ## 按版本下载原图（2026-10-18，已验证）
 
 - 新增只读 GET `/api/runs/{run_id}/revisions/{revision_id}/download?digest=…`；复用 Run/Revision归属、Manifest身份、路径范围、整体摘要、逐图摘要与格式校验。只返回所选版本完整原图；单张返回真实图片MIME/扩展名，多张返回按页码命名的ZIP（不含内部快照/日志）。旧 `/download` 已批准发布包不变。

@@ -66,6 +66,7 @@ from .schemas import (
 )
 from .writes import StudioWriteError, StudioWriteService
 from .artifacts import StudioArtifacts
+from .reference_routes import reference_routes
 from .run_routes import review_routes
 from .publication_routes import publication_routes
 from .analytics_routes import analytics_routes
@@ -197,6 +198,7 @@ def create_app(
     app.include_router(worker_task_routes(db, research, discussions))
     app.include_router(extraction_routes(extractions))
     app.include_router(research_routes(research, queries))
+    app.include_router(reference_routes(db, writes, runs, executor, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(chat_routes(chat))
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
@@ -406,13 +408,22 @@ def create_app(
 
     @app.post("/api/series/{series_id}/queue", response_model=QueueTopicsResponse, status_code=201)
     def queue_topics(series_id: str, payload: QueueTopicsRequest, request: Request) -> QueueTopicsResponse:
+        if any(item.reference_id for item in payload.topics):
+            from creatoros.integrations.topic_references import TopicReferenceStore
+            try:
+                for item in payload.topics:
+                    if item.reference_id:
+                        TopicReferenceStore(db).load(series_id, item.reference_id)
+            except (ValueError, OSError) as error:
+                raise HTTPException(422, "选题参考不可用或不属于当前栏目。") from error
         topic_ids = [f"topic-{uuid4().hex[:20]}" for _ in payload.topics]
         plan = OperationPlan(operations=[
             {
                 "action": "add_topics",
                 "series_id": series_id,
                 "topics": [
-                    {"topic_id": topic_id, "title": item.title, "brief": item.brief, "source": item.source}
+                    {"topic_id": topic_id, "title": item.title, "brief": item.brief, "source": item.source,
+                     **({"reference_id": item.reference_id} if item.reference_id else {})}
                     for topic_id, item in zip(topic_ids, payload.topics)
                 ],
             }

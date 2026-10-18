@@ -263,6 +263,7 @@ class CodexProducer:
         thread_id: str | None = None,
         revision_instruction: str | None = None,
         previous_pages: str | None = None,
+        task_references=None,
         on_thread_started: Callable[[str], None] | None = None,
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
@@ -276,7 +277,10 @@ class CodexProducer:
                 topic_brief=topic_brief, series_description=series_description, audience=audience,
                 skill_name=skill_name, skill_directory=skill_directory, skill_digest=skill_digest,
                 composition=composition, skills_root=skills_root, revision_instruction=revision_instruction,
-                previous_pages=previous_pages, on_thread_started=on_thread_started, cancel_event=cancel_event)
+                previous_pages=previous_pages, on_thread_started=on_thread_started, cancel_event=cancel_event,
+                **({"task_references": task_references} if task_references else {}))
+        if task_references:
+            raise CodexProducerError("任务参考图片需要原生生产协议，不能退化为只传标题。", error_type="reference_protocol_required")
         now = datetime.now().astimezone()
         directory = Path(directory).resolve()
         directory.mkdir(parents=True, exist_ok=False)

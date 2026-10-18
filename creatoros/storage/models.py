@@ -249,6 +249,7 @@ class Topic(TimestampMixin, Base):
     )
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     brief: Mapped[str | None] = mapped_column(Text)
+    reference_id: Mapped[str | None] = mapped_column(String(64))
     source: Mapped[TopicSource] = mapped_column(
         SAEnum(
             TopicSource,

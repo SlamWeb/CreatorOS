@@ -21,6 +21,8 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20):
             provenance = {"batch_id": batch["id"], "candidate_id": candidate["id"],
                           "sources": candidate["sources"], "research_angle": candidate["angle"],
                           "research_created_at": batch["created_at"]}
+            if candidate.get("reference_id"):
+                provenance["reference_id"] = candidate["reference_id"]
             if topic_id in items:
                 items[topic_id].update(provenance)
                 continue
