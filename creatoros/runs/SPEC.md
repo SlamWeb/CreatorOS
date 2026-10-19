@@ -1,5 +1,18 @@
 # ContentRun SPEC
 
+## 选题级五工位并发（2026-10-19，隔离验证通过，正式加载待空闲）
+
+- 用户明确要求最多5个选题并行，不把一篇拆为多个thread；首次生产创建会话，技术恢复续接本选题会话，普通小修续用原会话，从头重做才读取最新Skill并新开会话。
+- 延用SQLite明确提交队列和单Studio数据库独占锁；执行池默认5、环境变量CREATOROS_PRODUCTION_CONCURRENCY可选1–5。调度器按FIFO填满空位，独立owner/取消信号/lease/目录/日志，禁止同一选题并行写入。
+- 执行日志支持多个本实例已登记owner；旧或未知执行记录仍阻断启动/恢复。普通失败只结束该项，执行者不明或结果无法持久化则暂停新派发，已运行的其他项继续。关机同时通知所有执行者，不自动重画中断任务；pending保留。
+- 当前正式8765 PID33336有用户任务运行，本轮不停止、不重启、不写正式数据库或执行日志；新代码仅隔离验证，加载需另行确认空闲。
+- 验收：隔离真实SQLite/文件与故障注入覆盖5重叠/第6等待、补位、防重复、失败隔离、定向取消、并发关机/重启、旧脏日志及原thread连续性。真实Codex测试只用独立目录，失败原样保留，不算历史Eval成绩。
+- 已实现：调度器持有活跃topic直到Future实际退出；业务中断先落库但旧进程尚存时，重做排队，其他topic可绕过。全库OS锁保持，执行日志兼容旧single与多owner，未知/篡改/丢失日志拒绝继续。关机先通知所有任务、状态写入有界等待，所有等待共享预算；存在活跃写者/未清日志则保留锁。
+- 118项联合回归通过：12并发/关机故障、10旧串行语义、14多owner、5原HTTP批量、8会话连续性、51收图/交付恢复、9fresh领域、3fresh HTTP、6宿主契约。原studio_executor/studio_process/native_run_wiring/native_production/native_artifact_web五组smoke通过。证据tmp/parallel-concurrency-final-unit-20261019.log，未调用付费模型，非真实生图E2E成绩。
+- 首轮31项有1处关停重复抛已记录的DB错误，后续39项有2处（新活跃topic门禁使旧用例预期过时、同时取消时有worker先被误标failed）；分别修复清洁退出的错误处理/旧测试前提/cancel状态处理，再按上列完整组合回归，不覆盖旧日志。旧串行测试显式配置max_concurrency=1，不删除原断言。
+- 本轮未运行5个真实Codex生图任务，避免与用户现有生产争用连接/额度；应用层5路重叠和恢复已经隔离验证，服务端实际限额/生成质量仍需空闲后另行真实验收，不保证5倍速度。
+- 额外真实loopback验证通过：同一隔离服务Web提交4题、账号工具适配器提交3题，总共只有5活跃+2等待；重复工具提交复用原Run，7题最终均待验收且各1 Attempt，刷新HTTP/数据库一致。tests.test_parallel_production_api单独1/1通过，证据tmp/parallel-concurrency-http-final-20261019.log；使用本地可阻塞Producer，不经过LLM/真实生图，不冒称浏览器E2E。
+
 ## 参考作品直接制作（2026-10-18）
 
 - Topic.reference_id 解引用不可变任务参考组，Run/Revision保存task_references，Attempt独立references目录；按当前Skill直接制作，不先另调模型生成候选。原图真实作为SDK LocalImageInput，默认只参考内容，呈现由显式选项控制，不写共享Skill。

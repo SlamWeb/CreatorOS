@@ -50,10 +50,15 @@ class ProductionQueue:
             session.flush()
             return item
 
-    def next_pending(self) -> ProductionQueueItem | None:
+    def next_pending(self, *, excluded_topics: set[str] | None = None) -> ProductionQueueItem | None:
         with self.database.session() as session:
-            return session.scalar(select(ProductionQueueItem).where(ProductionQueueItem.status == "pending")
-                                  .order_by(ProductionQueueItem.submitted_at, ProductionQueueItem.id).limit(1))
+            query = select(ProductionQueueItem).where(ProductionQueueItem.status == "pending")
+            if excluded_topics:
+                # A business interrupt can precede actual subprocess cleanup.
+                # Do not overlap another Run of that topic until its Future exits.
+                query = query.join(ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
+                    ContentRun.topic_id.not_in(excluded_topics))
+            return session.scalar(query.order_by(ProductionQueueItem.submitted_at, ProductionQueueItem.id).limit(1))
 
     def transition(self, item_id: int, status: str, error: str | None = None):
         with self.database.session() as session:

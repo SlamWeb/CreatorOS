@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 生产并发容量（2026-10-19，隔离验证通过）
+
+- `/api/runs/{id}/execute`、`/api/runs/batch`与账号工具仍进入同一持久化队列和宿主执行器；默认全局5工位，可由CREATOROS_PRODUCTION_CONCURRENCY设1–5。响应与Run/Revision/Attempt数据库结构不变，无迁移、无新增接口。
+- 各Run现有详情、任务列表和Observation继续读取独立生产状态；待执行位置是等待顺序而非准确开工时间。同选题旧执行者退出前保留pending，后续独立选题可绕过，不造成队头阻塞。
+- 测试使用独立SQLite、临时HTTP端口和本地故障生产者；正式8765在途任务和端口不变。本轮不加载新代码，不把隔离通过写成当前服务已5路运行。
+- tests.test_parallel_production_api通过：Web4题+账号工具3题共用5工位，重复请求不另建Attempt，最终7份待验收结果可经HTTP刷新读取；局部受控Producer不等同真实模型或浏览器测试。关联118项及5组smoke通过。
+
 ## Skill 参考图与删除入口（2026-10-19，隔离验证通过）
 
 - PUT /api/producer-skills/{id}/assets 接受 path/data_base64/expected_digest/overwrite(false)；DELETE 同路径接受 path/expected_digest。仅受管图片，复用目录摘要、错误响应与归属守卫。

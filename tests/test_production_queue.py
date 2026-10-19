@@ -88,7 +88,7 @@ class ProductionQueueTests(unittest.TestCase):
                                  output_root=self.root / "outputs", production_protocol="legacy")
 
     def executor(self, service):
-        executor = ManagedRunExecutor(service)
+        executor = ManagedRunExecutor(service, max_concurrency=1)
         self.executors.append(executor)
         return executor
 
@@ -236,12 +236,12 @@ class ProductionQueueTests(unittest.TestCase):
         executor.submit(first.id, expected_version=first.version)
         self.assertTrue(producer.started.wait(2))
         executor.submit(second.id, expected_version=second.version)
-        original = service.guard.assert_clean
+        original = service.guard.assert_dispatchable
         def pause_after_first():
             if producer.calls and not service.guard.journal.exists():
                 raise ExecutionOwnershipError("injected unverified execution")
             original()
-        with patch.object(service.guard, "assert_clean", pause_after_first):
+        with patch.object(service.guard, "assert_dispatchable", pause_after_first):
             producer.release.set()
             wait(lambda: executor.queue_snapshot(second.id)["blocked_reason"] is not None)
             self.assertEqual(executor.queue_snapshot(second.id)["status"], "pending")

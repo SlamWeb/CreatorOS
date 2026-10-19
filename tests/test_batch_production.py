@@ -30,7 +30,7 @@ class BatchProductionTests(unittest.TestCase):
     def test_http_batch_partial_rejection_duplicate_and_failure_continue(self):
         producer = Producer(block=True, fail_first=True)
         service = self.service(producer)
-        app = create_app(database=self.database, run_service=service)
+        app = create_app(database=self.database, run_service=service, run_executor=self.executor(service))
         with serve(app) as base, httpx.Client(base_url=base, trust_env=False) as client:
             response = client.post('/api/runs/batch', json={'topic_ids': ['topic-0', 'missing', 'topic-1', 'topic-0']})
             self.assertEqual(response.status_code, 202, response.text)

@@ -124,7 +124,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
         ids = list(clients.map(lambda _: service.create("topic-1").id, range(4)))
     assert len(set(ids)) == 1
     first, second = service.get(ids[0]), service.create("topic-2")
-    executor = ManagedRunExecutor(service)
+    executor = ManagedRunExecutor(service, max_concurrency=1)
     cleanup.callback(executor.shutdown)
     executor.submit(first.id, expected_version=first.version)
     assert producer.started.wait(2)

@@ -302,7 +302,7 @@ class ContentRunService:
 
     @_serialized
     def claim(self, run_id: str, *, owner_id: str, expected_version: int | None = None) -> dict:
-        self.guard.assert_clean()
+        self.guard.assert_dispatchable()
         prepared = self._begin_attempt(run_id, owner_id=owner_id, expected_version=expected_version)
         try:
             self.guard.begin(owner_id=owner_id, run_id=run_id, attempt_id=prepared["attempt_id"])
@@ -383,18 +383,24 @@ class ContentRunService:
             raise
         except Exception as error:
             try:
-                self._mark_failed(
-                    run_id,
-                    prepared["attempt_id"],
-                    stage="producing",
-                    error=error,
-                    elapsed=monotonic() - started,
-                    owner_id=owner,
-                )
+                if cancel_event.is_set():
+                    self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
+                else:
+                    self._mark_failed(
+                        run_id,
+                        prepared["attempt_id"],
+                        stage="producing",
+                        error=error,
+                        elapsed=monotonic() - started,
+                        owner_id=owner,
+                    )
             except ContentRunLeaseError:
                 pass
             raise ContentRunExecutionError(run_id, str(error)) from error
 
+        if cancel_event.is_set():
+            self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
+            raise ContentRunExecutionError(run_id, "本次生产已停止，保留文件等待显式恢复。")
         self._mark_produced(
             run_id, prepared["attempt_id"], produced, monotonic() - started, owner_id=owner
         )
@@ -603,6 +609,13 @@ class ContentRunService:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
             self._assert_current_run(session, content_run)
+            active_topic_run = session.scalar(select(ContentRun.id).where(
+                ContentRun.topic_id == content_run.topic_id,
+                ContentRun.id != run_id,
+                ContentRun.status.in_([ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING]),
+            ).limit(1))
+            if active_topic_run is not None:
+                raise ContentRunError("这个选题已有任务正在生产，请等待完成。", code="topic_active")
             if content_run.input_snapshot_json.get("production_protocol") == "external-import":
                 raise ContentRunError("外部导入作品不进入生产执行器。", code="external_import_readonly")
             if session.get(TopicRemoval, content_run.topic_id) is not None:

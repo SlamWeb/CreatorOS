@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 批量生产共用五工位（2026-10-19）
+
+- 原start_content_run(topic_ids)参数与HTTP契约不变，说明由串行改为后台排队、最多5选题并行。Web/Agent共用单个ManagedRunExecutor，不按调用方各建容量，不新增工具或自动审批/发布。
+- 同Run重放仍复用队列回执，同Topic互斥至旧物理执行者退出；调用后返回接受与任务链接不等于图片已完成。用量和失败记录保留，未调整旧Eval分数。
+
 ## 已有 Skill 参考图编辑（2026-10-19，隔离验证通过）
 
 - 不增加模型工具：update_producer_skill_file 保留 write_text 默认行为，扩展 add_image/replace_image/delete_image；图片来源仅当前会话 attachment_id，写之前取真实文件目录 digest，换图不猜本地路径。
