@@ -54,6 +54,21 @@
 .extraction-job strong { flex: none; font-size: 11px; font-weight: 600; }
 .extraction-job:hover { background:var(--surface); }
 .extraction-job.selected { background:var(--accent-soft); }
+.extraction-section-toggle { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-height:36px; padding:8px 0; border:0; background:transparent; color:var(--ink); text-align:left; font:600 12px/1.5 var(--font-sans); cursor:pointer; }
+.extraction-section-toggle span { color:var(--accent); font-weight:400; }
+.extraction-section-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.extraction-calibration { display:grid; gap:8px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+.extraction-calibration-evidence { display:grid; gap:8px; }
+.extraction-calibration-evidence pre { max-height:280px; margin:0; padding:12px; overflow:auto; background:var(--surface); color:var(--ink); font:11px/1.6 var(--font-mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+.extraction-calibration-evidence p { margin:0; font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.extraction-evidence-images { display:flex; gap:8px; overflow:auto; margin-top:8px; padding-bottom:6px; }
+.extraction-evidence-images a { display:block; flex:0 0 100px; }
+.extraction-evidence-images img { display:block; width:100px; height:125px; object-fit:contain; background:var(--surface); border-radius:8px; }
+.extraction-apply-confirm { display:grid; gap:10px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--canvas); }
+.extraction-apply-confirm > div { display:flex; flex-wrap:wrap; gap:8px; }
+.extraction-apply-confirm label { display:grid; gap:6px; }
+.extraction-apply-confirm select { min-width:0; max-width:100%; padding:8px; background:var(--canvas); color:var(--ink); border:1px solid var(--line); border-radius:var(--radius-sm); }
+.extraction-rollback-retry { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 .extraction-detail { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 10px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .extraction-status { display: flex; flex-wrap: wrap; min-width: 0; gap: 8px 14px; align-items: baseline; font-size: 13px; overflow-wrap: anywhere; }
 .extraction-status > * { min-width: 0; max-width: 100%; }
@@ -88,6 +103,9 @@
 .extraction-skill-fields p { flex-basis: 100%; }
 .extraction-markdown { max-height: 540px; padding: 4px 14px 14px; overflow: auto; font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
 .extraction-markdown :first-child { margin-top: 8px; }
+.extraction-markdown-link { padding:0; border:0; background:transparent; color:var(--accent); text-align:left; font:inherit; text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+.extraction-markdown-link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.extraction-markdown-image { display:block; max-width:100%; max-height:360px; margin:10px 0; object-fit:contain; }
 .extraction-frontmatter { margin: 8px 0 12px !important; padding: 7px 9px !important; color: var(--muted); font: 10px/1.45 var(--font-mono) !important; }
 .extraction-markdown pre, .extraction-trial pre, .extraction-text-preview { max-width: 100%; overflow: auto; padding: 9px 10px; border-radius: var(--radius-sm); background: var(--surface); font: 11px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .extraction-markdown-editor, .extraction-text-preview { box-sizing: border-box; width: 100%; min-height: 300px; max-height: 540px; padding: 12px 14px; border: 0; color: var(--ink); background: var(--canvas); font: 12px/1.6 var(--font-mono); resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; }

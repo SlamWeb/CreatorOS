@@ -11,6 +11,7 @@ import { useAgentChat } from "../components/AgentChatHost";
 import { SkillInspector } from "../components/SkillInspector";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
+import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./workspace.css";
 
 export function WorkspaceRedirect() {
@@ -24,6 +25,8 @@ export function WorkspaceRedirect() {
 export function WorkspacePage() {
   const [params, setParams] = useSearchParams();
   const client = useQueryClient();
+  const inbox = useWorkInbox();
+  const visitedSeries = useRef<string | null>(null);
   const creators = useCreators();
   const seriesAll = useQuery({ queryKey: ["series-all"], queryFn: studioApi.seriesAll,
     refetchInterval: q => q.state.data?.some(s => ["queued", "producing", "validating"].includes(s.latest_run_status ?? "")) ? 3000 : false });
@@ -37,6 +40,23 @@ export function WorkspacePage() {
   const [treeOpen, setTreeOpen] = useState(false);
   const chat = useAgentChat();
   const [inspectedSkill, setInspectedSkill] = useState<ProducerSkillItem | null>(null);
+  const viewedSkill = useRef<string | null>(null);
+  useEffect(() => {
+    const id = params.get("series");
+    if (!id) { visitedSeries.current = null; return; }
+    const selected = seriesAll.data?.find(item => item.id === id);
+    if (!selected || !inbox.data || (params.get("creator") && params.get("creator") !== selected.creator_id)
+        || visitedSeries.current === id) return;
+    visitedSeries.current = id;
+    inbox.markObjectSeen("series", id);
+  }, [params, seriesAll.data, inbox.data]);
+  useEffect(() => {
+    if (!inspectedSkill) { viewedSkill.current = null; return; }
+    if (inbox.data && viewedSkill.current !== inspectedSkill.id) {
+      viewedSkill.current = inspectedSkill.id;
+      inbox.markObjectSeen("skill", inspectedSkill.id);
+    }
+  }, [inspectedSkill?.id, inbox.data]);
   useEffect(() => {
     const items = creators.data?.items ?? [];
     const selectedSeries = seriesAll.data?.find(item => item.id === params.get("series"));
@@ -124,6 +144,7 @@ export function WorkspacePage() {
 
   function selectSeries(id: string, owner?: string | null) {
     setTreeOpen(false);
+    inbox.markObjectSeen("series", id);
     const target = allSeries.find(item => item.id === id);
     const creator = accounts.find(item => item.id === (owner === undefined ? target?.creator_id : owner));
     if (chat.isOpen && creator) chat.open({ creatorId: creator.id, accountName: creator.display_name });
@@ -174,7 +195,7 @@ export function WorkspacePage() {
         {allSeries.filter(s => s.creator_id === account.id).map(item => <button type="button" key={item.id}
           className={`rail-series ${item.id === seriesId ? "active" : ""}`}
           aria-current={item.id === seriesId ? "page" : undefined} onClick={() => selectSeries(item.id)}>
-          <span>{item.name}</span>
+          <span>{item.name}</span>{inbox.hasUnseen("series", item.id) && <UnseenDot label="栏目有未查看内容" />}
         </button>)}
       </section>)}
       {!!allSeries.some(s => s.creator_id === null) && <section className="rail-group">
@@ -184,7 +205,7 @@ export function WorkspacePage() {
         {allSeries.filter(s => s.creator_id === null).map(item => <button type="button" key={item.id}
           className={`rail-series ${item.id === seriesId ? "active" : ""}`}
           aria-current={item.id === seriesId ? "page" : undefined} onClick={() => selectSeries(item.id)}>
-          <span>{item.name}</span>
+          <span>{item.name}</span>{inbox.hasUnseen("series", item.id) && <UnseenDot label="栏目有未查看内容" />}
         </button>)}
       </section>}
       <div className="rail-foot">

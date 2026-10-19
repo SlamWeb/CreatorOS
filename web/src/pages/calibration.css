@@ -1,0 +1,37 @@
+.calibration-page { max-width: 1040px; margin: 0 auto; color: var(--ink); }
+.calibration-heading { display:flex; align-items:center; gap:18px; margin-bottom:28px; }
+.calibration-heading h1 { margin:0; font-size:26px; letter-spacing:-.02em; }
+.calibration-page form { display:grid; gap:20px; }
+.calibration-fields { display:grid; gap:24px; padding:0; margin:0; border:0; min-width:0; }
+.calibration-page label { display:grid; gap:7px; color:var(--muted); font-size:12px; min-width:0; }
+.calibration-page select,.calibration-page textarea { box-sizing:border-box; width:100%; min-width:0; max-width:100%; border:1px solid var(--line); border-radius:var(--radius-sm); padding:10px 11px; background:var(--canvas); color:var(--ink); font:13px/1.5 var(--font-sans); }
+.calibration-page textarea { resize:vertical; }
+.calibration-targets { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.calibration-section { display:grid; gap:16px; min-width:0; padding-top:22px; border-top:1px solid var(--line); }
+.calibration-section h2 { margin:0; font-size:16px; font-weight:650; }
+.calibration-filmstrip { display:flex; gap:10px; overflow:auto; padding:2px 2px 9px; }
+.calibration-filmstrip a { display:grid; gap:5px; flex:0 0 128px; color:var(--muted); font-size:11px; text-decoration:none; }
+.calibration-filmstrip img { width:128px; height:150px; object-fit:contain; background:var(--surface); border-radius:8px; }
+.calibration-mark { display:grid; grid-template-columns:minmax(120px,160px) minmax(0,1fr) auto; gap:12px; align-items:end; }
+.calibration-comment { grid-column:1 / -1; }
+.calibration-mark > button { grid-column:3; }
+.calibration-rating-control { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.calibration-rating-control button { min-height:36px; padding:7px 11px; border:1px solid var(--line); border-radius:8px; background:var(--canvas); color:var(--muted); font:12px/1.4 var(--font-sans); cursor:pointer; }
+.calibration-rating-control button[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+.calibration-rating-control button:hover:not(:disabled) { color:var(--ink); }
+.calibration-page :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.calibration-page button:disabled { opacity:.55; cursor:not-allowed; }
+.calibration-annotations { display:grid; gap:0; }
+.calibration-annotations article { padding:14px 0; border-top:1px solid var(--line); }
+.calibration-annotation-title { display:flex; align-items:center; gap:10px; font-size:12px; }
+.calibration-annotation-title strong { flex:1; min-width:0; overflow-wrap:anywhere; }
+.calibration-annotations p { margin:6px 0 0; color:var(--ink); font-size:13px; line-height:1.65; white-space:pre-wrap; overflow-wrap:anywhere; }
+.calibration-rating { flex:none; font-size:11px; color:var(--success); }
+.calibration-rating.bad { color:var(--danger); }
+.calibration-reference-mark { display:grid; grid-template-columns:100px minmax(0,1fr); gap:14px; padding-top:12px; border-top:1px solid var(--line); }
+.calibration-reference-mark > img { width:100px; height:130px; object-fit:contain; background:var(--surface); border-radius:8px; }
+.calibration-reference-mark > div { display:grid; gap:9px; min-width:0; }
+.calibration-reference-mark strong { font-size:12px; overflow-wrap:anywhere; }
+.calibration-submit { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; padding:18px 0; border-top:1px solid var(--line); }
+.calibration-submit > span { color:var(--muted); font-size:12px; }
+@media(max-width:600px) { .calibration-targets { grid-template-columns:minmax(0,1fr); gap:12px; } .calibration-heading { gap:12px; } .calibration-heading h1 { font-size:22px; } .calibration-mark { grid-template-columns:minmax(0,1fr); } .calibration-mark > button { grid-column:1; justify-self:start; } .calibration-annotation-title { flex-wrap:wrap; } .calibration-annotation-title strong { flex-basis:70%; } .calibration-submit { padding-right:64px; } }

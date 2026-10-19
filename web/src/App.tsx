@@ -8,9 +8,10 @@ import { AgentPage } from "./pages/AgentPage";
 import { StudioPreview } from "./pages/StudioPreview";
 import { ObservationPage } from "./pages/ObservationPage";
 import { EvalPage } from "./pages/EvalPage";
+import { CalibrationPage } from "./pages/CalibrationPage";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: true } } });
 
 export function App() {
-  return <QueryClientProvider client={queryClient}><BrowserRouter><Routes><Route path="/studio-preview" element={<StudioPreview />} /><Route element={<Layout />}><Route path="/" element={<WorkspacePage />} /><Route path="/skills" element={<SkillsPage />} /><Route path="/studio" element={<Navigate to="/skills" replace />} /><Route path="/series/:seriesId" element={<WorkspaceRedirect />} /><Route path="/runs/:runId" element={<RunDetailPage />} /><Route path="/agent" element={<AgentPage />} /><Route path="/observation" element={<ObservationPage />} /><Route path="/eval" element={<EvalPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes></BrowserRouter></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><BrowserRouter><Routes><Route path="/studio-preview" element={<StudioPreview />} /><Route element={<Layout />}><Route path="/" element={<WorkspacePage />} /><Route path="/skills" element={<SkillsPage />} /><Route path="/calibrate" element={<CalibrationPage />} /><Route path="/studio" element={<Navigate to="/skills" replace />} /><Route path="/series/:seriesId" element={<WorkspaceRedirect />} /><Route path="/runs/:runId" element={<RunDetailPage />} /><Route path="/agent" element={<AgentPage />} /><Route path="/observation" element={<ObservationPage />} /><Route path="/eval" element={<EvalPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Route></Routes></BrowserRouter></QueryClientProvider>;
 }

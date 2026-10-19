@@ -682,3 +682,24 @@ class PublicationFeedbackState(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class SkillCalibration(TimestampMixin, Base):
+    """User-labelled evidence and an isolated candidate; never an automatic edit."""
+    __tablename__ = "skill_calibrations"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','applying','applied')", name="status_values"),
+    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id"), index=True, nullable=False)
+    creator_id: Mapped[str | None] = mapped_column(String(80))
+    skill_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    base_skill_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    evidence_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    apply_json: Mapped[dict | None] = mapped_column(JSON)
+    applied_digest: Mapped[str | None] = mapped_column(String(64))
+    last_error: Mapped[str | None] = mapped_column(Text)

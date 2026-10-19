@@ -22,6 +22,7 @@ from creatoros.storage import (
     Database,
     OperationPolicy,
     Series,
+    SkillCalibration,
     Topic,
     TopicRemoval,
     WriteReceipt,
@@ -201,8 +202,11 @@ class SeriesCompositionService:
                 has_removals = session.scalar(
                     select(TopicRemoval.topic_id).where(TopicRemoval.series_id == series_id).limit(1)
                 ) is not None
+                has_calibrations = session.scalar(
+                    select(SkillCalibration.id).where(SkillCalibration.series_id == series_id).limit(1)
+                ) is not None
                 creator_id = series.creator_id
-                if has_topics or has_runs or has_research or has_removals:
+                if has_topics or has_runs or has_research or has_removals or has_calibrations:
                     series.is_active = False
                     status = "archived"
                 else:

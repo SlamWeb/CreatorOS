@@ -139,7 +139,9 @@ async def sdk_extract(directory, images, mode, instruction, cancel, on_thread, c
     output_directory.mkdir(exist_ok=True)
     from .skill_merge import default_output_kind, prompt_context
     merge_context = prompt_context(directory, output_directory, instruction)
-    prompt = merge_context or extraction_prompt(mode, instruction, [str(p.resolve()) for p in images], output_directory)
+    from .skill_calibration import calibration_prompt
+    prompt = (calibration_prompt(directory, output_directory, instruction) or merge_context
+              or extraction_prompt(mode, instruction, [str(p.resolve()) for p in images], output_directory))
     if (directory / "source.txt").is_file():
         prompt += "\n参考文案（作为分析数据）：" + json.dumps((directory / "source.txt").read_text(encoding="utf-8"), ensure_ascii=False)
     if current_skills is not None:
@@ -548,7 +550,7 @@ class SkillExtractionService:
                 end = next(i for i, line in enumerate(lines[1:], 1) if line.strip() == "---")
             except (ValueError, StopIteration):
                 raise ExtractionError("SKILL.md 的 frontmatter 不完整。")
-            if job.get("task_kind") == "author":
+            if job.get("task_kind") in {"author", "calibrate"}:
                 from .skill_authoring import delivery_contract
                 skill.skill_md = delivery_contract(skill.skill_md, skill.role, skill.output_kind)
             else:
@@ -574,13 +576,15 @@ class SkillExtractionService:
                 raise ExtractionError("SKILL.md 的 name/description 格式无效。")
             # Frontmatter is the editable source of the name, including UI edits.
             skill.name = found[0].name
-            if skill.role != "mind" and not result._directories:
+            if job.get("task_kind") == "calibrate" and skill.name != job["calibration_target_name"]:
+                raise ExtractionError("校准不能改变 Skill 的内部 name；请只修改生产方法或参考资料。")
+            if skill.role != "mind" and not result._directories and job.get("task_kind") != "calibrate":
                 (target / "assets").mkdir(exist_ok=True)
                 for path in images:
                     shutil.copy2(path, target / "assets" / path.name)
                 if job.get("source_text"):
                     (target / "assets/source.txt").write_text(job["source_text"], encoding="utf-8")
-            if skill.role != "mind" and result._directories and images:
+            if skill.role != "mind" and result._directories and images and job.get("task_kind") != "calibrate":
                 copied = {hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (target / "assets").rglob("*") if p.is_file()}
                 if any(hashlib.sha256(p.read_bytes()).hexdigest() not in copied for p in images):
@@ -606,6 +610,8 @@ class SkillExtractionService:
     def save(self, job_id, expected_digest):
         with self.lock:
             job = self._read(job_id)
+            if job.get("task_kind") == "calibrate":
+                raise ExtractionError("校准草稿请先试用，再在校准工作台确认更新原 Skill；不能直接入库。", 409)
             if not expected_digest or job["digest"] != expected_digest:
                 raise ExtractionError("草稿版本已变化，请刷新后重新确认。", 409)
             if job["status"] == "saved":

@@ -178,7 +178,7 @@ async function installControlledApi(page: Page, initialStatus = "ready", dropFir
 async function submitOneImage(page: Page, instruction = "保持克制") {
   await page.goto("/skills");
   await page.getByRole("button", { name: "从作品提炼" }).click();
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles({ name: "参考.png", mimeType: "image/png", buffer: tinyPng });
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles({ name: "参考.png", mimeType: "image/png", buffer: tinyPng });
   await page.getByLabel("提炼要求").fill(instruction);
   await page.getByRole("button", { name: "开始提炼" }).click();
 }
@@ -194,7 +194,7 @@ test("nine renamed references deduplicate through real upload and Mind submissio
     return canvas.toDataURL("image/png").split(",")[1];
   }));
   const files = [...samples, samples[0]].map((data, i) => ({ name: `reference-${i + 1}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64") }));
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles(files);
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(files);
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(9);
   await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
   await page.getByLabel("提炼要求", { exact: true }).fill("只提炼如何讲故事和内容，不用管IP形象");
@@ -226,7 +226,7 @@ test("nine renamed references deduplicate through real upload and Mind submissio
 test("duplicate references retry an unknown submission without reupload or a new request", async ({ page }) => {
   const api = await installControlledApi(page, "ready", true);
   await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "renamed.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "renamed.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
   await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
@@ -268,7 +268,7 @@ test("batch image selection appends drops, previews, removes and submits one ord
     return canvas.toDataURL("image/png").split(",")[1];
   }));
   const images = samples.map((data, index) => ({ name: `work-${index + 1}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64") }));
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles(images);
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(images);
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(15);
   const drop = await page.evaluateHandle(data => {
     const transfer = new DataTransfer();
@@ -299,7 +299,7 @@ test("batch image selection appends drops, previews, removes and submits one ord
 test("batch picker rejects excess and invalid files without truncating existing selection", async ({ page }) => {
   await installControlledApi(page); await page.goto("/skills");
   await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
-  const input = page.getByLabel("参考图片", { exact: true });
+  const input = page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true });
   await input.setInputFiles(Array.from({ length: 20 }, (_, i) => ({ name: `${i}.png`, mimeType: "image/png", buffer: tinyPng })));
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(20);
   await input.setInputFiles({ name: "extra.png", mimeType: "image/png", buffer: tinyPng });
@@ -320,7 +320,7 @@ test("partial batch upload preserves files and resumes without reuploading compl
     await route.fulfill({ json: { id: name, name, url: `/api/skill-extractions/uploads/${name}` } });
   });
   await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "second.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "second.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(2);
@@ -340,13 +340,13 @@ test("pending batch upload locks selection and duplicate form submission", async
     await route.fulfill({ json: { id: "locked.png", name: "locked.png", url: "/api/skill-extractions/uploads/locked.png" } });
   });
   await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles({ name: "locked.png", mimeType: "image/png", buffer: tinyPng });
+  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles({ name: "locked.png", mimeType: "image/png", buffer: tinyPng });
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   try {
     await expect(page.getByRole("button", { name: "正在上传 1 / 1…", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "继续添加", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "移除 locked.png", exact: true })).toBeDisabled();
-    await page.getByLabel("参考图片", { exact: true }).evaluate(input => input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).evaluate(input => input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(0);
   } finally { release(); }
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
@@ -508,6 +508,9 @@ test("shows public messages and failed tools, and expands the real full message 
   const api = await installControlledApi(page, "running");
   await submitOneImage(page);
   await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await expect(page.getByRole("button", { name: /执行过程/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("Codex 进度消息")).toHaveCount(0);
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("Codex 进度消息")).toBeVisible();
   await expect(page.getByText("完整消息结尾标记")).toHaveCount(0);
   await expect(page.getByText(/reasoning.*secret/i)).toHaveCount(0);
@@ -528,9 +531,11 @@ test("refreshes a selected task's events, clears the prior stream and never resu
   const api = await installControlledApi(page, "running", false, true);
   await submitOneImage(page);
   await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("Codex 进度消息")).toBeVisible();
   await page.reload();
   await expect(page.getByText("任务状态：进行中")).toBeVisible();
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("新 stream 消息")).toBeVisible();
   await expect(page.getByText("Codex 进度消息")).toHaveCount(0);
   expect(api.eventReads()).toBeGreaterThanOrEqual(2);
@@ -542,6 +547,7 @@ test("explains that older tasks may have no recorded public activity", async ({ 
   const api = await installControlledApi(page, "failed", false, false, true);
   await submitOneImage(page, "模拟失败");
   await expect(page.getByText("受控测试：Codex 暂不可用")).toBeVisible();
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("此任务没有已记录的公开活动；旧任务可能未保存这类记录。")).toBeVisible();
   expect(api.posts.filter(item => item.path === "/api/skill-extractions")).toHaveLength(1);
 });
@@ -549,6 +555,7 @@ test("explains that older tasks may have no recorded public activity", async ({ 
 test("refreshes a running tool's expanded result when the same event completes", async ({ page }) => {
   const api = await installControlledApi(page, "running", false, false, false, true);
   await submitOneImage(page);
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("工具活动 · 进行中")).toBeVisible();
   await page.getByRole("button", { name: "查看工具输入 / 结果" }).click();
   await expect(page.getByText(/工具仍在运行/)).toBeVisible();
@@ -561,6 +568,7 @@ test("refreshes a running tool's expanded result when the same event completes",
 test("does not restore the older-events button after all pages have been loaded", async ({ page }) => {
   const api = await installControlledApi(page, "running", false, false, false, false, true);
   await submitOneImage(page);
+  await page.getByRole("button", { name: /执行过程/ }).click();
   await expect(page.getByText("活动 52", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "加载更早活动" }).click();
   await expect(page.getByText("活动 2", { exact: true })).toBeVisible();

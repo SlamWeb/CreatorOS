@@ -8,6 +8,7 @@ import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
 import { SkillInspector } from "../components/SkillInspector";
+import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./studio-space.css";
 
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
@@ -48,7 +49,8 @@ function skillLabel(skill: ProducerSkillItem) { return skill.display_name ?? ski
 
 export function SkillsPage() {
   const client = useQueryClient();
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inbox = useWorkInbox();
   const [initial] = useState(restoreComposer);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const creators = useCreators();
@@ -63,6 +65,26 @@ export function SkillsPage() {
   const composeRequest = useRef<ComposePending | null>(initial.composePending ?? null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [inspected, setInspected] = useState<ProducerSkillItem | null>(null);
+  const openedSkill = useRef<string | null>(null);
+  const viewedSkill = useRef<string | null>(null);
+  const requestedSkill = searchParams.get("skill");
+  useEffect(() => {
+    if (!requestedSkill || openedSkill.current === requestedSkill) return;
+    const item = skills.data?.items.find(skill => skill.id === requestedSkill);
+    if (item) { openedSkill.current = requestedSkill; setInspected(item); }
+  }, [requestedSkill, skills.data]);
+  useEffect(() => {
+    if (!inspected) { viewedSkill.current = null; return; }
+    if (inbox.data && viewedSkill.current !== inspected.id) {
+      viewedSkill.current = inspected.id;
+      inbox.markObjectSeen("skill", inspected.id);
+    }
+  }, [inspected?.id, inbox.data]);
+  const closeInspector = () => {
+    setInspected(null);
+    if (requestedSkill) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("skill"); return next; });
+    openedSkill.current = null;
+  };
   const [drag, setDrag] = useState<{ payload: DragPayload; x: number; y: number; target: string | null } | null>(null);
   const dragRef = useRef<{ payload: DragPayload; startX: number; startY: number; active: boolean } | null>(null);
   const dragCleanup = useRef<(() => void) | null>(null);
@@ -223,6 +245,7 @@ export function SkillsPage() {
         aria-haspopup="dialog">
         <span className="skill-icon">{skillIcon(skill.role)}</span>
         <span className="skill-copy"><strong>{skillLabel(skill)}</strong></span>
+        {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
     </div>;
   };
@@ -306,11 +329,11 @@ export function SkillsPage() {
     {drag && <div className={`drag-ghost ${drag.target ? "on-target" : ""}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
       {skillLabel(drag.payload.skill)}
     </div>}
-    {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={() => setInspected(null)}
-      onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== inspected.id)); setInspected(null); }}
+    {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={closeInspector}
+      onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== inspected.id)); closeInspector(); }}
       onAdd={() => {
         addSkill(inspected);
-        setInspected(null);
+        closeInspector();
       }} />}
   </div>;
 }

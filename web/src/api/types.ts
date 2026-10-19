@@ -406,7 +406,7 @@ export interface ProducerSkillDeleteResult {
 
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
 export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";
-export type SkillExtractionOperation = "extract" | "revise" | "trial" | null;
+export type SkillExtractionOperation = "extract" | "revise" | "trial" | "calibrate" | null;
 
 export interface SkillExtractionUpload {
   id: string;
@@ -470,7 +470,8 @@ export interface SkillExtractionEventPage {
 
 export interface SkillExtractionJob {
   observation_warning?: string | null;
-  task_kind?: "extract" | "merge" | "author";
+  task_kind?: "extract" | "merge" | "author" | "calibrate";
+  calibration_id?: string;
   source_skills?: { id: string; name: string; role: ProducerSkillItem["role"]; digest: string }[];
   id: string;
   request_id: string;
@@ -494,6 +495,52 @@ export interface SkillExtractionJob {
   digest: string | null;
   saved_skills: ProducerSkillItem[];
   progress: ProductionProgressView | null;
+}
+
+export type SkillCalibrationRating = "good" | "bad";
+export interface SkillCalibrationArtifact {
+  run_id: string;
+  revision_id: string;
+  artifact_digest: string;
+  order: number | null;
+  rating: SkillCalibrationRating;
+  comment: string;
+  topic_title?: string;
+  cards?: { order: number; url: string }[];
+}
+export interface SkillCalibrationReference {
+  upload_id: string;
+  rating: SkillCalibrationRating;
+  comment: string;
+  url?: string;
+}
+export interface SkillCalibrationInput {
+  request_id: string;
+  series_id: string;
+  skill_id: string;
+  expected_skill_digest: string;
+  artifacts: SkillCalibrationArtifact[];
+  references: SkillCalibrationReference[];
+  instruction?: string;
+}
+export interface SkillCalibration {
+  id: string;
+  request_id: string;
+  series_id: string;
+  skill_id: string;
+  base_skill_digest: string;
+  status: string;
+  job_id: string;
+  job: SkillExtractionJob;
+  base_skill_text: string;
+  diff: string;
+  affected_series: { id: string; name: string }[];
+  applied_digest: string | null;
+  apply_phase: string | null;
+  apply_request_id: string | null;
+  error: string | null;
+  artifacts: SkillCalibrationArtifact[];
+  references: SkillCalibrationReference[];
 }
 
 export interface SeriesComposeInput {

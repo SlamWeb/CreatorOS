@@ -1,14 +1,15 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { FileImage, FileText } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
-import type { ExtractedSkillDraft, ProducerSkillItem, SkillExtractionFile, SkillExtractionMode } from "../api/types";
+import type { ExtractedSkillDraft, ProducerSkillItem, SkillCalibration, SkillExtractionFile, SkillExtractionMode } from "../api/types";
 import { ExtractionActivity } from "./ExtractionActivity";
 import { AuthorSkillForm } from "./AuthorSkillForm";
 import { ExtractionImagePicker, MAX_EXTRACTION_IMAGES } from "./ExtractionImagePicker";
+import { useWorkInbox } from "./TaskInbox";
 import "./artifact-skill-extraction.css";
 
 const modeLabels: Record<SkillExtractionMode, string> = {
@@ -77,6 +78,7 @@ function clearStoredDraft(jobId: string) {
 
 export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSkill?: (skill: ProducerSkillItem) => void; onDirtyChange?: (dirty: boolean) => void } = {}) {
   const cache = useQueryClient();
+  const inbox = useWorkInbox();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("extraction");
   const [files, setFiles] = useState<File[]>([]);
@@ -88,6 +90,13 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const [authorDirty, setAuthorDirty] = useState(false);
   const [authorBusy, setAuthorBusy] = useState(false);
   const [newWorkOpen, setNewWorkOpen] = useState(!selectedId);
+  const [jobsOpen, setJobsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const noteId = useId();
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [trialToApply, setTrialToApply] = useState("");
   const newWorkId = useId();
   const [panelError, setPanelError] = useState("");
   const [draftSkills, setDraftSkills] = useState<ExtractedSkillDraft[]>([]);
@@ -126,6 +135,65 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
     refetchInterval: query => query.state.data && (query.state.data.status === "running" || query.state.data.operation) ? 2000 : false,
   });
   const activeJob = selected.data;
+  useEffect(() => {
+    if (!open || !activeJob) return;
+    const item = inbox.items.find(entry => entry.id === activeJob.id);
+    if (item && inbox.isUnseen(item)) inbox.markSeen(item);
+  }, [open, activeJob?.id, activeJob?.digest, activeJob?.status, inbox.items, inbox.isUnseen, inbox.markSeen]);
+  const calibrationId = activeJob?.calibration_id;
+  const isCalibration = activeJob?.task_kind === "calibrate" || Boolean(calibrationId);
+  const activeJobRef = useRef(activeJob);
+  activeJobRef.current = activeJob;
+  const calibration = useQuery({ queryKey: ["skill-calibration", calibrationId], queryFn: async ({ signal }) => {
+    const incoming = await studioApi.skillCalibration(calibrationId!, signal);
+    const cached = cache.getQueryData<SkillCalibration>(["skill-calibration", calibrationId]);
+    const currentJob = activeJobRef.current;
+    // A slow GET cannot undo a confirmed apply or replace the already loaded
+    // current draft with an earlier operation's response.
+    if (cached && (cached.status === "applied" && incoming.status !== "applied"
+      || (cached.job.revision ?? 0) > (incoming.job.revision ?? 0)
+      || currentJob && currentJob.calibration_id === calibrationId && cached.job.digest === currentJob.digest && incoming.job.digest !== currentJob.digest)) return cached;
+    return incoming;
+  }, enabled: Boolean(calibrationId), retry: false,
+    refetchInterval: query => {
+      const job = query.state.data?.job;
+      return activeJob?.status === "running" || activeJob?.operation || job?.operation
+        || job?.digest !== activeJob?.digest || job?.revision !== activeJob?.revision ? 2000 : false;
+    } });
+  useEffect(() => {
+    if (calibrationId) void cache.invalidateQueries({ queryKey: ["skill-calibration", calibrationId] }, { cancelRefetch: true });
+  }, [calibrationId, activeJob?.digest, activeJob?.revision, activeJob?.operation, activeJob?.status, cache]);
+  const calibrationSeries = useQuery({ queryKey: ["series", calibration.data?.series_id], queryFn: () => studioApi.series(calibration.data!.series_id), enabled: Boolean(calibration.data?.series_id), retry: false });
+  const eligibleTrials = (activeJob?.trials ?? []).filter(item => item.status === "completed" && item.digest === activeJob?.digest && item.cards.length > 0);
+  const selectedApplyTrial = eligibleTrials.find(item => item.id === trialToApply) ?? eligibleTrials[eligibleTrials.length - 1];
+  const applyRequestStorageKey = calibration.data && activeJob?.digest && selectedApplyTrial
+    ? `creatoros:skill-calibration:apply:${calibration.data.id}:${activeJob.digest}:${selectedApplyTrial.id}` : "";
+  let currentApplyRequestId: string | null = null;
+  try { if (applyRequestStorageKey) currentApplyRequestId = sessionStorage.getItem(applyRequestStorageKey); }
+  catch { /* Without a verified stored request, never offer to replace its key. */ }
+  const apply = useMutation({
+    retry: false,
+    mutationFn: () => {
+      if (!calibration.data || !activeJob?.digest || draftDirty || isStaleDraft || !selectedApplyTrial) throw new Error("请先保存草稿，并检查这版草稿的成功试产结果。");
+      const key = applyRequestStorageKey;
+      let requestId = sessionStorage.getItem(key);
+      if (!requestId) { requestId = crypto.randomUUID().replaceAll("-", ""); sessionStorage.setItem(key, requestId); }
+      return studioApi.applySkillCalibration(calibration.data.id, { request_id: requestId, expected_digest: activeJob.digest, expected_skill_digest: calibration.data.base_skill_digest, trial_id: selectedApplyTrial.id });
+    },
+    onSuccess: async result => {
+      cache.setQueryData(["skill-calibration", result.id], result); cache.setQueryData(["skill-extraction", result.job_id], result.job);
+      clearStoredDraft(result.job_id); setApplyOpen(false); setPanelError("");
+      await Promise.all([cache.invalidateQueries({ queryKey: ["producer-skills"] }), cache.invalidateQueries({ queryKey: ["producer-skill-files"] }), cache.invalidateQueries({ queryKey: ["producer-skill-file"] }), cache.invalidateQueries({ queryKey: ["skill-extractions"] })]);
+    },
+    onError: () => { if (calibrationId) void cache.invalidateQueries({ queryKey: ["skill-calibration", calibrationId] }); },
+  });
+  useEffect(() => {
+    if (calibration.data?.status === "applied" && activeJob?.status !== "saved") {
+      cache.setQueryData(["skill-extraction", calibration.data.job_id], calibration.data.job);
+      setApplyOpen(false); apply.reset();
+    }
+  }, [calibration.data?.status, calibration.data?.job_id, activeJob?.status, cache]);
+  useEffect(() => { setActivityOpen(false); setNoteOpen(false); setDiffOpen(false); setApplyOpen(false); setTrialToApply(""); apply.reset(); }, [selectedId]);
 
   useEffect(() => {
     if (selectedId && draftDirty && draftOwnerIdRef.current && selectedId !== draftOwnerIdRef.current) {
@@ -222,6 +290,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       setDraftSkills(job.skills.map(skill => ({ ...skill, output_kind: outputKindFor(skill) })));
       clearStoredDraft(job.id); setDraftBaseDigest(job.digest ?? ""); draftOwnerIdRef.current = job.id;
       setDraftDirty(false); setDraftStorageError(""); setPanelError(""); setSelectionPrompt("");
+      if (job.calibration_id) void cache.invalidateQueries({ queryKey: ["skill-calibration", job.calibration_id] });
     },
   });
   const revise = useMutation({
@@ -283,7 +352,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const selectedSkillIndex = selectedFile ? activeJob?.skills.findIndex(skill => skill.role === selectedFile.role) ?? -1 : -1;
   const selectedSkill = selectedSkillIndex >= 0 ? draftSkills[selectedSkillIndex] : undefined;
   const selectedSkillDocument = selectedSkill ? splitFrontmatter(selectedSkill.skill_md) : null;
-  const trialEligible = activeJob?.status === "ready" && draftSkills.some(skill => skill.output_kind === "image-carousel" && skill.role !== "mind");
+  const trialEligible = activeJob?.status === "ready" && (Boolean(calibrationId) || draftSkills.some(skill => skill.output_kind === "image-carousel" && skill.role !== "mind"));
   const isStaleDraft = Boolean(activeJob?.digest && draftBaseDigest && draftBaseDigest !== activeJob.digest);
 
   useEffect(() => {
@@ -312,6 +381,13 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
     setDraftDirty(false); setDraftStorageError(""); setPanelError("");
   };
   const selectFile = (file: SkillExtractionFile) => { setActiveFileKey(roleFileKey(file)); setViewerMode("preview"); };
+  const resolveReference = (value: string | undefined) => {
+    if (!value || value.startsWith("#") || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(value) || !selectedFile) return undefined;
+    try {
+      const path = decodeURIComponent(new URL(value, `https://skill.local/${selectedFile.path}`).pathname).slice(1);
+      return jobFiles.find(file => file.role === selectedFile.role && file.path === path);
+    } catch { return undefined; }
+  };
 
   return <section className="artifact-extraction">
     <div className="extraction-entry-actions">
@@ -331,7 +407,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       <div className="extraction-new-work">
         <button type="button" className="extraction-new-trigger" aria-expanded={newWorkOpen} aria-controls={newWorkId}
           onClick={() => setNewWorkOpen(value => !value)}>新作品<span>{newWorkOpen ? "收起" : "添加"}</span></button>
-        <form id={newWorkId} hidden={!newWorkOpen} onSubmit={event => {
+        <form id={newWorkId} aria-label="从作品提炼" hidden={!newWorkOpen} onSubmit={event => {
           event.preventDefault(); if (createLock.current) return;
           createLock.current = true; setPanelError(""); create.mutate();
         }}>
@@ -364,10 +440,10 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       {create.isError && !panelError && <p role="alert" className="extraction-error">{create.error.message}</p>}
       {jobs.isError && <p role="alert" className="extraction-error">任务列表读取失败：{jobs.error.message}</p>}
       {jobs.data?.items.length ? <div className="extraction-jobs">
-        <h3>提炼任务</h3>
-        {jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
+        <button type="button" className="extraction-section-toggle" aria-expanded={jobsOpen} onClick={() => setJobsOpen(value => !value)}>任务记录 · {jobs.data.items.length}<span>{jobsOpen ? "收起" : "展开"}</span></button>
+        {jobsOpen && jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
           onClick={() => selectJob(job.id)}>
-          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.task_kind === "author" ? `自写：${job.skills[0]?.name || "Skill 草稿"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
+          <span>{job.task_kind === "calibrate" ? `校准：${job.skills[0]?.name || "Skill"}` : job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.task_kind === "author" ? `自写：${job.skills[0]?.name || "Skill 草稿"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
         </button>)}
       </div> : null}
       {selectionPrompt && <div className="extraction-confirm-switch" role="group" aria-label="放弃未保存编辑">
@@ -382,17 +458,35 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       {selectedId && selected.isPending && <p role="status">正在恢复任务…</p>}
       {selected.isError && <p role="alert" className="extraction-error">任务读取失败：{selected.error.message}</p>}
       {activeJob && <div className="extraction-detail" aria-label="提炼任务详情">
+        {isCalibration && <section className="extraction-calibration" aria-label="Skill 校准对照">
+          <div className="extraction-status"><strong>Skill 修改草稿</strong>{calibration.data?.status === "applied" ? <span>已确认更新</span> : <span>共享 Skill 尚未修改</span>}</div>
+          {calibration.isError && <p role="alert" className="extraction-error">校准记录读取失败：{calibration.error.message}</p>}
+          {calibration.data && <>
+            <button className="extraction-section-toggle" type="button" aria-expanded={diffOpen} onClick={() => setDiffOpen(value => !value)}>修改差异与依据<span>{diffOpen ? "收起" : "查看"}</span></button>
+            {diffOpen && <div className="extraction-calibration-evidence"><pre aria-label="Skill 修改差异">{calibration.data.diff || "草稿正在生成，暂没有差异。"}</pre>
+              {calibration.data.artifacts.map((item, index) => <div key={`artifact-${index}`}><p><Link to={`/runs/${encodeURIComponent(item.run_id)}?revision=${encodeURIComponent(item.revision_id)}`}>{item.topic_title || "原产物"} · {item.order === null ? "整组" : `第 ${item.order} 张`}</Link> · {item.rating === "good" ? "好在哪里" : "需要改进"}：{item.comment}</p>
+                {!!item.cards?.length && <div className="extraction-evidence-images">{item.cards.map(card => <a key={card.order} href={apiUrl(card.url)} target="_blank" rel="noreferrer"><img src={apiUrl(card.url)} alt={`原产物第 ${card.order} 张`} /></a>)}</div>}</div>)}
+              {calibration.data.references.map((item, index) => <div key={`reference-${index}`}><p>参考作品 {index + 1} · {item.rating === "good" ? "好在哪里" : "需要改进"}：{item.comment}</p>{item.url && <div className="extraction-evidence-images"><a href={apiUrl(item.url)} target="_blank" rel="noreferrer"><img src={apiUrl(item.url)} alt={`参考作品 ${index + 1}`} /></a></div>}</div>)}
+            </div>}
+          </>}
+        </section>}
         {draftStorageError && <p role="alert" className="extraction-error">{draftStorageError}</p>}
         <div className="extraction-status"><strong>任务状态：<span className={activeJob.status === "running" ? "task-running-text" : undefined}>{statusLabels[activeJob.status] ?? "状态更新"}</span></strong>
-          {activeJob.operation && <span>当前操作：{activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
-          {activeJob.note && <span>{activeJob.note}</span>}
+          {activeJob.operation && <span>当前操作：{activeJob.operation === "calibrate" ? "校准" : activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
+          {activeJob.note && activeJob.note.length <= 180 && <span>{activeJob.note}</span>}
         </div>
+        {activeJob.note && activeJob.note.length > 180 && <div>
+          <button type="button" className="extraction-new-trigger" aria-expanded={noteOpen} aria-controls={noteId}
+            onClick={() => setNoteOpen(value => !value)}>修改说明<span>{noteOpen ? "收起" : "展开"}</span></button>
+          <p id={noteId} className="extraction-help" hidden={!noteOpen}>{activeJob.note}</p>
+        </div>}
         {activeJob.task_kind === "merge" && <p className="extraction-help">{activeJob.source_skills?.map(skill => skill.name).join(" + ")}</p>}
         {activeJob.observation_warning && <p role="status" className="extraction-error">{activeJob.observation_warning}</p>}
         {activeJob.progress && !activeJob.observation_warning && <p className="extraction-help">最近活动：{progressActivityLabels[activeJob.progress.activity] ?? "状态已更新"}</p>}
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
-        <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
-          active={activeJob.status === "running" || Boolean(activeJob.operation)} />
+        <button type="button" className="extraction-section-toggle" aria-expanded={activityOpen} onClick={() => setActivityOpen(value => !value)}>执行过程<span>{activityOpen ? "收起" : "展开"}</span></button>
+        {activityOpen && <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
+          active={activeJob.status === "running" || Boolean(activeJob.operation)} />}
         {(activeJob.status === "running" || activeJob.operation) && activeJob.cancel_requested && <p role="status">正在取消当前操作…</p>}
         {(activeJob.status === "running" || activeJob.operation) && !activeJob.cancel_requested && <button type="button" className="button button-secondary" disabled={cancel.isPending}
           onClick={() => cancel.mutate()}>{cancel.isPending ? "正在取消…" : "取消当前操作"}</button>}
@@ -425,7 +519,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
                     <input aria-label={`${roleLabels[selectedSkill.role]} Frontmatter 名称`} value={selectedSkill.name}
                       onChange={event => editSkill(selectedSkillIndex, {
                         name: event.target.value, skill_md: withFrontmatterName(selectedSkill.skill_md, event.target.value),
-                      })} disabled={Boolean(activeJob.operation) || create.isPending} />
+                      })} disabled={isCalibration || Boolean(activeJob.operation) || create.isPending} title={isCalibration ? "校准保留原 Skill 标识" : undefined} />
                   </label>
                   <label>目标产物
                     <select aria-label={`${roleLabels[selectedSkill.role]} 目标产物`} value={selectedSkill.output_kind ?? "text"} disabled={Boolean(activeJob.operation) || create.isPending}
@@ -438,7 +532,18 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
                   value={selectedSkill.skill_md} onChange={event => editSkill(selectedSkillIndex, { skill_md: event.target.value })} />
                   : <div className="extraction-markdown">
                     {selectedSkillDocument?.frontmatter && <pre className="extraction-frontmatter">{selectedSkillDocument.frontmatter}</pre>}
-                    <Markdown remarkPlugins={[remarkGfm]}>{selectedSkillDocument?.body ?? selectedSkill.skill_md}</Markdown>
+                    <Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
+                      img: ({ src, alt }) => {
+                        const asset = resolveReference(src);
+                        return asset?.kind === "image" ? <img className="extraction-markdown-image" src={apiUrl(asset.url)} alt={alt || asset.path} />
+                          : <span>{alt || "图片"}（参考文件不可用）</span>;
+                      },
+                      a: ({ href, children }) => {
+                        const file = resolveReference(href);
+                        return file ? <button type="button" className="extraction-markdown-link" onClick={() => selectFile(file)}>{children}</button>
+                          : href && /^https?:\/\//i.test(href) ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>;
+                      },
+                    }}>{selectedSkillDocument?.body ?? selectedSkill.skill_md}</Markdown>
                   </div>}
               </> : selectedFile?.kind === "text" ? <pre className="extraction-text-preview">{fileContent}</pre>
                 : <p className="extraction-help">请选择左侧文件。</p>}
@@ -453,11 +558,29 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
             {draftDirty && <span role="status">有未保存的草稿修改</span>}
             <button type="button" className="button button-secondary" disabled={!draftDirty || isStaleDraft || updateDraft.isPending || Boolean(activeJob.operation) || create.isPending}
               onClick={() => updateDraft.mutate()}>{updateDraft.isPending ? "保存草稿中…" : "保存草稿"}</button>
-            <button type="button" className="button button-primary" disabled={!activeJob.digest || draftDirty || isStaleDraft || save.isPending || Boolean(activeJob.operation) || create.isPending}
+            {!isCalibration && <button type="button" className="button button-primary" disabled={!activeJob.digest || draftDirty || isStaleDraft || save.isPending || Boolean(activeJob.operation) || create.isPending}
               title={draftDirty ? "请先保存草稿" : undefined} onClick={() => save.mutate()}>{save.isPending ? "加入中…" : "确认加入 Skill 库"}</button>
+            }
+            {isCalibration && calibration.data?.status !== "applied" && <button type="button" className="button button-primary" disabled={!selectedApplyTrial || draftDirty || isStaleDraft || Boolean(activeJob.operation) || apply.isPending || !calibration.data}
+              title={!selectedApplyTrial ? "先试用当前草稿并检查结果" : undefined} onClick={() => setApplyOpen(true)}>确认更新当前 Skill</button>}
           </div>
           {updateDraft.isError && <p role="alert" className="extraction-error">草稿保存失败：{updateDraft.error.message}</p>}
           {save.isError && <p role="alert" className="extraction-error">入库失败：{save.error.message}</p>}
+          {isCalibration && applyOpen && <div className="extraction-apply-confirm" role="group" aria-label="确认更新共享 Skill">
+            <strong>保存到原 Skill，以下栏目将使用新版</strong><p>{calibration.data?.affected_series.map(item => item.name).join("、") || "暂无绑定栏目"}</p>
+            <p>旧 Skill 备份和已有产物保留。</p>
+            {eligibleTrials.length > 1 && <label>验收的试产结果<select aria-label="验收的试产结果" value={selectedApplyTrial?.id || ""} onChange={event => setTrialToApply(event.target.value)}>{eligibleTrials.map((item, index) => <option key={item.id} value={item.id}>试产 {index + 1} · {item.topic}</option>)}</select></label>}
+            <div><button type="button" className="button button-primary" disabled={apply.isPending || draftDirty || isStaleDraft || !selectedApplyTrial || Boolean(activeJob.operation)} onClick={() => apply.mutate()}>{apply.isPending ? "正在保存…" : "试用满意，确认保存"}</button><button type="button" className="button button-secondary" disabled={apply.isPending} onClick={() => setApplyOpen(false)}>先不保存</button></div>
+          </div>}
+          {apply.isError && <p role="alert" className="extraction-error">保存未确认：{apply.error.message} 请先刷新核对；原版已变化时，需要重新校准，不会自动覆盖。</p>}
+          {apply.isError && calibration.data?.status === "ready" && calibration.data.apply_phase === "rolled_back" && currentApplyRequestId && calibration.data.apply_request_id === currentApplyRequestId && !activeJob.operation && <div className="extraction-rollback-retry" role="group" aria-label="重新确认已回滚的保存">
+            <p>原 Skill 已恢复，可以重新确认保存。</p>
+            <button type="button" className="button button-secondary" disabled={!applyRequestStorageKey || draftDirty || isStaleDraft} onClick={() => {
+              try { sessionStorage.removeItem(applyRequestStorageKey); }
+              catch { setPanelError("无法清除旧保存请求，请保留草稿并检查浏览器存储。"); return; }
+              apply.reset(); setApplyOpen(true);
+            }}>重新确认保存</button>
+          </div>}
           <label className="extraction-label">要求 Codex 修改草稿
             <textarea aria-label="要求 Codex 修改草稿" rows={2} maxLength={4000} value={reviseInstruction} disabled={create.isPending} onChange={event => { setReviseInstruction(event.target.value); resetReviseAttempt(); }}
               placeholder="说明要保留或调整的规则" />
@@ -466,6 +589,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
             title={draftDirty ? "请先保存草稿" : undefined} onClick={() => revise.mutate()}>{revise.isPending ? "改稿中…" : "让 Codex 改稿"}</button>
           {revise.isError && <p role="alert" className="extraction-error">改稿失败：{revise.error.message}</p>}
           <div className="extraction-trial-controls">
+            {isCalibration && <p className="extraction-help">新线程试用，不进入正式队列。{draftSkills[0]?.role === "mind" ? "候选 Mind 搭配栏目原 Visualize。" : draftSkills[0]?.role === "production" && calibrationSeries.data?.mind_skill_id ? "候选 Visualize 搭配栏目原 Mind。" : ""}</p>}
+            {isCalibration && !selectedApplyTrial && <p className="extraction-help">先检查当前草稿的试产结果，再确认更新。</p>}
             <label className="extraction-label">试产选题
               <textarea aria-label="试产选题" rows={2} maxLength={4000} value={trialTopic} disabled={create.isPending} onChange={event => { trialTopicEditedRef.current = true; setTrialTopic(event.target.value); resetTrialAttempt(); }} />
             </label>
@@ -476,9 +601,11 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           </div>
         </div>}
         {activeJob.status === "saved" && <div className="extraction-saved" role="status">
-          <strong>已加入 CreatorOS Skill 库</strong>
-          {activeJob.saved_skills.map(skill => <p key={skill.id}>{skill.name}{skill.local_path ? <> · 本地路径：<code>{skill.local_path}</code></> : ""}</p>)}
-          {onUseSkill && activeJob.saved_skills.map(skill => <button type="button" className="button button-secondary" key={`use-${skill.id}`} onClick={() => onUseSkill(skill)}>用「{skill.name}」创建栏目</button>)}
+          <strong>{isCalibration ? "已保存到原 Skill" : "已加入 CreatorOS Skill 库"}</strong>
+          {activeJob.saved_skills.map(skill => <p key={skill.id}>{isCalibration
+            ? <Link to={`/skills?skill=${encodeURIComponent(skill.id)}`}>{skill.display_name ?? skill.name}</Link>
+            : <>{skill.name}{skill.local_path ? <> · 本地路径：<code>{skill.local_path}</code></> : ""}</>}</p>)}
+          {!isCalibration && onUseSkill && activeJob.saved_skills.map(skill => <button type="button" className="button button-secondary" key={`use-${skill.id}`} onClick={() => onUseSkill(skill)}>用「{skill.name}」创建栏目</button>)}
         </div>}
         {(activeJob.trials ?? []).length > 0 && <div className="extraction-trials">
           <h3>试产结果</h3>

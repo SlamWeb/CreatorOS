@@ -141,6 +141,22 @@ def composer_evidence(name: str = ""):
 app.router.routes.insert(0, app.router.routes.pop())
 
 
+@app.post("/test/calibration")
+def seed_calibration_route(payload: dict):
+    from tests.skill_calibration_fixture import seed_calibration
+    return seed_calibration(app, root)
+
+
+@app.get("/test/calibration-evidence")
+def calibration_evidence_route():
+    from tests.skill_calibration_fixture import calibration_evidence
+    return calibration_evidence(app)
+
+
+app.router.routes.insert(0, app.router.routes.pop())
+app.router.routes.insert(0, app.router.routes.pop())
+
+
 @app.post("/test/eval-runs")
 def seed_eval_runs(payload: dict):
     """Synthetic reports for browser tests, kept in the isolated server's eval root."""

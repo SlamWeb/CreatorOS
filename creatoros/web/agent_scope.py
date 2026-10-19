@@ -49,6 +49,10 @@ class AgentScopeGuard:
         session_id = request.headers.get("x-creatoros-agent-session")
         if not session_id:
             return None
+        # Applying a candidate is a user's explicit review action, not a model tool.
+        # Do not let overview sessions bypass this boundary either.
+        if request.url.path.startswith("/api/skill-calibrations"):
+            return self._denied()
         try:
             session = self.chat.get(session_id)
         except Exception:

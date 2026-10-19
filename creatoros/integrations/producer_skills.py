@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tarfile
 from pathlib import Path
+from functools import wraps
 from threading import Event, RLock, Thread
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
@@ -24,6 +25,15 @@ from creatoros.skills.loader import SkillLoader, parse_skill_frontmatter
 _SKILL_EDIT_LOCK = RLock()
 # Local extraction may retain twenty 4 MiB references plus supporting resources.
 MAX_LOCAL_SKILL_BYTES = 96 * 1024 * 1024
+
+
+def _skill_io_locked(action):
+    """Exclude the short shared-directory publication gap, never a model call."""
+    @wraps(action)
+    def locked(*args, **kwargs):
+        with _SKILL_EDIT_LOCK:
+            return action(*args, **kwargs)
+    return locked
 
 
 class SkillDigestConflict(ValueError):
@@ -95,6 +105,7 @@ def inherit_copy_permissions(directory: Path) -> None:
                        check=True, capture_output=True, timeout=30)
 
 
+@_skill_io_locked
 def freeze_skill(source: Path, target: Path, expected_digest: str) -> None:
     """Publish a complete copy, rejecting edits that race the copy operation."""
     source, target = Path(source), Path(target)
@@ -227,6 +238,7 @@ class ProducerSkillCatalog:
         # 当前执行/验收器只支持图片轮播；新制作 Skill 未接入适配前不可生产。
         return bool(data["carousel_compatible"]) and cls._role(data) in cls.PRODUCIBLE_ROLES
 
+    @_skill_io_locked
     def describe(self, reference: str) -> dict:
         """A catalog ID is an alias for the same editable local path."""
         data = self._record(reference)
@@ -292,6 +304,7 @@ class ProducerSkillCatalog:
                 or name.startswith(".env")
                 or Path(name).suffix in {".pem", ".key", ".p12", ".pfx", ".sqlite", ".db"})
 
+    @_skill_io_locked
     def _readable_skill_directory(self, skill_id: str):
         """Resolve only an explicitly registered working copy or the fixed built-in Skill."""
         if skill_id == self.BUILTIN_ID:

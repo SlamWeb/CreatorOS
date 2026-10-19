@@ -78,7 +78,10 @@ from .agent_scope import AgentScopeGuard
 from .account_context import CreatorContextBuilder
 from .skill_routes import skill_routes
 from .extraction_routes import extraction_routes
+from .calibration_routes import calibration_routes
+from .work_inbox import work_inbox_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
+from creatoros.integrations.skill_calibration import SkillCalibrationService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.integrations.content_discussion import ContentDiscussionService
@@ -140,6 +143,7 @@ def create_app(
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
+    calibrations = SkillCalibrationService(db, extractions, artifacts)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
     observations = ObservationService(db, chat=chat, research=research,
@@ -158,6 +162,7 @@ def create_app(
                 skill_installs.start()
                 research.start()
                 extractions.start()
+                calibrations.start()
                 discussions.start()
                 feedback.start()
                 yield
@@ -189,6 +194,7 @@ def create_app(
     app.state.skill_installs = skill_installs
     app.state.topic_research = research
     app.state.skill_extractions = extractions
+    app.state.skill_calibrations = calibrations
     app.state.content_discussions = discussions
     app.state.observation = observations
     app.state.evaluation = EvalStore(eval_root, cases_path=eval_cases_path)
@@ -197,6 +203,8 @@ def create_app(
     app.include_router(discussion_routes(discussions))
     app.include_router(worker_task_routes(db, research, discussions))
     app.include_router(extraction_routes(extractions))
+    app.include_router(calibration_routes(calibrations))
+    app.include_router(work_inbox_routes(db, research, extractions))
     app.include_router(research_routes(research, queries))
     app.include_router(reference_routes(db, writes, runs, executor, queries))
     app.include_router(skill_routes(db, skill_installs))

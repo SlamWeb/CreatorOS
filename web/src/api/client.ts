@@ -20,6 +20,8 @@ import type {
   SkillExtractionEvent,
   SkillExtractionEventPage,
   SkillExtractionMode,
+  SkillCalibration,
+  SkillCalibrationInput,
   RunDetail,
   DiscussionEntry,
   RunCancelInput,
@@ -94,6 +96,7 @@ export const studioApi = {
   cancelOperation: (id: string, input: { expected_version: number; expected_revision: number }) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),
   confirmOperation: (id: string, input: OperationConfirmInput) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/confirm`, { method: "POST", body: JSON.stringify(input) }),
   runs: () => request<PageResponse<RunSummary>>("/api/runs?limit=100"),
+  runsPage: (offset: number, creatorId?: string) => request<PageResponse<RunSummary>>(`/api/runs?limit=50&offset=${offset}${creatorId ? `&creator_id=${encodeURIComponent(creatorId)}` : ""}`),
   run: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
   runDiscussions: (id: string) => request<{ items: DiscussionEntry[] }>(`/api/runs/${encodeURIComponent(id)}/discussion`),
   createRunDiscussion: (id: string, input: { request_id: string; revision_id: string; artifact_digest: string; message: string }) =>
@@ -109,6 +112,10 @@ export const studioApi = {
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
   seriesAll: () => request<SeriesView[]>("/api/series"),
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
+  skillCalibrations: (seriesId?: string) => request<{ items: SkillCalibration[] }>(`/api/skill-calibrations${seriesId ? `?series_id=${encodeURIComponent(seriesId)}` : ""}`),
+  skillCalibration: (id: string, signal?: AbortSignal) => request<SkillCalibration>(`/api/skill-calibrations/${encodeURIComponent(id)}`, { signal }),
+  createSkillCalibration: (input: SkillCalibrationInput) => request<SkillCalibration>("/api/skill-calibrations", { method: "POST", body: JSON.stringify(input) }),
+  applySkillCalibration: (id: string, input: { request_id: string; expected_digest: string; expected_skill_digest: string; trial_id: string }) => request<SkillCalibration>(`/api/skill-calibrations/${encodeURIComponent(id)}/apply`, { method: "POST", body: JSON.stringify(input) }),
   producerSkillFiles: (id: string, signal?: AbortSignal) => request<ProducerSkillFiles>(
     `/api/producer-skills/${encodeURIComponent(id)}/files`, { signal }),
   producerSkillFilePath: (id: string, path: string) =>

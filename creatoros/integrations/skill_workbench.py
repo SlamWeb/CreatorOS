@@ -15,6 +15,10 @@ from .skill_extraction import ExtractionError, ExtractionResult, now
 
 
 def require_draft(service, job, digest):
+    if job.get("task_kind") == "calibrate":
+        calibration = getattr(service, "calibration_service", None)
+        if calibration is None or calibration._row(job["calibration_id"]).status != "draft":
+            raise ExtractionError("这份校准已保存或正在保存，不能继续编辑或试用。", 409)
     if job["status"] != "ready" or job.get("operation"):
         raise ExtractionError("请等待当前操作结束，或选择未入库草稿。", 409)
     if not digest or digest != job["digest"] or _digest(service._draft_root(job)) != digest:
@@ -90,6 +94,9 @@ def revise(service, job_id, request_id, expected_digest, instruction):
         from .skill_draft_files import seed_file_drafts
         seed_file_drafts(directory, job["mode"], {s["role"]: service._draft_root(job) / s["role"]
                                                 for s in job["skills"]})
+        if job.get("task_kind") == "calibrate":
+            shutil.copyfile(service._path("jobs", job_id) / "calibration_context.json",
+                            directory / "calibration_context.json")
         if job.get("task_kind") == "merge":
             shutil.copyfile(service._path("jobs", job_id) / "merge_context.json",
                             directory / "merge_context.json")
@@ -123,7 +130,8 @@ def trial(service, job_id, request_id, expected_digest, topic):
         job, key, fresh = begin(service, job_id, request_id, expected_digest, "trial", topic)
         if not fresh:
             return service.get(job_id)
-        if job["mode"] == "mind" or any(s.get("output_kind", "image-carousel") != "image-carousel"
+        companion = job.get("calibration_companion") if job.get("task_kind") == "calibrate" else None
+        if (job["mode"] == "mind" and not companion) or any(s.get("output_kind", "image-carousel") != "image-carousel"
                                         for s in job["skills"] if s["role"] != "mind"):
             raise ExtractionError("当前草稿不包含图片制作能力；可入库后在栏目中组合使用。")
         root = service._path("jobs", job_id) / "trials" / key
@@ -135,6 +143,12 @@ def trial(service, job_id, request_id, expected_digest, topic):
             freeze_skill(source / role, snapshot / role, _digest(source / role))
             versions[role] = SkillVersion(id=skill["name"], name=skill["name"],
                                           digest=_digest(source / role), local_path=str(snapshot / role))
+        if companion:
+            role = companion["role"]
+            frozen = service._path("jobs", job_id) / "base" / "companion"
+            freeze_skill(frozen, snapshot / role, companion["digest"])
+            versions[role] = SkillVersion(id=companion["id"], name=companion["name"],
+                                         digest=companion["digest"], local_path=str(snapshot / role))
         directory = root / "revision-001" / "attempt-001"
         record = {"id": key, "status": "running", "digest": expected_digest, "topic": topic,
                   "error": None, "thread_id": None, "created_at": now()}
@@ -154,7 +168,7 @@ def trial(service, job_id, request_id, expected_digest, topic):
                     series_id=job_id, topic_id=key, topic_title=topic, topic_brief=topic,
                     production_protocol="native-v1", cancel_event=service.cancel_event,
                     on_thread_started=lambda value: update(thread_id=value))
-                if job["mode"] == "pair":
+                if job["mode"] == "pair" or companion:
                     kwargs["composition"] = SkillPair(adapter="native-carousel-v1", **versions)
                 else:
                     skill = job["skills"][0]
@@ -163,7 +177,13 @@ def trial(service, job_id, request_id, expected_digest, topic):
                 producer.produce_to(**kwargs)
                 # Validate the actual pack/files before reporting trial complete.
                 trial_cards(directory, job_id, key, complete=True)
-                update(status="completed")
+                from ..runs.artifacts import validate_artifact
+                composition = kwargs.get("composition")
+                # Calibration apply revalidates this receipt, including all native evidence.
+                checked = validate_artifact(directory, composition=composition,
+                    production_protocol="native-v1") if job.get("task_kind") == "calibrate" else None
+                update(status="completed", **({"artifact_digest": checked.artifact_digest,
+                    "composition": composition.model_dump() if composition else None} if checked else {}))
             except Exception as error:
                 from .skill_extraction import extraction_failure, record_failure_details
                 kind, _ = extraction_failure(error, service.cancel_event.is_set())
