@@ -4,6 +4,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,6 +23,7 @@ from creatoros.storage import (
     ContentAttemptStatus, ContentRunEventType, Series, Topic, TopicSource, TopicStatus,
 )
 from creatoros.tools.chat_images import ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs, CreateSkillDraftArgs
+from creatoros.tools.studio import UpdateProducerSkillFileArgs
 
 
 class ExtractRequest(ExtractSkillImagesArgs):
@@ -33,6 +35,11 @@ class ImportRequest(ImportContentImagesArgs):
 
 
 class AuthorRequest(CreateSkillDraftArgs):
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class SkillAssetRequest(UpdateProducerSkillFileArgs):
+    operation: Literal["add_image", "replace_image", "delete_image"]
     request_id: str = Field(min_length=1, max_length=128)
 
 
@@ -92,6 +99,21 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
     def require(allowed):
         if not allowed:
             raise HTTPException(403, "图片或栏目不属于当前账号。")
+
+    @router.post("/skill-asset")
+    def skill_asset(session_id: str, payload: SkillAssetRequest, request: Request):
+        creator_id = session(session_id, request)
+        require(not creator_id or scope._owns_skill(payload.skill_id, creator_id))
+        from .skill_routes import asset_response
+        if payload.operation == "delete_image":
+            return asset_response(lambda: catalog.delete_skill_image(
+                payload.skill_id, payload.path, payload.expected_digest))
+        # Merely naming an attachment from another conversation never grants access.
+        chat.attachments.get(session_id, payload.attachment_id)
+        raw = chat.attachments.path(session_id, payload.attachment_id).read_bytes()
+        return asset_response(lambda: catalog.save_skill_image(
+            payload.skill_id, payload.path, raw, payload.expected_digest,
+            overwrite=payload.operation == "replace_image"))
 
     @router.post("/reference")
     def reference(session_id: str, payload: ReferenceRequest, request: Request):

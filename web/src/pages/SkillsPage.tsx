@@ -13,15 +13,15 @@ import "./studio-space.css";
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
 
 const composerKey = "creatoros:skill-composer:v1";
-type ComposerDraft = { ids: string[]; name: string; description: string; audience: string; creatorId: string; instruction: string; pending?: { request_id: string; skill_ids: string[]; instruction: string } };
+type ComposerDraft = { ids: string[]; name: string; creatorId: string; instruction: string; pending?: { request_id: string; skill_ids: string[]; instruction: string } };
 function restoreComposer(): ComposerDraft {
   try {
     const data = JSON.parse(sessionStorage.getItem(composerKey) ?? "null");
     if (data && Array.isArray(data.ids) && data.ids.every((id: unknown) => typeof id === "string")) {
-      return { ...data, ids: data.ids.slice(0, 8), name: String(data.name ?? ""), description: String(data.description ?? ""), audience: String(data.audience ?? ""), creatorId: String(data.creatorId ?? ""), instruction: String(data.instruction ?? "") };
+      return { ids: data.ids.slice(0, 8), name: String(data.name ?? ""), creatorId: String(data.creatorId ?? ""), instruction: String(data.instruction ?? ""), pending: data.pending };
     }
   } catch { /* No stored draft. */ }
-  return { ids: [], name: "", description: "", audience: "", creatorId: "", instruction: "" };
+  return { ids: [], name: "", creatorId: "", instruction: "" };
 }
 
 function skillIcon(role: ProducerSkillItem["role"]) {
@@ -41,8 +41,6 @@ export function SkillsPage() {
   const creators = useCreators();
   const [selectedIds, setSelectedIds] = useState<string[]>(initial.ids);
   const [name, setName] = useState(initial.name);
-  const [description, setDescription] = useState(initial.description);
-  const [audience, setAudience] = useState(initial.audience);
   const [creatorId, setCreatorId] = useState(initial.creatorId);
   const [mergeInstruction, setMergeInstruction] = useState(initial.instruction);
   const [workbenchDirty, setWorkbenchDirty] = useState(false);
@@ -58,11 +56,11 @@ export function SkillsPage() {
   useEffect(() => () => dragCleanup.current?.(), []);
   const storeComposer = () => {
     try {
-      sessionStorage.setItem(composerKey, JSON.stringify({ ids: selectedIds, name, description, audience, creatorId, instruction: mergeInstruction, pending: mergeRequest.current }));
+      sessionStorage.setItem(composerKey, JSON.stringify({ ids: selectedIds, name, creatorId, instruction: mergeInstruction, pending: mergeRequest.current }));
       setStorageError("");
     } catch { setStorageError("浏览器无法暂存组合；离开或刷新会丢失尚未提交的选择。"); }
   };
-  useEffect(storeComposer, [selectedIds, name, description, audience, creatorId, mergeInstruction]);
+  useEffect(storeComposer, [selectedIds, name, creatorId, mergeInstruction]);
   const addSkill = (skill: ProducerSkillItem) => {
     setNotice(null);
     if (selectedIds.includes(skill.id)) return;
@@ -74,13 +72,13 @@ export function SkillsPage() {
     retry: false,
     mutationFn: () => {
       if (selectedIds.length !== 1 || !name.trim()) throw new Error("请选择一个完整 Skill 并填写栏目名称。");
-      const input = { name: name.trim(), description: description.trim(), audience: audience.trim(), creator_id: creatorId || null, skill_name: selectedIds[0] };
+      const input = { name: name.trim(), description: "", audience: "", creator_id: creatorId || null, skill_name: selectedIds[0] };
       const signature = JSON.stringify(input);
       if (composeRequest.current?.signature !== signature) composeRequest.current = { signature, id: crypto.randomUUID().replaceAll("-", "") };
       return studioApi.composeSeries({ ...input, request_id: composeRequest.current!.id });
     },
     onSuccess: async (result) => {
-      setSelectedIds([]); setName(""); setDescription(""); setAudience(""); setCreatorId(""); composeRequest.current = null;
+      setSelectedIds([]); setName(""); setCreatorId(""); composeRequest.current = null;
       setNotice({ kind: "ok", text: `已创建「${result.series.name}」。` });
       await Promise.all([
         client.invalidateQueries({ queryKey: ["series-all"] }),
@@ -264,8 +262,6 @@ export function SkillsPage() {
             {selectedIds.length > 1 && <label>融合要求（可选）<textarea rows={3} maxLength={4000} value={mergeInstruction} onChange={event => setMergeInstruction(event.target.value)} placeholder="遇到冲突时，你更希望保留什么？" /></label>}
             <fieldset disabled={busy} className="composer-fields">
             <label>栏目名称<input required={selectedIds.length <= 1} maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
-            <label>栏目定位<input maxLength={10_000} value={description} onChange={event => setDescription(event.target.value)} placeholder="这个栏目讲什么" /></label>
-            <label>目标受众<input maxLength={4_000} value={audience} onChange={event => setAudience(event.target.value)} placeholder="写给谁看" /></label>
             <label>归属账号<select value={creatorId} onChange={event => setCreatorId(event.target.value)}>
               <option value="">暂不分配</option>
               {accounts.map(account => <option key={account.id} value={account.id}>{account.display_name}</option>)}
@@ -286,6 +282,7 @@ export function SkillsPage() {
       {skillLabel(drag.payload.skill)}
     </div>}
     {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={() => setInspected(null)}
+      onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== inspected.id)); setInspected(null); }}
       onAdd={() => {
         addSkill(inspected);
         setInspected(null);

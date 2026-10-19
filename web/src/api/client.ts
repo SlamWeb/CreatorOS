@@ -14,6 +14,8 @@ import type {
   ProducerSkillItem,
   ProducerSkillFiles,
   ProducerSkillText,
+  ProducerSkillAssetResult,
+  ProducerSkillDeleteResult,
   SkillExtractionJob,
   SkillExtractionEvent,
   SkillExtractionEventPage,
@@ -39,6 +41,9 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code = "request_failed",
     readonly runId?: string,
+    readonly details?: unknown,
+    readonly currentDigest?: string,
+    readonly referencingFiles?: string[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -56,8 +61,13 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError("无法连接本地 Studio API，请确认后端已启动。", 0, "network_error");
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string; run_id?: string } } | null;
-    throw new ApiError(body?.error?.message ?? `请求失败（${response.status}）。`, response.status, body?.error?.code, body?.error?.run_id);
+    const body = (await response.json().catch(() => null)) as { detail?: string; error?: {
+      message?: string; code?: string; run_id?: string; details?: unknown;
+      series?: { id: string; name: string }[]; current_digest?: string; referencing_files?: string[];
+    } } | null;
+    throw new ApiError(body?.error?.message ?? body?.detail ?? `请求失败（${response.status}）。`, response.status,
+      body?.error?.code, body?.error?.run_id, body?.error?.series ?? body?.error?.details,
+      body?.error?.current_digest, body?.error?.referencing_files);
   }
   return (await response.json()) as T;
 }
@@ -108,6 +118,18 @@ export const studioApi = {
   saveProducerSkillText: (id: string, input: { path: string; content: string; expected_digest: string; display_name?: string }) =>
     request<ProducerSkillText>(`/api/producer-skills/${encodeURIComponent(id)}/files/content`, {
       method: "PUT", body: JSON.stringify(input),
+    }),
+  saveProducerSkillAsset: (id: string, input: { path: string; data_base64: string; expected_digest: string; overwrite?: boolean }) =>
+    request<ProducerSkillAssetResult>(`/api/producer-skills/${encodeURIComponent(id)}/assets`, {
+      method: "PUT", body: JSON.stringify(input),
+    }),
+  deleteProducerSkillAsset: (id: string, input: { path: string; expected_digest: string }) =>
+    request<ProducerSkillAssetResult>(`/api/producer-skills/${encodeURIComponent(id)}/assets`, {
+      method: "DELETE", body: JSON.stringify(input),
+    }),
+  deleteProducerSkill: (id: string, input: { expected_digest: string }) =>
+    request<ProducerSkillDeleteResult>(`/api/producer-skills/${encodeURIComponent(id)}`, {
+      method: "DELETE", body: JSON.stringify(input),
     }),
   skillExtractions: () => request<{ items: SkillExtractionJob[] }>("/api/skill-extractions"),
   skillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}`),

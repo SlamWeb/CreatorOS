@@ -70,7 +70,7 @@ class AgentScopeGuard:
             return None if allowed and analytics.group(1) == creator_id else self._denied()
 
         # Image actions bind their own resource checks to this exact conversation.
-        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|author|import|reference)", path)
+        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|author|import|reference|skill-asset)", path)
         if image_action and method == "POST":
             return None if image_action.group(1) == session_id else self._denied()
 
@@ -92,6 +92,10 @@ class AgentScopeGuard:
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
         if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
+            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
+
+        match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/assets", path)
+        if match and method in {"PUT", "DELETE"}:
             return None if self._owns_skill(match.group(1), creator_id) else self._denied()
 
         if method == "GET" and path == "/api/creators":

@@ -1,5 +1,18 @@
 # External Integrations SPEC
 
+## 已有 Skill 的参考图管理与移出库（2026-10-19，隔离验证通过，正式加载待空闲）
+
+- 用户需要在现有 Skill 上改正文、上传/替换/删除 assets 参考图；继续使用 CreatorOS 工作副本与全目录 digest CAS，不写 Codex 全局目录，不改历史冻结快照，不自动生产。
+- 仅受管 assets 内的 PNG/JPEG/WebP/GIF 图片可增删换；限制字节/尺寸/路径/链接，新增不隐式覆盖，替换保留原相对路径。仍被正文引用的图片先改引用再删除，失败零变更。每次返回新 digest 与文件信息，不返回图片 base64 给模型。
+- 库删除仅用户显式操作：内置只读、被有效栏目绑定的 Skill 拒绝并给出关联栏目；未使用 Skill 移出目录，保留可恢复登记/文件，旧 Run 图片与快照不删除。网页有确认，不开放模型全局删除权限。
+- 验收：隔离文件/SQLite/真实 HTTP，含正文编辑和新图往返、CAS冲突/越权/坏图/引用保护/冻结旧文件不变；真实前端 DeepSeek 根据当前聊天附件替换已有绑定 Skill，再改正文，不调 Codex/生产或正式数据。
+- 实现：catalog 的图片保存/删除及未使用 Skill 移出库均使用现有进程级编辑锁；新增/替换校验真实图片、4 MiB/帧数/像素/全目录96 MiB上限，格式与扩展名不符明确拒绝，不隐式转码。覆盖/删除先备份原图；删除旧坏图或大图不套新上传限制。回收目录逐级拒绝链接，临时文件关闭后才清理，适配 Windows。
+- 新增资产6项、Agent工具3项与原宿主契约/自写Skill用例联合32/32通过；原 producer_skill_files / producer_skill_edit smoke通过。真实 loopback 与SQLite/文件校验包括摘要冲突、跨会话/账号、损坏及大图删除、引用保护、目录/备份链接拒绝与原件/冻结副本不变，未调模型或正式业务数据。
+- 真实 Chrome + DeepSeek c轮：网页新增/删除无引用图、同路径换图、关闭/重开/刷新后HTTP字节SHA一致；账号聊天 get_producer_skill 2次、update_producer_skill_file 2次，实际附件原图换入assets且正文标记保存，工具错误0。引用删除409、绑定Skill删除409且给出栏目，未绑定Skill移除后刷新不再显示，只填名称创建栏目成功且description/audience为空。原版本/源图/另一账号Skill哈希未变，零Run、零Codex/调研/发布边界调用。
+- 证据与脚本：tests/live_skill_assets_server.py + web/e2e/live-skill-assets.mjs，必须指定全新tmp隔离根和两张不同真实PNG。完整c轮在 tmp/live-skill-assets-20261019-c/browser-final/browser-report.json，聊天Trace在同根chats/；配置模型deepseek-flash，5次调用输入64,615、输出695、总65,310 tokens。b轮缺少夹具creatoros-output声明导致最后建栏目422，保留原报告；仅补夹具后新建c轮通过，不放宽产品门禁或改旧分数。首次两个试验源图同字节在创建目录前即被夹具拒绝。
+- d轮仅界面复核：手机44px按钮、Lucide图标、选择/取消及刷新原SHA/digest不变，无写请求/模型调用；实际截图与报告保留 tmp/live-skill-assets-20261019-d/visual-second。锁/CAS仅保证本机单进程，并非分布式事务；新增图片文件不自动改SKILL.md引用，正文仍由用户或Agent明确编辑。
+- 正式8765准备重启时发现用户新建的苏轼生产Run仍producing，空闲门禁已拒绝停止PID19228；新后端路由当前尚未加载。没有取消生产、改正式Skill/栏目或新增正式测试数据。应在该生产结束并再次核对所有活动任务后重启，不能将隔离通过宣称为正式已生效。
+
 ## 自写提示词与参考图保存草稿（2026-10-19，已验证）
 
 - 用户同意增加自己写Skill，并要求核实Web/Agent接口及真实工具选择；不承诺模型永不选错。入口共用既有提炼草稿、编辑、试用、显式入库和组栏目能力，保存已有提示词不调Codex重新提炼。

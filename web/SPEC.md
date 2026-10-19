@@ -1,5 +1,33 @@
 # CreatorOS Studio Web SPEC
 
+## Skill 文件素材与安全移除（2026-10-19，隔离验证通过，正式接口待重启）
+
+- 用户目标：已安装且可编辑的 Skill 能在现有详情窗口增加、替换、删除图片文件，并继续编辑文本；不用的 Skill 可明确移除；从 Skill 组合创建栏目只需栏目名称和所选 Skill，账号归属仍可选。
+- 入口与落点：文件侧栏提供新增图片，选中图片后提供同路径替换和删除；详情下方单独提供红色删除 Skill 并二次确认。成功操作刷新文件树、内容及库缓存；删除成功关闭详情并清掉组合篮中同一 ID。返回、ESC、切文件仍遵守未保存文本/改名草稿确认。
+- 状态：服务端文件清单与每次写入后的 digest 是真相；待上传 File 与目标路径只在当前详情草稿持有。图片单张 4 MiB 以内，选择后明确保存才上传。已存在路径默认拒绝新增，替换必须选中现有图片且沿用原路径。409 保留文件选择和目标路径，提示重新核对、手动重试；引用中的图片删除被服务端拒绝时保留原文件和说明。删除 Skill 被栏目引用时展示栏目阻挡项；只读 Skill 不展示写入动作。
+- 影响：`SkillInspector`、局部样式、Skill 库页组合草稿、API client/types；不改变旧文件预览、Markdown 文本编辑、Agent 改稿交接、绑定和历史 Run。既有数据库中的栏目定位/受众不清空，也不迁移。
+- Given 本地图片 When 选择但未保存 Then 文件树和服务端不变；明确保存后新文件在 `assets/` 且刷新可见。
+- Given 选中已有图片 When 替换 Then 同路径内容更新、预览和 Markdown 引用使用新 digest 刷新；409 时保留待上传文件且不自动覆盖。
+- Given 图片仍被文本引用 When 删除 Then 显示 409 说明，树和正文不变；未引用图片确认删除后树中消失。
+- Given 未保存文本或改名草稿 When 发起图片/Skill 删除 Then 先确认丢弃草稿；取消时不得发送写请求。
+- Given 未被引用的 Skill When 确认移除 Then 库和组合篮中都消失；仍被栏目引用时显示阻挡栏目，详情保持可检查。
+- 实现：新增图片先选文件并确认目标路径，再显式保存；替换固定原路径；图片删除与 Skill 移除分别二次确认。仅允许 PNG/JPEG/WebP/GIF，前端按 4 MiB 限制，服务端继续做真实格式与路径检查。图片写入后刷新文件列表和文字 digest，图片预览及 Markdown 引用 URL 带新 digest。栏目组合草稿不再保存定位/受众，创建请求仍发送空字符串兼容当前 API。
+- 本前端子任务验证：`npm --prefix web run typecheck` 与 `npm --prefix web run build` 通过，`git diff --check` 通过；Vite 保留已有主包 >500 kB 提醒。尚未在此子任务单独运行浏览器或真实 HTTP 验收，主任务的隔离服务验收结果应另行补记，不能把构建当作操作通过。
+
+### 素材编辑 Direction contract
+
+THESIS: 在原文件树内改参考图，避免再开另一套素材管理页。
+OWN-WORLD: 保留白灰面板、石墨字、蓝色动作及现有 Logo；危险删除使用现有红色。
+STORY: 打开 Skill → 选文件 → 新增或替换图、改正文 → 核对后保存；未使用 Skill 可确认移出库。
+FIRST VIEWPORT: 文件树旁提供添加，图片预览上方提供替换/删除，整份 Skill 删除放独立底栏，不混淆两种删除。
+FORM: Operate 局部扩展，沿用现有模态文件编辑器，无新视觉世界、seed 或 comp；手机上下排布与内部滚动保持可用。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+- 本次仍适用窄扩展例外，缺失全局 PRODUCT/DESIGN 不阻塞或新造体系；质量标尺为已有 Skill 文件详情的可读性、真实图片、可操作错误和不遮挡控件。单次检测仅发现 HEAD 已有 Markdown blockquote 3px 边线，非新组件，不借机改全站风格。
+- 最终TypeScript/build通过，保留既有主包>500kB提醒。真实Chrome c轮全路径通过，包含本地接口/SQLite/文件断言、真实DeepSeek附件换图与改文、删除保护/移除、只填名称建栏目及刷新，完整报告在tmp/live-skill-assets-20261019-c/browser-final；不操作正式数据。
+- 独立finish reviewer初轮fix两项：移动图片按钮过小、Unicode加号不符现有图标。已单批改成44px高控件与Lucide Plus；d轮1440×900/390×844及手机文件树滚动3截图逐张查看，换图草稿取消、两种删除取消、刷新SHA/digest不变，零HTTP写入/模型调用。reviewer复核两项resolved，disposition ship，仅覆盖此修复及可见回归，不宣称全站审计。
+- 正式服务仍有苏轼内容生产，重启门禁已拦住停止操作，未取消/打断任务；新静态构建已生成，但assets/删除新后端需任务完成后重启加载，不能在旧服务上以新按钮404作为已加载功能验收。
+- 独立documenter检查最终三截图、theme/styles及两页面组件，确认此局部未引入体系漂移，沿用白灰/石墨/蓝色与红色危险动作、Lucide图标及桌面左右/手机上下内部滚动布局；不改全局 PRODUCT/DESIGN/sidecar，不将旧blockquote边线提升为新规则。
+
 ## 浮动Agent面板去重（2026-10-18，已实现，构建通过）
 
 - 仅前端小范围调整：浮动面板顶部只保留一次账号名及历史/新对话/关闭；移除Agent对话副标题、正文账号对话标题、重复账号范围行与欢迎大按钮。正文直接显示消息，空会话不伪造消息。

@@ -62,6 +62,7 @@ _ERROR = (
     "request_id", "operation_id", "series_id", "creator_id", "topic_id",
     "revision_id", "skill_id", "url", "current_digest", "expected_digest",
     "current_version", "expected_version", "current_revision", "expected_revision",
+    "referencing_files",
 )
 _PAGE = ("offset", "limit", "total", "total_chars", "has_more", "next_offset")
 
@@ -154,7 +155,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return _items(data, _SKILL)
     if tool_name in {"get_producer_skill", "update_producer_skill_file"}:
         # A requested file's contents are data: do not sanitize/truncate its body.
-        result = _pick(data, _SKILL + ("path", "kind", "content", "digest"))
+        result = _pick(data, _SKILL + ("path", "kind", "content", "digest", "operation"))
         if "page" in data:
             result["page"] = _pick(data["page"], _PAGE)
         if "files" in data:

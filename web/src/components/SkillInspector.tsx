@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, File, FileCode, FileImage, FileText, Folder, FolderOpen, X } from "lucide-react";
+import { BookOpen, File, FileCode, FileImage, FileText, Folder, FolderOpen, Plus, Trash2, X } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
@@ -10,6 +10,26 @@ import { useAgentChat } from "./AgentChatHost";
 import "./skill-inspector.css";
 
 type TreeNode = { name: string; path: string; file?: ProducerSkillFile; children: TreeNode[] };
+type AssetDraft = { mode: "add" | "replace"; file: File; path: string; expectedDigest: string };
+const MAX_ASSET_BYTES = 4 * 1024 * 1024;
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+async function fileBase64(file: File) {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`无法读取图片「${file.name}」，请重新选择。`));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+  return dataUrl.slice(dataUrl.indexOf(",") + 1);
+}
+
+function assetName(file: File) {
+  const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/webp" ? "webp" : file.type === "image/gif" ? "gif" : "png";
+  const stem = file.name.replace(/\.[^.]+$/, "").normalize("NFKD")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100) || "image";
+  return `assets/${stem}.${extension}`;
+}
 
 function fileTree(files: ProducerSkillFile[]) {
   const root: TreeNode = { name: "", path: "", children: [] };
@@ -67,11 +87,14 @@ function TreeFolder({ node, selected, onSelect, disabled }: {
   </div>;
 }
 
-export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit }: {
+export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, onAgentEdit }: {
   skill: ProducerSkillItem; onClose: () => void; onAdd?: () => void;
+  onDeleted?: () => void;
   editContext?: SkillEditContext; onAgentEdit?: (prompt: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const assetInput = useRef<HTMLInputElement>(null);
+  const assetChoice = useRef<"add" | "replace">("add");
   const chat = useAgentChat();
   const queryClient = useQueryClient();
   const titleId = useId();
@@ -89,6 +112,9 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   const [renaming, setRenaming] = useState(false);
   const [renameDirty, setRenameDirty] = useState(false);
   const [renameBusy, setRenameBusy] = useState(false);
+  const [assetDraft, setAssetDraft] = useState<AssetDraft | null>(null);
+  const [assetError, setAssetError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const fileListId = useId();
   const latestId = useId();
   const files = useQuery({
@@ -105,7 +131,6 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     retry: false, gcTime: 0,
   });
   const dirty = (editing && draft !== text.data?.content) || renameDirty;
-  const busy = renameBusy;
   const applySaved = (result: ProducerSkillText) => {
     queryClient.setQueryData(["producer-skill-file", skill.id, result.path], result);
     queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) => current
@@ -124,6 +149,47 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     },
     onError: error => setEditError(error.message),
   });
+  const assetSave = useMutation({
+    retry: false,
+    mutationFn: async (asset: AssetDraft) => studioApi.saveProducerSkillAsset(skill.id, {
+      path: asset.path.trim(), data_base64: await fileBase64(asset.file),
+      expected_digest: asset.expectedDigest, overwrite: asset.mode === "replace",
+    }),
+    onSuccess: async result => {
+      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) =>
+        current ? { ...current, digest: result.digest } : current);
+      setAssetDraft(null); setAssetError(""); setSelected(result.path);
+      await files.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id] });
+      void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+    },
+    onError: error => setAssetError(error.message),
+  });
+  const assetDelete = useMutation({
+    retry: false,
+    mutationFn: (input: { path: string; digest: string }) => studioApi.deleteProducerSkillAsset(skill.id, {
+      path: input.path, expected_digest: input.digest,
+    }),
+    onSuccess: async result => {
+      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) =>
+        current ? { ...current, digest: result.digest } : current);
+      setAssetError(""); setSelected("SKILL.md");
+      await files.refetch();
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id] });
+      void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+    },
+    onError: error => setAssetError(error.message),
+  });
+  const skillDelete = useMutation({
+    retry: false,
+    mutationFn: (digest: string) => studioApi.deleteProducerSkill(skill.id, { expected_digest: digest }),
+    onSuccess: () => {
+      if (onDeleted) onDeleted(); else onClose();
+      void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
+    },
+    onError: error => setDeleteError(error.message),
+  });
+  const busy = renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending;
   useEffect(() => {
     const node = dialog.current;
     const origin = document.activeElement as HTMLElement | null;
@@ -142,10 +208,54 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   useEffect(() => {
     if (text.data && !editing) setDraft(text.data.content);
   }, [text.data, editing]);
-  const confirmDiscard = () => !dirty || window.confirm("当前文件有未保存修改。离开会丢弃草稿，仍要离开吗？");
+  const confirmDiscard = () => !(dirty || assetDraft) || window.confirm("有未保存的修改或待上传图片。离开会丢弃草稿，仍要离开吗？");
+  const chooseAsset = (mode: "add" | "replace") => {
+    if (!files.data?.editable || !files.data.digest || busy || save.isPending) return;
+    if (editing || renaming) { setAssetError("请先保存或取消当前文字、名称编辑，再修改图片。"); return; }
+    if (!confirmDiscard()) return;
+    assetChoice.current = mode;
+    setAssetDraft(null); setAssetError("");
+    if (assetInput.current) { assetInput.current.value = ""; assetInput.current.click(); }
+  };
+  const selectedAsset = (candidate: File | undefined) => {
+    if (!candidate || !files.data) return;
+    if (!IMAGE_TYPES.has(candidate.type)) { setAssetError("仅支持 PNG、JPEG、WebP 或 GIF 图片。"); return; }
+    if (candidate.size > MAX_ASSET_BYTES) { setAssetError("图片不能超过 4 MiB，请压缩后重选。"); return; }
+    const mode = assetChoice.current;
+    setAssetDraft({ mode, file: candidate, path: mode === "replace" ? selected : assetName(candidate), expectedDigest: files.data.digest });
+    setAssetError("");
+  };
+  const saveAsset = () => {
+    if (!assetDraft || busy || save.isPending) return;
+    const path = assetDraft.path.trim();
+    if (assetDraft.mode === "add" && (!/^assets\/[a-zA-Z0-9][a-zA-Z0-9_./-]*\.(?:png|jpe?g|webp|gif)$/i.test(path)
+      || path.length > 512 || path.split("/").some(part => !part || part === "." || part === ".."))) {
+      setAssetError("图片路径须位于 assets/，使用字母、数字、横线或下划线，并以 png、jpg、webp 或 gif 结尾。"); return;
+    }
+    const suffix = path.split(".").at(-1)?.toLowerCase();
+    const expectedType = suffix === "jpg" || suffix === "jpeg" ? "image/jpeg" : `image/${suffix}`;
+    if (assetDraft.file.type !== expectedType) { setAssetError("路径扩展名必须与所选图片格式一致。"); return; }
+    if (assetDraft.mode === "add" && files.data?.files.some(item => item.path === path)) {
+      setAssetError("文件路径已存在。请改名后新增，或选中原图使用「替换图片」。"); return;
+    }
+    assetSave.mutate({ ...assetDraft, path });
+  };
+  const deleteAsset = () => {
+    if (file?.kind !== "image" || !files.data?.digest || busy) return;
+    if (editing || renaming) { setAssetError("请先保存或取消当前文字、名称编辑，再删除图片。"); return; }
+    if (!confirmDiscard()) return;
+    if (!window.confirm(`确定删除图片「${file.path}」吗？此操作会影响后续使用该 Skill 的生产。`)) return;
+    setAssetDraft(null); setAssetError("");
+    assetDelete.mutate({ path: file.path, digest: files.data.digest });
+  };
+  const deleteSkill = () => {
+    if (!files.data?.editable || !files.data.digest || busy || renaming || save.isPending || !confirmDiscard()) return;
+    if (!window.confirm(`确定移除 Skill「${name}」吗？已使用的栏目会阻止删除。`)) return;
+    setDeleteError(""); skillDelete.mutate(files.data.digest);
+  };
   const selectFile = (path: string) => {
     if (save.isPending || busy || renaming || path === selected || !confirmDiscard()) return;
-    setEditing(false); setDraft(""); setEditError(""); setLatestContent(null); setSelected(path); setSource(false);
+    setEditing(false); setDraft(""); setEditError(""); setLatestContent(null); setAssetDraft(null); setAssetError(""); setSelected(path); setSource(false);
   };
   const close = () => { if (!save.isPending && !busy && confirmDiscard()) onClose(); };
   const readLatest = async () => {
@@ -157,7 +267,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
     }
   };
   const handToAgent = () => {
-    if (!agentRequest.trim() || save.isPending || renaming || !confirmDiscard()) return;
+    if (!agentRequest.trim() || save.isPending || busy || renaming || !confirmDiscard()) return;
     const payload = { ...editContext, skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
     if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
     chat.open({ creatorId: editContext?.creatorId ?? null, draftSeed: skillEditPrompt(payload) });
@@ -172,8 +282,16 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
   };
   const role = files.data ? files.data.role : skill.role;
   const name = files.data?.display_name ?? files.data?.name ?? skill.display_name ?? skill.name;
-  const imageUrl = file?.kind === "image" ? apiUrl(studioApi.producerSkillFilePath(skill.id, file.path)) : "";
+  const imagePath = (path: string) => `${apiUrl(studioApi.producerSkillFilePath(skill.id, path))}&digest=${encodeURIComponent(files.data?.digest ?? "")}`;
+  const imageUrl = file?.kind === "image" ? imagePath(file.path) : "";
   const markdown = text.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "") ?? "";
+  const assetConflict = assetSave.error instanceof ApiError && assetSave.error.status === 409
+    || assetDelete.error instanceof ApiError && assetDelete.error.status === 409
+      && assetDelete.error.code !== "skill_asset_referenced";
+  const assetProblem = assetSave.error instanceof ApiError ? assetSave.error : assetDelete.error instanceof ApiError ? assetDelete.error : null;
+  const blockers = skillDelete.error instanceof ApiError && Array.isArray(skillDelete.error.details)
+    ? skillDelete.error.details.filter((item): item is { id: string; name: string } =>
+      !!item && typeof item === "object" && "id" in item && "name" in item) : [];
 
   return <dialog ref={dialog} className="skill-inspector" aria-labelledby={titleId}
     onCancel={event => { event.preventDefault(); close(); }}
@@ -186,10 +304,12 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }}>
+    <input ref={assetInput} className="skill-asset-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif"
+      aria-label="选择 Skill 图片" onChange={event => selectedAsset(event.target.files?.[0])} />
     <header className="skill-inspector-header">
       <div className="skill-inspector-heading"><span className="skill-inspector-mark"><BookOpen size={23} /></span>
         <div><div className="skill-inspector-title"><h2 id={titleId}>{name}</h2>
-          {files.data?.editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending}
+          {files.data?.editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending || busy || !!assetDraft}
             onClick={() => setRenaming(true)}>改名</button>}
           <span className="skill-inspector-role">{role === "mind" ? "Mind" : role === "production" ? "Visualize" : role ? "完整 Skill" : "未分类"}</span></div>
           <p>{files.data?.description ?? skill.description}</p>
@@ -211,10 +331,16 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
         <aside className="skill-inspector-sidebar">
           <button type="button" className="skill-files-trigger" aria-expanded={filesOpen} aria-controls={fileListId}
             onClick={() => setFilesOpen(value => !value)}>文件<span>{filesOpen ? "收起" : "展开"}</span></button>
-          <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending || renaming} /></nav>
+          {files.data?.editable && <button type="button" className="skill-asset-add" disabled={busy || save.isPending || renaming}
+            onClick={() => chooseAsset("add")}><Plus size={14} aria-hidden="true" />添加图片</button>}
+          <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending || busy || renaming} /></nav>
         </aside>
         <section className="skill-inspector-preview" aria-label="文件预览">
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
+            {file?.kind === "image" && files.data?.editable && <div className="skill-asset-toolbar">
+              <button type="button" disabled={busy || save.isPending || renaming} onClick={() => chooseAsset("replace")}>替换图片</button>
+              <button type="button" className="skill-danger-link" disabled={busy || save.isPending || renaming} onClick={deleteAsset}>删除图片</button>
+            </div>}
             {files.data && <button type="button" className="skill-agent-trigger" aria-expanded={agentOpen}
               aria-label="让 Agent 帮我修改当前 Skill" disabled={renaming} onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
             {(file?.kind === "markdown" || file?.kind === "text") && text.data && <div className="skill-file-modes">
@@ -223,13 +349,34 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
                   onClick={() => { setEditError(""); save.mutate(); }}>{save.isPending ? "正在保存…" : latestContent !== null ? "覆盖保存" : "保存文件"}</button></>
                 : <><button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
                   {file.kind === "markdown" && <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>}
-                  {files.data?.editable && <button type="button" disabled={renaming} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
+                  {files.data?.editable && <button type="button" disabled={renaming || busy || !!assetDraft} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
             </div>}
           </div>
           <div className="skill-file-content" key={selected}>
+            {assetDraft && <div className="skill-asset-draft" role="group" aria-label="待保存图片">
+              <strong>{assetDraft.mode === "add" ? "添加图片" : "替换当前图片"}</strong>
+              <p>已选择 {assetDraft.file.name}（{(assetDraft.file.size / 1024 / 1024).toFixed(2)} MiB）；保存前不会修改 Skill。</p>
+              {assetDraft.mode === "add" ? <label>保存路径<input value={assetDraft.path} maxLength={512} disabled={assetSave.isPending}
+                onChange={event => { setAssetDraft({ ...assetDraft, path: event.target.value }); setAssetError(""); }} /></label>
+                : <p>保留路径：<code>{assetDraft.path}</code></p>}
+              <div className="skill-asset-draft-actions"><button type="button" className="skill-inspector-add" disabled={busy || save.isPending} onClick={saveAsset}>
+                {assetSave.isPending ? "正在保存…" : "保存图片"}</button>
+                <button type="button" disabled={assetSave.isPending} onClick={() => { setAssetDraft(null); setAssetError(""); }}>取消</button></div>
+            </div>}
+            {(assetError || assetDelete.isPending) && <div className="skill-asset-feedback" role={assetError ? "alert" : "status"}>
+              <p>{assetDelete.isPending ? "正在删除图片…" : assetError}</p>
+              {assetProblem?.referencingFiles?.length ? <p>引用它的文件：{assetProblem.referencingFiles.join("、")}。请先修改引用，再删除图片。</p> : null}
+              {assetConflict && <button type="button" disabled={busy} onClick={async () => {
+                const latest = await files.refetch();
+                if (latest.data) {
+                  setAssetDraft(current => current ? { ...current, expectedDigest: latest.data.digest } : current);
+                  setAssetError("已读取最新文件清单。请核对图片与路径，再手动保存或删除。");
+                }
+              }}>读取最新文件清单</button>}
+            </div>}
             {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
               <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
-              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending || renaming}>在 Agent 中继续</button></form></div>}
+              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending || busy || renaming}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
             {file?.kind === "unsupported" && <p>不支持预览，请在本地查看。</p>}
             {file?.kind === "image" && <SkillImage key={imageUrl} url={imageUrl} path={file.path} />}
@@ -244,7 +391,7 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
                 : <div className="skill-file-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
                   img: ({ src, alt }) => {
                     const asset = resolveReference(src);
-                    return asset?.kind === "image" ? <SkillImage url={apiUrl(studioApi.producerSkillFilePath(skill.id, asset.path))} path={asset.path} />
+                    return asset?.kind === "image" ? <SkillImage key={imagePath(asset.path)} url={imagePath(asset.path)} path={asset.path} />
                       : <span className="skill-file-image-unavailable">{alt || "图片"}（参考文件不可用）</span>;
                   },
                   a: ({ href, children }) => {
@@ -265,6 +412,15 @@ export function SkillInspector({ skill, onClose, onAdd, editContext, onAgentEdit
           </div>
         </section>
       </div>}
+    {files.data?.editable && <footer className="skill-inspector-footer">
+      <button type="button" className="skill-delete-trigger" disabled={busy || save.isPending || renaming} onClick={deleteSkill}>
+        <Trash2 size={15} />{skillDelete.isPending ? "正在移除…" : "删除这个 Skill"}</button>
+      {deleteError && <div role="alert"><p>{deleteError}</p>
+        {blockers.length > 0 && <p>被这些栏目使用：{blockers.map(item => `${item.name}（${item.id}）`).join("、")}。请先解除绑定。</p>}
+        {skillDelete.error instanceof ApiError && skillDelete.error.status === 409 && skillDelete.error.code !== "skill_in_use" &&
+          <button type="button" disabled={busy} onClick={() => void files.refetch()}>读取最新版本</button>}
+      </div>}
+    </footer>}
   </dialog>;
 }
 

@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## Skill 参考图与删除入口（2026-10-19，隔离验证通过）
+
+- PUT /api/producer-skills/{id}/assets 接受 path/data_base64/expected_digest/overwrite(false)；DELETE 同路径接受 path/expected_digest。仅受管图片，复用目录摘要、错误响应与归属守卫。
+- DELETE /api/producer-skills/{id} 接受 expected_digest，网页显式确认；使用中409并返回关联栏目，内置拒绝，未使用者可恢复移出库。账号 Agent 不开放全局删除。
+- 当前会话 image-actions/skill-asset 把自己的附件转换为图片字节；核验 Skill 为当前账号绑定，禁止任意本地路径。正文原 PUT files/content 保持兼容。
+- 目录移除入口拒绝所有Agent来源头（含总览），账号assets PUT/DELETE及会话转换分别核验绑定与当前会话；二进制不允许模型直接传本地路径。错误统一为409摘要/引用/占用、413大小、403只读或权限、422无效内容。
+- 32项关联本地/真实loopback测试及独立前端DeepSeek回归通过，正式服务因正在生产未重启，OpenAPI目前无新assets路径；保持此状态不打断用户，完工后重启才生效。
+
 ## 自写 Skill 草稿的网页与会话入口（2026-10-19）
 
 - POST /api/skill-extractions/author 将现成提示词/SKILL.md 与可选参考图保存为 ready 草稿，无 Codex worker/thread，不注册目录、不创建内容。复用原草稿文件预览、编辑、CAS 入库及试产契约。

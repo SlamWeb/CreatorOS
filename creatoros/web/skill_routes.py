@@ -1,5 +1,8 @@
 """Skill installation and explicit compare-and-set column binding."""
-from fastapi import APIRouter, HTTPException, Query
+import base64
+import binascii
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import update
@@ -7,6 +10,8 @@ from typing import Literal
 
 from creatoros.storage import Series
 from creatoros.integrations.producer_skills import SkillDigestConflict
+from creatoros.integrations.skill_assets import SkillAssetExistsError, SkillReferencedError, MAX_UPLOAD_BYTES
+from creatoros.integrations.skill_removal import SkillInUseError
 from .schemas import WriteRequest
 
 
@@ -27,6 +32,51 @@ class UpdateSkillFileRequest(BaseModel):
     content: str = Field(max_length=512 * 1024)
     expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     display_name: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+class SaveSkillImageRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    path: str = Field(min_length=1, max_length=512)
+    data_base64: str = Field(min_length=1)
+    expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    overwrite: bool = False
+
+
+class DeleteSkillImageRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    path: str = Field(min_length=1, max_length=512)
+    expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class RemoveSkillRequest(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+def asset_response(action):
+    """Share the same asset error contract with HTTP and Agent actions."""
+    try:
+        return JSONResponse(action(), headers={"Cache-Control": "no-store"})
+    except SkillDigestConflict as error:
+        return JSONResponse(status_code=409, content={"error": {
+            "code": "skill_digest_conflict", "message": str(error),
+            "current_digest": error.current_digest,
+        }})
+    except SkillReferencedError as error:
+        return JSONResponse(status_code=409, content={"error": {
+            "code": "skill_asset_referenced", "message": str(error),
+            "referencing_files": error.referencing_files,
+        }})
+    except SkillAssetExistsError as error:
+        return JSONResponse(status_code=409, content={"error": {
+            "code": "skill_asset_conflict", "message": str(error),
+        }})
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except OverflowError as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except (ValueError, TypeError, OSError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 def skill_routes(database, service):
@@ -104,6 +154,46 @@ def skill_routes(database, service):
             raise HTTPException(status_code=415, detail=str(error)) from error
         except UnicodeError as error:
             raise HTTPException(status_code=422, detail="Skill 内容必须是有效 UTF-8 文本。") from error
+        except (ValueError, OSError, KeyError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @router.put("/producer-skills/{skill_id}/assets")
+    def save_skill_asset(skill_id: str, request: SaveSkillImageRequest):
+        def action():
+            if len(request.data_base64) > 4 * ((MAX_UPLOAD_BYTES + 2) // 3) + 4:
+                raise OverflowError("单张图片最多 4 MiB。")
+            try:
+                raw = base64.b64decode(request.data_base64, validate=True)
+            except (binascii.Error, ValueError) as error:
+                raise ValueError("data_base64 必须是有效的图片 base64。") from error
+            return service.catalog.save_skill_image(
+                skill_id, request.path, raw, request.expected_digest, overwrite=request.overwrite)
+
+        return asset_response(action)
+
+    @router.delete("/producer-skills/{skill_id}/assets")
+    def delete_skill_asset(skill_id: str, request: DeleteSkillImageRequest):
+        return asset_response(lambda: service.catalog.delete_skill_image(
+            skill_id, request.path, request.expected_digest))
+
+    @router.delete("/producer-skills/{skill_id}")
+    def remove_skill(skill_id: str, body: RemoveSkillRequest, request: Request):
+        if request.headers.get("x-creatoros-agent-session"):
+            raise HTTPException(status_code=403, detail="Agent 不能移出整个 Skill。")
+        try:
+            return JSONResponse(service.catalog.remove_unused_skill(
+                skill_id, body.expected_digest, database), headers={"Cache-Control": "no-store"})
+        except SkillDigestConflict as error:
+            return JSONResponse(status_code=409, content={"error": {
+                "code": "skill_digest_conflict", "message": str(error),
+                "current_digest": error.current_digest,
+            }})
+        except SkillInUseError as error:
+            return JSONResponse(status_code=409, content={"error": {
+                "code": "skill_in_use", "message": str(error), "series": error.series,
+            }})
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
         except (ValueError, OSError, KeyError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
 

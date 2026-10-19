@@ -388,6 +388,21 @@ export interface ProducerSkillText {
   display_name?: string;
   description?: string;
 }
+export interface ProducerSkillAssetResult {
+  skill_id: string;
+  path: string;
+  kind: "image";
+  digest: string;
+  editable: true;
+  operation: "add" | "replace" | "delete";
+}
+
+export interface ProducerSkillDeleteResult {
+  skill_id: string;
+  operation: "remove";
+  removed: true;
+  recovery_record: string;
+}
 
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
 export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";

@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## 已有 Skill 参考图编辑（2026-10-19，隔离验证通过）
+
+- 不增加模型工具：update_producer_skill_file 保留 write_text 默认行为，扩展 add_image/replace_image/delete_image；图片来源仅当前会话 attachment_id，写之前取真实文件目录 digest，换图不猜本地路径。
+- 用户授权可同时看旧参考/新附件，再依次改图与正文；每一步使用最新回执或重新读取的摘要。修改共享 Skill 影响后续绑定栏目，不自动改旧产物/快照/批准状态；不派 Codex 修改 Skill。
+- 库删除只提供网页入口，避免账号 Agent 对无归属共享库执行全局删除；创建栏目不追问定位/受众，旧可选字段仅为兼容保留。
+- 三项新Schema/宿主身份/真实账号HTTP工具测试通过，与相关旧用例合计32/32；真实前端DeepSeek完成取文件、同路径换附件图、用新摘要保存正文，四个工具调用零错误、未使用Codex。图片回执仅路径/摘要/操作，不把base64喂回模型；引用保护错误保留referencing_files，便于先改引用。完整证据、用量及正式加载待空闲边界见 integrations/SPEC.md。
+
 ## 自写提示词与参考图保存草稿（2026-10-19）
 
 - 总入口与账号入口增加 create_skill_draft：用户已有提示词/SKILL.md 时直接保存原文与指定会话附件，不再委派 Codex 提炼；需要从作品归纳方法仍用原提炼工具。宿主生成同轮请求身份，不接受任意本地路径或其他会话附件。

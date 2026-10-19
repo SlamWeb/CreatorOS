@@ -260,11 +260,31 @@ class UpdateProducerSkillFileArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     skill_id: str = Field(pattern=r"^[a-z0-9-]+--[a-f0-9]{16}$",
                           description="从 list_producer_skills 取得的已安装 Skill ID。")
-    path: str = Field(min_length=1, max_length=512, description="从文件列表返回的相对路径。")
-    content: str = Field(max_length=512 * 1024, description="完整的新 UTF-8 文本。一次只更新一个已列出的文件。")
+    path: str = Field(min_length=1, max_length=512,
+        description="文字/替换/删除使用文件列表中的相对路径；新增图片使用 assets/ 下的新相对文件名。")
+    content: str | None = Field(default=None, max_length=512 * 1024,
+                               description="write_text 时提供完整的新 UTF-8 文本；图片操作不传此字段。")
+    operation: Literal["write_text", "add_image", "replace_image", "delete_image"] = Field(
+        default="write_text", description="默认改文字；新增/替换/删除 assets 内的参考图分别用 add_image/replace_image/delete_image。")
+    attachment_id: str | None = Field(default=None, min_length=1, max_length=128,
+        description="新增或替换图片时提供当前会话真实附件ID，不传任意图片路径或base64。")
     expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$",
-                                 description="get_producer_skill(path=目标文件) 返回的当前工作副本 digest。"
+                                 description="get_producer_skill(list_files=true) 或 path 读取返回的当前工作副本 digest。"
                                              "分页正文不提供该值；禁止猜测或使用 source_digest。")
+
+    @model_validator(mode="after")
+    def matching_content(self):
+        if self.operation == "write_text":
+            if self.content is None or self.attachment_id is not None:
+                raise ValueError("改文字需要完整 content，不能同时传图片附件。")
+        elif self.content is not None:
+            raise ValueError("图片操作不接受文本 content。")
+        elif self.operation in {"add_image", "replace_image"}:
+            if not self.attachment_id:
+                raise ValueError("新增或替换参考图需要当前会话 attachment_id。")
+        elif self.attachment_id is not None:
+            raise ValueError("删除参考图不需要上传附件。")
+        return self
 
 
 class NoArgs(BaseModel):
@@ -296,7 +316,13 @@ def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=Fal
                                      params={"offset": offset, "limit": limit}), context)
 
 
-def update_producer_skill_file(skill_id, path, content, expected_digest, context=None):
+def update_producer_skill_file(skill_id, path, content=None, expected_digest=None, context=None,
+                               operation="write_text", attachment_id=None):
+    values = UpdateProducerSkillFileArgs(skill_id=skill_id, path=path, content=content,
+        expected_digest=expected_digest, operation=operation, attachment_id=attachment_id)
+    if operation != "write_text":
+        from .chat_images import _action
+        return _action("skill-asset", values.model_dump(exclude_none=True), context)
     return _call(lambda c: c.request(
         "PUT", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
         payload={"path": path, "content": content, "expected_digest": expected_digest}), context)

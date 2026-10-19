@@ -463,6 +463,25 @@ class ProducerSkillCatalog:
         with _SKILL_EDIT_LOCK:
             return self._update_skill_file_locked(skill_id, relative_path, content, expected_digest, display_name=display_name)
 
+    def save_skill_image(self, skill_id: str, path: str, raw: bytes,
+                         expected_digest: str, overwrite: bool = False) -> dict:
+        from .skill_assets import save_skill_image
+
+        with _SKILL_EDIT_LOCK:
+            return save_skill_image(self, skill_id, path, raw, expected_digest, overwrite=overwrite)
+
+    def delete_skill_image(self, skill_id: str, path: str, expected_digest: str) -> dict:
+        from .skill_assets import delete_skill_image
+
+        with _SKILL_EDIT_LOCK:
+            return delete_skill_image(self, skill_id, path, expected_digest)
+
+    def remove_unused_skill(self, skill_id: str, expected_digest: str, database) -> dict:
+        from .skill_removal import remove_unused_skill
+
+        with _SKILL_EDIT_LOCK:
+            return remove_unused_skill(self, skill_id, expected_digest, database)
+
     def _update_skill_file_locked(self, skill_id: str, relative_path: str, content: str,
                                   expected_digest: str, *, display_name: str | None = None) -> dict:
         """Atomically update one listed UTF-8 text file in an installed working copy."""
