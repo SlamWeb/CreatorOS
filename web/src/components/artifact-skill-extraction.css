@@ -40,6 +40,7 @@
 .extraction-remove-image { position:absolute; top:5px; right:5px; display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid var(--line); border-radius:50%; background:var(--canvas); color:var(--ink); cursor:pointer; }
 .extraction-remove-image:hover:not(:disabled) { color:var(--danger); }
 .extraction-image-picker :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.extraction-image-picker:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 @media(max-width:600px) { .extraction-dropzone { padding:18px; gap:12px; } .extraction-upload-copy { min-width:150px; } .extraction-choose-images { width:100%; } }
 @media(prefers-reduced-motion:reduce) { .extraction-dropzone { transition:none; } }
 .extraction-thumbnails { display: flex; flex-wrap: wrap; gap: 8px; }

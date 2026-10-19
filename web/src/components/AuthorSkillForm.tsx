@@ -102,8 +102,9 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
       <p className="extraction-help">{draft.content.length.toLocaleString()} / 20,000 字符 · 文字会在本标签页暂存，未上传图片刷新后需重新选择。</p>
       <label className="extraction-label">参考图片（可选）</label>
       <ExtractionImagePicker files={files} disabled={busy} onError={setError} onChange={next => {
-        if (next.length + draft.uploads.length > MAX_EXTRACTION_IMAGES) { setError("参考图片合计最多 20 张。"); return; }
+        if (next.length + draft.uploads.length > MAX_EXTRACTION_IMAGES) { setError("参考图片合计最多 20 张。"); return false; }
         setFiles(next); edit("request_id", "");
+        return true;
       }} />
       {!!draft.uploads.length && <div className="extraction-image-grid author-skill-uploaded" aria-label="已上传参考图片">{draft.uploads.map(upload => <figure key={upload.id}>
         <a href={apiUrl(upload.url)} target="_blank" rel="noopener noreferrer" aria-label={`预览 ${upload.name}`}><img src={apiUrl(upload.url)} alt={upload.name} /></a>
