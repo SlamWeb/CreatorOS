@@ -455,7 +455,7 @@ export interface SkillExtractionEventPage {
 
 export interface SkillExtractionJob {
   observation_warning?: string | null;
-  task_kind?: "extract" | "merge";
+  task_kind?: "extract" | "merge" | "author";
   source_skills?: { id: string; name: string; role: ProducerSkillItem["role"]; digest: string }[];
   id: string;
   request_id: string;

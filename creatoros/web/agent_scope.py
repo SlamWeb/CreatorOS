@@ -70,7 +70,7 @@ class AgentScopeGuard:
             return None if allowed and analytics.group(1) == creator_id else self._denied()
 
         # Image actions bind their own resource checks to this exact conversation.
-        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|import|reference)", path)
+        image_action = re.fullmatch(r"/api/agent/sessions/([^/]+)/image-actions/(read|extract|author|import|reference)", path)
         if image_action and method == "POST":
             return None if image_action.group(1) == session_id else self._denied()
 

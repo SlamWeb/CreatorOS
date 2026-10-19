@@ -1,5 +1,18 @@
 # External Integrations SPEC
 
+## 自写提示词与参考图保存草稿（2026-10-19，已验证）
+
+- 用户同意增加自己写Skill，并要求核实Web/Agent接口及真实工具选择；不承诺模型永不选错。入口共用既有提炼草稿、编辑、试用、显式入库和组栏目能力，保存已有提示词不调Codex重新提炼。
+- 新POST /api/skill-extractions/author接受request_id/name/description/content/role/upload_ids/display_name；本地保存同形ready草稿和原图assets，原始content另存source.txt，幂等输入变化409。role默认完整Skill，仅Mind/Visual可选；不自动入库/组栏目/生产。
+- Agent create_skill_draft经当前会话image-actions/author，附件只读当前会话、宿主绑定所有权，草稿查询/入库沿用原守卫；明确区分保存现成提示词和从作品提炼。Web提供自己写Skill入口，复用现有预览编辑、试用、入库界面，配色不变。
+- 验证：真实隔离HTTP/文件/幂等及跨会话负例，Web主路径/刷新/错误，真实前端DeepSeek两轮保存→预览→明确确认入库→创建当前账号栏目；检查工具Trace、图片字节和数据库绑定，不动正式账号，不自动生图发布。功能未验证不写已完成。
+- 实现保留全部角色显式附带的图片和原始 UTF-8 source.txt；网页保存不 strip 原文。完整 SKILL.md 的 name/description 与表单不符则拒绝，不静默重写；图片交付声明仅补缺失值，不覆盖已有矛盾声明。复制/校验失败保留 failed 记录，不冒充 ready。
+- `python -m unittest tests.test_skill_authoring tests.test_authored_skill_actions -v`：17/17 通过，覆盖真实 loopback 上传/预览/编辑/入库/账号绑定、正文及图片原字节、三种角色、重启恢复、请求重放/冲突、跨会话拒绝、坏图/篡改/IO故障。原 skill_extraction、skill_extraction_tools、chat_image_actions 三组 smoke 通过；不调用模型或正式业务数据。
+- 关联 host_tool_contract/model_projection/chat_links 共40项中39项通过；唯一失败为改动前 HEAD 已存在的 research_series_topics 说明缺少 requested_count 等旧文本断言，本次未修改调研行为/旧断言，不能宣称全套回归通过。新增导航测试首轮误把“忽略外部URL并由宿主生成安全本地入口”期望为无入口，修正测试后通过，无对应产品修复。
+- 实际 Chrome + DeepSeek 在独立 b/c 两轮运行中均完成网页保存与账号两轮对话：create_skill_draft → 用户检查后明确确认 → save_extracted_skills → compose_series。c 轮每次新增工具均 done，source.txt 与用户提供的原文一致，草稿与入库参考图 SHA256 一致；账号/栏目绑定正确，零 Run、零 Codex/提炼/调研/发布边界调用。配置模型 deepseek-flash，供应商未回传底层解析型号；c 两轮输入合计64,917、输出530、总65,447 tokens。这是窄路径验证，不是工具选择统计成功率。
+- 可重复入口：tests/live_authored_skill_server.py + web/e2e/live-authored-skill.mjs，必须指定 tmp 下全新隔离根与真实 PNG；证据保留 tmp/authored-skill-browser-20261019-{a,b,c} 及对应 live 根/会话 Trace。a 轮脚本的完整 Markdown description 未与表单同步，后端正确拒绝，失败原样保留，修正测试输入后另建新轮。c 轮报告与完整对话不覆盖旧记录。
+- UI 遮挡修复后的仅视觉/点击复核在 d 轮完成，无 HTTP 写入/模型调用；正式8765重启前核实对话/生产/提炼/调研/队列均无活动，加载后健康200、新 author 路由与新静态包均在，6账号/8栏目/46选题/44 Run 保持不变。未在正式库创建测试 Skill 或内容，不批准发布；新 Skill 的付费生图本轮未验证。
+
 ## SDK事件收图与编号交付（2026-10-18，已实现并完成真实一图验证）
 
 - 用户授权：新生产直接消费imageGeneration完成事件，由宿主校验/保存原图；Codex只选择图片编号与内容，不再负责抄路径/搬文件。旧任务、失败记录和冻结快照不改，批准/发布边界不变。

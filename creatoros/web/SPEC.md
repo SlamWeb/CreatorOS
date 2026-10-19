@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 自写 Skill 草稿的网页与会话入口（2026-10-19）
+
+- POST /api/skill-extractions/author 将现成提示词/SKILL.md 与可选参考图保存为 ready 草稿，无 Codex worker/thread，不注册目录、不创建内容。复用原草稿文件预览、编辑、CAS 入库及试产契约。
+- Agent 经当前会话 image-actions/author 入口转换附件；记录任务归属后才保存，禁止跨会话读写草稿，错误或请求内容冲突转为真实 HTTP 状态而非裸 500。
+- 同请求重放不重复建草稿，同请求不同内容 409；服务关停、无效文件/声明、图片损坏或复制失败不伪报成功。账号 Agent 新栏目仍经过原绑定和归属检查，不开放任意路径写入。
+- 正式数据不作试写；真实前端 DeepSeek、隔离文件/SQLite 的实际验收结果见 integrations/SPEC.md 与 web/SPEC.md。
+- 新增17项自动测试及三组原smoke通过，真实Chrome→DeepSeek→工具→HTTP→文件/SQLite往返通过；正式服务已在无活动任务时重启加载，新路由健康检查通过，已有业务对象数量不变。不将新增接口通过等同于全项目无故障。
+
 ## 多图参考选题/制作（2026-10-18）
 
 - 增加按栏目归属的reference-images上传/只读图片、reference-inputs冻结、reference-production直接生产；调研既有路由可接reference_id。账号Agent以当前会话附件调用image-actions/reference，所有资源再次核验。原图不进共享Skill。

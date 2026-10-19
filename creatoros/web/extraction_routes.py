@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from ..integrations.skill_extraction import DraftSkill, ExtractionError, MAX_IMAGE, MAX_REFERENCE_IMAGES
 from .schemas import WriteRequest
@@ -20,6 +20,18 @@ class Extract(WriteRequest):
     source_text: str = Field(default="", max_length=20000)
     mode: Literal["pair", "mind", "visual", "single"] = "single"
     instruction: str = Field(default="", max_length=4000)
+
+
+class Author(WriteRequest):
+    # Unlike normal form fields, authored prompt whitespace is user content.
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=False)
+    request_id: str = Field(min_length=1, max_length=128)
+    name: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=64)
+    description: str = Field(min_length=1, max_length=1000)
+    content: str = Field(min_length=1, max_length=20000)
+    role: Literal["mind", "production", "legacy_end_to_end"] = "legacy_end_to_end"
+    upload_ids: list[str] = Field(default_factory=list, max_length=MAX_REFERENCE_IMAGES)
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class Merge(WriteRequest):
@@ -82,6 +94,10 @@ def extraction_routes(service):
     @router.post("/merge", status_code=202)
     def merge(request: Merge):
         return call(lambda: service.submit_merge(**request.model_dump()))
+
+    @router.post("/author", status_code=201)
+    def author(request: Author):
+        return call(lambda: service.author(**request.model_dump()))
 
     @router.get("/{job_id}")
     def get(job_id: str):

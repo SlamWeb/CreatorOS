@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
 import type { ExtractedSkillDraft, ProducerSkillItem, SkillExtractionFile, SkillExtractionMode } from "../api/types";
 import { ExtractionActivity } from "./ExtractionActivity";
+import { AuthorSkillForm } from "./AuthorSkillForm";
 import { ExtractionImagePicker, MAX_EXTRACTION_IMAGES } from "./ExtractionImagePicker";
 import "./artifact-skill-extraction.css";
 
@@ -83,13 +84,16 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const [mode, setMode] = useState<SkillExtractionMode>("single");
   const [instruction, setInstruction] = useState("");
   const [open, setOpen] = useState(false);
+  const [authorOpen, setAuthorOpen] = useState(false);
+  const [authorDirty, setAuthorDirty] = useState(false);
+  const [authorBusy, setAuthorBusy] = useState(false);
   const [newWorkOpen, setNewWorkOpen] = useState(!selectedId);
   const newWorkId = useId();
   const [panelError, setPanelError] = useState("");
   const [draftSkills, setDraftSkills] = useState<ExtractedSkillDraft[]>([]);
   const [draftBaseDigest, setDraftBaseDigest] = useState("");
   const [draftDirty, setDraftDirty] = useState(false);
-  useEffect(() => { onDirtyChange?.(draftDirty); }, [draftDirty, onDirtyChange]);
+  useEffect(() => { onDirtyChange?.(draftDirty || authorDirty); }, [draftDirty, authorDirty, onDirtyChange]);
   const [viewerMode, setViewerMode] = useState<"preview" | "edit">("preview");
   const [activeFileKey, setActiveFileKey] = useState("");
   const [fileContent, setFileContent] = useState("");
@@ -310,8 +314,18 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   const selectFile = (file: SkillExtractionFile) => { setActiveFileKey(roleFileKey(file)); setViewerMode("preview"); };
 
   return <section className="artifact-extraction">
-    <button type="button" className="button button-secondary extraction-toggle" aria-expanded={open}
-      onClick={() => setOpen(value => !value)}>{open ? "收起提炼" : "从作品提炼"}</button>
+    <div className="extraction-entry-actions">
+    <button type="button" className="button button-secondary extraction-toggle" aria-expanded={open} disabled={authorBusy}
+      onClick={() => { setAuthorOpen(false); setOpen(value => !value); }}>{open ? "收起提炼" : "从作品提炼"}</button>
+    <button type="button" className="button button-secondary extraction-toggle" aria-expanded={authorOpen} disabled={authorBusy || create.isPending}
+      onClick={() => { if (!authorOpen) setOpen(false); setAuthorOpen(value => !value); }}>{authorOpen ? "收起编写" : "自己写 Skill"}</button>
+    </div>
+    <AuthorSkillForm visible={authorOpen} blocked={draftDirty || create.isPending} onDirtyChange={setAuthorDirty} onBusyChange={setAuthorBusy} onCreated={job => {
+      cache.setQueryData(["skill-extraction", job.id], job);
+      void cache.invalidateQueries({ queryKey: ["skill-extractions"] });
+      setAuthorOpen(false); setOpen(true); setNewWorkOpen(false); setPanelError("");
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
+    }} />
     {open && <div className="extraction-panel">
       {activeJob?.task_kind === "merge" && <h2>Skill 融合草稿</h2>}
       <div className="extraction-new-work">
@@ -353,7 +367,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         <h3>提炼任务</h3>
         {jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
           onClick={() => selectJob(job.id)}>
-          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
+          <span>{job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.task_kind === "author" ? `自写：${job.skills[0]?.name || "Skill 草稿"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
         </button>)}
       </div> : null}
       {selectionPrompt && <div className="extraction-confirm-switch" role="group" aria-label="放弃未保存编辑">

@@ -25,8 +25,8 @@ from .content import produce_content_pack
 from .publication import PreparePublicationArgs, GetPublicationArgs, prepare_publication, get_publication
 from .feedback import QueryFeedbackArgs, query_feedback
 from .chat_images import (
-    ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs,
-    read_image, extract_skill_from_images, import_content_images,
+    ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs, CreateSkillDraftArgs,
+    read_image, extract_skill_from_images, import_content_images, create_skill_draft,
 )
 from .personclone import add_author, ask_author, get_author_job, list_authors, wait_author_job
 from .creator_routing import route_hotspots
@@ -216,6 +216,7 @@ tool_registry = {
         Tool(name="get_creator_tasks", description="读取账号现有调研、生产与讨论任务摘要；只投影已有记录，不创建或改变任务状态。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
         Tool(name="read_image", description="实际查看当前会话附件、当前账号 Skill 的参考图或指定产物版本的图片。按返回的附件看图，不猜测图片内容；不接受任意本地路径。", execute=read_image, args_model=ReadImageArgs),
         Tool(name="extract_skill_from_images", description="按用户要求从当前聊天图片提炼 Skill 草稿。不会自动入库、组栏目或生产；沿用同一任务查看结果。", execute=extract_skill_from_images, args_model=ExtractSkillImagesArgs),
+        Tool(name="create_skill_draft", description="用户已经给出现成提示词或完整Skill，要求保存为可复用Skill时使用。原样保存文字及指定会话参考图，不调用Codex重新提炼；只生成待检查草稿，不入库、不创建栏目、不生产。需要从作品总结方法而没有现成提示词时用extract_skill_from_images。", execute=create_skill_draft, args_model=CreateSkillDraftArgs),
         Tool(name="import_content_images", description="用户明确表示图片已是成品时，按顺序导入指定栏目成为待人工验收内容。不是生图队列，不调用 Codex、不批准、不发布。", execute=import_content_images, args_model=ImportContentImagesArgs),
         Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
              execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),

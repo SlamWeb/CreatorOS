@@ -37,6 +37,18 @@ class ExtractSkillImagesArgs(BaseModel):
     instruction: str = Field(default="", max_length=4000)
 
 
+class CreateSkillDraftArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    name: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$", max_length=64)
+    description: str = Field(min_length=1, max_length=1000)
+    content: str = Field(min_length=1, max_length=20000,
+        description="用户已提供的提示词或完整SKILL.md，保留原文，不重新提炼或改写核心要求。")
+    role: Literal["legacy_end_to_end", "mind", "production"] = "legacy_end_to_end"
+    attachment_ids: list[str] = Field(default_factory=list, max_length=6,
+        description="当前会话中用户明确指定作为Skill参考的图片ID；没有参考图可为空。")
+    display_name: str | None = Field(default=None, min_length=1, max_length=80)
+
+
 class ImportContentImagesArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
     series_id: str = Field(min_length=1)
@@ -68,6 +80,13 @@ def read_image(context=None, **kwargs):
 
 def extract_skill_from_images(attachment_ids, mode="single", instruction="", context=None):
     return _action("extract", dict(attachment_ids=attachment_ids, mode=mode, instruction=instruction), context)
+
+
+def create_skill_draft(name, description, content, role="legacy_end_to_end", attachment_ids=None,
+                       display_name=None, context=None):
+    payload = CreateSkillDraftArgs(name=name, description=description, content=content, role=role,
+        attachment_ids=attachment_ids or [], display_name=display_name).model_dump()
+    return _action("author", payload, context)
 
 
 def import_content_images(series_id, attachment_ids, title, body="", context=None):

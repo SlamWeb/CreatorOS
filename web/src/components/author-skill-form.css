@@ -1,0 +1,16 @@
+.extraction-entry-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.artifact-extraction .author-skill-form { display:grid; gap:14px; max-width:800px; padding:18px 0; margin-top:14px; border-top:1px solid var(--line); }
+.artifact-extraction .author-skill-form[hidden] { display:none; }
+.author-skill-form h2 { margin:0; font-size:17px; font-weight:650; }
+.author-skill-form fieldset { display:grid; gap:14px; padding:0; margin:0; min-width:0; border:0; }
+.author-skill-fields { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+.author-skill-form .extraction-label input, .author-skill-form .extraction-label select, .author-skill-form .extraction-label textarea { box-sizing:border-box; width:100%; min-width:0; padding:10px 11px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--canvas); color:var(--ink); font:inherit; font-size:13px; line-height:1.6; }
+.author-skill-form .extraction-label textarea { resize:vertical; min-height:210px; max-height:65vh; }
+.author-skill-form .extraction-label :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.author-skill-form > .button { justify-self:start; }
+.author-skill-form .extraction-image-grid { max-width:100%; }
+@media(max-width:600px) { .author-skill-fields { grid-template-columns:minmax(0,1fr); } .author-skill-form > .button { justify-self:stretch; } }
+/* While writing on a phone, keep chat accessible in the navigation gutter, not over the editor. */
+@media(max-width:600px) {
+  body:has(.author-skill-form:not([hidden])) .workspace-chat-launcher { left:6px; right:auto; }
+}

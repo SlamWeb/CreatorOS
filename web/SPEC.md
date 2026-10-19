@@ -672,3 +672,23 @@
 ## 栏目生产 Skill 面板（2026-09-08）
 
 - 栏目页增加折叠式安装/绑定入口；任务 ID 在 URL 保留，读状态不触发模型。选择版本后显示旧/新绑定，用户显式确认，提交携带选择时所见值，拒绝自动重试冲突。390px 与刷新持久化已验收，见 docs/agent-studio/producer-skills/SPEC.md。
+## 自己写 Skill（2026-10-19，已验证）
+
+- 目标：把已经调好的提示词或完整 SKILL.md 直接保存为待确认草稿，不再调用 Codex 提炼。入口在「从作品提炼」旁；保存后选中同一任务，沿用文件预览/编辑、主动试产、明确入库和组栏目。
+- 文本/请求键在本标签页暂存；图片复用现有多选、拖拽、预览与移除；已上传引用随草稿暂存，未上传图片刷新前提示。错误保留输入；相同输入重试复用请求键，编辑输入才换键。无图可提交，不自动入库/试产/建栏目。
+- Given 已有提示词 When 保存 Then 原文进入 ready 草稿；Given 多张图片 When 保存 Then assets 可在文件树打开；Given 失败/双击 When 重试 Then 输入保留且相同请求键；Given 刷新 When 返回 Then 已保存任务可恢复，未保存文字可继续。
+
+### Direction contract
+
+THESIS: 在已有 Skill 工作台接住创作者现成配方，不把“直接保存”伪装成另一轮提炼。
+OWN-WORLD: 沿用灰白表面、石墨正文与蓝色动作，复用按钮、字段与图片选择器，不改 Logo、主题或全站布局。
+STORY: 选择自己写 → 填入原文与参考图 → 保存草稿 → 在现有编辑器检查，再主动决定试产或入库。
+FIRST VIEWPORT: 顶部两种入口并列，表单先显示名称与分类，原文为主要编辑区，参考图片在其后，底部唯一主动作是保存草稿。
+FORM: Operate 模式局部扩展，继承现有表单，无新 visual world，无 concept seed；表单收起保留输入。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+- 本次为既有界面局部扩展：Impeccable context 与 routing 明确允许缺少 PRODUCT.md/DESIGN.md 时沿用现有实现，不以新建全局品牌文档阻塞，不伪造缺失体系。质量标尺为既有 Skill 工作台：名称/原文/参考图/唯一保存动作清楚，错误不清输入，手机不遮挡编辑，颜色与 Logo 不变；无新质量卡或对照 comp 的额外承诺。
+- 首轮独立 finish review 指出 390px 悬浮聊天按钮遮挡编辑区。已仅在手机自写表单打开时将按钮放在左侧导航留白，保持可点、可聚焦；其他页面与关闭表单后的按钮位置不变。重新构建与截图后交同 reviewer 核对，不把截图当功能验收。
+- 子任务验证：`npm run typecheck` 通过；初轮 `npm run build` 通过（保留既有主包 >500kB 提醒）。最终真实前端、API/持久化和桌面/移动截图由主代理统一验证；此处不将构建通过声明为交互验收。
+- 最终 build 通过，单次 detector []。隔离 Chrome 实际操作覆盖无图、带图、完整 Markdown 声明冲突422且保留输入、图片文件树预览及刷新；真实 DeepSeek 保存草稿后明确确认入库/建栏目，两独立轮均通过。17项后端自动测试与已知原有回归失败边界见 integrations/SPEC.md。
+- 1440×900/390×844 全页截图已逐张查看；c轮功能报告与Trace在 tmp/authored-skill-browser-20261019-c，d轮仅UI复核在 tmp/authored-skill-browser-20261019-d。手机FAB/文本框/保存按钮无交叠，聊天可开关，收表单恢复原右侧位置，无横向溢出、浏览器错误或意外写入；根 .impeccable/review/author-{desktop,mobile}.png 为忽略的QA副本，无新上线位图。
+- 独立 finish reviewer 初轮 fix，复核后 ship，仅评分手机遮挡修复及其回归；缺失 PRODUCT.md 的要求按窄扩展规则撤回，不将该 verdict 宣称为全站审计通过。独立 documenter 比对截图、theme/styles与组件后确认此局部无新增体系漂移，保留现有体系，不生成 PRODUCT/DESIGN/sidecar；旧配色/Logo/主题未变。

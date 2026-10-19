@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from creatoros.content import SocialContentPack
 from creatoros.integrations.atomic_file import atomic_write_text
+from creatoros.integrations.skill_extraction import ExtractionError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.runs.models import ContentRunInput
 from creatoros.runs.repository import ContentRunRepository
@@ -20,7 +21,7 @@ from creatoros.storage import (
     ContentRun, ContentRevision, ContentAttempt, ContentRunStatus,
     ContentAttemptStatus, ContentRunEventType, Series, Topic, TopicSource, TopicStatus,
 )
-from creatoros.tools.chat_images import ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs
+from creatoros.tools.chat_images import ReadImageArgs, ExtractSkillImagesArgs, ImportContentImagesArgs, CreateSkillDraftArgs
 
 
 class ExtractRequest(ExtractSkillImagesArgs):
@@ -28,6 +29,10 @@ class ExtractRequest(ExtractSkillImagesArgs):
 
 
 class ImportRequest(ImportContentImagesArgs):
+    request_id: str = Field(min_length=1, max_length=128)
+
+
+class AuthorRequest(CreateSkillDraftArgs):
     request_id: str = Field(min_length=1, max_length=128)
 
 
@@ -177,6 +182,35 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
                 _managed_path(chat.root, owner_path)
                 atomic_write_text(owner_path, json.dumps(owner, ensure_ascii=False))
             result = extractions.submit(key, uploads, payload.mode, payload.instruction)
+        return {**result, "url": f"/skills?extraction={result['id']}"}
+
+    @router.post("/author", status_code=201)
+    def author(session_id: str, payload: AuthorRequest, request: Request):
+        creator_id = session(session_id, request)
+        job_key = _identity(session_id, payload.request_id)
+        job_id = hashlib.sha256(job_key.encode()).hexdigest()
+        owner_path = extraction_owner_path(chat, job_id)
+        with extractions.lock:
+            if owner_path.exists():
+                owner = json.loads(owner_path.read_text(encoding="utf-8"))
+                if owner["input"] != payload.model_dump():
+                    raise HTTPException(409, "同一请求的草稿内容已改变。")
+                uploads = owner["upload_ids"]
+            else:
+                uploads = []
+                for aid in dict.fromkeys(payload.attachment_ids):
+                    info = chat.attachments.get(session_id, aid)
+                    raw = chat.attachments.path(session_id, aid).read_bytes()
+                    uploads.append(extractions.upload(info["name"], base64.b64encode(raw).decode())["id"])
+                owner_path.parent.mkdir(parents=True, exist_ok=True)
+                owner = {"session_id": session_id, "creator_id": creator_id,
+                         "input": payload.model_dump(), "upload_ids": uploads}
+                atomic_write_text(_managed_path(chat.root, owner_path), json.dumps(owner, ensure_ascii=False))
+            try:
+                result = extractions.author(request_id=job_key, upload_ids=uploads,
+                    **payload.model_dump(exclude={"request_id", "attachment_ids"}))
+            except ExtractionError as error:
+                raise HTTPException(error.status, str(error)) from error
         return {**result, "url": f"/skills?extraction={result['id']}"}
 
     @router.post("/import")

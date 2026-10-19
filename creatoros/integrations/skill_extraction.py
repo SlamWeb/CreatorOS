@@ -231,6 +231,12 @@ class SkillExtractionService:
             if worker.is_alive():
                 raise RuntimeError("Skill 提炼未能在关闭期限内结束。")
 
+    def author(self, request_id, name, description, content, role="legacy_end_to_end",
+               upload_ids=None, display_name=None):
+        from .skill_authoring import author
+        return author(self, request_id, name, description, content, role,
+                      [] if upload_ids is None else upload_ids, display_name)
+
     def _path(self, kind, identifier):
         if not re.fullmatch(r"[a-f0-9]{64}", identifier):
             raise ExtractionError("提炼记录不存在。", 404)
@@ -542,10 +548,14 @@ class SkillExtractionService:
                 end = next(i for i, line in enumerate(lines[1:], 1) if line.strip() == "---")
             except (ValueError, StopIteration):
                 raise ExtractionError("SKILL.md 的 frontmatter 不完整。")
-            header = [line for line in lines[1:end] if not line.strip().startswith("creatoros-output:")]
-            if skill.role != "mind" and skill.output_kind == "image-carousel":
-                header.append("creatoros-output: social-content-pack.image-carousel")
-            skill.skill_md = "\n".join(["---", *header, *lines[end:]]) + "\n"
+            if job.get("task_kind") == "author":
+                from .skill_authoring import delivery_contract
+                skill.skill_md = delivery_contract(skill.skill_md, skill.role, skill.output_kind)
+            else:
+                header = [line for line in lines[1:end] if not line.strip().startswith("creatoros-output:")]
+                if skill.role != "mind" and skill.output_kind == "image-carousel":
+                    header.append("creatoros-output: social-content-pack.image-carousel")
+                skill.skill_md = "\n".join(["---", *header, *lines[end:]]) + "\n"
             target = version / skill.role
             source = result._directories.get(skill.role)
             if source is None and job.get("revision"):
@@ -555,7 +565,10 @@ class SkillExtractionService:
                 freeze_skill(source, target, _digest(source))
             else:
                 target.mkdir(parents=True)
-            (target / "SKILL.md").write_text(skill.skill_md, encoding="utf-8")
+            if job.get("task_kind") == "author":
+                (target / "SKILL.md").write_bytes(skill.skill_md.encode("utf-8"))
+            else:
+                (target / "SKILL.md").write_text(skill.skill_md, encoding="utf-8")
             found = SkillLoader([target]).discover()
             if len(found) != 1:
                 raise ExtractionError("SKILL.md 的 name/description 格式无效。")

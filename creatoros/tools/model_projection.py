@@ -127,6 +127,7 @@ PROJECTED_TOOLS = frozenset({
     "list_creators", "list_creator_series", "list_series_topics", "list_producer_skills",
     "get_producer_skill", "update_producer_skill_file", "get_creator_tasks",
     "prepare_topic_selection", "queue_topics", "install_producer_skill", "get_skill_install",
+    "create_skill_draft",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS
 
 
@@ -136,6 +137,13 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return deepcopy(data)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "create_skill_draft":
+        result = _pick(data, ("id", "status", "digest", "url", "note"))
+        if "skills" in data:
+            result["skills"] = _list(data["skills"], lambda skill: _pick(skill, ("name", "role", "output_kind")))
+        if "files" in data:
+            result["files"] = _list(data["files"], lambda file: _pick(file, ("role", "path", "kind", "size")))
+        return result
     if tool_name == "list_creators":
         return _items(data, _CREATOR)
     if tool_name == "list_creator_series":
