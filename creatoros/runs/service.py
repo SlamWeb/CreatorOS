@@ -364,8 +364,9 @@ class ContentRunService:
                     "skill_digest": prepared["input"].skill_digest}
                    if prepared["input"].skill_name and prepared["input"].skill_digest else {}),
                 skills_root=skills_root_for(self.database),
-                thread_id=(None if native or getattr(producer, "fresh_sessions", False)
-                           else prepared["thread_id"]),
+                thread_id=((prepared["thread_id"] if prepared["revision_number"] > 1 else None)
+                           if native else (None if getattr(producer, "fresh_sessions", False)
+                                           else prepared["thread_id"])),
                 **({"previous_pages": prepared["previous_pages"]}
                    if native or getattr(producer, "fresh_sessions", False) else {}),
                 **({"production_protocol": "native-v1"} if native else {}),

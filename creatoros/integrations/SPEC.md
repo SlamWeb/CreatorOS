@@ -1,5 +1,13 @@
 # External Integrations SPEC
 
+## 普通返工续用原生产会话（2026-10-19，隔离验证通过）
+
+- 用户明确区分小修与从头重做：普通native返工在原Run前版本有效checkpoint中核对thread，SDK thread_resume续接；首次生产/fresh Run无旧thread，技术恢复仍以同Revision checkpoint为准。CodexProducer显式转发thread_id，不能被中间层丢弃。
+- 新Revision只继承会话与累计用量基线，仍使用本版独立工作目录、输入、SDK事件库存与交付验收；旧asset_id不可充作新版本交付，历史文件原字节保留。Trace标记resumed；当轮usage扣除前版累计，不重复记账。
+- 为避免旧thread目录图片误触发“本次已生成，只修索引”，新checkpoint兼容保存返工开始前旧图路径及SHA；恢复只忽略这些未改变旧图，本次新增/改字节而未接收的图片仍阻止盲目重生图。会话证据缺失/跨Run、Skill或输入变化继续拒绝，不静默另开thread。
+- tests.test_native_thread_continuity新增8项通过；原收图/交付恢复及fresh/宿主契约连同调度回归118项通过，native生产/运行接线/产物网页等smoke通过。本段是本地SDK故障注入与实际SQLite/HTTP验收，不是新真实Codex图像质量或5路服务端并发生图成绩。官方线程语义参考 https://learn.chatgpt.com/docs/app-server 。
+- 正式服务PID33336有用户任务，本轮未停止、重启或写其输入/产物；新规则待用户任务结束后重启加载。
+
 ## 已有 Skill 的参考图管理与移出库（2026-10-19，隔离验证通过，正式加载待空闲）
 
 - 用户需要在现有 Skill 上改正文、上传/替换/删除 assets 参考图；继续使用 CreatorOS 工作副本与全目录 digest CAS，不写 Codex 全局目录，不改历史冻结快照，不自动生产。

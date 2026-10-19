@@ -226,7 +226,7 @@ def main():
             else:
                 raise AssertionError("The injected native retry delivery failure must reach the caller")
             assert producer.kwargs["previous_pages"] == original_context
-            assert producer.kwargs["thread_id"] is None
+            assert producer.kwargs["thread_id"] == "old-thread"
 
             legacy_service = ContentRunService(
                 database,

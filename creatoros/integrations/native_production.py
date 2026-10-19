@@ -83,6 +83,7 @@ class Checkpoint(ProductionModel):
     turn_completed: bool = False
     repair_attempted: bool = False
     usage: CodexUsage = Field(default_factory=CodexUsage)
+    preexisting_thread_images: dict[str, str] = Field(default_factory=dict)
     composition_review: CompositionReview | None = None
     prompt_provenance: Literal["producer_reported_not_image_service_verified"] = "producer_reported_not_image_service_verified"
 
@@ -371,7 +372,8 @@ def evidence_files(directory: Path, composition=None) -> list[Path]:
             *sorted(p for p in (directory / "references").rglob("*") if p.is_file())]
 
 
-def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str, checkpoint=None) -> str:
+def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str, checkpoint=None,
+                    continuing_thread=False) -> str:
     assets = (directory / INVENTORY).is_file()
     image_contract = (
         f"生图完成后由CreatorOS自动接收、命名和保存，不需要你复制或移动图片。读取当前cwd的{VIEW}，"
@@ -401,7 +403,10 @@ def delivery_prompt(directory: Path, refs: list[tuple[str, Path]], request: str,
             + f"当前唯一工作目录：{directory / 'work'}\n本次任务：{request}\n"
             + (f"本 Revision 技术恢复。保留已完成 {len(checkpoint.pages)} 张，不要重画它们。"
                f"旧 cwd 不再可写；先读取当前 work 中恢复的文件，只补未完成项。已保存索引：{checkpoint.model_dump_json()}"
-               if checkpoint else "新生产任务，不引用任何其他生产任务的旧内容。"))
+               if checkpoint else ("本 Revision 是同一选题的普通返工，沿用当前会话；按本次任务中的 previous_pages 和"
+                                   " revision_instruction 修改。旧 cwd 不再可写，本次交付只用当前工作目录与图片编号清单。"
+                                   "不要把旧 Revision 的图片编号或文件当作本次已完成交付。" if continuing_thread else
+                                   "新生产任务，不引用任何其他生产任务的旧内容。")))
 
 
 def composition_prompt(refs: list[tuple[str, Path]], request: str) -> str:
@@ -466,7 +471,39 @@ async def review_composition(thread, producer, directory, refs, request, progres
     return review
 
 
-async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event):
+def revision_usage_baseline(directory: Path, thread_id: str) -> CodexUsage:
+    """Carry accounting only, never old pages or assets, across ordinary revisions."""
+    if not re.fullmatch(r"revision-\d{3}", directory.parent.name):
+        raise ValueError("返工目录缺少有效 Revision，拒绝恢复会话。")
+    for revision in sorted(directory.parent.parent.glob("revision-[0-9][0-9][0-9]"), reverse=True):
+        if revision.name >= directory.parent.name:
+            continue
+        for attempt in sorted(revision.glob("attempt-[0-9][0-9][0-9]"), reverse=True):
+            if (attempt.is_symlink() or revision.is_symlink()
+                    or getattr(attempt, "is_junction", lambda: False)()
+                    or getattr(revision, "is_junction", lambda: False)()
+                    or not attempt.resolve().is_relative_to(directory.parent.parent.resolve())):
+                raise ValueError("返工会话证据目录不能为链接。")
+            prior = load_checkpoint(attempt)
+            if prior and prior.thread_id == thread_id:
+                return prior.usage.model_copy()
+    raise ValueError("没有本 Run 前版本的有效会话证据，拒绝恢复其他会话。")
+
+
+def thread_image_fingerprints(generated_root: Path, thread_id: str) -> dict[str, str]:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", thread_id):
+        raise ValueError("生成thread标识无效。")
+    root = generated_root / thread_id
+    if root.is_symlink() or getattr(root, "is_junction", lambda: False)():
+        raise ValueError("生成thread目录不能为链接。")
+    if not root.is_dir():
+        return {}
+    return {str(path.resolve()): hashlib.sha256(safe_file(root, path).read_bytes()).hexdigest()
+            for path in root.iterdir() if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}}
+
+
+async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event,
+                  resume_thread_id=None):
     from openai_codex import ApprovalMode, LocalImageInput, Sandbox, SkillInput, TextInput
     progress = NativeProgress(directory, checkpoint)
     deadline = monotonic() + producer.timeout_seconds
@@ -487,19 +524,35 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 delivery_error, valid_partial = error, False
             if checkpoint.repair_attempted:
                 raise ValueError(f"交付索引修复次数已达上限（本版本最多1次，非账户额度）；原始验收错误：{delivery_error}")
-            locations = [directory / "work", directory / "received-images", producer.generated_images_root / checkpoint.thread_id]
+            locations = [directory / "work", directory / "received-images"]
             images_exist = any(location.is_dir() and any(p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
                 for p in location.iterdir()) for location in locations)
+            # Continuing a thread does not make unchanged images from an older
+            # Revision evidence of this one's work. New/unreceived files still
+            # force index-only recovery, including same-path changed bytes.
+            images_exist = images_exist or any(checkpoint.preexisting_thread_images.get(path) != digest
+                for path, digest in thread_image_fingerprints(producer.generated_images_root,
+                                                              checkpoint.thread_id).items())
             repair_only = not valid_partial and (images_exist or bool(checkpoint.pages))
+        # A same-Revision checkpoint is authoritative for technical recovery. A
+        # plain revision only inherits its thread and cumulative usage, not files.
+        thread_id = checkpoint.thread_id if checkpoint else resume_thread_id
+        baseline = (checkpoint.usage.model_copy() if checkpoint else
+                    revision_usage_baseline(directory, thread_id) if thread_id else CodexUsage())
         async with _production_client(deadline, cancel_event) as client:
             options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write, developer_instructions=PRODUCTION_RULES)
-            thread = await _bounded_sdk(client.thread_resume(checkpoint.thread_id, **options) if checkpoint else
+            thread = await _bounded_sdk(client.thread_resume(thread_id, **options) if thread_id else
                                         client.thread_start(**options), deadline, cancel_event)
+            if thread_id and thread.id != thread_id:
+                raise ValueError("SDK恢复的会话与本次返工/恢复目标不符。")
             recovered = checkpoint
             checkpoint = checkpoint or Checkpoint(input_digest=request_digest(directory), thread_id=thread.id,
-                skill_digests={role: _digest(path.parent) for role, path in skill_refs(directory)})
+                skill_digests={role: _digest(path.parent) for role, path in skill_refs(directory)}, usage=baseline,
+                preexisting_thread_images=(thread_image_fingerprints(producer.generated_images_root, thread.id)
+                                           if thread_id else {}))
             progress.checkpoint = checkpoint
+            progress.baseline = baseline
             # Existing Attempts without an inventory keep their exact old protocol.
             assets = (ImageAssetStore(directory, producer.generated_images_root, thread.id, checkpoint.input_digest)
                       if recovered is None or (directory / INVENTORY).exists() else None)
@@ -510,7 +563,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             if on_thread_started:
                 on_thread_started(thread.id)
             with (directory / "codex_trace.jsonl").open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps({"type": "thread.resumed" if recovered else "thread.started",
+                stream.write(json.dumps({"type": "thread.resumed" if thread_id else "thread.started",
                                          "thread_id": thread.id, "model": CODEX_MODEL,
                                          "reasoning_effort": CODEX_EFFORT}) + "\n")
             # Existing image-bearing checkpoints predate this check and keep their
@@ -518,7 +571,8 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             if len(refs) > 1 and checkpoint.composition_review is None and not checkpoint.pages:
                 require_ready(await review_composition(thread, producer, directory, refs, request,
                                                        progress, deadline, cancel_event))
-            prompt = delivery_prompt(directory, refs, request, checkpoint if recovered else None)
+            prompt = delivery_prompt(directory, refs, request, checkpoint if recovered else None,
+                                     continuing_thread=bool(thread_id and not recovered))
             references = frozen_references(directory)
             images = [Path(item.path) for item in references.images] if references else []
             if references:
@@ -646,7 +700,8 @@ def produce_native(producer, **request):
     checkpoint = recover_checkpoint(directory, request_digest(directory), producer.generated_images_root)
     if checkpoint is None or not (checkpoint.turn_completed and checkpoint.delivery.complete):
         checkpoint = asyncio.run(execute(producer, directory, refs, prompt, checkpoint,
-                                        request.get("on_thread_started"), request.get("cancel_event")))
+                                        request.get("on_thread_started"), request.get("cancel_event"),
+                                        resume_thread_id=request.get("thread_id")))
     elif request.get("on_thread_started"):
         request["on_thread_started"](checkpoint.thread_id)
     cancel = request.get("cancel_event")

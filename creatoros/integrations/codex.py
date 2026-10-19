@@ -276,7 +276,7 @@ class CodexProducer:
                 creator_id=creator_id, series_id=series_id, topic_id=topic_id, topic_title=topic_title,
                 topic_brief=topic_brief, series_description=series_description, audience=audience,
                 skill_name=skill_name, skill_directory=skill_directory, skill_digest=skill_digest,
-                composition=composition, skills_root=skills_root, revision_instruction=revision_instruction,
+                composition=composition, skills_root=skills_root, revision_instruction=revision_instruction, thread_id=thread_id,
                 previous_pages=previous_pages, on_thread_started=on_thread_started, cancel_event=cancel_event,
                 **({"task_references": task_references} if task_references else {}))
         if task_references:
