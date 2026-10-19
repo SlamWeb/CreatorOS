@@ -1,5 +1,12 @@
 # CreatorOS Tool Exposure SPEC
 
+## 原始双 Skill 直接使用（2026-10-19，验证通过）
+
+- compose_series / update_series_composition 复用现有 mind_skill_id、production_skill_id、CAS 与账号 Guard；说明明确直接引用两份原件，无需融合、不改写共享 Skill。同一 native 生产会话读取冻结资料，不添加模型工具或让模型管理 thread。
+- 总入口与账号宿主覆写的 description 一并调整，避免账号 schema 仍暗示先融合；参数身份、回执、旧栏目与授权不变。测试核对两种真实 schema 和原 Tool→HTTP→SQLite 接线，不以 schema 检查冒充模型选择质量。
+- test_host_tool_contract 6/6及smoke_studio_composition_tools通过。真实前端DeepSeek隔离探针实际先列库再compose_series一次，以两个原ID创建当前账号栏目，无融合/改稿/生产；完整证据和用量见web/SPEC.md，不称为模型永不选错或创作质量提升。
+
+
 ## 批量生产共用五工位（2026-10-19）
 
 - 原start_content_run(topic_ids)参数与HTTP契约不变，说明由串行改为后台排队、最多5选题并行。Web/Agent共用单个ManagedRunExecutor，不按调用方各建容量，不新增工具或自动审批/发布。

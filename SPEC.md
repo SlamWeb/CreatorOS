@@ -1,5 +1,12 @@
 # CreatorOS Runtime SPEC
 
+## 原始 Skill 直接引用优先（2026-10-19）
+
+- 用户授权去掉强制融合：一份完整 Skill 或原始 Mind＋Visualize 默认直接创建栏目，融合成新 Skill 保留为显式可选动作；复用现有 pair 字段、单线程 native 生产和冻结快照，不改正式栏目/旧Run/活动任务。
+- Skill 库、总览/账号 Agent 描述对齐直接引用；调研补入 Mind 显式引用的完整文本样例与来源，生产保留两份原始说明并要求实际使用参考，不以摘要 Skill 替代。实现与验证边界见 web/tools/integrations SPEC。
+- 论文研究及后续候选方案见 [研究笔记](docs/skill-learning-research.md)。本轮未实现优秀/失败知识库、自动 Skill 学习或质量提升实验；接线与文件回归不等于故事质量验证。
+
+
 ## 五选题并发与返工会话连续性（2026-10-19）
 
 - 用户确认选题级最多5并发，一篇不拆多thread；复用SQLite执行队列、进程独占锁、逐任务lease和工件验收，不引入Redis/多容器/新模型工具。普通返工续用原thread，从头重做才冻结最新Skill并新开会话。

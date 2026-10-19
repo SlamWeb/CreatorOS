@@ -1,5 +1,18 @@
 # CreatorOS Studio Web SPEC
 
+## 原始 Skill 直接引用（2026-10-19，隔离前端与真实 DeepSeek 验证通过）
+
+- 目标：Skill 库选择一份完整 Skill 或 Mind＋Visualize 后默认直接创建栏目；只有显式选择「融合成新 Skill」才提交已有融合草稿，不再因选择两份而自动融合。复用现有 pair API/SQLite 字段与单线程 native 生产，不迁移旧栏目、Skill 或 Run。
+- 原有拖拽、查看、移除、草稿和融合审核流程保留；直接引用只保存两份原始 ID，不复制或改写 Skill。当前支持一份完整 Skill，或一份 Mind＋一份 Visualize，不虚称任意数量/角色已支持直接生产。
+- 选择方式、名称、账号与请求身份在本标签页暂存；刷新不提交。相同输入的未知响应显式重试沿用请求 ID；缺失 Skill 或不支持的直接组合禁创建，融合仍须显式选中且未保存工作台草稿会阻止提交。
+- Given 两份正确角色 When 创建 Then 实际 pair 落库、零融合/模型/生产；Given 未知响应 When 刷新重试 Then 同一请求、同一栏目；Given 其他组合 When 直接使用 Then 无写入且可改选或显式融合；Given 旧单 Skill/融合流程 Then 原契约保留。隔离真实 HTTP/SQLite/浏览器操作，模型边界受控不计质量成绩；桌面/手机截图与行为断言分别核对，正式在途任务不重启。
+- 构建及7/7定向Playwright通过，覆盖反序选择按角色绑定、原ID/null单Skill、刷新保留、未知响应同请求去重、无效组合零写、旧融合审核与单Skill/单Mind拒绝。测试端点只在隔离tests服务器，检查实际SQLite、原件全树hash及零Topic/Run/Attempt/提炼/生产调用；不计模型质量分数。
+- 旧基线因已删除「栏目定位」定位器超时，保留在tmp/direct-pair-baseline，修测试匹配现产品。首轮截图发现radio受旧grid label样式覆盖而上下排，限定新选择器特异性修复；最后仅该路径重跑1/1，两视口截图实际查看，保存在tmp/direct-pair-ui-confirm。仅本局部finish为ship；手机既存悬浮Logo与组合框局部相交未扩大整改。
+- 单次Impeccable detector为[]；typecheck/build通过，既有主包>500kB提醒保留。配色、Logo、全站布局及后端字段/数据库模式未改。
+- 真实Chrome→原账号聊天→DeepSeek→HTTP→SQLite另跑一轮，实际工具list_producer_skills后compose_series一次，双原ID/绑定账号正确、原文件hash不变、刷新保留，零Codex/调研/生产/发布边界调用。3次模型请求输入合计34,910、输出214、总35,124 tokens，不是成功率样本。入口web/e2e/live-direct-pair.mjs，证据tmp/direct-pair-live-20261019-a/browser/report.json；未改正式库或旧Eval。
+- 正式8765仍有在途生产，未停止/重启；前端静态构建可刷新，新调研后台输入规则需任务结束后重启加载。
+
+
 ## 参考作品连续粘贴图片（2026-10-19，已实现，构建与定向单测通过）
 
 - 用户目标：网站复制图片后直接Ctrl+V，连续粘贴追加、多图一次粘贴也追加，不再逐次打开文件选择器。改动限共用ExtractionImagePicker，覆盖作品提炼、自写Skill和选题参考；聊天已有粘贴入口保持不变。

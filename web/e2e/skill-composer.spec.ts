@@ -20,6 +20,11 @@ async function dragSkill(page: Page, name: string) {
   await expect(basket).toContainText(name);
 }
 
+async function addSkill(page: Page, name: string) {
+  await page.getByRole("button", { name, exact: true }).click();
+  await page.getByRole("dialog", { name }).getByRole("button", { name: "加入组合", exact: true }).click();
+}
+
 test("free composer accepts different Skill roles, deduplicates, removes and restores session draft", async ({ page }) => {
   await page.goto("/skills");
   const basket = page.getByLabel("Skill 组合框", { exact: true });
@@ -40,12 +45,16 @@ test("free composer accepts different Skill roles, deduplicates, removes and res
   await dragSkill(page, "inspector-visual");
 
   await page.getByLabel("栏目名称", { exact: true }).fill("刷新保留的组合草稿");
-  await page.getByLabel("栏目定位", { exact: true }).fill("仅用于隔离 E2E");
+  await expect(page.getByRole("radio", { name: "直接使用", exact: true })).toBeChecked();
   await page.reload();
   await expect(basket).toContainText("inspector-mind");
   await expect(basket).toContainText("inspector-visual");
   await expect(page.getByLabel("栏目名称", { exact: true })).toHaveValue("刷新保留的组合草稿");
-  await expect(page.getByLabel("栏目定位", { exact: true })).toHaveValue("仅用于隔离 E2E");
+  await expect(page.getByLabel("栏目定位", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "直接使用", exact: true })).toBeChecked();
+  await page.getByRole("radio", { name: "融合成新 Skill", exact: true }).check();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "融合成新 Skill", exact: true })).toBeChecked();
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
@@ -153,6 +162,7 @@ test("controlled native merge stays a draft until saved, then explicit single-Sk
   await page.getByRole("dialog", { name: "inspector-mind" }).getByRole("button", { name: "加入组合" }).click();
   await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
   await page.getByRole("dialog", { name: "inspector-visual" }).getByRole("button", { name: "加入组合" }).click();
+  await page.getByRole("radio", { name: "融合成新 Skill", exact: true }).check();
   await page.getByRole("button", { name: "生成融合草稿", exact: true }).click();
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
   await expect(page.getByText(/受控 E2E 融合响应/)).toBeVisible();
@@ -212,4 +222,107 @@ test("a single Mind Skill is rejected by the real API and never shown as a creat
   await expect(page.getByText(`已创建「${name}」。`)).toHaveCount(0);
   const series = await request.get("/api/series").then(reply => reply.json());
   expect(series).not.toEqual(expect.arrayContaining([expect.objectContaining({ name })]));
+});
+
+test("Mind and Visualize directly bind original IDs through HTTP and SQLite without a merge or production", async ({ page, request }, testInfo) => {
+  const before = await request.get("/test/composer-evidence").then(reply => reply.json());
+  const catalog = await request.get("/api/producer-skills").then(reply => reply.json());
+  const mind = catalog.items.find((item: { name: string }) => item.name === "inspector-mind");
+  const visual = catalog.items.find((item: { name: string }) => item.name === "inspector-visual");
+  const sideEffects: string[] = [];
+  page.on("request", req => {
+    if (req.method() === "POST" && !new URL(req.url()).pathname.endsWith("/api/series")) sideEffects.push(req.url());
+  });
+  await page.goto("/skills");
+  // Selection order must not determine the semantic Mind/Visualize binding.
+  await addSkill(page, "inspector-visual");
+  await addSkill(page, "inspector-mind");
+  await expect(page.getByRole("radio", { name: "直接使用", exact: true })).toBeChecked();
+  await expect(page.getByLabel("融合要求（可选）")).toHaveCount(0);
+  const name = `原件直接引用-${crypto.randomUUID().slice(0, 8)}`;
+  await page.getByLabel("栏目名称", { exact: true }).fill(name);
+  await page.screenshot({ path: testInfo.outputPath("direct-pair-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath("direct-pair-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const responsePromise = page.waitForResponse(reply => reply.request().method() === "POST"
+    && new URL(reply.url()).pathname === "/api/series");
+  await page.getByRole("button", { name: "创建栏目", exact: true }).click();
+  const response = await responsePromise;
+  expect(response.status(), await response.text()).toBe(201);
+  expect(response.request().postDataJSON()).toMatchObject({ name, mind_skill_id: mind.id, production_skill_id: visual.id });
+  expect(response.request().postDataJSON()).not.toHaveProperty("skill_name");
+  const result = await response.json();
+  const expected = { id: result.series.id, name, skill_name: null, mind_skill_id: mind.id, production_skill_id: visual.id };
+  await expect(page.getByRole("status")).toContainText(`已创建「${name}」`);
+  await page.reload();
+  const persisted = await request.get(`/api/series/${result.series.id}`).then(reply => reply.json());
+  expect(persisted).toMatchObject(expected);
+  const after = await request.get(`/test/composer-evidence?name=${encodeURIComponent(name)}`).then(reply => reply.json());
+  expect(after.series).toEqual([expected]);
+  expect(after.counts).toEqual(before.counts);
+  expect(after.execution_counts).toEqual(before.execution_counts);
+  expect(after.extraction_jobs).toBe(before.extraction_jobs);
+  expect(after.files).toEqual(before.files);
+  expect(sideEffects).toEqual([]);
+});
+
+test("unsupported direct combinations never write and can explicitly switch to merge", async ({ page, request }) => {
+  const before = await request.get("/test/composer-evidence").then(reply => reply.json());
+  const writes: string[] = [];
+  page.on("request", req => { if (req.method() === "POST") writes.push(req.url()); });
+  await page.goto("/skills");
+  await addSkill(page, "inspector-mind");
+  await addSkill(page, "inspector-visual");
+  await addSkill(page, "knowledge-to-carousel");
+  await page.getByLabel("栏目名称", { exact: true }).fill("非法直接组合不得保存");
+  await expect(page.getByRole("button", { name: "创建栏目", exact: true })).toBeDisabled();
+  await page.getByLabel("栏目名称", { exact: true }).press("Enter");
+  await page.getByRole("button", { name: "移除 inspector-visual", exact: true }).click();
+  await expect(page.getByRole("button", { name: "创建栏目", exact: true })).toBeDisabled();
+  await page.getByLabel("栏目名称", { exact: true }).press("Enter");
+  await page.getByRole("radio", { name: "融合成新 Skill", exact: true }).check();
+  await expect(page.getByRole("button", { name: "生成融合草稿", exact: true })).toBeEnabled();
+  expect(writes).toEqual([]);
+  const after = await request.get("/test/composer-evidence").then(reply => reply.json());
+  expect(after).toEqual(before);
+});
+
+test("unknown direct-create response retries the same receipt after reload instead of creating twice", async ({ page, request }) => {
+  const name = `响应丢失只建一次-${crypto.randomUUID().slice(0, 8)}`;
+  const sent: Array<Record<string, unknown>> = [];
+  await page.route("**/api/series", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    sent.push(route.request().postDataJSON());
+    // The write really reaches SQLite; only delivery of its first response fails.
+    const response = await route.fetch();
+    expect(response.status()).toBe(201);
+    if (sent.length === 1) await route.abort("failed");
+    else await route.fulfill({ response });
+  });
+  await page.goto("/skills");
+  await addSkill(page, "inspector-mind");
+  await addSkill(page, "inspector-visual");
+  await page.getByLabel("栏目名称", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "创建栏目", exact: true }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  const first = await request.get(`/test/composer-evidence?name=${encodeURIComponent(name)}`).then(reply => reply.json());
+  expect(first.series).toHaveLength(1);
+  await page.reload();
+  await expect(page.getByLabel("栏目名称", { exact: true })).toHaveValue(name);
+  const retry = page.waitForResponse(reply => reply.request().method() === "POST"
+    && new URL(reply.url()).pathname === "/api/series");
+  await page.getByRole("button", { name: "创建栏目", exact: true }).click();
+  const result = await (await retry).json();
+  expect(result.deduplicated).toBe(true);
+  expect(sent).toHaveLength(2);
+  expect(sent[1]).toEqual(sent[0]);
+  await expect(page.getByRole("status")).toContainText(`已创建「${name}」`);
+  const after = await request.get(`/test/composer-evidence?name=${encodeURIComponent(name)}`).then(reply => reply.json());
+  expect(after.series).toEqual(first.series);
+  expect(after.counts).toEqual(first.counts);
+  expect(after.execution_counts).toEqual(first.execution_counts);
+  expect(after.extraction_jobs).toBe(first.extraction_jobs);
+  expect(after.files).toEqual(first.files);
 });

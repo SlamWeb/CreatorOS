@@ -1,5 +1,17 @@
 # External Integrations SPEC
 
+## 原始双 Skill 直接借鉴与调研样例交接（2026-10-19，隔离验证通过）
+
+- 栏目可直接绑定原始 Mind 与 Visualize，不要求先融合；沿用既有 native 单会话、冻结双份原件和兼容的组合检查，不改旧 Run/正式资料。
+- 修复调研只收到 SKILL.md、却遗漏其引用故事正文的问题：在提交快照时读取 Skill 内显式链接的有界本地文本样例，携带原相对来源和完整正文；不递归整个库、不跟随链接/跨目录、不读取脚本或秘密文件，超限明确列出未收录原因。
+- native 生产简短明确：对照原件及具体样例，不先总结成替代融合 Skill；采用视觉参考时实际传给生图工具。原图是参考数据，不是新增权限或指令。
+- 验收仅覆盖本地快照/提示词/隔离接线与安全负例，不代表故事质量提高或真实模型已读完样例；不调用付费生产、不重启服务、不改共享 Skill。
+- 实现：`skill_examples.py`仅收集显式 Markdown 链接或反引号引用的 md/txt，最多16文件、单份64KiB、合计128KiB、两层引用（SKILL→样例→所引用文本）。保留相对路径/原文/SHA256；未载入图片、缺失、越界、链接、隐藏或凭证文件、超限均有omitted，远程网址不由宿主请求。只有图像的案例本步未分析，不把路径误报为已看图。
+- 新增 `tests.test_skill_example_context` 10/10通过，含完整原文/嵌套/来源摘要、编码空格与重复、非法路径/脚本/凭证/链接/图片未读、预算完整性、真实隔离SQLite双绑定取Mind及冻结原文不随工作副本变化、模型输入转换与双原件生产提示。首轮测试因Windows写文件CRLF与断言LF不一致失败；改断言对照真实原字节解码后通过，正文未被静默规范化。
+- `smoke_topic_research_sdk`、`smoke_topic_research`、`smoke_native_production`均通过；覆盖新SDK调研协议、候选/幂等与配置变更、native双Skill同thread/组合检查/恢复/交付/取消。受控SDK只用于本地接线与故障注入，不计真实内容质量Eval。compileall及diff-check通过，正式服务/Run/Skill未变。
+- 定向审查后补Windows路径硬化，新增3项后13/13通过：任何平台均先拒绝冒号（含NTFS ADS）、Windows设备名及路径段结尾点/空格；打开前核对普通文件，并检查平台提供的hidden/reparse属性。保留原symlink/junction/resolve归属检查。凭证拒读只指secret/secrets/credentials等命名规则，不是内容DLP，合法命名文本仍按用户显式引用交付；也不宣称抵御恶意并发替换文件的OS级沙箱。
+- 硬化后research smoke再次通过；SDK smoke并行重跑一次在60ms超时夹具里尚未创建turn_handle，测试访问interrupted报NoneType，随后单独原样重跑通过。此输入只有series、未走新增样例读取；没有调整时限、倒改失败或据此声称消除所有调度抖动。
+
 ## 普通返工续用原生产会话（2026-10-19，隔离验证通过）
 
 - 用户明确区分小修与从头重做：普通native返工在原Run前版本有效checkpoint中核对thread，SDK thread_resume续接；首次生产/fresh Run无旧thread，技术恢复仍以同Revision checkpoint为准。CodexProducer显式转发thread_id，不能被中间层丢弃。

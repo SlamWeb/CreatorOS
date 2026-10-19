@@ -17,8 +17,12 @@ from creatoros.storage import Database, upgrade_database
 from creatoros.web.app import create_app
 
 
+execution_counts = {"producer": 0, "extractor": 0}
+
+
 class E2EProducer:
     def produce_to(self, **request) -> ProducedPack:
+        execution_counts["producer"] += 1
         request["on_thread_started"]("studio-e2e-thread")
         sleep(1.5)
         directory = Path(request["directory"])
@@ -57,7 +61,10 @@ runs = ContentRunService(database, producer_factory=E2EProducer, output_root=roo
 app = create_app(database=database, run_service=runs, eval_root=root / "eval-runs")
 # Browser tests exercise real uploads/snapshots without accidentally starting paid Codex extraction.
 from tests.smoke_skill_extraction import controlled as controlled_extraction
-app.state.skill_extractions.extractor = controlled_extraction
+def counted_extraction(*args, **kwargs):
+    execution_counts["extractor"] += 1
+    return controlled_extraction(*args, **kwargs)
+app.state.skill_extractions.extractor = counted_extraction
 
 # Only the reference branch uses this explicit transport fixture. It proves
 # Web -> real HTTP/SQLite/files, not Codex vision or image-generation quality.
@@ -106,6 +113,32 @@ def seed_research(series_id: str):
 def seed_skill_files():
     from tests.skill_browser_fixture import seed_skill_files as seed
     return seed(app.state.skill_installs.catalog, root / "skill-fixtures")
+
+
+@app.get("/test/composer-evidence")
+def composer_evidence(name: str = ""):
+    """Read-only SQLite/file evidence; exists only in this isolated executable."""
+    from creatoros.storage import Series, Topic, ContentRun, ContentAttempt
+    from sqlalchemy import select, func
+    with database.session() as session:
+        query = select(Series)
+        if name:
+            query = query.where(Series.name == name)
+        series = [{key: getattr(row, key) for key in (
+            "id", "name", "skill_name", "mind_skill_id", "production_skill_id")}
+            for row in session.scalars(query).all()]
+        counts = {model.__tablename__: session.scalar(select(func.count()).select_from(model))
+                  for model in (Topic, ContentRun, ContentAttempt)}
+    files = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+             for item in app.state.skill_installs.catalog.list()
+             if item["id"] != "knowledge-to-carousel"
+             for path in Path(item["local_path"]).rglob("*") if path.is_file()}
+    return {"series": series, "counts": counts, "files": files,
+            "execution_counts": dict(execution_counts),
+            "extraction_jobs": len(app.state.skill_extractions.list())}
+
+
+app.router.routes.insert(0, app.router.routes.pop())
 
 
 @app.post("/test/eval-runs")

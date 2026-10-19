@@ -129,8 +129,8 @@ class ComposeSeriesArgs(BaseModel):
     audience: str = Field(default="", max_length=4_000, description="目标受众。")
     creator_id: str | None = Field(default=None, description="归属账号 ID；省略则暂不分配，生产前必须分配。")
     skill_name: str | None = Field(default=None, description="Skill 目录返回的完整制作 Skill ID；与双 Skill 组合二选一。")
-    mind_skill_id: str | None = Field(default=None, description="Skill 目录返回的内容 Skill ID；必须与 production_skill_id 同时提供。")
-    production_skill_id: str | None = Field(default=None, description="Skill 目录返回的呈现 Skill ID；必须与 mind_skill_id 同时提供。")
+    mind_skill_id: str | None = Field(default=None, description="直接引用的原始 Mind Skill ID；与 production_skill_id 同时提供，无需先融合。")
+    production_skill_id: str | None = Field(default=None, description="直接参考的原始 Visualize Skill ID；与 mind_skill_id 同时提供，由同一生产会话使用。")
 
 
 class UpdateCompositionArgs(BaseModel):
