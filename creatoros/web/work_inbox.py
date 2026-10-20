@@ -132,7 +132,9 @@ def work_inbox_routes(db: Database, research, extractions) -> APIRouter:
             trials = job.get("trials", [])
             if status != "applied":
                 active_trial = next((trial for trial in reversed(trials) if trial.get("status") == "running"), None)
-                if active_trial or job.get("operation"):
+                if (job.get("queue") or {}).get("state") == "queued":
+                    status = "queued"
+                elif active_trial or job.get("operation"):
                     status = "running"
                 elif job.get("error") and status == "ready":
                     status = "failed"  # The saved draft remains; the latest revise failed.

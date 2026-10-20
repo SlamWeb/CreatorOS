@@ -16,10 +16,11 @@ const modeLabels: Record<SkillExtractionMode, string> = {
   single: "单一完整 Skill（默认）", pair: "Mind + Visualize", mind: "仅 Mind", visual: "仅 Visualize",
 };
 const statusLabels: Record<string, string> = {
-  running: "进行中", ready: "待确认", saved: "已入库", failed: "失败", interrupted: "已中断",
+  queued: "排队中", running: "进行中", ready: "待确认", saved: "已入库", failed: "失败", interrupted: "已中断",
 };
 const roleLabels: Record<string, string> = { mind: "Mind", production: "Visualize", legacy_end_to_end: "完整 Skill" };
-const trialStatusLabels: Record<string, string> = { running: "试产中", completed: "试产完成", failed: "试产失败", interrupted: "试产已中断" };
+const trialStatusLabels: Record<string, string> = { queued: "试产排队中", running: "试产中", completed: "试产完成", failed: "试产失败", interrupted: "试产已中断" };
+const isPendingStatus = (status?: string) => status === "queued" || status === "running";
 const progressActivityLabels: Record<string, string> = {
   thinking: "正在处理", reading: "正在读取", searching: "正在搜索", tool_running: "工具运行中",
   responding: "正在回复", waiting: "等待中", completed: "阶段完成", failed: "阶段失败",
@@ -128,11 +129,11 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
 
   const jobs = useQuery({
     queryKey: ["skill-extractions"], queryFn: studioApi.skillExtractions,
-    refetchInterval: query => query.state.data?.items.some(item => item.status === "running" || item.operation) ? 2500 : false,
+    refetchInterval: query => query.state.data?.items.some(item => isPendingStatus(item.status) || item.operation) ? 2500 : false,
   });
   const selected = useQuery({
     queryKey: ["skill-extraction", selectedId], queryFn: () => studioApi.skillExtraction(selectedId!), enabled: Boolean(selectedId),
-    refetchInterval: query => query.state.data && (query.state.data.status === "running" || query.state.data.operation) ? 2000 : false,
+    refetchInterval: query => query.state.data && (isPendingStatus(query.state.data.status) || query.state.data.operation) ? 2000 : false,
   });
   const activeJob = selected.data;
   useEffect(() => {
@@ -157,7 +158,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   }, enabled: Boolean(calibrationId), retry: false,
     refetchInterval: query => {
       const job = query.state.data?.job;
-      return activeJob?.status === "running" || activeJob?.operation || job?.operation
+      return isPendingStatus(activeJob?.status) || activeJob?.operation || job?.operation
         || job?.digest !== activeJob?.digest || job?.revision !== activeJob?.revision ? 2000 : false;
     } });
   useEffect(() => {
@@ -443,7 +444,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         <button type="button" className="extraction-section-toggle" aria-expanded={jobsOpen} onClick={() => setJobsOpen(value => !value)}>任务记录 · {jobs.data.items.length}<span>{jobsOpen ? "收起" : "展开"}</span></button>
         {jobsOpen && jobs.data.items.map(job => <button type="button" key={job.id} className={`extraction-job ${selectedId === job.id ? "selected" : ""}`}
           onClick={() => selectJob(job.id)}>
-          <span>{job.task_kind === "calibrate" ? `校准：${job.skills[0]?.name || "Skill"}` : job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.task_kind === "author" ? `自写：${job.skills[0]?.name || "Skill 草稿"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{statusLabels[job.status] ?? "状态更新"}</strong>
+          <span>{job.task_kind === "calibrate" ? `校准：${job.skills[0]?.name || "Skill"}` : job.task_kind === "merge" ? `融合：${job.source_skills?.map(skill => skill.name).join(" + ") || "Skill"}` : job.task_kind === "author" ? `自写：${job.skills[0]?.name || "Skill 草稿"}` : job.uploads.map(upload => upload.name).join("、") || job.source_text?.slice(0, 45) || "参考作品"}</span><strong className={job.status === "running" ? "task-running-text" : undefined}>{job.queue_state === "queued" ? "排队中" : statusLabels[job.status] ?? "状态更新"}</strong>
         </button>)}
       </div> : null}
       {selectionPrompt && <div className="extraction-confirm-switch" role="group" aria-label="放弃未保存编辑">
@@ -471,7 +472,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           </>}
         </section>}
         {draftStorageError && <p role="alert" className="extraction-error">{draftStorageError}</p>}
-        <div className="extraction-status"><strong>任务状态：<span className={activeJob.status === "running" ? "task-running-text" : undefined}>{statusLabels[activeJob.status] ?? "状态更新"}</span></strong>
+        <div className="extraction-status"><strong>任务状态：<span className={activeJob.status === "running" ? "task-running-text" : undefined}>{activeJob.queue_state === "queued" ? "排队中" : statusLabels[activeJob.status] ?? "状态更新"}</span></strong>
           {activeJob.operation && <span>当前操作：{activeJob.operation === "calibrate" ? "校准" : activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && activeJob.note.length <= 180 && <span>{activeJob.note}</span>}
         </div>
@@ -486,9 +487,9 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         {activeJob.error && <p role="alert" className="extraction-error">{activeJob.error}</p>}
         <button type="button" className="extraction-section-toggle" aria-expanded={activityOpen} onClick={() => setActivityOpen(value => !value)}>执行过程<span>{activityOpen ? "收起" : "展开"}</span></button>
         {activityOpen && <ExtractionActivity key={activeJob.id} jobId={activeJob.id}
-          active={activeJob.status === "running" || Boolean(activeJob.operation)} />}
-        {(activeJob.status === "running" || activeJob.operation) && activeJob.cancel_requested && <p role="status">正在取消当前操作…</p>}
-        {(activeJob.status === "running" || activeJob.operation) && !activeJob.cancel_requested && <button type="button" className="button button-secondary" disabled={cancel.isPending}
+          active={isPendingStatus(activeJob.status) || Boolean(activeJob.operation)} />}
+        {(isPendingStatus(activeJob.status) || activeJob.operation) && activeJob.cancel_requested && <p role="status">正在取消当前操作…</p>}
+        {(isPendingStatus(activeJob.status) || activeJob.operation) && !activeJob.cancel_requested && <button type="button" className="button button-secondary" disabled={cancel.isPending}
           onClick={() => cancel.mutate()}>{cancel.isPending ? "正在取消…" : "取消当前操作"}</button>}
         {cancel.isError && <p role="alert" className="extraction-error">取消失败：{cancel.error.message}</p>}
         {activeJob.skills.length > 0 && <div className="extraction-workbench">

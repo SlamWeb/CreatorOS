@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -11,8 +12,9 @@ import stat
 import subprocess
 import tarfile
 from pathlib import Path
+from datetime import datetime, timezone
 from functools import wraps
-from threading import Event, RLock, Thread
+from threading import Event, RLock, Thread, current_thread
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
@@ -767,12 +769,13 @@ class ProducerSkillCatalog:
 
 
 class SkillInstallService:
-    """One bounded local job, persisted receipt; no autonomous retry or production."""
+    """Durable serial downloads; no autonomous retry or production."""
     def __init__(self, catalog: ProducerSkillCatalog, installer=None):
         self.catalog = catalog
         self.installer = installer or GitSkillInstaller()
         self.lock, self.cancel = RLock(), Event()
         self.thread = None
+        self._draining = False
 
     def _path(self, job_id):
         if not re.fullmatch(r"[a-f0-9]{64}", job_id):
@@ -786,13 +789,73 @@ class SkillInstallService:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def start(self):
-        if self.thread and self.thread.is_alive():
-            raise RuntimeError("旧安装任务尚未停止。")
-        self.cancel.clear()
+        with self.lock:
+            if self._draining:
+                return
+            self.cancel.clear()
+            for data in self._jobs():
+                if data["status"] == "installing":
+                    try:
+                        _write(self._path(data["id"]), {**data, "status": "interrupted",
+                                                       "message": "宿主已重启；未自动重试安装。"})
+                    except OSError:
+                        # Still installing on disk, so the queue will not replay
+                        # this uncertain operation. Other queued jobs can start.
+                        logging.getLogger(__name__).exception("Cannot persist interrupted install %s", data["id"])
+            self._kick()
+
+    def _jobs(self):
+        jobs = []
         for path in (self.catalog.root / "jobs").glob("*.json"):
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if data["status"] == "installing":
-                _write(path, {**data, "status": "interrupted", "message": "宿主已重启；未自动重试安装。"})
+            try:
+                job = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(job, dict) or not all(key in job for key in ("id", "status", "github_url", "attempt")):
+                    raise ValueError("invalid install record")
+                jobs.append(job)
+            except (OSError, ValueError):
+                logging.getLogger(__name__).warning("Skipping unreadable install job %s", path.name)
+        return jobs
+
+    def _kick(self):
+        if self.cancel.is_set() or self._draining or not any(j["status"] == "queued" for j in self._jobs()):
+            return
+        self._draining = True
+        self.thread = Thread(target=self._drain, daemon=True)
+        try:
+            self.thread.start()
+        except RuntimeError:
+            self.thread = None
+            self._draining = False
+            logging.getLogger(__name__).exception("Installer consumer did not start; queued jobs retained")
+
+    def _drain(self):
+        unreadable = set()
+        try:
+            while True:
+                with self.lock:
+                    pending = sorted((j for j in self._jobs() if j["status"] == "queued" and j["id"] not in unreadable),
+                                     key=lambda j: (j.get("submitted_at", ""), j["id"]))
+                    if self.cancel.is_set() or not pending:
+                        self._draining = False
+                        return
+                    job = {**pending[0], "status": "installing",
+                           "message": "CreatorOS 正在下载和核验，尚未绑定栏目。"}
+                    try:
+                        _write(self._path(job["id"]), job)
+                    except OSError:
+                        unreadable.add(job["id"])
+                        logging.getLogger(__name__).exception("Cannot claim queued installation")
+                        continue
+                try:
+                    self._run(job)
+                except Exception:
+                    # Keep the persisted installing state for explicit recovery;
+                    # one unwritable job must not prevent later downloads.
+                    logging.getLogger(__name__).exception("Cannot finalize installation %s", job["id"])
+        finally:
+            with self.lock:
+                if self.thread is current_thread():
+                    self._draining = False
 
     def submit(self, url, *, retry=False, role=None):
         url = github_url(url)
@@ -802,26 +865,22 @@ class SkillInstallService:
         with self.lock:
             previous = self.get(job_id) if self._path(job_id).exists() else None
             if previous and not (retry and previous["status"] in {"failed", "interrupted"}):
+                self._kick()
                 return previous
             if self.cancel.is_set():
                 raise ValueError("安装服务正在关闭。")
-            if self.thread and self.thread.is_alive():
-                raise ValueError("另一个 Skill 正在安装，请完成后再提交。")
-            job = {"id": job_id, "github_url": url, "status": "installing", "skill": None,
+            job = {"id": job_id, "github_url": url, "status": "queued", "skill": None,
                    "attempt": (previous or {}).get("attempt", 0) + 1,
                    "role": role if previous is None else previous.get("role"),
-                   "message": "CreatorOS 正在下载和核验，尚未绑定栏目。"}
+                   "submitted_at": datetime.now(timezone.utc).isoformat(),
+                   "message": "已排队，轮到后自动下载和核验。"}
             _write(self._path(job_id), job)
-            self.thread = Thread(target=self._run, args=(job,), daemon=True)
-            try:
-                self.thread.start()
-            except Exception:
-                _write(self._path(job_id), {**job, "status": "interrupted", "message": "安装线程启动失败，未调用 Codex。"})
-                raise
+            self._kick()
             return job
 
     def _run(self, job):
         workspace = self.catalog.root / "work" / job["id"] / f"attempt-{job['attempt']}"
+        failure = None
         try:
             workspace.mkdir(parents=True, exist_ok=False)
             receipt = self.installer.install(job["github_url"], workspace, self.cancel)
@@ -830,12 +889,13 @@ class SkillInstallService:
             record = self.catalog.register(workspace, job["github_url"], receipt, role=job.get("role"))
             job = {**job, "status": "installed", "skill": record, "message": "已安装，尚未绑定栏目。"}
         except Exception as error:
-            # Keep detailed errors local, not in model context/browser (may contain paths).
-            workspace.mkdir(parents=True, exist_ok=True)
-            (workspace / "error.txt").write_text(str(error), encoding="utf-8")
+            failure = str(error)
             job = {**job, "status": "interrupted" if self.cancel.is_set() else "failed",
                    "message": "安装未完成；请核对仓库链接、Git ref、Skill 路径或网络连接。未修改栏目。"}
         _write(self._path(job["id"]), job)
+        if failure is not None:
+            from .atomic_file import write_diagnostic_text
+            write_diagnostic_text(workspace / "error.txt", failure)
 
     def shutdown(self):
         self.cancel.set()

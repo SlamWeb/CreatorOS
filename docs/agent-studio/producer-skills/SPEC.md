@@ -1,5 +1,14 @@
 # Codex 安装与栏目 Skill 绑定
 
+## 安装任务排队（2026-10-20，隔离验证）
+
+- Git 下载/核验仍由本地 installer 完成，不调用 Codex。不同 GitHub 链接可同时提交；原 job JSON 新增 queued/submitted_at，单消费者按先后安装，不再全局 busy 拒绝。
+- 同链接沿原 URL 摘要幂等；failed/interrupted 仅显式 retry 新建 attempt。重启只继续 queued，原 installing 标 interrupted，避免不确定安装重复注册。
+- 启动线程失败仍保留 queued；单项失败或记录坏掉不妨碍后项。原目录、共享库编辑锁、栏目绑定和生产权限保持不变。测试仅隔离目录和本地受控下载器，真实 GitHub 安装本轮不据此宣称已验收。
+- 原 `smoke_producer_skills` 通过。辅助队列通过真实本地 Git 仓库注册验证 queued 重启、running 不重放、首项失败继续、Thread.start 故障保留授权且同链接重放可唤醒；不是访问 GitHub 或正式 Skill 库。诊断 error.txt 改为终态持久化后的可选副本，避免错误日志写入遮蔽真实安装失败。
+- `tests.test_auxiliary_job_queues` 最终7/7通过（19.592秒，安装3项/讨论4项），包括真实关闭当前安装、保留后项到重启继续；坏历史JSON隔离不阻后项。正式安装目录和服务未操作。
+- 最终 review 再补安装/讨论启动恢复单条记录拒写：逐条记录错误，不重放旧 installing/running，仍启动其他 queued。新增两项定向故障回归2/2通过（3.130秒）；失败旧记录保持原字节，下一项正常完成。无法写入的旧状态不能伪称已持久化 interrupted，需从本地日志处理该记录。
+
 ## 已安装 Skill 在线编辑（2026-10-06）
 
 - Skill Inspector 与 Agent 共用受管 `working/<id>` 文件浏览；新增文件更新仅接受已有文件清单中的 UTF-8 Markdown/文本，固定内置 Skill 不可写，versions 导入原件与历史 Run 快照不变。

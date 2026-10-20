@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## 调研排队状态（2026-10-20）
+
+- 不增加工具；research_series_topics 可返回 queued，与 researching 都属于已接受、尚未完成。宿主观察同一批次时覆盖这两个状态，不因为排队而误报已完成或自动再次提交。
+- 后台独立请求持久化串行排队，同参数活跃请求复用；候选人工入队/生产边界不变，关闭会话只结束观察，不取消后台请求。
+
 ## 原始双 Skill 直接使用（2026-10-19，验证通过）
 
 - compose_series / update_series_composition 复用现有 mind_skill_id、production_skill_id、CAS 与账号 Guard；说明明确直接引用两份原件，无需融合、不改写共享 Skill。同一 native 生产会话读取冻结资料，不添加模型工具或让模型管理 thread。

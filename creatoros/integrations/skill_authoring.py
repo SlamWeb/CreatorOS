@@ -5,7 +5,6 @@ import hashlib
 import json
 import re
 import shutil
-import threading
 
 from ..skills.loader import parse_skill_frontmatter
 from .producer_skills import _write
@@ -84,8 +83,6 @@ def author(service, request_id, name, description, content, role, upload_ids, di
             if service._read(job_id).get("input_digest") != digest:
                 raise ExtractionError("同一 request_id 的自写 Skill 输入已变化，请使用新的请求。", 409)
             return service.get(job_id)
-        if service.worker and service.worker.is_alive():
-            raise ExtractionError("已有 Skill 操作正在执行，请稍后再试。", 409)
         images = [service.image_path(identifier) for identifier in upload_ids]
         assets = [f"assets/reference-{i:02d}{path.suffix}" for i, path in enumerate(images, 1)]
         try:
@@ -120,7 +117,6 @@ def author(service, request_id, name, description, content, role, upload_ids, di
             result = ExtractionResult(note="已保存你提供的提示词和参考图，尚未入库。", skills=[skill],
                                       suggested_topic="沿用这份 Skill 的方法，制作一个新的同类主题。")
             result._directories = {role: source}
-            service.cancel_event = threading.Event()
             service._publish(job_id, result, images)
             return service.get(job_id)
         except Exception as error:

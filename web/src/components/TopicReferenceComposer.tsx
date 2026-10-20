@@ -7,8 +7,8 @@ import { ExtractionImagePicker } from "./ExtractionImagePicker";
 import "./artifact-skill-extraction.css";
 import "./topic-reference-composer.css";
 
-export function TopicReferenceComposer({ seriesId, researching, onResearch, onBusy }: {
-  seriesId: string; researching: boolean; onResearch: (id: string) => void; onBusy: (busy: boolean) => void;
+export function TopicReferenceComposer({ seriesId, onResearch, onBusy }: {
+  seriesId: string; onResearch: (id: string) => void; onBusy: (busy: boolean) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -26,7 +26,7 @@ export function TopicReferenceComposer({ seriesId, researching, onResearch, onBu
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   async function submit(action: "research" | "produce") {
-    if (busy.current || researching) return;
+    if (busy.current) return;
     if (action === "produce" && (!files.length || !instructions.trim())) {
       setError("请添加参考图片，并写下这次想制作的内容。"); return;
     }
@@ -84,8 +84,8 @@ export function TopicReferenceComposer({ seriesId, researching, onResearch, onBu
   }
 
   return <form className="research-form topic-reference-composer" aria-busy={!!activity} onSubmit={event => { event.preventDefault(); void submit("research"); }}>
-    <fieldset disabled={!!activity || researching}>
-      <ExtractionImagePicker files={files} disabled={!!activity || researching} onChange={setFiles} onError={setError} />
+    <fieldset disabled={!!activity}>
+      <ExtractionImagePicker files={files} disabled={!!activity} onChange={setFiles} onError={setError} />
       <div className="topic-reference-fields">
         <label>候选数量<input type="number" min={1} max={30} required value={count} onChange={event => setCount(event.target.valueAsNumber)} /></label>
         <label>本次偏好<textarea maxLength={3000} rows={3} placeholder={files.length ? "想借鉴哪个选题、切入点？直接制作时，请写下本次具体要求。" : "例如：面向初学者，暂不讨论模型训练"} value={instructions} onChange={event => setInstructions(event.target.value)} /></label>

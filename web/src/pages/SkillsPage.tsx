@@ -163,7 +163,7 @@ export function SkillsPage() {
     },
   });
   const job = useQuery({
-    queryKey: ["skill-install", jobId], enabled: !!jobId, refetchInterval: q => q.state.data?.status === "installing" ? 2000 : false,
+    queryKey: ["skill-install", jobId], enabled: !!jobId, refetchInterval: q => ["queued", "installing"].includes(q.state.data?.status ?? "") ? 2000 : false,
     queryFn: () => request<{ status: string; message: string }>(`/api/producer-skills/jobs/${encodeURIComponent(jobId!)}`),
   });
 
@@ -273,7 +273,7 @@ export function SkillsPage() {
               <option value="mind">Mind</option>
               <option value="production">Visualize</option>
             </select>
-            <button className="button button-secondary" disabled={!installUrl.trim() || install.isPending || job.data?.status === "installing"}>安装</button>
+            <button className="button button-secondary" disabled={!installUrl.trim() || install.isPending}>安装</button>
           </div>
           {install.isError && <p className="form-error" role="alert">{install.error.message}</p>}
           {job.data && <p className="space-note" role="status">{job.data.status} · {job.data.message}</p>}

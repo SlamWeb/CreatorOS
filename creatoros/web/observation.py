@@ -20,7 +20,7 @@ from creatoros.storage import (ContentAttempt, ContentRevision, ContentRun, Cont
                                PublicationMetric, PublicationRequest, OperationEvent)
 
 
-ACTIVE = {"running", "researching", "producing", "validating"}
+ACTIVE = {"queued", "running", "researching", "producing", "validating"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_:.@-]{1,180}$")
 MODELS = {"creator": Creator, "series": Series, "topic": Topic, "run": ContentRun,
           "revision": ContentRevision, "attempt": ContentAttempt, "operation": PendingOperation}
@@ -314,7 +314,7 @@ class ObservationService:
             doc = self._document("research", identifier)
             current = int(tail[0]) == int(doc.get("attempt", 0))
             return {"status": doc.get("status"), "current_execution": current,
-                    "active": current and doc.get("status") == "researching"}
+                    "active": current and doc.get("status") in {"queued", "researching"}}
         if kind == "discussion":
             doc = self._document(kind, identifier)
             return {"status": doc.get("status"), "current_execution": True,
@@ -327,10 +327,10 @@ class ObservationService:
             expected = "." if operation == "initial" else f"revisions/{tail[1]}" if operation == "revise" else f"trials/{tail[1]}/revision-001/attempt-001"
         current = expected == current_directory
         active = current and doc.get("status") not in {"failed", "interrupted", "cancelled"} and (
-            doc.get("status") == "running" if operation == "initial" else doc.get("operation") == operation)
+            doc.get("status") in {"queued", "running"} if operation == "initial" else doc.get("operation") == operation)
         if operation == "trial" and kind == "extraction_execution":
             trial = next((t for t in doc.get("trials", []) if t.get("id") == tail[1]), {})
-            active = active and trial.get("status") == "running"
+            active = active and trial.get("status") in {"queued", "running"}
         return {"status": doc.get("status"), "operation": doc.get("operation"),
                 "current_execution": current, "active": bool(active)}
 

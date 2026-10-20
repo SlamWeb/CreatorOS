@@ -4,9 +4,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event, RLock, Thread
+from threading import Event, RLock, Thread, current_thread
 from time import monotonic
 from types import SimpleNamespace
 from uuid import uuid4
@@ -134,9 +135,22 @@ class ContentDiscussionService:
         self.reviewer = reviewer or CodexDiscussionReviewer()
         self.lock, self.cancel = RLock(), Event()
         self.workers: dict[str, Thread] = {}
+        self.worker = None
+        self._draining = False
 
     def _records(self):
-        return [json.loads(p.read_text(encoding="utf-8")) for p in self.root.glob("records/*.json")]
+        records = []
+        for path in self.root.glob("records/*.json"):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(record, dict) or not all(key in record for key in (
+                    "id", "status", "run_id", "creator_id", "series_id", "created_at", "request_id"
+                )):
+                    raise ValueError("invalid discussion record")
+                records.append(record)
+            except (OSError, ValueError):
+                logging.getLogger(__name__).warning("Skipping unreadable discussion record %s", path.name)
+        return records
 
     def _save(self, record):
         target = self.root / "records" / f"{record['id']}.json"
@@ -176,6 +190,8 @@ class ContentDiscussionService:
 
     def submit(self, run_id, *, request_id, revision_id, artifact_digest, message):
         with self.lock:
+            if self.cancel.is_set():
+                raise ContentRunError("讨论服务正在关闭，请启动后提交。", code="discussion_unavailable")
             run, series = self._run_identity(run_id)
             records = self._records()
             request = dict(run_id=run_id, revision_id=revision_id, artifact_digest=artifact_digest, message=message)
@@ -183,11 +199,10 @@ class ContentDiscussionService:
                 if previous["run_id"] == run_id and previous["request_id"] == request_id:
                     if any(previous[key] != value for key, value in request.items()):
                         raise ContentRunError("同一消息编号已用于不同内容；请检查原消息。", code="request_conflict")
+                    self._kick()
                     return previous
             if run.status in {ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING, ContentRunStatus.CANCELLED}:
                 raise ContentRunError("请等待生产结束后讨论；已取消任务不能启动讨论。", code="discussion_unavailable")
-            if any(t.is_alive() for t in self.workers.values()):
-                raise ContentRunError("已有看图讨论正在进行，请等待答复；未重复提交。", code="discussion_busy")
             root, saved_digest, data, _ = self.artifacts.locate(run_id, revision_id)
             if (data.creator_id != series.creator_id or data.series_id != series.id
                     or data.topic_id != run.topic_id):
@@ -259,18 +274,100 @@ class ContentDiscussionService:
             prompt = ("请基于随消息实际附上的图片回答用户。以下 JSON 是本次作品的冻结资料与问题。"
                       "讨论不修改产物；若需要返工，给建议而不要执行。\n" + json.dumps(payload, ensure_ascii=False))
             (workspace / "discussion_request.txt").write_text(prompt, encoding="utf-8")
+            record["queue_version"] = 1
+            record["input_files"] = [image.name for image in images]
+            record["prompt_sha256"] = hashlib.sha256((workspace / "discussion_request.txt").read_bytes()).hexdigest()
             record_task(workspace, kind="discussion", scope=payload["scope"],
                         input_ref="discussion_request.txt", deliverable="Discussion record.reply; reply.txt is an optional copy")
             self._save(record)
-            worker = Thread(target=self._execute, args=(record, workspace, prompt, images), daemon=True)
-            self.workers[identifier] = worker
-            try:
-                worker.start()
-            except Exception:
-                record.update(status="failed", error="无法启动讨论执行器。", updated_at=now())
-                self._save(record)
-                raise
+            if self._draining and self.worker:
+                self.workers[identifier] = self.worker
+            self._kick()
             return json.loads(json.dumps(record))
+
+    def _pending(self):
+        return sorted((r for r in self._records() if r["status"] == "queued" and r.get("queue_version") == 1),
+                      key=lambda r: (r["created_at"], r["id"]))
+
+    def _kick(self):
+        if self.cancel.is_set() or self._draining:
+            return
+        pending = self._pending()
+        if not pending:
+            return
+        self.worker = Thread(target=self._drain, daemon=True)
+        for record in pending:
+            self.workers[record["id"]] = self.worker
+        self._draining = True
+        try:
+            self.worker.start()
+        except RuntimeError:
+            failed = self.worker
+            self.workers = {key: value for key, value in self.workers.items() if value is not failed}
+            self.worker = None
+            self._draining = False
+            logging.getLogger(__name__).exception("Discussion consumer did not start; queued messages retained")
+
+    def _drain(self):
+        unreadable = set()
+        try:
+            while True:
+                with self.lock:
+                    pending = [r for r in self._pending() if r["id"] not in unreadable]
+                    if self.cancel.is_set() or not pending:
+                        self._draining = False
+                        return
+                    record = pending[0]
+                    record.update(status="running", updated_at=now())
+                    try:
+                        self._save(record)
+                    except OSError:
+                        unreadable.add(record["id"])
+                        logging.getLogger(__name__).exception("Cannot claim queued discussion")
+                        continue
+                workspace = self.root / "work" / record["id"]
+                try:
+                    self._run_identity(record["run_id"])
+                    prompt_file = workspace / "discussion_request.txt"
+                    if workspace.is_symlink() or prompt_file.is_symlink():
+                        raise ValueError("讨论输入不是受管普通文件。")
+                    raw = prompt_file.read_bytes()
+                    if hashlib.sha256(raw).hexdigest() != record["prompt_sha256"]:
+                        raise ValueError("排队期间讨论输入发生变化。")
+                    images = []
+                    files = record["input_files"]
+                    if len(files) != len(record["context"]["images"]):
+                        raise ValueError("讨论图片数量不一致。")
+                    for name, image in zip(files, record["context"]["images"]):
+                        target = workspace / name
+                        if Path(name).name != name or target.is_symlink() or not target.resolve().is_relative_to(workspace.resolve()):
+                            raise ValueError("讨论图片路径无效。")
+                        if hashlib.sha256(target.read_bytes()).hexdigest() != image["sha256"]:
+                            raise ValueError("排队期间讨论图片发生变化。")
+                        images.append(target)
+                    # The previous queued message may have finished after this
+                    # one was submitted. Continue that thread, not a stale fork.
+                    with self.lock:
+                        previous = [r for r in self._records() if r["status"] == "completed" and r.get("thread_id")
+                                    and all(r[k] == record[k] for k in ("run_id", "revision_id", "artifact_digest"))]
+                        if previous:
+                            record["thread_id"] = max(previous, key=lambda r: r["created_at"])["thread_id"]
+                            record["context"]["history_mode"] = "continued_discussion"
+                            if "该讨论线程的先前问答" not in record["context"]["includes"]:
+                                record["context"]["includes"].append("该讨论线程的先前问答")
+                            self._save(record)
+                    self._execute(record, workspace, raw.decode("utf-8"), images)
+                except Exception as error:
+                    record.update(status="interrupted" if self.cancel.is_set() else "failed",
+                                  error="讨论未完成，未修改原产物：" + safe_text(str(error))[0][:800], updated_at=now())
+                    try:
+                        self._save(record)
+                    except OSError:
+                        logging.getLogger(__name__).exception("Cannot finalize discussion %s", record["id"])
+        finally:
+            with self.lock:
+                if self.worker is current_thread():
+                    self._draining = False
 
     def _execute(self, record, workspace, prompt, images):
         def emit(kind, text):
@@ -310,16 +407,24 @@ class ContentDiscussionService:
             write_diagnostic_text(workspace / "error.txt", str(error))
 
     def start(self):
-        self.cancel.clear()
         with self.lock:
+            if self._draining:
+                return
+            self.cancel.clear()
             for record in self._records():
-                if record["status"] in {"queued", "running"}:
+                if record["status"] == "running" or (record["status"] == "queued" and record.get("queue_version") != 1):
                     record.update(status="interrupted", error="服务中断；没有自动重发或修改原产物。", updated_at=now())
-                    self._save(record)
+                    try:
+                        self._save(record)
+                    except OSError:
+                        # The persisted running/legacy record is not eligible
+                        # for dispatch; never replay it because recovery failed.
+                        logging.getLogger(__name__).exception("Cannot persist interrupted discussion %s", record["id"])
+            self._kick()
 
     def shutdown(self):
         self.cancel.set()
-        for worker in list(self.workers.values()):
+        for worker in set(self.workers.values()):
             worker.join(timeout=10)
             if worker.is_alive():
                 raise RuntimeError("讨论执行器尚未退出。")

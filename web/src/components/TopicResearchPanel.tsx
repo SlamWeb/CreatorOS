@@ -11,13 +11,14 @@ type Candidate = { id: string; title: string; angle: string; rationale: string;
 type Batch = { id: string; series_id: string; status: string; stale: boolean; note: string;
   created_at: string; candidates: Candidate[]; attempt: number };
 type Selection = { candidate_id: string; title: string; angle: string };
-const labels: Record<string, string> = { researching: "调研中", ready: "待选择", failed: "失败", interrupted: "已中断", stale: "需要重新调研" };
+const labels: Record<string, string> = { queued: "排队中", researching: "调研中", ready: "待选择", failed: "失败", interrupted: "已中断", stale: "需要重新调研" };
+const isActive = (status?: string) => status === "queued" || status === "researching";
 
 export function TopicResearchPanel({ seriesId, controlsOnly = false }: { seriesId: string; controlsOnly?: boolean }) {
   const [params] = useSearchParams();
   const history = useQuery({ queryKey: ["research-history", seriesId],
     queryFn: () => request<{ items: Batch[] }>(`/api/series/${encodeURIComponent(seriesId)}/topic-research`),
-    refetchInterval: query => query.state.data?.items.some(batch => batch.status === "researching") ? 5000 : false });
+    refetchInterval: query => query.state.data?.items.some(batch => isActive(batch.status)) ? 5000 : false });
   const batchId = params.get("research") ?? history.data?.items[0]?.id ?? null;
   if (history.isPending && !batchId) return <section className="research-panel"><p role="status">正在读取调研记录…</p></section>;
   return <ResearchPanel key={`${seriesId}-${batchId ?? "new"}`} seriesId={seriesId} batchId={batchId} history={history} controlsOnly={controlsOnly} />;
@@ -36,7 +37,7 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
   const editButtons = useRef<Record<string, HTMLButtonElement | null>>({});
   const batch = useQuery({ queryKey: ["research", batchId], enabled: !!batchId,
     queryFn: () => request<Batch>(`/api/topic-research/${encodeURIComponent(batchId!)}`),
-    refetchInterval: query => query.state.data?.status === "researching" ? 3000 : false });
+    refetchInterval: query => isActive(query.state.data?.status) ? 3000 : false });
   const chooseBatch = (id: string) => setParams(p => { p.set("research", id); return p; });
   const preview = useMutation({ retry: false,
     mutationFn: () => request<{ id: string }>(`/api/topic-research/${batchId}/preview`, {
@@ -70,7 +71,7 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
   return <section className="research-panel" aria-label="选题候选">
     <div className="research-heading"><h2>{controlsOnly ? "选题调研" : "选择本批次选题"}</h2>
       <button className="button button-primary" disabled={referenceBusy} aria-expanded={researchOpen} onClick={() => setResearchOpen(!researchOpen)}><RefreshCw size={14} />{batchId ? "重新调研" : "调研选题"}</button></div>
-    <div hidden={!researchOpen}><TopicReferenceComposer key={seriesId} seriesId={seriesId} researching={data?.status === "researching"}
+    <div hidden={!researchOpen}><TopicReferenceComposer key={seriesId} seriesId={seriesId}
       onBusy={setReferenceBusy} onResearch={id => { chooseBatch(id); void history.refetch(); }} /></div>
     {history.data?.items.length ? <div className="research-toolbar">
       <label>调研记录<select value={batchId ?? ""} disabled={!!editing || preview.isPending} onChange={e => chooseBatch(e.target.value)}>
@@ -80,7 +81,8 @@ function ResearchPanel({ seriesId, batchId, history, controlsOnly }: { seriesId:
     {(batch.error || history.error) && <p className="form-error" role="alert">{(batch.error || history.error)?.message}<button onClick={() => { void batch.refetch(); void history.refetch(); }}>重新读取</button></p>}
     {batchId && batch.isPending && <p role="status">正在读取候选…</p>}
     {data?.status === "researching" && <p className="research-notice" role="status"><span className="task-running-text">正在联网调研</span> · 第 {data.attempt || 1} 次尝试</p>}
-    {data && data.status !== "ready" && data.status !== "researching" && <p className="form-error" role="status">{labels[data.status]} · {data.note}</p>}
+    {data?.status === "queued" && <p className="research-notice" role="status">已排队，轮到后自动开始。可以继续提交其他调研。</p>}
+    {data && data.status !== "ready" && !isActive(data.status) && <p className="form-error" role="status">{labels[data.status]} · {data.note}</p>}
     {data?.stale && <p className="form-error" role="alert">当前栏目或 Skill 不可用，请修复配置后再选择；已保存的候选不会过期。</p>}
     {data?.status === "ready" && !data.candidates.length && <p className="research-empty">{data.note || "本次未找到适合的候选，可调整偏好重新调研。"}</p>}
     {!batchId && !history.isError && <div className="research-empty"><p>还没有调研记录。</p></div>}

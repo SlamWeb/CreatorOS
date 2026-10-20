@@ -405,7 +405,7 @@ export interface ProducerSkillDeleteResult {
 }
 
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
-export type SkillExtractionStatus = "running" | "ready" | "saved" | "failed" | "interrupted";
+export type SkillExtractionStatus = "queued" | "running" | "ready" | "saved" | "failed" | "interrupted";
 export type SkillExtractionOperation = "extract" | "revise" | "trial" | "calibrate" | null;
 
 export interface SkillExtractionUpload {
@@ -436,7 +436,7 @@ export interface SkillExtractionTrialCard {
 
 export interface SkillExtractionTrial {
   id: string;
-  status: "running" | "completed" | "failed" | "interrupted";
+  status: "queued" | "running" | "completed" | "failed" | "interrupted";
   digest: string;
   topic: string;
   error: string | null;
@@ -469,6 +469,7 @@ export interface SkillExtractionEventPage {
 }
 
 export interface SkillExtractionJob {
+  queue_state?: "queued" | "running" | "completed" | "failed" | "interrupted" | null;
   observation_warning?: string | null;
   task_kind?: "extract" | "merge" | "author" | "calibrate";
   calibration_id?: string;

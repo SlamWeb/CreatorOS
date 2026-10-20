@@ -19,7 +19,7 @@ def observe_research(client, batch, context=None):
         if view != previous:
             observer(view)
             previous = view
-        if batch.get("status") != "researching":
+        if batch.get("status") not in {"queued", "researching"}:
             return research_result(batch)
         if stopping.is_set():
             return _observation_error(batch, "research_wait_interrupted", "对话观察已中断；先查询同一批次，不要重新提交。")

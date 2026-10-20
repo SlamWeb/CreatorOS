@@ -3,6 +3,7 @@ import asyncio
 import base64
 import io
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -42,11 +43,12 @@ async def controlled(directory, images, mode, instruction, cancel, on_thread):
 
 
 def main():
-    with TemporaryDirectory() as temporary:
+    with TemporaryDirectory() as temporary, ExitStack() as cleanup:
         root = Path(temporary)
         url = f"sqlite:///{(root / 'test.db').as_posix()}"
         upgrade_database(url)
         db = Database(url)
+        cleanup.callback(db.close)
         catalog = ProducerSkillCatalog(root / "skills")
         service = SkillExtractionService(catalog, controlled)
         app = create_app(database=db, run_service=ContentRunService(db, output_root=root / "output"),
@@ -113,7 +115,10 @@ def main():
                 body = {"request_id": instruction, "mode": "pair", "upload_ids": [image["id"]], "instruction": instruction}
                 job = client.post(base, json=body).json()
                 if instruction == "wait":
-                    assert client.post(base, json={**body, "request_id": "busy"}).status_code == 409
+                    queued = client.post(base, json={**body, "request_id": "busy"})
+                    assert queued.status_code == 202, queued.text
+                    assert queued.json()["queue_state"] == "queued", queued.text
+                    assert client.post(base + "/" + queued.json()["id"] + "/cancel", json={}).status_code == 200
                     assert client.post(base + "/" + job["id"] + "/cancel", json={}).status_code == 200
                 service.worker.join(5)
                 final = client.get(base + "/" + job["id"]).json()
@@ -123,7 +128,7 @@ def main():
             # No creator/series/run was created, nor can foreign origins submit paid jobs.
             assert client.get("/api/creators").json()["page"]["total"] == 0
             assert client.post(base, json=body, headers={"Origin": "https://evil.example"}).status_code == 403
-            assert len(client.get(base).json()["items"]) == 9  # Includes the accepted duplicate-reference batch.
+            assert len(client.get(base).json()["items"]) == 10  # Includes queued and duplicate-reference batches.
 
             partial = service.submit("partial-register", [image["id"]], mode="pair")
             service.worker.join(5)

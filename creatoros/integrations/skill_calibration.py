@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import shutil
-import threading
 from pathlib import Path
 
 from sqlalchemy import select
@@ -207,8 +206,8 @@ class SkillCalibrationService:
                 if existing.input_digest != digest:
                     raise ExtractionError("同一校准请求的输入已变化，请新建请求。", 409)
                 return self.get(identifier)
-            if service.closed or (service.worker and service.worker.is_alive()):
-                raise ExtractionError("已有 Skill 操作正在执行，请稍后再试；不会影响当前任务。", 409)
+            if service.closed:
+                raise ExtractionError("服务正在关闭，请稍后提交。", 409)
             series, bound = self._series(series_id, skill_id)
             source, item, _ = self.catalog._readable_skill_directory(skill_id)
             if not item["editable"]:
@@ -303,7 +302,6 @@ class SkillCalibrationService:
                         series_id=series_id, creator_id=series.creator_id, skill_id=skill_id,
                         base_skill_digest=expected_skill_digest, job_id=job_id, evidence_json=evidence,
                         status="draft"))
-                service.cancel_event = threading.Event()
                 base_text = (directory / "base" / "target" / "SKILL.md").read_text(encoding="utf-8")
                 result = ExtractionResult(note="已冻结原 Skill 与标注证据，修改草稿正在生成；共享库未改动。",
                     skills=[DraftSkill(name=descriptor["name"], role=role, skill_md=base_text,

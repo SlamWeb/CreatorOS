@@ -97,16 +97,19 @@ with TemporaryDirectory() as directory:
         assert duplicate.status_code == 202 and duplicate.json()["id"] == entry["id"]
         conflict = client.post(base + "/discussion", json={**body, "message": "another"})
         assert conflict.status_code == 409
-        busy = client.post(base + "/discussion", json={**body, "request_id": "discussion-test-2"})
-        assert busy.status_code == 409
+        queued = client.post(base + "/discussion", json={**body, "request_id": "discussion-queued-2",
+                                                       "message": "排队的后续问题"})
+        assert queued.status_code == 202 and queued.json()["status"] == "queued", queued.text
         reviewer.release.set()
         item = wait(client, base, entry["id"])
-        assert item["status"] == "completed" and len(reviewer.calls) == 1
+        assert item["status"] == "completed"
+        assert wait(client, base, queued.json()["id"])["status"] == "completed"
+        assert len(reviewer.calls) == 2 and reviewer.calls[1][0] == "test-discussion-thread"
         assert item["context"]["image_count"] == 5
         assert str(root) not in json.dumps(item)
         second = client.post(base + "/discussion", json={**body, "request_id": "discussion-test-2", "message": "为什么？"})
         assert wait(client, base, second.json()["id"])["status"] == "completed"
-        assert reviewer.calls[1][0] == "test-discussion-thread"
+        assert reviewer.calls[2][0] == "test-discussion-thread"
         reviewer.fail = True
         failed = client.post(base + "/discussion", json={**body, "request_id": "discussion-test-3"})
         assert wait(client, base, failed.json()["id"])["status"] == "failed"
@@ -127,7 +130,7 @@ with TemporaryDirectory() as directory:
     restored = ContentDiscussionService(db, discussions.artifacts, discussions.root, reviewer)
     restored.start()
     assert any(r["id"] == "restart-test" and r["status"] == "interrupted" for r in restored.get(run.id)["items"])
-    assert len(reviewer.calls) == 3
+    assert len(reviewer.calls) == 4
     db.close()
 
 print("content_discussion_smoke=passed HTTP=idempotency=conflict=resume=restart original_run_unchanged=true")

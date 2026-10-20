@@ -1,5 +1,12 @@
 # CreatorOS Storage SPEC
 
+## 调研提交队列（2026-10-20，隔离验证）
+
+- `20261020_0015` 仅新增 `topic_research_queue_items`，批次 ID 唯一、栏目外键、状态与提交/开始/结束时间；原批次 JSON、旧业务行不回填或改写。按 status/submitted_at/id FIFO 串行领取。
+- queued 表示用户已授权且从未开始；researching 在调用模型前短事务落盘。重启保留 queued 并继续消费，将无结果的 researching 标 interrupted，不自动重复付费。JSON 已有终态时只补队列终态。
+- 原账号、栏目、Topic、Run、Revision、Attempt 和 Skill 不因队列表迁移改变；迁移及调度验证只运行隔离库。
+- 新库升级后 compare_metadata 零漂移；重启从已有SQLite读取授权，JSON完成但队列未收尾时保留JSON字节并补终态。无分布式领取承诺，沿用应用数据库绑定执行锁保证本机单宿主。
+
 ## Skill 校准（2026-10-20，隔离验证）
 
 - `20261020_0014` 仅新增 `skill_calibrations`；保存请求幂等、栏目/账号/目标 Skill、基线摘要、草稿任务关联、用户标注证据和显式应用凭证。图片和冻结 Skill 仍为本地受管文件，不存入 SQLite BLOB 或账号固定上下文。

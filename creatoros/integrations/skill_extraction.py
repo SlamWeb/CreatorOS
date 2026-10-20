@@ -203,6 +203,7 @@ class SkillExtractionService:
         self.producer_factory = producer_factory or CodexSdkProducer.from_defaults
         self.lock = threading.RLock()
         self.worker: threading.Thread | None = None
+        self._draining = False
         self.cancel_event = threading.Event()
         self.active_id = None
         self.closed = False
@@ -211,17 +212,41 @@ class SkillExtractionService:
         with self.lock:
             self.root.mkdir(parents=True, exist_ok=True)
             for path in (self.root / "jobs").glob("*/job.json"):
-                job = json.loads(path.read_text(encoding="utf-8"))
-                if job["status"] == "running":
-                    job.update(status="interrupted", error="服务重启，提炼已中断；未自动重试。", updated_at=now())
-                    _write(path, job)
-                if job.get("operation"):
-                    for trial in job.get("trials", []):
-                        if trial["status"] == "running":
-                            trial.update(status="interrupted", error="服务重启，试用已中断。")
-                    job.update(operation=None, error="服务重启，操作已中断；已有草稿保留。")
-                    _write(path, job)
+                try:
+                    job = json.loads(path.read_text(encoding="utf-8"))
+                    if (not isinstance(job, dict) or not isinstance(job.get("status"), str)
+                            or not isinstance(job.get("queue", {}), dict)
+                            or not isinstance(job.get("trials", []), list)
+                            or any(not isinstance(trial, dict) for trial in job.get("trials", []))):
+                        raise ValueError("Invalid Skill job record")
+                except (OSError, ValueError):
+                    LOG.warning("Cannot read historical Skill job %s; kept unchanged", path.parent.name)
+                    continue
+                if job.get("queue", {}).get("state") == "queued":
+                    continue
+                try:
+                    changed = False
+                    if job["status"] == "running":
+                        job.update(status="interrupted", error="服务重启，提炼已中断；未自动重试。", updated_at=now())
+                        changed = True
+                    if job.get("operation"):
+                        for trial in job.get("trials", []):
+                            if trial.get("status") == "running":
+                                trial.update(status="interrupted", error="服务重启，试用已中断。")
+                        job.update(operation=None, error="服务重启，操作已中断；已有草稿保留。")
+                        changed = True
+                    if job.get("queue", {}).get("state") == "running":
+                        job["queue"].update(state="interrupted", finished_at=now())
+                        changed = True
+                    if changed:
+                        _write(path, job)
+                except OSError:
+                    # An unwritable old claim must neither replay nor block
+                    # independent pending work or the application's startup.
+                    LOG.exception("Cannot persist interrupted Skill job %s; kept unchanged", path.parent.name)
             self.closed = False
+            from .skill_job_queue import kick
+            kick(self)
 
     def shutdown(self):
         with self.lock:
@@ -298,6 +323,7 @@ class SkillExtractionService:
             directory = self._path("jobs", job_id)
             job.pop("input_digest", None)
             job.pop("merge_request", None)
+            job["queue_state"] = job.get("queue", {}).get("state")
             job["progress"] = None
             # Old failures remain immutable; expose their recorded cause read-only.
             if job.get("error") and (not job.get("error_type") or (
@@ -384,7 +410,15 @@ class SkillExtractionService:
     def list(self):
         with self.lock:
             ids = sorted((self.root / "jobs").glob("*/job.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            return [self.get(path.parent.name) for path in ids[:50]]
+            result = []
+            for path in ids:
+                try:
+                    result.append(self.get(path.parent.name))
+                except (OSError, ValueError, KeyError, TypeError):
+                    LOG.warning("Cannot display Skill job %s; kept unchanged", path.parent.name)
+                if len(result) == 50:
+                    break
+            return result
 
     def submit(self, request_id, upload_ids=None, mode="single", instruction="", source_text=""):
         upload_ids = upload_ids or []
@@ -403,39 +437,37 @@ class SkillExtractionService:
             if (directory / "job.json").exists():
                 if self._read(job_id)["input_digest"] != digest:
                     raise ExtractionError("同一 request_id 的输入已改变，请另建提炼任务。", 409)
+                from .skill_job_queue import kick
+                kick(self)
                 return self.get(job_id)
-            if self.closed or (self.worker and self.worker.is_alive()):
-                raise ExtractionError("已有提炼正在运行或服务正在关闭，请稍后再试。", 409)
+            if self.closed:
+                raise ExtractionError("服务正在关闭，请稍后提交。", 409)
             images = [self.image_path(value) for value in upload_ids]
-            directory.mkdir(parents=True)
-            references = directory / "references"
-            references.mkdir()
-            copied = []
-            for i, path in enumerate(images, 1):
-                target = references / f"reference-{i:02d}{path.suffix}"
-                shutil.copy2(path, target)
-                copied.append(target)
             uploads = [{k: json.loads((p.parent / "upload.json").read_text(encoding="utf-8"))[k]
                         for k in ("id", "name", "url")} for p in images]
-            job = {"id": job_id, **inputs, "input_digest": digest, "status": "running",
+            job = {"id": job_id, **inputs, "input_digest": digest, "status": "queued",
                    "created_at": now(), "updated_at": now(), "uploads": uploads,
                    "thread_id": None, "error": None, "note": "", "skills": [], "digest": None,
                    "saved_skills": [], "cancel_requested": False, "operation": "extract",
                    "revision": 0, "trials": [], "actions": {}}
-            inherit_copy_permissions(directory)
-            _write(directory / "request.json", inputs)
-            _write(directory / "job.json", job)
-            if source_text:
-                (directory / "source.txt").write_text(source_text, encoding="utf-8")
-            self.cancel_event = threading.Event()
-            self.active_id = job_id
-            self.worker = threading.Thread(target=self._run, args=(job_id, copied), daemon=True)
-            try:
-                self.worker.start()
-            except RuntimeError:
-                job.update(status="failed", error="提炼线程未启动。", updated_at=now())
-                _write(directory / "job.json", job)
-                raise
+            from .skill_job_queue import kick, queued_record
+            jobs_root = self.root / "jobs"
+            jobs_root.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".skill-extract-", dir=jobs_root) as temporary:
+                staging = Path(temporary)
+                references = staging / "references"
+                references.mkdir()
+                for i, path in enumerate(images, 1):
+                    shutil.copy2(path, references / f"reference-{i:02d}{path.suffix}")
+                _write(staging / "request.json", inputs)
+                if source_text:
+                    (staging / "source.txt").write_text(source_text, encoding="utf-8")
+                inherit_copy_permissions(staging)
+                # No visible job exists until both inputs and queue authorization
+                # are complete. A failed preparation can retry the same request.
+                _write(staging / "job.json", queued_record(job, "extract"))
+                staging.rename(directory)
+            kick(self)
             return self.get(job_id)
 
     def submit_merge(self, request_id, skill_ids, instruction=""):
@@ -456,9 +488,11 @@ class SkillExtractionService:
                 existing = self._read(job_id)
                 if existing.get("merge_request") != requested:
                     raise ExtractionError("同一 request_id 的合并输入已变化，请另建请求。", 409)
+                from .skill_job_queue import kick
+                kick(self)
                 return self.get(job_id)
-            if self.closed or (self.worker and self.worker.is_alive()):
-                raise ExtractionError("已有提炼正在运行或服务正在关闭，请稍后再试。", 409)
+            if self.closed:
+                raise ExtractionError("服务正在关闭，请稍后提交。", 409)
             jobs_root = self.root / "jobs"
             jobs_root.mkdir(parents=True, exist_ok=True)
             try:
@@ -476,15 +510,17 @@ class SkillExtractionService:
                     (staging / "merge_context.json").write_text(
                         json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
                     job = {"id": job_id, **requested, "input_digest": input_digest,
-                           "merge_request": requested, "status": "running", "created_at": now(),
+                           "merge_request": requested, "status": "queued", "created_at": now(),
                            "updated_at": now(), "uploads": [], "source_text": "", "source_skills": metadata,
                            "thread_id": None, "error": None, "note": "", "skills": [], "digest": None,
                            "saved_skills": [], "cancel_requested": False, "operation": "extract",
                            "revision": 0, "trials": [], "actions": {}}
                     _write(staging / "request.json", requested)
-                    _write(staging / "job.json", job)
                     from .skill_merge import seed_model_sources
                     seed_model_sources(staging, staging / "draft")
+                    inherit_copy_permissions(staging)
+                    from .skill_job_queue import queued_record
+                    _write(staging / "job.json", queued_record(job, "extract"))
                     staging.rename(final_directory)
             except UnsupportedMergeSource as error:
                 raise ExtractionError(str(error)) from error
@@ -492,16 +528,8 @@ class SkillExtractionService:
                 raise ExtractionError("同一 request_id 的任务刚刚创建，请重新读取任务。", 409) from error
             except (ValueError, OSError, KeyError) as error:
                 raise ExtractionError("所选 Skill 无法安全读取或快照，请检查文件后重试。") from error
-            inherit_copy_permissions(final_directory)
-            self.cancel_event = threading.Event()
-            self.active_id = job_id
-            self.worker = threading.Thread(target=self._run, args=(job_id, []), daemon=True)
-            try:
-                self.worker.start()
-            except RuntimeError:
-                job.update(status="failed", error="合并任务线程未启动。", updated_at=now())
-                _write(final_directory / "job.json", job)
-                raise
+            from .skill_job_queue import kick
+            kick(self)
             return self.get(job_id)
 
     def _update(self, job_id, **changes):
@@ -591,7 +619,7 @@ class SkillExtractionService:
                     raise ExtractionError("草稿 assets 未保留完整参考作品，请修改要求后重试。")
         if len({s.name for s in result.skills}) != len(result.skills):
             raise ExtractionError("Skill 名称重复。")
-        if self.cancel_event.is_set():
+        if self.active_id == job_id and self.cancel_event.is_set():
             raise ExtractionError("提炼已取消。")
         inherit_copy_permissions(version)
         self._update(job_id, status="ready", note=result.note,
@@ -602,6 +630,15 @@ class SkillExtractionService:
     def cancel(self, job_id):
         with self.lock:
             job = self._read(job_id)
+            if job.get("queue", {}).get("state") == "queued":
+                queue = {**job["queue"], "state": "interrupted", "finished_at": now()}
+                for trial in job.get("trials", []):
+                    if trial["id"] == queue.get("key"):
+                        trial.update(status="interrupted", error="已取消排队，尚未调用模型。")
+                self._update(job_id, queue=queue, operation=None, trials=job.get("trials", []),
+                             error="已取消排队，尚未调用模型。",
+                             **({"status": "interrupted"} if queue["operation"] == "extract" else {}))
+                return self.get(job_id)
             if (job["status"] == "running" or job.get("operation")) and self.active_id == job_id:
                 self.cancel_event.set()
                 self._update(job_id, cancel_requested=True)
@@ -616,7 +653,8 @@ class SkillExtractionService:
                 raise ExtractionError("草稿版本已变化，请刷新后重新确认。", 409)
             if job["status"] == "saved":
                 return self.get(job_id)
-            if job["status"] != "ready" or job.get("operation"):
+            if (job["status"] != "ready" or job.get("operation")
+                    or job.get("queue", {}).get("state") in {"queued", "running"}):
                 raise ExtractionError("提炼尚未就绪，不能入库。", 409)
             directory = self._path("jobs", job_id)
             if _digest(self._draft_root(job)) != expected_digest:

@@ -3,22 +3,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Event, RLock, Thread
+from threading import Event, RLock, Thread, current_thread
 from time import monotonic
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pydantic import Field, field_validator
+from sqlalchemy import select
 
 from creatoros.ai import ModelUsage
 from creatoros.operations import OperationParseDecision, OperationParseResult, PendingOperationService
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, SeriesResearchContext, TopicDraft
 from creatoros.storage import ContentRepository
+from creatoros.storage.models import TopicResearchQueueItem, utc_now
 from .codex import (CODEX_MODEL, CODEX_EFFORT, PRODUCTION_CONFIG, CodexProducerError,
                     CodexRun, CodexSdkProducer, ProductionModel, _bounded_sdk, _production_client)
 from .codex_executable import resolve_codex_executable
@@ -256,6 +259,8 @@ class TopicResearchService:
         self.cancel = Event()
         self.worker = None
         self.active_batch_id = None
+        self.closed = False
+        self._draining = False
 
     def _path(self, batch_id):
         if not re.fullmatch(r"[a-f0-9]{32}", batch_id):
@@ -267,6 +272,24 @@ class TopicResearchService:
         if not path.is_file():
             raise ValueError("调研批次不存在。")
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def _records(self):
+        records = []
+        for path in sorted(self.root.glob("batches/*.json")):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+                required = ("id", "series_id", "status", "created_at", "count", "note", "candidates", "snapshot")
+                if not isinstance(record, dict) or not all(k in record for k in required):
+                    raise ValueError("invalid research record")
+                if (not isinstance(record["created_at"], str)
+                        or not isinstance(record["candidates"], list)
+                        or any(not isinstance(c, dict) or not all(k in c for k in ("id", "title", "angle"))
+                               for c in record["candidates"])):
+                    raise ValueError("invalid research record")
+                records.append(record)
+            except (OSError, ValueError):
+                logging.getLogger(__name__).warning("Skipping unreadable research history %s", path.name)
+        return records
 
     def snapshot(self, series_id):
         series = self.repository.get_series(series_id)
@@ -286,8 +309,7 @@ class TopicResearchService:
         else:
             raise ValueError("栏目未配置内容 Skill，无法调研。")
         existing_candidates = []
-        for batch_path in sorted(self.root.glob("batches/*.json")):
-            batch = json.loads(batch_path.read_text(encoding="utf-8"))
+        for batch in self._records():
             if batch.get("series_id") != series_id or batch.get("status") != "ready":
                 continue
             for candidate in batch.get("candidates", []):
@@ -316,6 +338,8 @@ class TopicResearchService:
         if not 1 <= count <= 30 or len(instructions) > 3000:
             raise ValueError("候选数须为 1–30，补充要求最多 3000 字。")
         with self.lock:
+            if self.closed:
+                raise ValueError("调研服务正在关闭，请在服务启动后提交。")
             # Serialize the initial ownership/configuration read with series
             # deletion, so a submission cannot start against a deleted series.
             snapshot = self.snapshot(series_id)
@@ -327,21 +351,24 @@ class TopicResearchService:
                 except OSError as error:
                     raise ValueError("参考输入不存在或不可读取，请重新选择参考作品。") from error
                 snapshot["task_references"] = references.model_dump(mode="json")
-            if self.worker and self.worker.is_alive():
-                if self.active_batch_id:
-                    job = self._load(self.active_batch_id)
-                    if (job["status"] == "researching" and job["series_id"] == series_id
-                            and job["count"] == count and self._normalized(job["instructions"]) == self._normalized(instructions)
-                            and (job.get("task_references") or {}).get("id") == reference_id
-                            and self._same_config(job["snapshot"], snapshot)):
-                        return self.get(job["id"])
-                raise ValueError("已有选题调研进行中；请先查看该任务，本步不自动排队。")
+            with self.database.session() as session:
+                active = session.scalars(select(TopicResearchQueueItem).where(
+                    TopicResearchQueueItem.series_id == series_id,
+                    TopicResearchQueueItem.status.in_(("queued", "researching")),
+                )).all()
+            for item in active:
+                job = self._load(item.batch_id)
+                if (job["count"] == count and self._normalized(job["instructions"]) == self._normalized(instructions)
+                        and (job.get("task_references") or {}).get("id") == reference_id
+                        and self._same_config(job["snapshot"], snapshot)):
+                    self._kick()
+                    return self.get(job["id"])
             batch_id = uuid4().hex
             record = {"id": batch_id, "series_id": series_id, "count": count,
-                      "instructions": instructions, "status": "researching", "attempt": 0,
+                      "instructions": instructions, "status": "queued", "attempt": 0,
                       "created_at": datetime.now(timezone.utc).isoformat(), "snapshot": snapshot,
-                      "candidates": [], "note": "正在连接 Codex 调研执行器。", "attempts": [],
-                      "progress": {"stage": "starting", "last_activity_at": None, "events": []}}
+                      "candidates": [], "note": "已排队，轮到后自动开始调研。", "attempts": [],
+                      "progress": {"stage": "queued", "last_activity_at": None, "events": []}}
             if references is not None:
                 record["task_references"] = references.model_dump(mode="json")
             try:
@@ -352,10 +379,100 @@ class TopicResearchService:
                 _write(self._path(batch_id), record)
                 return self.get(batch_id)
             _write(self._path(batch_id), record)
-            self.active_batch_id = batch_id
-            self.worker = Thread(target=self._run, args=(batch_id,), daemon=True)
-            self.worker.start()
+            # Persist the authorization before acknowledging or starting paid work.
+            try:
+                with self.database.session() as session:
+                    session.add(TopicResearchQueueItem(batch_id=batch_id, series_id=series_id, status="queued"))
+            except Exception as error:
+                # Commit can fail before OR after reaching disk. Read it back
+                # before classifying failure, never enqueue a replacement here.
+                try:
+                    with self.database.session() as session:
+                        accepted = session.scalar(select(TopicResearchQueueItem.id).where(
+                            TopicResearchQueueItem.batch_id == batch_id))
+                except Exception:
+                    record.update(status="interrupted", error_type="research_submission_unconfirmed",
+                                  note="提交结果暂时无法核对；未启动执行，请恢复服务后查看同一任务。")
+                    self._activity(record, "error", record["note"], "interrupted", stage="interrupted")
+                    raise ValueError(record["note"]) from error
+                if accepted is None:
+                    self._fail(record, CodexProducerError("调研未成功入队；未启动 Codex，请检查本地存储后重试。",
+                                                         error_type="research_queue_write_failed"))
+                    return self.get(batch_id)
+            self._kick()
             return self.get(batch_id)
+
+    def _kick(self):
+        """Caller holds lock; one drain thread, no model call inside a DB transaction."""
+        if not self.closed and not self.cancel.is_set() and not self._draining:
+            with self.database.session() as session:
+                if session.scalar(select(TopicResearchQueueItem.id).where(
+                    TopicResearchQueueItem.status == "queued").limit(1)) is None:
+                    return
+            self._draining = True
+            self.worker = Thread(target=self._drain, daemon=True)
+            try:
+                self.worker.start()
+            except RuntimeError:
+                self.worker = None
+                self._draining = False
+                logging.getLogger(__name__).exception("Research consumer did not start; queued requests retained")
+
+    def _drain(self):
+        try:
+            self._drain_batches()
+        finally:
+            # An infrastructure error must not leave an imaginary live worker.
+            # Do not spin/retry paid work here; persisted items remain inspectable.
+            with self.lock:
+                if self.worker is current_thread():
+                    self._draining = False
+                    self.active_batch_id = None
+
+    def _drain_batches(self):
+        while True:
+            with self.lock:
+                if self.closed or self.cancel.is_set():
+                    self._draining = False
+                    return
+                with self.database.session() as session:
+                    item = session.scalar(select(TopicResearchQueueItem).where(
+                        TopicResearchQueueItem.status == "queued"
+                    ).order_by(TopicResearchQueueItem.submitted_at, TopicResearchQueueItem.id).limit(1))
+                    if item is None:
+                        # Clearing under the same lock closes the submit/drain-exit race.
+                        self.active_batch_id = None
+                        self._draining = False
+                        return
+                    item.status = "researching"
+                    item.started_at = utc_now()
+                    batch_id = item.batch_id
+                self.active_batch_id = batch_id
+            failure = None
+            try:
+                record = self._load(batch_id)
+                record.update(status="researching", note="正在连接 Codex 调研执行器。")
+                record.pop("error_type", None)
+                record.pop("error", None)
+                self._activity(record, "status", record["note"], stage="starting")
+                self._run(batch_id)
+            except Exception as error:
+                # Persistence faults also release the queue; never relaunch this batch.
+                failure = "调研记录保存失败，请查看本地错误记录；未自动重试。"
+                write_diagnostic_text(self.root / f"{batch_id}-error.txt", str(error))
+            finally:
+                with self.lock:
+                    with self.database.session() as session:
+                        row = session.scalar(select(TopicResearchQueueItem).where(
+                            TopicResearchQueueItem.batch_id == batch_id))
+                        if failure:
+                            row.status, row.last_error = "failed", failure
+                        else:
+                            record = self._load(batch_id)
+                            row.status = record["status"]
+                            row.last_error = record.get("error")
+                        row.completed_at = utc_now()
+                    self.active_batch_id = None
 
     @staticmethod
     def _normalized(instructions):
@@ -448,6 +565,7 @@ class TopicResearchService:
     def get(self, batch_id):
         with self.lock:
             record = self._load(batch_id)
+            self._project_queue(record)
         # Older failures get a safe read-only projection; never rewrite their evidence.
         if record["status"] == "failed" and not record.get("error_type"):
             error_path = self.root / f"{batch_id}-error.txt"
@@ -482,12 +600,18 @@ class TopicResearchService:
 
     def list(self, series_id):
         with self.lock:
-            records = [json.loads(p.read_text(encoding="utf-8")) for p in self.root.glob("batches/*.json")]
+            records = self._records()
+            for record in records:
+                self._project_queue(record)
         return [{k: r[k] for k in ("id", "created_at", "status", "count", "note")}
                 for r in sorted(records, key=lambda r: r["created_at"], reverse=True) if r["series_id"] == series_id]
 
     def has_history_for_series(self, series_id: str) -> bool:
         """Research batches are durable history even after they finish or fail."""
+        with self.database.session() as session:
+            if session.scalar(select(TopicResearchQueueItem.id).where(
+                TopicResearchQueueItem.series_id == series_id).limit(1)) is not None:
+                return True
         if not self.root.exists():
             return False
         for path in (self.root / "batches").glob("*.json"):
@@ -500,8 +624,14 @@ class TopicResearchService:
         return False
 
     def has_active_for_series(self, series_id: str) -> bool:
-        """Only a live in-process worker blocks deletion; stale persisted jobs remain history."""
+        """Accepted queued work also blocks deleting its source column."""
         with self.lock:
+            with self.database.session() as session:
+                if session.scalar(select(TopicResearchQueueItem.id).where(
+                    TopicResearchQueueItem.series_id == series_id,
+                    TopicResearchQueueItem.status.in_(("queued", "researching")),
+                ).limit(1)) is not None:
+                    return True
             if not self.worker or not self.worker.is_alive():
                 return False
             for path in (self.root / "batches").glob("*.json"):
@@ -565,18 +695,68 @@ class TopicResearchService:
         return pending, deduplicated
 
     def start(self):
-        self.cancel.clear()
-        for path in self.root.glob("batches/*.json"):
-            record = json.loads(path.read_text(encoding="utf-8"))
-            if record["status"] == "researching":
-                record.update(status="interrupted", note="上次调研已中断；候选未入队，可重新发起。")
-                if record.get("progress"):
-                    self._activity(record, "status", record["note"], "interrupted", stage="interrupted")
-                _write(path, record)
+        with self.lock:
+            if self._draining:
+                return
+            self.closed = False
+            self.cancel.clear()
+            with self.database.session() as session:
+                items = session.scalars(select(TopicResearchQueueItem)).all()
+                indexed = {item.batch_id: item for item in items}
+                records = self._records()
+                readable = {record["id"] for record in records}
+                for item in items:
+                    if item.status == "researching" and item.batch_id not in readable:
+                        item.status = "interrupted"
+                        item.last_error = "调研记录不可读取；未自动重做，请检查本地记录。"
+                        item.completed_at = utc_now()
+                for record in records:
+                    item = indexed.get(record["id"])
+                    if item and item.status == "queued":
+                        continue  # Never started: explicit authorization survives restart.
+                    if item and item.status == "researching" and record["status"] in {
+                        "ready", "failed", "interrupted", "stale"
+                    }:
+                        # Receipt persisted before queue finalization: no model replay.
+                        item.status, item.last_error = record["status"], record.get("error")
+                        item.completed_at = utc_now()
+                        continue
+                    if record["status"] == "researching" or (item and item.status == "researching"):
+                        record.update(status="interrupted", note="上次调研已中断；未自动重做，可重新发起。")
+                        record.setdefault("progress", {"stage": "interrupted", "last_activity_at": None, "events": []})
+                        try:
+                            self._activity(record, "status", record["note"], "interrupted", stage="interrupted")
+                        except OSError:
+                            # One inaccessible batch must not roll back the
+                            # queue recovery transaction or block pending work.
+                            logging.getLogger(__name__).exception("Cannot persist interrupted research %s", record["id"])
+                        if item:
+                            item.status, item.last_error = "interrupted", record["note"]
+                            item.completed_at = utc_now()
+            self._kick()
+
+    def _project_queue(self, record):
+        """Queue acceptance/failure is authoritative even if a JSON write was interrupted."""
+        with self.database.session() as session:
+            item = session.scalar(select(TopicResearchQueueItem).where(
+                TopicResearchQueueItem.batch_id == record["id"]))
+        if item is None:
+            return
+        if item.status == "queued" and record.get("error_type") == "research_submission_unconfirmed":
+            record.update(status="queued", note="已核对提交成功，等待执行。")
+            record.pop("error_type", None)
+            record["progress"] = {**record.get("progress", {}), "stage": "queued"}
+        if item.status in {"failed", "interrupted"} and record["status"] in {"queued", "researching"}:
+            record.update(status=item.status, note=item.last_error or "调研已停止。",
+                          error=item.last_error or "调研已停止。")
+            record["progress"] = {**record.get("progress", {}), "stage": item.status}
 
     def shutdown(self):
-        self.cancel.set()
-        if self.worker:
-            self.worker.join(timeout=10)
-            if self.worker.is_alive():
+        with self.lock:
+            self.closed = True
+            self.cancel.set()
+            worker = self.worker
+        if worker:
+            worker.join(timeout=10)
+            if worker.is_alive():
                 raise RuntimeError("选题调研进程尚未退出。")

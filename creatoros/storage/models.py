@@ -595,6 +595,26 @@ class ProductionQueueItem(Base):
     last_error: Mapped[str | None] = mapped_column(Text)
 
 
+class TopicResearchQueueItem(Base):
+    """Durable authorization for one research batch; candidate artifacts remain JSON."""
+    __tablename__ = "topic_research_queue_items"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','researching','ready','failed','interrupted','stale')",
+            name="status_values",
+        ),
+        Index("ix_topic_research_queue_pending", "status", "submitted_at", "id"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="queued", nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
 class ManualPublication(Base):
     __tablename__ = "manual_publications"
     __table_args__ = (CheckConstraint("platform = 'xiaohongshu'", name="platform_values"),)

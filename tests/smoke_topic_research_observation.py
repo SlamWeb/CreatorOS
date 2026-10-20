@@ -102,17 +102,15 @@ def main():
             visible = json.dumps(active["progress"])
             assert "PRIVATE_REASONING" not in visible and "super-secret" not in visible
             assert "private" not in visible and "official source" in visible
-            try:
-                service.submit(sid, 2, "different")
-                raise AssertionError("Distinct active request must be busy")
-            except ValueError as error:
-                assert "已有选题调研" in str(error)
+            queued = service.submit(sid, 2, "different")
+            assert queued["status"] == "queued"
+            assert service.submit(sid, 2, "different")["id"] == queued["id"]
             release.set()
             service.worker.join(5)
             assert service.get(job["id"])["progress"]["stage"] == "ready"
             other = service.submit(sid, 1, "a topic")
             service.worker.join(5)
-            assert other["id"] != job["id"] and len(calls) == 2
+            assert other["id"] != job["id"] and len(calls) == 3
             assert not ContentRepository(db).list_topics(sid)
         db.close()
 
