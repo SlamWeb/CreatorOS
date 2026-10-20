@@ -133,6 +133,7 @@ def main():
                                                timeout_seconds=0.06 if "timeout" in mode else 2)
             observed = []
             with patch.dict(os.environ, {"CREATOROS_CODEX_EXECUTABLE": ""}), \
+                 patch("creatoros.integrations.codex_shell.codex_subprocess_env", return_value=None), \
                  patch("openai_codex.AsyncCodex", side_effect=sdk.build):
                 try:
                     result = researcher.research({"series": {"name": "English"}}, 1, "常用且常考", workspace, cancel,

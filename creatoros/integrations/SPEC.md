@@ -1,5 +1,17 @@
 # External Integrations SPEC
 
+## 双 Skill 检查的执行环境与错误分类（2026-10-20）
+
+- 真实故障：任务60506acd的两份Skill存在，但WindowsApps PowerShell在沙箱内CreateProcessAsUserW失败5；模型误判为工作区外文件拒读，宿主又将技术故障标为需用户澄清。
+- 修复仅限CreatorOS创建的新SDK子进程的Shell选择，不修改全局PATH/登录态/权限，不降低沙箱；新增技术阻塞状态，与真实内容硬冲突分开，保留原始响应与Checkpoint。
+- 旧失败目录不改写，使用其冻结双Skill、参考图和原要求进行隔离真实验证；不重启正式服务或干预在途任务。新代码加载/正式任务回填状态需明确报告，不能把隔离验证说成原任务已恢复。
+- 回归覆盖WindowsApps路径、明确技术故障与内容冲突、技术恢复重查及旧证据不变。模型调用与本地故障注入分别记账。
+- 定向回归20/20通过（14个Shell选择/启动、6个分类/恢复/隔离SQLite用例）；native production、native run wiring、completed turn、topic research SDK四组smoke通过，compileall与diff-check通过。未运行全量可靠性套件或浏览器E2E。受控SDK用于故障注入，不作为真实生成成功率。
+- SDK超时smoke首轮被新增宿主Shell探测消耗60ms夹具预算；在该受控SDK用例显式隔离Shell探测后通过，Shell真实启动另测，不据此声称消除所有启动超时。
+- 真实只读检查使用原失败冻结输入，便携PowerShell实际启动并读到两份Skill，组合返回ready；thread `01a159a6-e835-7270-89f5-0053d625c044`，input 49880 / output 2563 / reasoning 2195，旧目录哈希未变。证据 `tmp/composition-replay-review-20261020-c/report.json`。此前两次隔离脚本准备失败（报告序列化、参考包路径）保留，未进入模型执行；不混入模型生产统计。
+- 原任务完整真实生产隔离重放通过：原输入摘要与双Skill摘要一致、不融合；2026-10-20 22:13–22:27完成8张图片和SocialContentPack，thread `01a159a8-c70f-7432-bc59-d036b2a75c91`。input 1192895（cached 1075200）/ output 32619（reasoning 17313），以SDK原始口径记录，不把reasoning重复相加。报告 `tmp/composition-replay-production-20261020/report.json`；8张通过产物校验，首尾图人工打开查看，不宣称所有文案/美学已人工验收。旧失败目录逐文件哈希不变。
+- 正式服务PID27488仍原进程运行，正式Run仍failed/version4/原错误类型，没有将隔离结果自动写回正式数据库。分支代码需服务安全重启才被新任务加载；历史错误分类与重试按钮未自动迁移。只读复审未发现阻塞问题。
+
 ## Skill 独立任务持久化排队（2026-10-20，隔离回归通过）
 
 - 最终统一后端23/23组通过；最后两处恢复/提交窗口补丁后，完整Skill队列19项与校准24项再次联合43/43通过（118.9秒）。安装/讨论9项、调研13项亦在最终统一报告通过。真实Codex链路验证后追加的磁盘故障窗口仅用隔离故障注入验证，不伪称对真实模型制造过磁盘故障。

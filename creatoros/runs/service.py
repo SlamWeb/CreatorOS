@@ -1001,6 +1001,7 @@ class ContentRunService:
             "codex_timeout",
             "codex_exec_failed",
             "codex_turn_failed",
+            "codex_environment_error",
             "skill_composition_invalid",
             "visual_delivery_failed",
             "native_delivery_failed",

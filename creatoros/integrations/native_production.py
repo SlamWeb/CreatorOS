@@ -44,8 +44,22 @@ COMPOSITION_RULES = (
 
 
 class CompositionReview(ProductionModel):
-    status: Literal["ready", "needs_input"]
+    status: Literal["ready", "needs_input", "blocked"]
     note: str = Field(min_length=1, max_length=3000)
+
+
+def composition_environment_failure(review: CompositionReview | None) -> bool:
+    """Recognize old access-failure receipts without rewriting their evidence."""
+    if review is None:
+        return False
+    if review.status == "blocked":
+        return True
+    if review.status != "needs_input":
+        return False
+    return bool(re.search(
+        r"CreateProcess|WinError|permission denied|access (?:is )?denied|"
+        r"无法读取|不能读取|读取.{0,20}失败|拒绝访问|启动.{0,20}失败",
+        review.note, flags=re.IGNORECASE))
 
 
 class Artifact(ProductionModel):
@@ -419,10 +433,18 @@ def composition_prompt(refs: list[tuple[str, Path]], request: str) -> str:
             + "\n没有实质硬冲突则 status=ready，note 用几句话说明保留什么内容、版式如何适配。"
             "默认值可调整，不必每次询问。不要提前写完整内容稿或承诺未知页数。"
             "存在实质硬冲突则 status=needs_input，note 指出具体来源条款、冲突与可选解决方式，"
-            "明确问用户愿意放宽哪项。无法读取必要文件也不能猜测后报 ready。\n本次任务：" + request)
+            "明确问用户愿意放宽哪项。needs_input只表示已读到的内容要求互斥。"
+            "命令启动失败、文件不存在或权限拒绝等技术故障必须返回status=blocked，"
+            "note说明实际工具错误，不要推测成Skill冲突，也不要让用户通过返工放宽要求。"
+            "无法读取必要文件不能猜测后报ready。\n本次任务：" + request)
 
 
 def require_ready(review: CompositionReview | None) -> None:
+    if composition_environment_failure(review):
+        raise CodexProducerError(
+            f"生产环境检查失败，尚未开始生图：{review.note}\n"
+            "这是命令或文件读取故障，不是 Skill 冲突；修复环境后可重试，无需重新融合或提出内容返工。",
+            error_type="codex_environment_error")
     if review and review.status == "needs_input":
         raise CodexProducerError(
             f"Skill 组合需要你确认：{review.note}\n请通过“提出返工”补充选择，保存后再开始生产。",
@@ -433,6 +455,13 @@ async def review_composition(thread, producer, directory, refs, request, progres
     """One text-only turn in the production thread; no separate planning agent."""
     from openai_codex import LocalImageInput, Sandbox, SkillInput, TextInput
 
+    try:
+        for _, path in refs:
+            safe_file(directory / "skills", path).read_text(encoding="utf-8")
+    except (OSError, ValueError) as error:
+        raise CodexProducerError(
+            "本次冻结 Skill 文件无法读取，尚未开始生图；请检查任务文件后重试，无需内容返工。",
+            error_type="codex_environment_error") from error
     prompt = composition_prompt(refs, request)
     references = frozen_references(directory)
     images = [Path(item.path) for item in references.images] if references else []
@@ -464,6 +493,9 @@ async def review_composition(thread, producer, directory, refs, request, progres
     except ValueError as error:
         raise CodexProducerError("Skill 组合检查未返回有效结论，尚未进入生产。",
                                  error_type="skill_composition_invalid") from error
+    # Preserve raw composition_response.txt, normalize only the current receipt.
+    if composition_environment_failure(review):
+        review = review.model_copy(update={"status": "blocked"})
     progress.checkpoint.composition_review = review
     atomic_json(directory / CHECKPOINT, progress.checkpoint)
     (directory / "composition_review.md").write_text(f"# {review.status}\n\n{review.note}\n", encoding="utf-8")
@@ -504,15 +536,36 @@ def thread_image_fingerprints(generated_root: Path, thread_id: str) -> dict[str,
             for path in root.iterdir() if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}}
 
 
+def has_production_images(directory: Path, checkpoint: Checkpoint, generated_root: Path) -> bool:
+    """A failed preflight cannot authorize regeneration of unindexed images."""
+    if checkpoint.pages or checkpoint.delivery.artifacts or checkpoint.delivery.complete or checkpoint.turn_completed:
+        return True
+    for name in ("work", "received-images", "partial-images"):
+        location = directory / name
+        if location.is_dir() and any(p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+                                    for p in location.rglob("*")):
+            return True
+    return any(checkpoint.preexisting_thread_images.get(path) != digest
+               for path, digest in thread_image_fingerprints(generated_root, checkpoint.thread_id).items())
+
+
 async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event,
                   resume_thread_id=None):
     from openai_codex import ApprovalMode, LocalImageInput, Sandbox, SkillInput, TextInput
     progress = NativeProgress(directory, checkpoint)
     deadline = monotonic() + producer.timeout_seconds
     try:
+        preflight_retry = bool(checkpoint and composition_environment_failure(checkpoint.composition_review))
+        if preflight_retry:
+            if has_production_images(directory, checkpoint, producer.generated_images_root):
+                raise CodexProducerError("环境故障记录与已有交付不一致，需核对原任务，未重新生图。",
+                                         error_type="codex_environment_error")
+            # Only the new Attempt is changed. Previous failed evidence stays intact.
+            checkpoint.composition_review = None
+            atomic_json(directory / CHECKPOINT, checkpoint)
         require_ready(checkpoint.composition_review if checkpoint else None)
         repair_only, delivery_error = False, None
-        if checkpoint:
+        if checkpoint and not preflight_retry:
             # Zero verified pages does not mean zero generated images. Inspect
             # local recovery evidence before even constructing the SDK client.
             try:
