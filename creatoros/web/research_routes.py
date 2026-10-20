@@ -28,8 +28,9 @@ def research_routes(service, queries):
 
     @router.get("/series/{series_id}/topic-library")
     def library(series_id: str, state: Literal["all", "pending", "queued"] = "all",
-                offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100)):
-        result = topic_library(service, queries, series_id, state, offset, limit)
+                offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=100),
+                order: Literal["queue", "recent"] = "queue"):
+        result = topic_library(service, queries, series_id, state, offset, limit, order=order)
         if result is None:
             raise HTTPException(status_code=404, detail="Series 不存在。")
         return result

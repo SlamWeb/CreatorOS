@@ -11,6 +11,7 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("topic_library_order", ["-m", "unittest", "tests.test_topic_library_order", "-v"]),
     ("auxiliary_job_queues", ["-m", "unittest", "tests.test_auxiliary_job_queues", "-v"]),
     ("skill_job_queue", ["-m", "unittest", "tests.test_skill_job_queue", "-v"]),
     ("topic_research_queue", ["-m", "unittest", "tests.test_topic_research_queue", "-v"]),

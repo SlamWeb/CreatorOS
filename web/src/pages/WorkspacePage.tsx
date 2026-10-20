@@ -142,7 +142,7 @@ export function WorkspacePage() {
   const seriesId = series?.id ?? null;
   const accountSeries = allSeries.filter(s => s.creator_id === scopedCreatorId);
 
-  function selectSeries(id: string, owner?: string | null) {
+  function selectSeries(id: string, owner?: string | null, keepFilter = false) {
     setTreeOpen(false);
     inbox.markObjectSeen("series", id);
     const target = allSeries.find(item => item.id === id);
@@ -155,7 +155,8 @@ export function WorkspacePage() {
       const creatorId = owner === undefined ? selected?.creator_id : owner;
       if (creatorId) next.set("creator", creatorId);
       else next.delete("creator");
-      for (const key of ["topics", "offset", "select", "research", "operation", "topic", "view"]) next.delete(key);
+      for (const key of ["offset", "select", "research", "operation", "topic", "view"]) next.delete(key);
+      if (!keepFilter) next.delete("topics");
       return next;
     });
   }
@@ -262,7 +263,7 @@ export function WorkspacePage() {
       {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"}].map(tab => <button key={tab.value} type="button" aria-pressed={(params.get("view") === "data" ? "data" : "content") === tab.value}
         onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value === "data") next.set("view","data"); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
       {account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
-      {!!accountSeries.some(item => item.topic_count > 0) && <><LibraryFilters />{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id)} onDiscuss={discuss}
+      {!!accountSeries.some(item => item.topic_count > 0) && <><LibraryFilters />{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
         accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}
       {!accountSeries.some(item => item.topic_count > 0) && <div className="workspace-empty">
@@ -381,7 +382,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   </>;
   return <section className={overview ? "account-series-section" : "series-content-section"}>
     {overview && <header className="account-series-head">{heading}</header>}
-    <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss}
+    <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss} onViewAll={overview ? onSelect : undefined}
       heading={!overview ? heading : undefined} headerActions={!overview ? headerActions : undefined} headerPanels={headerPanels}
       productionEnabled={series.is_active && !!series.creator_id} />
   </section>;

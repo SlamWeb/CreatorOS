@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +217,22 @@ class StudioQueryService:
                 items=items,
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
+
+    def topic_activity_times(self, series_id: str) -> dict[str, datetime]:
+        """Read-only sort keys; latest Run matches the card's Run selection."""
+        with self.database.session() as session:
+            topics = session.execute(select(Topic.id, Topic.created_at, Topic.updated_at).where(
+                Topic.series_id == series_id, _visible_topic())).all()
+            activity = {topic_id: max(created, updated) for topic_id, created, updated in topics}
+            runs = session.execute(select(ContentRun.topic_id, ContentRun.updated_at).join(Topic).where(
+                Topic.series_id == series_id, _visible_topic()).order_by(
+                    ContentRun.created_at.desc(), ContentRun.id.desc())).all()
+            seen = set()
+            for topic_id, updated in runs:
+                if topic_id not in seen:
+                    activity[topic_id] = max(activity[topic_id], updated)
+                    seen.add(topic_id)
+            return activity
 
     def list_runs(
         self,

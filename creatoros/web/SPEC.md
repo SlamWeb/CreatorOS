@@ -1,5 +1,14 @@
 # CreatorOS Web API SPEC
 
+## 内容最近更新排序（2026-10-20，隔离HTTP/SQLite验证通过）
+
+- `GET /api/series/{id}/topic-library` 增加 `order=recent|queue`；缺省queue保持已有顺序和Agent契约，网页显式recent。
+- recent在全列表筛选后、分页前排序；已入队项使用Topic创建/更新和卡片所指最新Run更新时间最大值，待选项用调研批次创建时间；同时间以ID稳定排序。内部批量读取时间，不扩展DTO、不逐项查数据库。
+- 仅只读展示排序，不改Topic.position、生产队列、正式数据库、任务状态或模型输入。隔离HTTP/SQLite验证跨20条分页、旧选题新产物、待选混排/筛选、默认顺序兼容及全表原记录不变。
+- `tests.test_topic_library_order` 5/5通过：27条真实隔离SQLite选题、3个Run、2条受控候选，经真实loopback HTTP验证；新排序时间投影恒定2条SELECT，无逐选题N+1。原表所有列和候选JSON未改变；不调用模型，不将受控候选视为真实调研。正式服务未重启，新参数需正常重启后加载。
+- 原 `tests.smoke_topic_research` 通过，preview/入队幂等/来源保持/重启等既有调研契约不变。
+- 主流程再次运行排序5/5及 `smoke_topic_library_covers` 通过：封面仍按当前有效版本批量投影，待选/未生产/缺图状态不变。浏览器4/4详见web/SPEC，不将页面纯浏览算作模型生产验证。
+
 ## 持久排队状态投影（2026-10-20）
 
 - 提炼 `queue_state` 与调研 `queued` 在任务收件箱、Observation 中仍是活跃任务，但不冒充正在运行的 Codex。

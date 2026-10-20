@@ -100,7 +100,7 @@
 .workspace-chat-launcher { position:fixed; right:24px; bottom:24px; z-index:35; display:grid; place-items:center; width:56px; height:56px; padding:8px; border:1px solid #d8e5f7; border-radius:50%; background:white; box-shadow:0 6px 24px #1c416422; }
 .workspace-chat-launcher svg { width:36px; height:36px; }
 .workspace-chat-launcher[aria-expanded="true"] { visibility:hidden; }
-@media(min-width:1400px) { .workspace.chat-open { gap:22px; } .workspace.chat-open .content-feed { columns:2 200px; } }
+@media(min-width:1400px) { .workspace.chat-open { gap:22px; } .workspace.chat-open .content-feed { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:760px) {
   .workspace-tree-toggle { display:block; width:100%; text-align:left; padding:10px 12px; border:1px solid var(--line); background:var(--canvas); border-radius:10px; color:var(--ink); font-size:12px; overflow-wrap:anywhere; }
   .workspace-rail { display:none; }

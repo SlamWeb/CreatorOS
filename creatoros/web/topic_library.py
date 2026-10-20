@@ -1,7 +1,17 @@
 """Read-only union; approved Topics always win over their research suggestion."""
+from datetime import datetime, timezone
 
 
-def topic_library(service, queries, series_id, state="all", offset=0, limit=20):
+def _timestamp(value):
+    if value is None:
+        # A topic can be removed between the list and the read-only time projection.
+        return 0
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return value.replace(tzinfo=timezone.utc).timestamp() if value.tzinfo is None else value.timestamp()
+
+
+def topic_library(service, queries, series_id, state="all", offset=0, limit=20, *, order="queue"):
     page = queries.list_topics(series_id, offset=0, limit=100)
     if page is None:
         return None
@@ -34,6 +44,12 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20):
                 "available_actions": [] if record["stale"] else ["prepare_topic_selection"],
             }
     rows = [r for r in items.values() if state == "all" or r["selection_state"] == state]
+    if order == "recent":
+        activity = queries.topic_activity_times(series_id)
+        rows.sort(key=lambda row: (
+            -_timestamp(activity.get(row["id"], row.get("research_created_at"))),
+            row["id"],
+        ))
     page_rows = rows[offset:offset + limit]
     run_ids = [row["existing_run_id"] for row in page_rows if row.get("existing_run_id")]
     covers = queries.topic_cover_projection(run_ids)

@@ -60,7 +60,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await expect(page.getByRole("heading", { name: "已经完成的真实文件卡片" })).toBeVisible();
   await page.getByRole("button", { name: "查看第 2 张", exact: true }).click();
   await expect(page.locator(".carousel-nav")).toContainText("2 / 3");
-  await page.getByRole("button", { name: /^生产记录 ·/ }).click();
+  await page.getByRole("button", { name: "技术记录", exact: true }).click();
   await expect(page.getByText("文件检查通过", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "返回栏目", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued`));

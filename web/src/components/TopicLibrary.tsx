@@ -14,10 +14,11 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
 export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false,
-  heading, headerActions, headerPanels }: {
+  heading, headerActions, headerPanels, onViewAll }: {
   seriesId: string; startButton: (topic: TopicView) => ReactNode; compact?: boolean;
   onDiscuss?: (topic: string) => void; productionEnabled?: boolean;
   heading?: ReactNode; headerActions?: ReactNode; headerPanels?: ReactNode;
+  onViewAll?: () => void;
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -29,16 +30,20 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const pendingRequestIds = useRef(new Map<string, string>());
   const submitting = useRef(false);
   const researchPanelId = useId();
+  const libraryRef = useRef<HTMLElement>(null);
+  const pageNavigation = useRef(false);
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
   const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
   const removeRequestIds = useRef(new Map<string, string>());
   const state = ["pending", "queued"].includes(params.get("topics") ?? "") ? params.get("topics")! : "all";
+  const order = params.get("order") === "queue" ? "queue" : "recent";
+  const limit = compact ? 6 : 20;
   const offsetKey = compact ? `offset-${seriesId}` : "offset";
   const rawOffset = Number(params.get(offsetKey) ?? 0);
-  const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  const offset = !compact && Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
   const selecting = !compact && !!params.get("research");
-  const query = useQuery({ queryKey: ["topics", seriesId, "library", state, offset],
-    queryFn: () => request<PageResponse<LibraryTopic>>(`/api/series/${encodeURIComponent(seriesId)}/topic-library?state=${state}&offset=${offset}&limit=20`),
+  const query = useQuery({ queryKey: ["topics", seriesId, "library", state, offset, order, limit],
+    queryFn: () => request<PageResponse<LibraryTopic>>(`/api/series/${encodeURIComponent(seriesId)}/topic-library?state=${state}&offset=${offset}&limit=${limit}&order=${order}`),
     refetchInterval: q => q.state.data?.items.some(t => t.selection_state === "queued" &&
       ["queued", "producing", "validating"].includes(t.existing_run_status ?? "")) ? 3000 : false,
     retry: false });
@@ -98,15 +103,24 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       } finally { submitting.current = false; }
     },
   });
-  useEffect(() => { setSelected([]); setPendingSelection([]); batch.reset(); pendingQueue.reset(); }, [seriesId, state, offset]);
+  useEffect(() => { setSelected([]); setPendingSelection([]); batch.reset(); pendingQueue.reset(); }, [seriesId, state, offset, order]);
+  useEffect(() => {
+    if (!pageNavigation.current || query.isPending) return;
+    pageNavigation.current = false;
+    libraryRef.current?.scrollIntoView({ block: "start" });
+    libraryRef.current?.focus({ preventScroll: true });
+  }, [offset, query.isPending]);
   const submitBatch = () => {
     if (submitting.current || !productionEnabled || !selectedTopics.length) return;
     submitting.current = true;
     batch.mutate(selectedTopics.map(topic => ({ id: topic.id, title: topic.title })));
   };
-  const change = (key: string, value: string) => setParams(p => {
-    const next = new URLSearchParams(p); next.set(key, value); next.delete("topic"); return next;
-  });
+  const changePage = (value: number) => {
+    pageNavigation.current = true;
+    setParams(p => {
+      const next = new URLSearchParams(p); next.set(offsetKey, String(value)); next.delete("topic"); return next;
+    });
+  };
   const openDetail = (id: string, removing = false) => {
     setRemovePromptId(removing ? id : null);
     setParams(p => { const next = new URLSearchParams(p); next.set("topic", id); return next; });
@@ -155,7 +169,22 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     <button className="button button-secondary" onClick={() => setParams(p => { const next = new URLSearchParams(p); for (const key of ["select", "research", "operation"]) next.delete(key); return next; })}>← 返回选题库</button>
     <TopicResearchPanel key={seriesId} seriesId={seriesId} />
   </section>;
-  return <section id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
+  const pagination = (position: string) => !compact && query.data && (query.data.page.total > limit || offset > 0)
+    ? <nav className="library-pagination" aria-label={`选题分页 · ${position}`}>
+      <button type="button" aria-label="上一页" disabled={!offset || query.isFetching}
+        onClick={() => changePage(Math.max(0, offset - limit))}><ChevronLeft size={16} /></button>
+      <label><span className="sr-only">选题页码 · {position}</span>
+        <select aria-label={`选题页码 · ${position}`} value={Math.floor(offset / limit)}
+          disabled={query.isFetching} onChange={event => changePage(Number(event.target.value) * limit)}>
+          {Array.from({ length: Math.max(Math.floor(offset / limit) + 1, Math.ceil(query.data.page.total / limit), 1) },
+            (_, index) => <option key={index} value={index}>第 {index + 1} 页</option>)}
+        </select>
+      </label>
+      <span>/ {Math.max(1, Math.ceil(query.data.page.total / limit))}</span>
+      <button type="button" aria-label="下一页" disabled={query.isFetching || offset + limit >= query.data.page.total}
+        onClick={() => changePage(offset + limit)}><ChevronRight size={16} /></button>
+    </nav> : null;
+  return <section ref={libraryRef} id={`topic-library-${seriesId}-${compact ? "compact" : "main"}`} tabIndex={-1}
     className={`topic-library${compact ? " compact-library" : ""}`} aria-label="选题库">
     {!compact && <header className="library-heading">{heading ?? <h2>内容</h2>}
       <div className="library-heading-actions"><button type="button" className="button button-primary library-research-trigger" aria-expanded={researchOpen}
@@ -168,6 +197,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       <div className="library-browse-actions">
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
+      {compact && onViewAll && <button type="button" className="library-view-all" onClick={onViewAll}>查看全部<ChevronRight size={14} aria-hidden="true" /></button>}
       {!compact && !query.isError && (!!pendingTopics.length || (productionEnabled && !!eligible.length)) && <details className="library-select-menu" onKeyDown={event => {
         if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
       }}><summary><ListChecks size={15} aria-hidden="true" />选择</summary><div>
@@ -182,6 +212,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       </div></details>}
       </div>
     </div>
+    {pagination("顶部")}
     {!compact && researchOpen && <div id={researchPanelId} className="library-research"><TopicResearchPanel seriesId={seriesId} controlsOnly /></div>}
     {pendingQueue.data && <div className="library-batch-result" aria-label="入队结果">
       {!!pendingQueue.data.accepted.length && <p role="status">已入队 {pendingQueue.data.accepted.length} 项。</p>}
@@ -236,11 +267,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
         </footer>
       </article>;
     })}</div>}
-    {query.data && (query.data.page.total > 20 || offset > 0) && <nav className="library-pagination" aria-label="选题分页">
-      <button aria-label="上一页" disabled={!offset || query.isFetching} onClick={() => change(offsetKey, String(Math.max(0, offset - 20)))}><ChevronLeft size={15} /></button>
-      <span>{Math.floor(offset / 20) + 1} / {Math.max(1, Math.ceil(query.data.page.total / 20))}</span>
-      <button aria-label="下一页" disabled={query.isFetching || offset + 20 >= query.data.page.total} onClick={() => change(offsetKey, String(offset + 20))}><ChevronRight size={15} /></button>
-    </nav>}
+    {pagination("底部")}
     {(selectedPending.length > 0 || pendingQueue.isPending || (productionEnabled && (selectedTopics.length > 0 || batch.isPending))) && <div className="library-selection-dock">
       {(selectedPending.length > 0 || pendingQueue.isPending) ? <div className="library-batch-toolbar" role="group" aria-label="批量入队">
         <label><input type="checkbox" aria-label="全选本页待选" disabled={pendingQueue.isPending || query.isError}
@@ -285,12 +312,21 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
 export function LibraryFilters() {
   const [params, setParams] = useSearchParams();
   const state = ["pending", "queued"].includes(params.get("topics") ?? "") ? params.get("topics") : "all";
-  return <div className="library-filters" role="group" aria-label="选题状态">{[["all", "全部"], ["pending", "待选"], ["queued", "已入队"]].map(([value, label]) =>
+  return <div className="library-browse-settings"><div className="library-filters" role="group" aria-label="选题状态">{[["all", "全部"], ["pending", "待选"], ["queued", "已入队"]].map(([value, label]) =>
     <button key={value} aria-pressed={state === value} onClick={() => setParams(p => {
       const next = new URLSearchParams(p); next.set("topics", value); next.delete("topic");
       for (const key of [...next.keys()]) if (key === "offset" || key.startsWith("offset-")) next.delete(key);
       return next;
-    })}>{label}</button>)}</div>;
+    })}>{label}</button>)}</div>
+    <select className="library-order" aria-label="内容排序" value={params.get("order") === "queue" ? "queue" : "recent"}
+      onChange={event => setParams(p => {
+        const next = new URLSearchParams(p); next.set("order", event.target.value); next.delete("topic");
+        for (const key of [...next.keys()]) if (key === "offset" || key.startsWith("offset-")) next.delete(key);
+        return next;
+      })}>
+      <option value="recent">最近动态</option><option value="queue">队列顺序</option>
+    </select>
+  </div>;
 }
 
 function CardCover({ url, title }: {url: string; title: string}) {
