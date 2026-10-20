@@ -1,5 +1,14 @@
 # ContentRun SPEC
 
+## 已验证隔离交付回填原选题（2026-10-21，正式离线回填通过）
+
+- 用户授权在空闲时重启服务，将60506acd原输入真实重放所得8图离线恢复至原Run页面；同Revision新增Attempt，旧失败Attempt、错误与文件不变，不重新生图、不自动批准。
+- 回填前核验冻结请求/Skill/归属、完整Checkpoint及成功执行回执、产物哈希；使用本地执行独占锁、最新Run及版本/lease门禁，复制到正式新Attempt后重验。数据库、队列、事件一致且同源重复操作幂等。
+- 先隔离副本故障/幂等验证，再在确认生产、调研、提炼、讨论与聊天任务均无进行/排队项后停服备份、正式回填并重启；正式验证以原页面8图、待验收状态、旧失败与原图哈希保留为准。新Skill版本和生产模式不在本轮范围。
+- 新 `offline_adoption` 仅本地显式CLI/domain入口，无网页任意本地路径导入；12项隔离回归覆盖成功/幂等、输入/图片/归属篡改、版本/最新Run/租约/移除/取消/队列门禁及复制失败。首轮一处TopicRemoval夹具缺少必填字段已补，未改产品迁就夹具。后续单Skill摘要和参考组校验的主路径另通过。
+- 正式停服前检查SQLite生产/调研/发布状态、68份任务与会话JSON以及执行日志，均无活跃/排队任务；7条Run queued没有生产队列授权，不误认为正在执行。PID27488确认身份后停止，SQLite备份与quick_check完成。
+- 原Run同Revision新增Attempt2，8张图片与来源逐字节一致、状态awaiting_approval、旧失败Attempt行/旧事件/18份旧文件哈希不变。本次模型调用0、生图0；真实重放费用留source_usage。数据库仅预期6张表改变；证据 `tmp/maintenance-20261021/recovery-verification.json`，备份同目录 `before-recovery.sqlite`。服务重启与网页验收另记。
+
 ## 生产环境故障与内容冲突分开（2026-10-20）
 
 - `codex_environment_error`是可显式重试的生产技术故障，不要求改Skill或提出内容返工；真正`skill_composition_needs_input`仍需明确选择。
