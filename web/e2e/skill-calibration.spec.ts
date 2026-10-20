@@ -25,7 +25,11 @@ async function fillComparison(page: Page, setup: Setup, upload = true) {
   }
 }
 async function generate(page: Page) {
+  const accepted = page.waitForResponse(response =>
+    new URL(response.url()).pathname === "/api/skill-calibrations" && response.request().method() === "POST");
   await page.getByRole("button", { name: "生成修改草稿", exact: true }).click();
+  const response = await accepted;
+  expect(response.status(), await response.text()).toBe(202);
   await expect(page).toHaveURL(/\/skills\?extraction=.*calibration=/);
   await expect(page.getByLabel("编辑 SKILL.md")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeVisible({ timeout: 15000 });
@@ -65,6 +69,7 @@ test("calibration compares real artifacts and references, edits and trials a can
   await editor.fill(`${await editor.inputValue()}\n测试者手工校准：保留蛋糕，不改成空泛口号。\n\n[查看参考作品](assets/reference.png)\n\n![内嵌参考图](assets/reference.png)\n`);
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();
   await expect(page.getByText("有未保存的草稿修改", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Skill 修改差异")).toContainText("测试者手工校准：保留蛋糕");
   const embedded = page.getByRole("img", { name: "内嵌参考图", exact: true });
   await expect(embedded).toBeVisible();
   await expect.poll(() => embedded.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
@@ -79,6 +84,7 @@ test("calibration compares real artifacts and references, edits and trials a can
   expect(afterTrial.companion_files).toEqual(before.companion_files);
   expect(afterTrial.artifact_files).toEqual(before.artifact_files);
   expect(afterTrial.counts).toEqual(before.counts);
+  expect(afterTrial.protected_records).toEqual(before.protected_records);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("draft-trial-mobile.png"), fullPage: true });
@@ -91,6 +97,7 @@ test("calibration compares real artifacts and references, edits and trials a can
   expect(after.companion_files).toEqual(before.companion_files);
   expect(after.artifact_files).toEqual(before.artifact_files);
   expect(after.counts).toEqual(before.counts);
+  expect(after.protected_records).toEqual(before.protected_records);
   const result = await (await page.request.get(`/api/skill-calibrations/${id}`)).json();
   expect(result.status).toBe("applied");
   expect(result.skill_id).toBe(setup.skill_id);
@@ -98,6 +105,69 @@ test("calibration compares real artifacts and references, edits and trials a can
   expect(result.job.trials[0].digest).toBe(result.job.digest);
   await page.reload();
   await expect(page.getByText("已确认更新", { exact: true })).toBeVisible();
+});
+
+test("late old calibration response cannot replace a newer saved draft and diff", async ({ page }) => {
+  // Deterministic stale-network injection, not a model or quality test.
+  const setup = await seed(page);
+  await fillComparison(page, setup, false);
+  const id = await generate(page);
+  const endpoint = `/api/skill-calibrations/${id}`;
+  await page.getByRole("button", { name: /修改差异与依据/ }).click();
+  await expect(page.getByLabel("Skill 修改差异")).toContainText("受控校准改稿");
+  const old = await (await page.request.get(endpoint)).json();
+  let release!: () => void;
+  let captured!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const received = new Promise<void>(resolve => { captured = resolve; });
+  let delayed = false;
+  let delivered = false;
+  await page.route(`**${endpoint}`, async route => {
+    if (!delayed) {
+      delayed = true;
+      captured();
+      await held;
+      await route.fulfill({ status: 200, json: old });
+      delivered = true;
+    } else {
+      await route.continue();
+    }
+  });
+  // The first edit starts a refresh that is held behind the second edit.
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = page.getByLabel("编辑 SKILL.md", { exact: true });
+  await editor.fill(`${await editor.inputValue()}\n中间稿：还没保存最后要求。\n`);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await received;
+  await expect(page.getByText("有未保存的草稿修改", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await editor.fill(`${await editor.inputValue()}\n新稿必须保留：旧请求不准覆盖这个句子。\n`);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.getByText("有未保存的草稿修改", { exact: true })).toHaveCount(0);
+  const diff = page.getByLabel("Skill 修改差异");
+  await expect(diff).toContainText("新稿必须保留：旧请求不准覆盖");
+  // Observe every repaint after the new result is visible, not just eventual consistency.
+  await diff.evaluate(element => {
+    const win = window as typeof window & { calibrationRegressed?: boolean; calibrationObserver?: MutationObserver };
+    win.calibrationRegressed = false;
+    win.calibrationObserver = new MutationObserver(() => {
+      if (!element.textContent?.includes("新稿必须保留：旧请求不准覆盖")) win.calibrationRegressed = true;
+    });
+    win.calibrationObserver.observe(element, { childList: true, subtree: true, characterData: true });
+  });
+  release();
+  await expect.poll(() => delivered).toBe(true);
+  await expect(diff).toContainText("新稿必须保留：旧请求不准覆盖");
+  expect(await page.evaluate(() => {
+    const win = window as typeof window & { calibrationRegressed?: boolean; calibrationObserver?: MutationObserver };
+    win.calibrationObserver?.disconnect();
+    return win.calibrationRegressed;
+  })).toBe(false);
+  const current = await (await page.request.get(endpoint)).json();
+  expect(current.job.revision).toBeGreaterThan(old.job.revision);
+  expect(current.job.digest).not.toBe(old.job.digest);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(editor).toHaveValue(/新稿必须保留：旧请求不准覆盖/);
 });
 
 test("changing the candidate invalidates the old trial, and a shared source conflict is never force overwritten", async ({ page }) => {

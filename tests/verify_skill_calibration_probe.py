@@ -23,6 +23,7 @@ def main():
     assert Path(setup['target_path']).resolve().is_relative_to(root)
     assert evidence['artifact_files'] == setup['artifact_files'], 'Old artifact bytes changed'
     assert evidence['companion_files'] == setup['companion_files'], 'Shared companion changed'
+    assert evidence['protected_records'] == setup['baseline_records'], 'Original database rows changed'
     assert set(evidence['counts'].values()) == {2}, evidence['counts']
     assert len(evidence['calibrations']) == 1
     calibration = evidence['calibrations'][0]

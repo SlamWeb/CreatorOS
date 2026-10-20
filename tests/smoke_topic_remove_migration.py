@@ -21,6 +21,13 @@ def _alembic_config(database_url: str) -> Config:
     return config
 
 
+def stored_row(connection, table, identifier, columns=None):
+    # Table/columns come only from this fixture/schema, never user input.
+    row = dict(connection.execute(text(f"SELECT * FROM {table} WHERE id=:id"),
+                                  {"id": identifier}).mappings().one())
+    return {name: row[name] for name in columns} if columns is not None else row
+
+
 with TemporaryDirectory() as temporary:
     database_path = Path(temporary) / "legacy-0008.db"
     database_url = f"sqlite:///{database_path.as_posix()}"
@@ -47,7 +54,8 @@ with TemporaryDirectory() as temporary:
             (id, series_id, title, source, status, position, created_at, updated_at)
             VALUES ('migration-topic', 'migration-series', 'Legacy topic', 'manual',
                     'queued', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"""))
-        before_topic = connection.execute(text("SELECT * FROM topics WHERE id='migration-topic'")).one()
+        before_topic = stored_row(connection, "topics", "migration-topic")
+        legacy_run_columns = [row[1] for row in connection.execute(text("PRAGMA table_info(content_runs)"))]
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261005_0008"
     database.close()
 
@@ -56,15 +64,16 @@ with TemporaryDirectory() as temporary:
     try:
         with database.engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == head
-            assert connection.execute(text("SELECT * FROM topics WHERE id='migration-topic'")).one() == before_topic
+            assert stored_row(connection, "topics", "migration-topic", before_topic) == before_topic
+            # Later migrations add optional references; no source is invented for legacy topics.
+            assert connection.execute(text("SELECT reference_id FROM topics WHERE id='migration-topic'")).scalar_one() is None
             assert connection.execute(text("SELECT COUNT(*) FROM topic_removals")).scalar_one() == 0
             assert not connection.execute(text("PRAGMA foreign_key_check")).all()
             assert not compare_metadata(MigrationContext.configure(connection), Base.metadata)
             assert connection.execute(text("SELECT COUNT(*) FROM production_queue_items")).scalar_one() == 0
         legacy_run = ContentRunService(database, output_root=Path(temporary) / "outputs").create("migration-topic")
         with database.engine.connect() as connection:
-            before_run = connection.execute(text("SELECT * FROM content_runs WHERE id=:id"),
-                                            {"id": legacy_run.id}).one()
+            before_run = stored_row(connection, "content_runs", legacy_run.id)
     finally:
         database.close()
 
@@ -74,9 +83,9 @@ with TemporaryDirectory() as temporary:
     database = Database(database_url)
     try:
         with database.engine.connect() as connection:
-            assert connection.execute(text("SELECT * FROM topics WHERE id='migration-topic'")).one() == before_topic
-            assert connection.execute(text("SELECT * FROM content_runs WHERE id=:id"),
-                                      {"id": legacy_run.id}).one() == before_run
+            assert stored_row(connection, "topics", "migration-topic") == before_topic
+            assert stored_row(connection, "content_runs", legacy_run.id) == {
+                name: before_run[name] for name in legacy_run_columns}
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261005_0008"
     finally:
         database.close()
@@ -85,9 +94,8 @@ with TemporaryDirectory() as temporary:
     database = Database(database_url)
     try:
         with database.engine.connect() as connection:
-            assert connection.execute(text("SELECT * FROM topics WHERE id='migration-topic'")).one() == before_topic
-            assert connection.execute(text("SELECT * FROM content_runs WHERE id=:id"),
-                                      {"id": legacy_run.id}).one() == before_run
+            assert stored_row(connection, "topics", "migration-topic", before_topic) == before_topic
+            assert stored_row(connection, "content_runs", legacy_run.id) == before_run
             assert not connection.execute(text("PRAGMA foreign_key_check")).all()
             assert not compare_metadata(MigrationContext.configure(connection), Base.metadata)
     finally:

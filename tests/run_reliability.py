@@ -11,6 +11,11 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("auxiliary_job_queues", ["-m", "unittest", "tests.test_auxiliary_job_queues", "-v"]),
+    ("skill_job_queue", ["-m", "unittest", "tests.test_skill_job_queue", "-v"]),
+    ("topic_research_queue", ["-m", "unittest", "tests.test_topic_research_queue", "-v"]),
+    ("skill_calibration", ["-m", "unittest", "tests.test_skill_calibration", "-v"]),
+    ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "-v"]),
     ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
@@ -32,14 +37,18 @@ def main():
     results = []
     for name, args in CASES:
         started = monotonic()
-        try:
-            process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=120,
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            status = "passed" if process.returncode == 0 else "failed"
-            output = process.stdout
-        except subprocess.TimeoutExpired as error:
-            status, output = "timeout", error.stdout or b""
-        (evidence / (name + ".log")).write_bytes(output)
+        # Stream to disk while running: a slow/hung group can be inspected before
+        # its deadline, and timeout never discards the last completed test name.
+        with (evidence / (name + ".log")).open("wb") as output:
+            try:
+                # Calibration uses real migrations/files per case and already
+                # exceeded the original 120s group budget before queue work.
+                timeout = 300 if name == "skill_calibration" else 120
+                process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
+                                         stdout=output, stderr=subprocess.STDOUT)
+                status = "passed" if process.returncode == 0 else "failed"
+            except subprocess.TimeoutExpired:
+                status = "timeout"
         results.append({"name": name, "status": status, "seconds": round(monotonic() - started, 2)})
         print(json.dumps(results[-1]), flush=True)
     report = {"paid_calls": False, "all_passed": all(r["status"] == "passed" for r in results), "results": results}

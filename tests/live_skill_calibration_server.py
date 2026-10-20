@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--reference', type=Path, required=True)
     parser.add_argument('--port', type=int, default=8898)
     parser.add_argument('--resume', action='store_true', help='Read the existing isolated setup; never re-seed or resubmit')
+    parser.add_argument('--research', action='store_true', help='Explicitly enable real Codex research in the isolated account')
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_relative_to((PROJECT_ROOT / 'tmp').resolve()) or args.reference.suffix.lower() != '.png':
@@ -48,7 +49,7 @@ def main():
     app = create_app(database=db, run_service=runs, chat_root=root / 'chats',
         skill_install_service=SkillInstallService(catalog, installer=Forbidden()),
         skill_extraction_service=extractions,
-        topic_research_service=TopicResearchService(db, catalog, researcher=Forbidden()),
+        topic_research_service=TopicResearchService(db, catalog, researcher=None if args.research else Forbidden()),
         publication_client=Forbidden(), eval_root=root / 'eval')
     if args.resume:
         setup = json.loads((root / 'setup.json').read_text(encoding='utf-8'))

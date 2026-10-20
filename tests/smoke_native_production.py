@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Event, Timer
+from threading import Event
 from unittest.mock import patch
 
 from PIL import Image
@@ -40,6 +40,7 @@ class NativeTransport:
     generated: dict[tuple[str, int], int] = {}
     interrupted: list[str] = []
     turn_numbers: dict[str, int] = {}
+    on_silent_stream = None
 
     @classmethod
     def reset(cls, generated_root: Path, mode="success"):
@@ -47,6 +48,7 @@ class NativeTransport:
         cls.generated_root = generated_root
         cls.calls, cls.starts, cls.resumes, cls.generated, cls.interrupted, cls.turn_numbers = [], [], [], {}, [], {}
         cls.reviews = []
+        cls.on_silent_stream = None
 
     def __init__(self, config):
         assert "memories.use_memories=false" in config.config_overrides
@@ -175,7 +177,9 @@ class Turn:
         NativeTransport.interrupted.append(self.id)
 
     async def stream(self):
-        if NativeTransport.mode == "cancel":
+        if NativeTransport.mode == "cancel" and not self.is_review:
+            if NativeTransport.on_silent_stream is not None:
+                NativeTransport.on_silent_stream()
             await asyncio.sleep(30)
             return
         for path in self.image_paths:
@@ -512,34 +516,53 @@ def main():
         assert NativeTransport.starts == ["native-thread-1"] and NativeTransport.resumes == ["native-thread-1"]
         assert load_checkpoint(Path(valid_after_retry.directory)).composition_review.status == "ready"
 
-        # Active cancellation interrupts the real turn collector and records interrupted state.
+        # A cancellation before any turn exists needs no SDK interrupt.
+        NativeTransport.reset(generated_root, "cancel")
+        cancelled_before_start = Event()
+        cancelled_before_start.set()
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            try:
+                producer_request(producer, root / "pre-cancel" / "revision-001" / "attempt-001",
+                                 pair, catalog.root, cancel_event=cancelled_before_start)
+                raise AssertionError("pre-cancelled production must not start")
+            except CodexProducerError as error:
+                assert error.error_type == "codex_interrupted"
+        assert not NativeTransport.calls and not NativeTransport.interrupted
+
+        # Inject only after the collector starts a real production turn: a timer
+        # started before filesystem preparation can cancel startup instead.
         NativeTransport.reset(generated_root, "cancel")
         cancel = Event()
-        timer = Timer(0.75, cancel.set)
-        timer.start()
+        NativeTransport.on_silent_stream = cancel.set
         cancel_dir = root / "cancel" / "revision-001" / "attempt-001"
-        try:
-            with patch("openai_codex.AsyncCodex", NativeTransport):
-                try:
-                    producer_request(producer, cancel_dir, pair, catalog.root, cancel_event=cancel)
-                    raise AssertionError("active cancellation must stop native production")
-                except CodexProducerError as error:
-                    assert error.error_type == "codex_interrupted"
-        finally:
-            timer.cancel()
+        with patch("openai_codex.AsyncCodex", NativeTransport):
+            try:
+                producer_request(producer, cancel_dir, pair, catalog.root, cancel_event=cancel)
+                raise AssertionError("active cancellation must stop native production")
+            except CodexProducerError as error:
+                assert error.error_type == "codex_interrupted"
+        assert len(NativeTransport.calls) == 1 and cancel.is_set()
         assert NativeTransport.interrupted
         assert json.loads((cancel_dir / "production_progress.json").read_text())['status'] == "interrupted"
 
         # A live but silent native turn has the same bounded deadline as startup.
         NativeTransport.reset(generated_root, "cancel")
+        silent_stream_started = Event()
+        NativeTransport.on_silent_stream = silent_stream_started.set
+        # Hold the deadline clock during setup, then expire it inside the silent
+        # collector. Do not depend on disk/host scheduling fitting within 0.3 s.
+        deadline_clock = lambda: 1.0 if silent_stream_started.is_set() else 0.0
         short_producer = CodexSdkProducer(project_root=root, generated_images_root=generated_root, timeout_seconds=0.3)
         timeout_dir = root / "timeout" / "revision-001" / "attempt-001"
-        with patch("openai_codex.AsyncCodex", NativeTransport):
+        with patch("openai_codex.AsyncCodex", NativeTransport), \
+                patch("creatoros.integrations.codex.monotonic", deadline_clock), \
+                patch("creatoros.integrations.native_production.monotonic", deadline_clock):
             try:
                 producer_request(short_producer, timeout_dir, pair, catalog.root)
                 raise AssertionError("silent native turn must time out")
             except CodexProducerError as error:
                 assert error.error_type == "codex_timeout"
+        assert len(NativeTransport.calls) == 1 and silent_stream_started.is_set()
         assert NativeTransport.interrupted
         assert json.loads((timeout_dir / "production_progress.json").read_text())['status'] == "failed"
 

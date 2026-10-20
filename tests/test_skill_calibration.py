@@ -19,7 +19,7 @@ from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillIn
 from creatoros.integrations.skill_calibration import signature
 from creatoros.integrations.skill_extraction import ExtractionError, SkillExtractionService
 from creatoros.runs import ContentRunService
-from creatoros.storage import Base, Database, Series, SkillCalibration, upgrade_database
+from creatoros.storage import Base, ContentRun, Database, Series, SkillCalibration, Topic, upgrade_database
 from creatoros.web import create_app
 from tests.skill_calibration_fixture import (ControlledCalibrationProducer, calibration_evidence,
     controlled_calibration_revise, seed_calibration, tree_hashes)
@@ -85,7 +85,7 @@ class CalibrationTests(unittest.TestCase):
 
     def assert_formal_unchanged(self, target=True):
         actual = calibration_evidence(self.app)
-        for key in ("counts", "companion_files", "artifact_files"):
+        for key in ("counts", "protected_records", "companion_files", "artifact_files"):
             self.assertEqual(actual[key], self.baseline[key], key)
         if target:
             self.assertEqual(actual["target_files"], self.baseline["target_files"])
@@ -114,6 +114,60 @@ class CalibrationTests(unittest.TestCase):
         self.assertIn("受控校准改稿", calibration["diff"])
         self.assertEqual(calibration["job"]["task_kind"], "calibrate")
         self.assert_formal_unchanged()
+
+    def test_old_revision_single_page_label_keeps_complete_distinct_multi_page_work(self):
+        import hashlib
+        self.fixture = seed_calibration(self.app, self.root, multi_revision=True)
+        self.baseline = calibration_evidence(self.app)
+        f = self.fixture
+        with self.db.session() as session:
+            self.assertEqual(session.get(ContentRun, f["run_id"]).active_revision_number, 2)
+        old_root, _, old_data, _ = self.service.artifacts.locate(f["run_id"], f["revision_id"])
+        new_root, _, new_data, _ = self.service.artifacts.locate(f["run_id"], f["newer_revision_id"])
+        old_pack = self.service.artifacts.pack(old_root, old_data)
+        new_pack = self.service.artifacts.pack(new_root, new_data)
+        old_hashes = [hashlib.sha256((old_root / card.image_path).read_bytes()).hexdigest()
+                      for card in old_pack.cards]
+        new_hashes = [hashlib.sha256((new_root / card.image_path).read_bytes()).hexdigest()
+                      for card in new_pack.cards]
+        self.assertEqual(len(set(old_hashes)), 3)
+        self.assertEqual(len(set(new_hashes)), 2)
+        self.assertTrue(set(old_hashes).isdisjoint(new_hashes))
+        captured = []
+        async def capture(directory, images, mode, instruction, cancel, on_thread, skills):
+            context = json.loads((directory / "calibration_context.json").read_text(encoding="utf-8"))
+            captured.append(context)
+            self.assertEqual(len(context["works"]), 1)
+            work = context["works"][0]
+            self.assertEqual(work["revision_id"], f["revision_id"])
+            self.assertEqual([page["order"] for page in work["pages"]], [1, 2, 3])
+            self.assertEqual([page["sha256"] for page in work["pages"]], old_hashes)
+            self.assertEqual(work["publish_copy"], old_pack.publish_copy.model_dump())
+            self.assertEqual([page["body"] for page in work["pages"]], [card.body for card in old_pack.cards])
+            self.assertEqual(context["labels"][0]["order"], 2)
+            self.assertEqual([hashlib.sha256(path.read_bytes()).hexdigest() for path in images], old_hashes)
+            return await controlled_calibration_revise(directory, images, mode, instruction, cancel, on_thread, skills)
+        self.extractions.reviser = capture
+        payload = self.payload(references=[])
+        payload["artifacts"][0]["order"] = 2
+        calibration = self.create(payload)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual([card["order"] for card in calibration["artifacts"][0]["cards"]], [1, 2, 3])
+        calibration = self.trial(calibration)
+        response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply",
+                                    json=self.apply_payload(calibration))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assert_formal_unchanged(target=False)
+
+    def test_database_protection_detects_changed_original_row_even_when_counts_match(self):
+        with self.db.session() as session:
+            run = session.get(ContentRun, self.fixture["run_id"])
+            topic = session.get(Topic, run.topic_id)
+            topic.brief = "受控损坏：行数没变，但原文被覆盖。"
+        actual = calibration_evidence(self.app)
+        self.assertEqual(actual["counts"], self.baseline["counts"])
+        with self.assertRaisesRegex(AssertionError, "protected_records"):
+            self.assert_formal_unchanged()
 
     def test_idempotent_create_conflict_and_save_bypass(self):
         payload = self.payload()
@@ -270,7 +324,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assert_formal_unchanged()
 
-    def test_busy_worker_does_not_record_or_interrupt_second_calibration(self):
+    def test_busy_worker_queues_second_calibration_without_interrupting_first(self):
         release = threading.Event()
         async def waiting(*args):
             while not release.is_set():
@@ -281,13 +335,18 @@ class CalibrationTests(unittest.TestCase):
             first = self.client.post("/api/skill-calibrations", json=self.payload())
             self.assertEqual(first.status_code, 202, first.text)
             second = self.client.post("/api/skill-calibrations", json=self.payload())
-            self.assertEqual(second.status_code, 409, second.text)
+            self.assertEqual(second.status_code, 202, second.text)
+            self.assertEqual(second.json()["job"]["queue"]["state"], "queued")
             self.assertFalse(self.extractions.cancel_event.is_set())
             with self.db.session() as session:
-                self.assertEqual(session.scalar(select(func.count()).select_from(SkillCalibration)), 1)
+                self.assertEqual(session.scalar(select(func.count()).select_from(SkillCalibration)), 2)
         finally:
             release.set()
             self.extractions.worker.join(10)
+        for response in (first, second):
+            result = self.client.get("/api/skill-calibrations/" + response.json()["id"])
+            self.assertEqual(result.json()["status"], "ready", result.text)
+            self.assertEqual(result.json()["job"]["queue"]["state"], "completed")
         self.assert_formal_unchanged()
 
     def test_visual_candidate_uses_frozen_mind_without_fusion(self):

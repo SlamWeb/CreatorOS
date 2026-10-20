@@ -1,0 +1,67 @@
+name: Reliability checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reliability-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-checks:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: "1"
+      # No credentials are provided. The explicit allowlist never invokes live_*.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-web.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install declared dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-web.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix web ci
+      - name: Backend reliability allowlist
+        run: python -m tests.run_reliability
+      - name: Frontend types, build and local state tests
+        if: ${{ !cancelled() }}
+        run: |
+          npm --prefix web run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix web run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test web/tests/*.test.mjs
+      - name: Browser regressions with isolated SQLite and controlled costly boundaries
+        if: ${{ !cancelled() }}
+        working-directory: web
+        run: |
+          npx playwright install chrome
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright test skill-calibration.spec.ts task-inbox.spec.ts skill-extraction.spec.ts
+      - name: Preserve pass and failure evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/reliability-*/
+            web/test-results/
+          if-no-files-found: warn
+          retention-days: 14
