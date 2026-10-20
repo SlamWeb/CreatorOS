@@ -7,6 +7,7 @@
 - 验证请求重放/档位冲突、会话隔离、上下文测量/重载、thinking工具续接与现有附件路径；真实DeepSeek调用单独记账。
 - 7项定向单测及web_agent/account_sessions/reply_trace三个smoke通过；门禁新增chat_context_reasoning组。Trace/Observation响应去除reasoning_content正文，后端账本保留供实际模型工具续接；结构化独立业务调用仍关闭推理。
 - 真实loopback HTTP→DeepSeek四档5次请求通过：none1次、low2次（真实Skill读取工具）、high1次、max1次，输入17297/输出1125；工具内与下一用户轮reasoning回传无400。证据 `tmp/chat-context-reasoning-live-20261021-a24f6559/report.json`。旧探针脚本参数错误、以及“简单问题必有非空思考”的过强断言失败均保留，后者四档API本身成功，不把断言调整算产品优化收益。
+- 正式8765已随main重启加载；真实前端验证在8879独立SQLite账号进行，高档一轮返回账号名、actual input11240与会话DTO/刷新一致，未向正式账号写测试聊天。受控浏览器12项加入CI允许列表，新的offline_adoption12项与chat7项加入后端门禁；不据定向验证声称本轮全套CI已在远端通过。
 
 ## 内容最近更新排序（2026-10-20，隔离HTTP/SQLite验证通过）
 
