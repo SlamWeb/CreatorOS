@@ -16,6 +16,7 @@ class ChatTurnRequest(BaseModel):
     text: str = Field(default="", max_length=8000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
     expected_version: int = Field(ge=0)
+    reasoning_effort: Literal["none", "low", "high", "max"] = "none"
 
 
 class ChatCreateRequest(BaseModel):
@@ -84,7 +85,7 @@ def chat_routes(service):
             raise HTTPException(503, "Web Agent 需要本机 Studio 监听地址。")
         base = f"http://{'[' + host + ']' if ':' in host else host}:{port}"
         return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
-                              attachment_ids=payload.attachment_ids)
+                              attachment_ids=payload.attachment_ids, reasoning_effort=payload.reasoning_effort)
 
     @router.get("/{session_id}/events")
     async def events(session_id: UUID, request: Request):

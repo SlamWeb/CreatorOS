@@ -13,6 +13,7 @@ from .types import (
 
 DEEPSEEK_CONTEXT_WINDOW = 1_000_000
 DEEPSEEK_RESERVE_OUTPUT_TOKENS = 32_768
+DEEPSEEK_REASONING_EFFORTS = ("none", "low", "high", "max")
 
 
 class DeepSeekProvider:
@@ -25,6 +26,7 @@ class DeepSeekProvider:
         timeout_seconds=None,
         max_retries=2,
         image_resolver=None,
+        reasoning_effort="none",
     ):
         client_options = {"api_key": api_key, "base_url": "https://api.deepseek.com", "max_retries": max_retries}
         if timeout_seconds is not None:
@@ -34,6 +36,18 @@ class DeepSeekProvider:
         self.context_window = context_window
         self.reserve_output_tokens = reserve_output_tokens
         self.image_resolver = image_resolver
+        self.set_reasoning_effort(reasoning_effort)
+
+    def set_reasoning_effort(self, effort):
+        if effort not in DEEPSEEK_REASONING_EFFORTS:
+            raise ValueError("DeepSeek 推理程度仅支持 none、low、high、max。")
+        self.reasoning_effort = effort
+
+    def _thinking_options(self):
+        if self.reasoning_effort == "none":
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {"reasoning_effort": self.reasoning_effort,
+                "extra_body": {"thinking": {"type": "enabled"}}}
 
     def _to_openai_messages(self, messages):
         converted = []
@@ -58,6 +72,10 @@ class DeepSeekProvider:
                 continue
 
             converted_message = dict(message)
+            # Thinking + tools requires complete reasoning round-trips. Old
+            # non-thinking history has no reasoning, so explicitly send empty.
+            if self.reasoning_effort != "none":
+                converted_message.setdefault("reasoning_content", "")
             tool_calls = message.get("tool_calls", [])
             if tool_calls:
                 converted_message["tool_calls"] = [
@@ -124,7 +142,7 @@ class DeepSeekProvider:
             messages=self._to_openai_messages(messages),
             tools=tools,
             **({"max_tokens": context.max_output_tokens} if context.max_output_tokens is not None else {}),
-            extra_body={"thinking": {"type": "disabled"}},
+            **self._thinking_options(),
         )
         assistant_message = response.choices[0].message
         return ModelResponse(
@@ -138,6 +156,7 @@ class DeepSeekProvider:
                 for tool_call in assistant_message.tool_calls or []
             ],
             usage=self._to_model_usage(getattr(response, "usage", None)),
+            reasoning_content=getattr(assistant_message, "reasoning_content", None),
         )
 
     def complete_structured(
@@ -177,10 +196,11 @@ class DeepSeekProvider:
             tools=tools,
             stream=True,
             stream_options={"include_usage": True},
-            extra_body={"thinking": {"type": "disabled"}},
+            **self._thinking_options(),
         )
         finish_reason = None
         stream_usage = None
+        reasoning_parts = []
         for chunk in response_stream:
             chunk_usage = self._to_model_usage(getattr(chunk, "usage", None))
             if chunk_usage is not None:
@@ -191,6 +211,9 @@ class DeepSeekProvider:
             choice = chunk.choices[0]
             finish_reason = choice.finish_reason or finish_reason
             delta = choice.delta
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                reasoning_parts.append(reasoning)
             if delta.content:
                 yield TextDelta(content=delta.content)
 
@@ -203,4 +226,5 @@ class DeepSeekProvider:
                     arguments=(function.arguments if function else None) or "",
                 )
 
-        yield StreamEnd(finish_reason=finish_reason, usage=stream_usage)
+        yield StreamEnd(finish_reason=finish_reason, usage=stream_usage,
+                        reasoning_content="".join(reasoning_parts) if reasoning_parts else None)

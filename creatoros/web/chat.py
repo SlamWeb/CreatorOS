@@ -16,11 +16,12 @@ from fastapi import HTTPException
 
 from creatoros.agent.loop import run_agent
 from creatoros.ai import DeepSeekProvider
+from creatoros.ai.deepseek import DEEPSEEK_REASONING_EFFORTS
 from creatoros.ai.types import TextDelta
 from creatoros.config import PROJECT_ROOT
 from creatoros.context import RuntimeContext
 from creatoros.session.snapshot import load_messages, new_messages, save_messages
-from creatoros.session.context_trace import read_trace
+from creatoros.session.context_trace import read_trace, trace_path
 from creatoros.session.request_trace import RequestSnapshots, redact
 from creatoros.terminal import Console
 from creatoros.events import AgentEvent
@@ -324,6 +325,7 @@ class AgentChatService:
             doc = {"id": str(uuid4()), "title": "新对话", "version": 0, "status": "idle",
                    "entries": [], "requests": [], "error": None, "updated_at": _now(),
                    "scope_kind": "creator" if creator_id is not None else "overview", "creator_id": creator_id}
+            doc.update(context_usage=None, reasoning_effort="none")
             messages = new_messages()
             messages[0]["content"] += "\n\n" + self._instructions(doc)
             save_messages(messages, self._path(doc["id"]).with_name("messages.json"))
@@ -336,13 +338,41 @@ class AgentChatService:
             return self.active[session_id]
         if not path.is_file():
             raise HTTPException(404, "对话不存在。")
-        return json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if "context_usage" not in doc:
+            # Older sessions have authoritative per-request metadata already.
+            # Project it read-only; never estimate occupancy from summed usage.
+            doc["context_usage"] = None
+            history = trace_path(path.with_name("messages.json"))
+            if history.is_file():
+                try:
+                    with history.open(encoding="utf-8", errors="replace") as stream:
+                        for line in stream:
+                            try:
+                                row = json.loads(line)
+                                usage = row.get("usage") or {}
+                                if (row.get("event") == "finished" and row.get("request_kind") == "main"
+                                        and isinstance(usage.get("input_tokens"), int)
+                                        and isinstance(row.get("context_window"), int)
+                                        and row.get("started_at")):
+                                    doc["context_usage"] = {"input_tokens": usage["input_tokens"],
+                                        "context_window": row["context_window"], "measurement": "actual",
+                                        "source": "last_model_request", "observed_at": row["started_at"],
+                                        "timestamp_source": "request_started_at", "turn_id": row.get("turn_id")}
+                            except (ValueError, TypeError, AttributeError):
+                                continue
+                except OSError:
+                    pass  # Optional diagnostics cannot make a saved chat unreadable.
+        return doc
 
     @staticmethod
     def _view(doc):
         # Full messages/tool results stay local; bounded presentation projection only.
         return deepcopy({k: v for k, v in doc.items() if k != "requests"} | {
             "scope_kind": doc.get("scope_kind", "overview"), "creator_id": doc.get("creator_id"),
+            "context_usage": doc.get("context_usage"),
+            "reasoning_effort": doc.get("reasoning_effort", "none"),
+            "reasoning_options": list(DEEPSEEK_REASONING_EFFORTS),
             "entries": doc["entries"][-200:], "has_older": len(doc["entries"]) > 200})
 
     def get(self, session_id):
@@ -400,6 +430,16 @@ class AgentChatService:
             # Defense-in-depth if a local file was subsequently edited.
             clean, changed = redact(snapshot)
             clean['redacted'] = bool(clean.get('redacted') or changed)
+            def hide_reasoning(value):
+                if isinstance(value, dict):
+                    return {key: hide_reasoning(item) for key, item in value.items()
+                            if key != "reasoning_content"}
+                if isinstance(value, list):
+                    return [hide_reasoning(item) for item in value]
+                return value
+            # Provider reasoning is persisted only for required API round-trips.
+            # Neither chat snapshots nor the public Trace reveal those tokens.
+            clean = hide_reasoning(clean)
             return clean
         except (OSError, ValueError, TypeError, AttributeError):
             raise HTTPException(404, "这次请求未记录正文，或快照已不可用。") from None
@@ -410,7 +450,10 @@ class AgentChatService:
             self.require_creator(doc.get("creator_id"))
             return self.attachments.put(session_id, name, data_base64)
 
-    def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None):
+    def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
+               reasoning_effort="none"):
+        if reasoning_effort not in DEEPSEEK_REASONING_EFFORTS:
+            raise HTTPException(422, "请选择有效的推理程度。")
         attachment_ids = list(attachment_ids or [])
         if len(attachment_ids) > MAX_IMAGES or len(set(attachment_ids)) != len(attachment_ids):
             raise HTTPException(422, "每次最多发送 6 张不同图片。")
@@ -419,7 +462,8 @@ class AgentChatService:
             self.require_creator(doc.get("creator_id"))
             for item in doc["requests"]:
                 if item["id"] == request_id:
-                    if item["text"] != text or item.get("attachment_ids", []) != attachment_ids:
+                    if (item["text"] != text or item.get("attachment_ids", []) != attachment_ids
+                            or item.get("reasoning_effort", "none") != reasoning_effort):
                         raise HTTPException(409, "同一请求 ID 不能用于不同指令。")
                     return self._view(doc)
             if self.stopping.is_set():
@@ -434,10 +478,13 @@ class AgentChatService:
             provider = self.provider_factory()
             if isinstance(provider, DeepSeekProvider):
                 provider.image_resolver = lambda ref: self.attachments.resolve(session_id, ref)
-            doc["requests"].append({"id": request_id, "text": text, "status": "running", "attachment_ids": attachment_ids})
+                provider.set_reasoning_effort(reasoning_effort)
+            doc["requests"].append({"id": request_id, "text": text, "status": "running",
+                                    "attachment_ids": attachment_ids, "reasoning_effort": reasoning_effort})
             doc["entries"].append({"kind": "user", "text": text, "turn_id": request_id,
                                    **({"attachments": attachments} if attachments else {})})
-            doc.update(status="running", error=None, version=doc["version"] + 1)
+            doc.update(status="running", error=None, version=doc["version"] + 1,
+                       reasoning_effort=reasoning_effort)
             if doc["title"] == "新对话":
                 doc["title"] = text[:36] or attachments[0]["name"][:36]
             self.active[session_id], self.providers[session_id] = doc, provider
@@ -521,6 +568,13 @@ class AgentChatService:
                         pass
             elif kind == "model_usage":
                 entries.append({"kind": "usage", **data})
+                provider = self.providers.get(doc["id"])
+                window = getattr(provider, "context_window", None)
+                if isinstance(window, int) and window > 0:
+                    doc["context_usage"] = {"input_tokens": data["input_tokens"],
+                        "context_window": window, "measurement": "actual",
+                        "source": "last_model_request", "observed_at": _now(),
+                        "timestamp_source": "usage_received_at", "turn_id": doc["requests"][-1]["id"]}
             elif kind in {"context_compacted", "context_warning", "context_blocked", "guard_stop"}:
                 entries.append({"kind": kind, **data})
             self._save(doc)

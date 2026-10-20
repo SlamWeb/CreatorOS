@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { apiUrl, request, studioApi } from "../api/client";
+import { ApiError, apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy, History, Plus, X } from "lucide-react";
@@ -12,12 +12,16 @@ import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditH
 import { chatHref, type ChatLink } from "../components/chatLinks";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 import { useAgentChat } from "../components/AgentChatHost";
+import { AgentComposerControls } from "../components/AgentComposerControls";
+import { isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
+  type ContextUsage, type PendingAgentTurn, type ReasoningEffort } from "../components/agentComposerState";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
   model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[]; attachments?: ChatAttachment[] };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
+  reasoning_effort?: string; reasoning_options?: string[]; context_usage?: ContextUsage | null;
   entries: Entry[]; updated_at: string; has_older: boolean };
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
   discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
@@ -28,7 +32,6 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
-const status: Record<string, string> = { idle: "可以继续对话", running: "正在处理", failed: "本次未完成", interrupted: "已中断" };
 const base = "/api/agent/sessions";
 const newestSession = (old: Session | undefined, next: Session) => old &&
   (old.version > next.version || (old.version === next.version && old.updated_at > next.updated_at)) ? old : next;
@@ -69,6 +72,9 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [reasoningPreferences, setReasoningPreferences] = useState<Record<string, string>>({});
+  const [pendingTurns, setPendingTurns] = useState<Record<string, PendingAgentTurn | null>>({});
+  const [checkingPending, setCheckingPending] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyId = useId();
   const [attachmentDrafts, setAttachmentDrafts] = useState<Record<string, ChatAttachment[]>>({});
@@ -130,6 +136,21 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   },
     enabled: active && !!id, refetchInterval: q => active && q.state.data?.status === "running" ? 2000 : false });
   const doc = session.data;
+  const preferenceKey = id ?? `new:${scopeKey}`;
+  const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
+  const reasoningEffort = reasoningPreferences[preferenceKey] ?? (storedReasoning || doc?.reasoning_effort || "none");
+  const reasoningOptions = doc?.reasoning_options ?? [...REASONING_EFFORTS];
+  const validReasoning = isReasoningEffort(reasoningEffort) && reasoningOptions.includes(reasoningEffort);
+  const pendingTurn = id ? (pendingTurns[id] === undefined
+    ? parsePendingAgentTurn(readSessionValue(pendingAgentTurnKey(id)), id) : pendingTurns[id]) : null;
+  const savePendingTurn = (sessionId: string, value: PendingAgentTurn | null) => {
+    writeSessionValue(pendingAgentTurnKey(sessionId), value ? JSON.stringify(value) : "");
+    setPendingTurns(previous => ({ ...previous, [sessionId]: value }));
+  };
+  const chooseReasoning = (value: ReasoningEffort) => {
+    writeSessionValue(reasoningPreferenceKey(preferenceKey), value);
+    setReasoningPreferences(previous => ({ ...previous, [preferenceKey]: value }));
+  };
   const creatorId = standalone ? (requestedCreatorId ?? (doc?.scope_kind === "creator" ? doc.creator_id : null)) : embeddedCreatorId;
   const dataScopeKey = creatorId ? `creator:${creatorId}` : "overview";
   const scopeReady = active && (!id || !!doc || session.isError);
@@ -246,7 +267,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     return target;
   };
   const addImages = async (files: File[]) => {
-    if (!files.length || uploadLock.current || sendLock.current || cannotSend || (id && !doc) || doc?.status === "running") return;
+    if (!files.length || uploadLock.current || sendLock.current || pendingTurn || checkingPending || cannotSend || (id && !doc) || doc?.status === "running") return;
     if (attachments.length + files.length > MAX_CHAT_IMAGES) { updateError(scopeKey, "每条消息最多 6 张图片，请移除部分图片后再添加。"); return; }
     const invalid = files.map(imageFileError).find(Boolean);
     if (invalid) { updateError(scopeKey, invalid); return; }
@@ -268,30 +289,69 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   };
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds }: { text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string; sourceView: string; imageIds: string[] }) => {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, pending }: {
+      text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
+      sourceView: string; imageIds: string[]; effort: ReasoningEffort; pending?: PendingAgentTurn;
+    }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
+      if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
+      const snapshot = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
+        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort };
+      savePendingTurn(target.id, snapshot);
+      writeSessionValue(reasoningPreferenceKey(target.id), snapshot.reasoning_effort);
+      setReasoningPreferences(previous => ({ ...previous, [target.id]: snapshot.reasoning_effort }));
       return request<Session>(`${base}/${target.id}/turns`, { method: "POST", body: JSON.stringify({
-        text, request_id: crypto.randomUUID(), expected_version: target.version, attachment_ids: imageIds,
+        text: snapshot.text, request_id: snapshot.request_id, expected_version: snapshot.expected_version,
+        attachment_ids: snapshot.attachment_ids, reasoning_effort: snapshot.reasoning_effort,
       }) });
     },
     onSuccess: (next, variables) => {
       cache.setQueryData<Session>(["agent-session", variables.submittedScopeKey, next.id], old => newestSession(old, next));
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
       saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
+      savePendingTurn(next.id, null);
       updateError(variables.submittedScopeKey, "");
       if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
       void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
     },
     onError: (e: Error, variables) => {
-      updateError(variables.submittedScopeKey, `${e.message} 没有自动重试；请先检查对话与运行记录。`);
+      const rejected = e instanceof ApiError && e.status >= 400 && e.status < 500;
+      const targetId = variables.pending?.sessionId ?? variables.current?.id ??
+        readSessionValue(selectedChatStorageKey(variables.submittedScopeKey));
+      if (rejected && targetId) savePendingTurn(targetId, null);
+      updateError(variables.submittedScopeKey, `${e.message} ${rejected ? "本次未提交，草稿已保留。" : "提交结果待核对；请核对上次提交，避免重复操作。"}`);
       void cache.invalidateQueries({ queryKey: ["agent-session", variables.submittedScopeKey] });
     },
     onSettled: () => { sendLock.current = false; },
   });
+  const recoverPending = async () => {
+    if (!pendingTurn || !id || checkingPending || sendLock.current || cannotSend) return;
+    setCheckingPending(true); updateError(scopeKey, "");
+    const original = pendingTurn;
+    const submittedScopeKey = scopeKey;
+    try {
+      const latest = await request<Session>(`${base}/${original.sessionId}`);
+      cache.setQueryData<Session>(["agent-session", submittedScopeKey, original.sessionId], old => newestSession(old, latest));
+      if (latest.entries.some(entry => entry.kind === "user" && entry.turn_id === original.request_id)) {
+        savePendingTurn(original.sessionId, null);
+        if (readSessionValue(draftStorageKey(submittedScopeKey)).trim() === original.text) updateDraft(submittedScopeKey, "");
+        saveAttachments(original.sessionId, readAttachmentDraft(original.sessionId).filter(image => !original.attachment_ids.includes(image.id)));
+      } else if (latest.status === "running") {
+        updateError(submittedScopeKey, "当前对话正在处理其他指令，请完成后再核对这次提交。");
+      } else {
+        sendLock.current = true;
+        send.mutate({ text: original.text, current: latest, scopeCreatorId: creatorId,
+          submittedScopeKey, sourceView: `${submittedScopeKey}:${original.sessionId}`,
+          imageIds: original.attachment_ids, effort: original.reasoning_effort, pending: original });
+      }
+    } catch (e) {
+      updateError(submittedScopeKey, `核对失败：${e instanceof Error ? e.message : "请稍后再试。"} 原请求仍保留。`);
+    } finally { setCheckingPending(false); }
+  };
   const submit = () => {
-    if ((!draft.trim() && !attachments.length) || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
+    if ((!draft.trim() && !attachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
-    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id) });
+    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort });
   };
   const chooseSession = (next: string | null) => {
     updateError(scopeKey, ""); setHistoryOpen(false);
@@ -365,7 +425,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
-      {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending}
+      {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending || !!pendingTurn || doc?.status === "running"}
         remove={imageId => { if (id) saveAttachments(id, attachments.filter(image => image.id !== imageId)); }} />}
       <textarea ref={composerInput} aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={1}
         onChange={e => updateDraft(scopeKey, e.target.value)} onPaste={e => {
@@ -374,9 +434,17 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         }} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
-      <div><ImagePicker disabled={uploading || send.isPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
-        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : status[doc?.status ?? "idle"]}</span> · Enter 发送</span>
-        <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
+      <div className="agent-composer-toolbar"><ImagePicker disabled={uploading || send.isPending || !!pendingTurn || checkingPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
+        <AgentComposerControls key={`${scopeKey}:${id ?? "new"}`} usage={!scopeMismatch && !session.isError ? doc?.context_usage : null}
+          effort={reasoningEffort} options={reasoningOptions}
+          disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)} onChange={chooseReasoning} />
+        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : "Enter 发送"}</span></span>
+        <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
+      {pendingTurn && !send.isPending && <div className="agent-submit-recovery">
+        <span>上次提交待核对</span><button type="button" disabled={checkingPending || cannotSend || (!!id && !doc)} onClick={() => void recoverPending()}>
+          {checkingPending ? "正在核对…" : "核对并恢复上次提交"}</button>
+      </div>}
+      {!validReasoning && <p className="form-error" role="alert">当前推理设置不可用，请重新选择。</p>}
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     </div>

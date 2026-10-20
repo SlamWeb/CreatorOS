@@ -65,4 +65,5 @@ def stream_llm(
         content="".join(text_parts) or None,
         tool_calls=[tool_calls_by_index[index] for index in sorted(tool_calls_by_index)],
         usage=stream_end.usage if stream_end is not None else None,
+        reasoning_content=stream_end.reasoning_content if stream_end is not None else None,
     )

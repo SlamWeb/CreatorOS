@@ -11,6 +11,8 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
+    ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
     ("codex_environment", ["-m", "unittest", "tests.test_codex_shell", "tests.test_composition_environment", "-v"]),
     ("topic_library_order", ["-m", "unittest", "tests.test_topic_library_order", "-v"]),
     ("auxiliary_job_queues", ["-m", "unittest", "tests.test_auxiliary_job_queues", "-v"]),

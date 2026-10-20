@@ -1,0 +1,24 @@
+.agent-composer .agent-composer-toolbar { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-composer .agent-composer-controls { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.agent-composer .agent-context-ring { display: grid; place-items: center; width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--accent); }
+.agent-context-track, .agent-context-value { fill: none; stroke-width: 2.5; }
+.agent-context-track { stroke: var(--line-strong); }
+.agent-context-value { stroke: currentColor; stroke-linecap: round; }
+.agent-composer .agent-reasoning-control { display: inline-flex; align-items: center; position: relative; gap: 4px; margin: 0; color: var(--muted); font-size: 12px; }
+.agent-composer .agent-reasoning-control select { appearance: none; width: auto; min-height: 32px; padding: 5px 19px 5px 5px; margin: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.agent-reasoning-control > svg { position: absolute; right: 4px; pointer-events: none; }
+.agent-composer .agent-context-ring:hover, .agent-composer .agent-reasoning-control select:hover:not(:disabled) { background: var(--surface); }
+.agent-composer .agent-reasoning-control select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.agent-composer .agent-reasoning-control select:disabled { opacity: .55; cursor: default; }
+.agent-composer .agent-compose-status { font-size: 11px; line-height: 1.4; }
+.agent-context-tooltip { position: fixed; z-index: 100; display: grid; gap: 5px; width: 240px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); color: var(--ink); font-size: 12px; line-height: 1.5; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); pointer-events: none; }
+.agent-context-tooltip strong { font-size: 12px; font-weight: 600; }
+.agent-context-tooltip span { color: var(--muted); font-size: 11px; }
+.agent-composer .agent-submit-recovery { width: 100%; justify-content: flex-start; gap: 8px; margin-top: 8px; }
+.agent-submit-recovery button { border: 0; padding: 4px 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; }
+@media (max-width: 600px) {
+  .agent-composer .agent-composer-toolbar { gap: 4px; }
+  .agent-composer .agent-context-ring, .agent-composer .agent-reasoning-control select { min-height: 36px; }
+  .agent-composer .agent-compose-status { flex-basis: 100%; order: 3; }
+  .agent-composer .agent-composer-toolbar > .button { margin-inline-start: auto; }
+}

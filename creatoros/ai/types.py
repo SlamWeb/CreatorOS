@@ -34,9 +34,12 @@ class ModelResponse:
     content: str | None
     tool_calls: list[ToolCall]
     usage: ModelUsage | None = None
+    reasoning_content: str | None = None
 
     def to_message(self):
         message = {"role": "assistant", "content": self.content}
+        if self.reasoning_content is not None:
+            message["reasoning_content"] = self.reasoning_content
         if self.tool_calls:
             message["tool_calls"] = [
                 {"id": call.id, "name": call.name, "arguments": call.arguments}
@@ -62,6 +65,7 @@ class ToolCallDelta:
 class StreamEnd:
     finish_reason: str | None
     usage: ModelUsage | None = None
+    reasoning_content: str | None = None
 
 
 @dataclass

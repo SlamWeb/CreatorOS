@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 聊天请求推理档位与上下文读数（2026-10-21，隔离真实验证通过）
+
+- turn请求增加实际DeepSeek支持的推理档位，缺省none兼容旧客户端；每轮冻结并纳入请求幂等比较，独立Provider不跨会话串扰。开启思考工具调用时保存并正确回传reasoning_content，不把其作为公开聊天流。
+- session DTO持久投影最近一次主模型请求实际input/context_window及来源/时间；旧会话只读回溯已有Trace，不把所有轮次usage相加。窗口由Provider配置提供，不在UI假定所有模型都1M。
+- 验证请求重放/档位冲突、会话隔离、上下文测量/重载、thinking工具续接与现有附件路径；真实DeepSeek调用单独记账。
+- 7项定向单测及web_agent/account_sessions/reply_trace三个smoke通过；门禁新增chat_context_reasoning组。Trace/Observation响应去除reasoning_content正文，后端账本保留供实际模型工具续接；结构化独立业务调用仍关闭推理。
+- 真实loopback HTTP→DeepSeek四档5次请求通过：none1次、low2次（真实Skill读取工具）、high1次、max1次，输入17297/输出1125；工具内与下一用户轮reasoning回传无400。证据 `tmp/chat-context-reasoning-live-20261021-a24f6559/report.json`。旧探针脚本参数错误、以及“简单问题必有非空思考”的过强断言失败均保留，后者四档API本身成功，不把断言调整算产品优化收益。
+
 ## 内容最近更新排序（2026-10-20，隔离HTTP/SQLite验证通过）
 
 - `GET /api/series/{id}/topic-library` 增加 `order=recent|queue`；缺省queue保持已有顺序和Agent契约，网页显式recent。
