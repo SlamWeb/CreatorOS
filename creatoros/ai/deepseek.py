@@ -13,7 +13,12 @@ from .types import (
 
 DEEPSEEK_CONTEXT_WINDOW = 1_000_000
 DEEPSEEK_RESERVE_OUTPUT_TOKENS = 32_768
-DEEPSEEK_REASONING_EFFORTS = ("none", "low", "high", "max")
+DEEPSEEK_REASONING_EFFORT_MAP = {
+    "none": "none", "low": "low", "medium": "high", "high": "high",
+    "xhigh": "high", "ultra": "max", "max": "max",
+}
+DEEPSEEK_REASONING_EFFORTS = tuple(DEEPSEEK_REASONING_EFFORT_MAP)
+DEEPSEEK_CHAT_REASONING_EFFORTS = ("low", "medium", "high", "xhigh", "ultra")
 
 
 class DeepSeekProvider:
@@ -40,13 +45,14 @@ class DeepSeekProvider:
 
     def set_reasoning_effort(self, effort):
         if effort not in DEEPSEEK_REASONING_EFFORTS:
-            raise ValueError("DeepSeek 推理程度仅支持 none、low、high、max。")
+            raise ValueError("请选择受支持的 DeepSeek 推理程度。")
         self.reasoning_effort = effort
+        self.actual_reasoning_effort = DEEPSEEK_REASONING_EFFORT_MAP[effort]
 
     def _thinking_options(self):
-        if self.reasoning_effort == "none":
+        if self.actual_reasoning_effort == "none":
             return {"extra_body": {"thinking": {"type": "disabled"}}}
-        return {"reasoning_effort": self.reasoning_effort,
+        return {"reasoning_effort": self.actual_reasoning_effort,
                 "extra_body": {"thinking": {"type": "enabled"}}}
 
     def _to_openai_messages(self, messages):

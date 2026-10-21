@@ -23,16 +23,21 @@ from creatoros.web.chat_routes import ChatTurnRequest
 
 class ChatContextReasoningTests(unittest.TestCase):
     def test_request_validation_and_provider_mapping(self):
-        for effort in ("none", "low", "high", "max"):
+        expected = {"none": "none", "low": "low", "medium": "high", "high": "high",
+                    "xhigh": "high", "ultra": "max", "max": "max"}
+        for effort, actual in expected.items():
             payload = ChatTurnRequest(request_id=str(uuid4()), expected_version=0, reasoning_effort=effort)
             provider = DeepSeekProvider("not-a-real-key", reasoning_effort=payload.reasoning_effort)
             options = provider._thinking_options()
             self.assertEqual(options["extra_body"]["thinking"]["type"],
                              "disabled" if effort == "none" else "enabled")
-            self.assertEqual(options.get("reasoning_effort"), None if effort == "none" else effort)
+            self.assertEqual(options.get("reasoning_effort"), None if actual == "none" else actual)
+            self.assertEqual(provider.actual_reasoning_effort, actual)
+            self.assertEqual(provider.reasoning_effort, effort)
             provider.client.close()
         with self.assertRaises(ValidationError):
-            ChatTurnRequest(request_id=str(uuid4()), expected_version=0, reasoning_effort="xhigh")
+            ChatTurnRequest(request_id=str(uuid4()), expected_version=0, reasoning_effort="invalid")
+        self.assertEqual(ChatTurnRequest(request_id=str(uuid4()), expected_version=0).reasoning_effort, "high")
 
     def test_stream_keeps_reasoning_for_tool_roundtrip_without_text_leak(self):
         provider = DeepSeekProvider("not-a-real-key", reasoning_effort="high")
@@ -67,10 +72,51 @@ class ChatContextReasoningTests(unittest.TestCase):
                 with self.assertRaises(HTTPException) as conflict:
                     host.submit(a["id"], request_id, "hello", 0, "http://127.0.0.1:1", reasoning_effort="low")
                 self.assertEqual(conflict.exception.status_code, 409)
+                # The requested UI setting is frozen even when two settings
+                # normalize to the same DeepSeek wire effort.
+                with self.assertRaises(HTTPException) as same_actual:
+                    host.submit(a["id"], request_id, "hello", 0, "http://127.0.0.1:1", reasoning_effort="medium")
+                self.assertEqual(same_actual.exception.status_code, 409)
                 host.submit(b["id"], str(uuid4()), "hello", 0, "http://127.0.0.1:1", reasoning_effort="none")
                 self.assertEqual([p.reasoning_effort for p in providers], ["high", "none"])
                 self.assertEqual(host.get(a["id"])["reasoning_effort"], "high")
                 self.assertEqual(host.get(b["id"])["reasoning_effort"], "none")
+            for provider in providers:
+                provider.client.close()
+
+    def test_five_visible_levels_preserve_legacy_pending_and_new_default(self):
+        with TemporaryDirectory() as temporary:
+            providers = []
+            def factory():
+                provider = DeepSeekProvider("not-a-real-key")
+                providers.append(provider)
+                return provider
+            host = AgentChatService(Path(temporary), factory)
+            session = host.create()
+            self.assertEqual(session["reasoning_effort"], "high")
+            self.assertEqual(session["reasoning_options"], ["low", "medium", "high", "xhigh", "ultra"])
+            self.assertEqual(session["reasoning_effort_map"],
+                             {"low": "low", "medium": "high", "high": "high", "xhigh": "high", "ultra": "max"})
+            doc = host._read(session["id"])
+            doc["reasoning_effort"] = "none"
+            for effort in ("none", "max", None):
+                request = {"id": str(uuid4()), "text": "old", "status": "idle"}
+                if effort is not None:
+                    request["reasoning_effort"] = effort
+                doc["requests"].append(request)
+                host._save(doc)
+                before = host._path(session["id"]).read_bytes()
+                host.submit(session["id"], request["id"], "old", 0, "http://127.0.0.1:1", reasoning_effort=effort)
+                self.assertEqual(host._path(session["id"]).read_bytes(), before)
+                with self.assertRaises(HTTPException) as conflict:
+                    host.submit(session["id"], request["id"], "old", 0, "http://127.0.0.1:1", reasoning_effort="high")
+                self.assertEqual(conflict.exception.status_code, 409)
+            self.assertEqual(providers, [])
+            self.assertEqual(host.get(session["id"])["reasoning_effort"], "none")
+            with patch("creatoros.web.chat.Thread"):
+                view = host.submit(session["id"], str(uuid4()), "new", 0, "http://127.0.0.1:1")
+                self.assertEqual(view["reasoning_effort"], "high")
+                self.assertEqual(providers[-1].actual_reasoning_effort, "high")
             for provider in providers:
                 provider.client.close()
 

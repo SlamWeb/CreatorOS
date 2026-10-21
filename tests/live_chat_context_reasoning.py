@@ -1,4 +1,5 @@
 """Real DeepSeek through isolated HTTP chat; no production or shared data writes."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -21,11 +22,16 @@ class RecordingProvider(DeepSeekProvider):
     def __init__(self, api_key):
         super().__init__(api_key, model="deepseek-flash", timeout_seconds=120, max_retries=0)
         self.calls = []
+        self.client._client.event_hooks["request"].append(self.record_wire_options)
+
+    def record_wire_options(self, request):
+        body = json.loads(request.content)
+        self.calls[-1].update(wire_effort=body.get("reasoning_effort"), wire_thinking=body.get("thinking"))
 
     def stream(self, context):
         messages, _ = context.to_request()
         sent = self._to_openai_messages(messages)
-        self.calls.append({"effort": self.reasoning_effort,
+        self.calls.append({"effort": self.reasoning_effort, "actual_effort": self.actual_reasoning_effort,
             "assistant_messages": sum(m["role"] == "assistant" for m in sent),
             "assistant_with_reasoning": sum(m["role"] == "assistant" and "reasoning_content" in m for m in sent),
             "saved_reasoning_reused": sum(bool(m.get("reasoning_content")) for m in messages if m["role"] == "assistant")})
@@ -37,6 +43,9 @@ class RecordingProvider(DeepSeekProvider):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "ultra"))
+    args = parser.parse_args()
     api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
         raise SystemExit("DEEPSEEK_API_KEY_missing")
@@ -66,6 +75,8 @@ def main():
                         ("high", "请先准确计算从 k=1 到 137 的 floor(137/k) 的和，然后用一句中文给出数值以及刚才 Skill 的名称。无需再次读取文件。"),
                         ("max", "只用中文回复：已完成。无需调用工具。"),
                     ]
+                    if args.effort:
+                        prompts = [(args.effort, "只用中文回复：已完成。无需调用工具。")]
                     for effort, text in prompts:
                         request_id = str(uuid4())
                         payload = {"request_id": request_id, "text": text,
@@ -92,13 +103,15 @@ def main():
                         changed = {**payload, "reasoning_effort": "high" if effort != "high" else "low"}
                         assert client.post(f"{endpoint}/{doc['id']}/turns", json=changed).status_code == 409
                         calls = providers[-1].calls
+                        assert all(c["wire_effort"] == c["actual_effort"] for c in calls if c["actual_effort"] != "none")
                         if effort != "none":
                             assert all(c["assistant_messages"] == c["assistant_with_reasoning"] for c in calls)
                         report["turns"].append({"effort": effort, "calls": calls, "context_usage": budget})
                         output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
                         print(f"real_deepseek_effort={effort} requests={len(calls)} passed", flush=True)
-                    assert any(e.get("name") == "get_producer_skill" and e.get("status") == "done" for e in doc["entries"])
-                    assert any(c["saved_reasoning_reused"] for p in providers[2:] for c in p.calls)
+                    if len(prompts) > 1:
+                        assert any(e.get("name") == "get_producer_skill" and e.get("status") == "done" for e in doc["entries"])
+                        assert any(c["saved_reasoning_reused"] for p in providers[2:] for c in p.calls)
                     assert producer.calls == 0
                     report.update(status="passed", producer_calls=0)
         except Exception as error:

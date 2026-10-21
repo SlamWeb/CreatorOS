@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 推理档位按用户五档命名（2026-10-21，正式加载）
+
+- 新聊天默认high，选项low/medium/high/xhigh/ultra；按官方实际映射归一为low/high/high/high/max。保留用户requested值用于幂等/偏好，实际档位可检查；不宣称中高极高是不同底层强度。
+- 旧none/max请求仍可按原请求ID显式核对重放，不重写既有账本或在途请求；独立业务Provider默认与structured调用不随聊天偏好变化。
+- 本轮只修聊天档位，不实现Skill版本库、优秀作品池或DS自动校准；这些仍需按讨论后的范围单独开发。
+- 8项后端回归、web_agent/account_sessions两组smoke通过。真实隔离medium一轮网络记录确认wire high + thinking.enabled，输入3054/输出87，零生产；证据tmp/chat-context-reasoning-live-20261021-bb076027/report.json。未重跑上一轮四档全量探针。
+- 空闲检查无活跃任务后重启，正式8765 PID2296；现有会话只读DTO返回五档与真实映射，原Run八图仍逐字节一致并保留旧失败。正式网页新聊天显示默认高，无关闭选项；没有向正式会话发测试请求。
+
 ## 聊天请求推理档位与上下文读数（2026-10-21，隔离真实验证通过）
 
 - turn请求增加实际DeepSeek支持的推理档位，缺省none兼容旧客户端；每轮冻结并纳入请求幂等比较，独立Provider不跨会话串扰。开启思考工具调用时保存并正确回传reasoning_content，不把其作为公开聊天流。

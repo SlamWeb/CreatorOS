@@ -1,15 +1,20 @@
-export const REASONING_EFFORTS = ["none", "low", "high", "max"] as const;
+export const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "ultra"] as const;
 export type ReasoningEffort = typeof REASONING_EFFORTS[number];
+export type ReplayReasoningEffort = ReasoningEffort | "none" | "max";
 export type ContextUsage = {
   input_tokens: number; context_window: number; measurement: "actual" | "estimate";
   source: "last_model_request"; observed_at: string; turn_id: string | null;
 };
 export type PendingAgentTurn = {
   sessionId: string; text: string; request_id: string; expected_version: number;
-  attachment_ids: string[]; reasoning_effort: ReasoningEffort;
+  attachment_ids: string[]; reasoning_effort: ReplayReasoningEffort;
 };
 export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   REASONING_EFFORTS.some(option => option === value);
+export const isReplayReasoningEffort = (value: unknown): value is ReplayReasoningEffort =>
+  isReasoningEffort(value) || value === "none" || value === "max";
+export const initialReasoningEffort = (value?: string): string =>
+  !value || value === "none" || value === "max" ? "high" : value;
 export const reasoningPreferenceKey = (key: string) => `creatoros.agent.reasoning.v1:${encodeURIComponent(key)}`;
 export const pendingAgentTurnKey = (sessionId: string) => `creatoros.agent.pending-turn.v1:${sessionId}`;
 export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAgentTurn | null {
@@ -19,7 +24,7 @@ export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAg
       typeof value.request_id === "string" && !!value.request_id &&
       Number.isInteger(value.expected_version) && value.expected_version >= 0 &&
       Array.isArray(value.attachment_ids) && value.attachment_ids.every(id => typeof id === "string") &&
-      isReasoningEffort(value.reasoning_effort) ? value : null;
+      isReplayReasoningEffort(value.reasoning_effort) ? value : null;
   } catch { return null; }
 }
 export function contextUsageView(usage: ContextUsage | null | undefined) {

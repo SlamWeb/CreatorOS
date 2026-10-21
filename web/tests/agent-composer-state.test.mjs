@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contextUsageView, parsePendingAgentTurn, isReasoningEffort } from "../src/components/agentComposerState.ts";
+import { contextUsageView, initialReasoningEffort, parsePendingAgentTurn, isReasoningEffort, REASONING_EFFORTS } from "../src/components/agentComposerState.ts";
 
 test("context displays the last request input instead of a running sum", () => {
   const value = contextUsageView({ input_tokens: 15321, context_window: 1000000,
@@ -26,5 +26,18 @@ test("pending recovery preserves the original reasoning, identity and version", 
   assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, reasoning_effort: "unexpected" }), "chat-a"), null);
   assert.equal(parsePendingAgentTurn("invalid json", "chat-a"), null);
   assert.equal(isReasoningEffort("high"), true);
-  assert.equal(isReasoningEffort("xhigh"), false);
+  assert.equal(isReasoningEffort("xhigh"), true);
+  assert.equal(isReasoningEffort("none"), false);
+});
+test("new choices default high while legacy pending requests retain their exact values", () => {
+  assert.deepEqual(REASONING_EFFORTS, ["low", "medium", "high", "xhigh", "ultra"]);
+  for (const legacy of ["none", "max"]) {
+    assert.equal(initialReasoningEffort(legacy), "high");
+    const pending = { sessionId: "chat-a", text: "旧请求", request_id: "request-a", expected_version: 2,
+      attachment_ids: [], reasoning_effort: legacy };
+    assert.deepEqual(parsePendingAgentTurn(JSON.stringify(pending), "chat-a"), pending);
+  }
+  assert.equal(initialReasoningEffort(), "high");
+  assert.equal(initialReasoningEffort("medium"), "medium");
+  assert.equal(initialReasoningEffort("future"), "future");
 });

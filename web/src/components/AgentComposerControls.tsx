@@ -4,24 +4,35 @@ import { ChevronDown } from "lucide-react";
 import { contextUsageView, isReasoningEffort, REASONING_EFFORTS, type ContextUsage, type ReasoningEffort } from "./agentComposerState";
 import "./agentComposerControls.css";
 
-const labels: Record<ReasoningEffort, string> = { none: "关闭", low: "低", high: "高", max: "最高" };
-export function AgentComposerControls({ usage, effort, options, disabled, onChange }: {
+const labels: Record<ReasoningEffort, string> = { low: "低", medium: "中", high: "高", xhigh: "极高", ultra: "ultra" };
+export function AgentComposerControls({ usage, effort, options, actualEffortMap, disabled, onChange }: {
   usage?: ContextUsage | null; effort: string; options?: string[]; disabled: boolean;
+  actualEffortMap?: Record<string, string>;
   onChange: (value: ReasoningEffort) => void;
 }) {
+  const helpId = useId();
   const available = options ?? [...REASONING_EFFORTS];
   const valid = isReasoningEffort(effort) && available.includes(effort);
+  const legacy = effort === "none" || effort === "max";
+  const mapping = actualEffortMap ? available.filter(isReasoningEffort).map(option =>
+    `${labels[option]} → ${actualEffortMap[option] ?? "尚未提供"}`).join("；") : "实际档位由服务端确认";
+  const shared = actualEffortMap?.medium && actualEffortMap.medium === actualEffortMap.high &&
+    actualEffortMap.high === actualEffortMap.xhigh ? `。中、高、极高当前实际同为 ${actualEffortMap.high}` : "";
+  const explanation = `DeepSeek 实际推理强度：${mapping}${shared}。`;
   return <div className="agent-composer-controls">
     <ContextRing usage={usage} />
     <label className="agent-reasoning-control">
       <span>推理</span>
-      <select aria-label="推理程度" value={valid ? effort : ""} disabled={disabled}
+      <select aria-label="推理程度" aria-describedby={helpId} title={explanation}
+        value={valid || legacy ? effort : ""} disabled={disabled}
         onChange={event => { if (isReasoningEffort(event.target.value)) onChange(event.target.value); }}>
-        {!valid && <option value="" disabled>请选择</option>}
+        {legacy && <option value={effort} disabled>旧请求：{effort === "none" ? "关闭" : "最高"}</option>}
+        {!valid && !legacy && <option value="" disabled>请选择</option>}
         {available.filter(isReasoningEffort).map(option => <option key={option} value={option}>{labels[option]}</option>)}
       </select>
       <ChevronDown size={12} aria-hidden="true" />
     </label>
+    <span id={helpId} className="sr-only">{explanation}</span>
   </div>;
 }
 

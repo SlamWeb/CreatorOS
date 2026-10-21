@@ -13,8 +13,8 @@ import { chatHref, type ChatLink } from "../components/chatLinks";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 import { useAgentChat } from "../components/AgentChatHost";
 import { AgentComposerControls } from "../components/AgentComposerControls";
-import { isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
-  type ContextUsage, type PendingAgentTurn, type ReasoningEffort } from "../components/agentComposerState";
+import { initialReasoningEffort, isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
+  type ContextUsage, type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
@@ -22,6 +22,7 @@ type Entry = { kind: string; text?: string; name?: string; status?: string; run_
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
   reasoning_effort?: string; reasoning_options?: string[]; context_usage?: ContextUsage | null;
+  reasoning_actual_effort?: string; reasoning_effort_map?: Record<string, string>;
   entries: Entry[]; updated_at: string; has_older: boolean };
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
   discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
@@ -138,11 +139,12 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const doc = session.data;
   const preferenceKey = id ?? `new:${scopeKey}`;
   const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
-  const reasoningEffort = reasoningPreferences[preferenceKey] ?? (storedReasoning || doc?.reasoning_effort || "none");
-  const reasoningOptions = doc?.reasoning_options ?? [...REASONING_EFFORTS];
-  const validReasoning = isReasoningEffort(reasoningEffort) && reasoningOptions.includes(reasoningEffort);
   const pendingTurn = id ? (pendingTurns[id] === undefined
     ? parsePendingAgentTurn(readSessionValue(pendingAgentTurnKey(id)), id) : pendingTurns[id]) : null;
+  const reasoningEffort = pendingTurn?.reasoning_effort ?? initialReasoningEffort(
+    reasoningPreferences[preferenceKey] ?? (storedReasoning || doc?.reasoning_effort));
+  const reasoningOptions = doc?.reasoning_options ?? [...REASONING_EFFORTS];
+  const validReasoning = isReasoningEffort(reasoningEffort) && reasoningOptions.includes(reasoningEffort);
   const savePendingTurn = (sessionId: string, value: PendingAgentTurn | null) => {
     writeSessionValue(pendingAgentTurnKey(sessionId), value ? JSON.stringify(value) : "");
     setPendingTurns(previous => ({ ...previous, [sessionId]: value }));
@@ -291,7 +293,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     retry: false,
     mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, pending }: {
       text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
-      sourceView: string; imageIds: string[]; effort: ReasoningEffort; pending?: PendingAgentTurn;
+      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; pending?: PendingAgentTurn;
     }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
@@ -436,7 +438,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         }} />
       <div className="agent-composer-toolbar"><ImagePicker disabled={uploading || send.isPending || !!pendingTurn || checkingPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
         <AgentComposerControls key={`${scopeKey}:${id ?? "new"}`} usage={!scopeMismatch && !session.isError ? doc?.context_usage : null}
-          effort={reasoningEffort} options={reasoningOptions}
+          effort={reasoningEffort} options={reasoningOptions} actualEffortMap={doc?.reasoning_effort_map}
           disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)} onChange={chooseReasoning} />
         <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : "Enter 发送"}</span></span>
         <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
@@ -444,7 +446,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         <span>上次提交待核对</span><button type="button" disabled={checkingPending || cannotSend || (!!id && !doc)} onClick={() => void recoverPending()}>
           {checkingPending ? "正在核对…" : "核对并恢复上次提交"}</button>
       </div>}
-      {!validReasoning && <p className="form-error" role="alert">当前推理设置不可用，请重新选择。</p>}
+      {!validReasoning && !pendingTurn && <p className="form-error" role="alert">当前推理设置不可用，请重新选择。</p>}
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     </div>

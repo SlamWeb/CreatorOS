@@ -16,7 +16,9 @@ from fastapi import HTTPException
 
 from creatoros.agent.loop import run_agent
 from creatoros.ai import DeepSeekProvider
-from creatoros.ai.deepseek import DEEPSEEK_REASONING_EFFORTS
+from creatoros.ai.deepseek import (
+    DEEPSEEK_CHAT_REASONING_EFFORTS, DEEPSEEK_REASONING_EFFORTS, DEEPSEEK_REASONING_EFFORT_MAP,
+)
 from creatoros.ai.types import TextDelta
 from creatoros.config import PROJECT_ROOT
 from creatoros.context import RuntimeContext
@@ -325,7 +327,7 @@ class AgentChatService:
             doc = {"id": str(uuid4()), "title": "新对话", "version": 0, "status": "idle",
                    "entries": [], "requests": [], "error": None, "updated_at": _now(),
                    "scope_kind": "creator" if creator_id is not None else "overview", "creator_id": creator_id}
-            doc.update(context_usage=None, reasoning_effort="none")
+            doc.update(context_usage=None, reasoning_effort="high")
             messages = new_messages()
             messages[0]["content"] += "\n\n" + self._instructions(doc)
             save_messages(messages, self._path(doc["id"]).with_name("messages.json"))
@@ -372,7 +374,9 @@ class AgentChatService:
             "scope_kind": doc.get("scope_kind", "overview"), "creator_id": doc.get("creator_id"),
             "context_usage": doc.get("context_usage"),
             "reasoning_effort": doc.get("reasoning_effort", "none"),
-            "reasoning_options": list(DEEPSEEK_REASONING_EFFORTS),
+            "reasoning_actual_effort": DEEPSEEK_REASONING_EFFORT_MAP.get(doc.get("reasoning_effort", "none")),
+            "reasoning_options": list(DEEPSEEK_CHAT_REASONING_EFFORTS),
+            "reasoning_effort_map": {key: DEEPSEEK_REASONING_EFFORT_MAP[key] for key in DEEPSEEK_CHAT_REASONING_EFFORTS},
             "entries": doc["entries"][-200:], "has_older": len(doc["entries"]) > 200})
 
     def get(self, session_id):
@@ -451,8 +455,8 @@ class AgentChatService:
             return self.attachments.put(session_id, name, data_base64)
 
     def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
-               reasoning_effort="none"):
-        if reasoning_effort not in DEEPSEEK_REASONING_EFFORTS:
+               reasoning_effort=None):
+        if reasoning_effort is not None and reasoning_effort not in DEEPSEEK_REASONING_EFFORTS:
             raise HTTPException(422, "请选择有效的推理程度。")
         attachment_ids = list(attachment_ids or [])
         if len(attachment_ids) > MAX_IMAGES or len(set(attachment_ids)) != len(attachment_ids):
@@ -463,9 +467,13 @@ class AgentChatService:
             for item in doc["requests"]:
                 if item["id"] == request_id:
                     if (item["text"] != text or item.get("attachment_ids", []) != attachment_ids
-                            or item.get("reasoning_effort", "none") != reasoning_effort):
+                            or (reasoning_effort is not None
+                                and item.get("reasoning_effort", "none") != reasoning_effort)):
                         raise HTTPException(409, "同一请求 ID 不能用于不同指令。")
                     return self._view(doc)
+            # Missing options on an old request replay keep its frozen setting;
+            # only a newly accepted request receives the new chat default.
+            reasoning_effort = reasoning_effort or "high"
             if self.stopping.is_set():
                 raise HTTPException(503, "服务正在关闭。")
             if doc["version"] != version:
