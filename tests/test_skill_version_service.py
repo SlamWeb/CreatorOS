@@ -266,6 +266,42 @@ class SkillVersionServiceTests(unittest.TestCase):
             self.assertEqual(db.get(Series, other_id).mind_skill_id, self.fixture["skill_id"])
         self.assert_original_protected()
 
+    def test_normally_bound_published_version_remains_a_rollback_target(self):
+        # A complete Visualize can be tried before any column uses this edition.
+        v2 = self.candidate(self.fixture["companion_id"])
+        unbound = self.client.post(f"/api/producer-skills/{v2['skill_id']}/version-trials", json={
+            "expected_digest": v2["digest"], "request_id": uuid4().hex,
+            "topic": "先单独试用呈现方法，再用于新栏目"})
+        self.assertEqual(unbound.status_code, 200, unbound.text)
+        self.extractions.worker.join(10)
+        j2 = self.extractions.get(unbound.json()["id"])
+        self.assertEqual(j2["trials"][-1]["status"], "completed", j2)
+        self.assertIsNone(j2["version_series_id"])
+        self.publish(v2, j2)
+        created = self.client.post("/api/series", json={"name": "从已保存v2创建的新栏目",
+            "creator_id": self.fixture["creator_id"], "mind_skill_id": self.fixture["skill_id"],
+            "production_skill_id": v2["skill_id"], "request_id": uuid4().hex})
+        self.assertEqual(created.status_code, 201, created.text)
+        series_id = created.json()["series"]["id"]
+        self.assertEqual(created.json()["series"]["revision"], 1)
+        v3 = self.candidate(v2["skill_id"])
+        j3 = self.trial(v3, series_id=series_id)
+        endpoint = f"/api/series/{series_id}/skill-version"
+        switched = self.client.post(endpoint, json=self.switch_payload(v3, j3))
+        self.assertEqual(switched.status_code, 200, switched.text)
+        unrelated = self.switch(self.switch_payload(v2))
+        self.assertEqual(unrelated.status_code, 409, unrelated.text)
+        rollback = self.client.post(endpoint, json=self.switch_payload(v2, revision=2))
+        self.assertEqual(rollback.status_code, 200, rollback.text)
+        with self.db.session() as db:
+            column = db.get(Series, series_id)
+            self.assertEqual(column.production_skill_id, v2["skill_id"])
+            self.assertEqual(column.revision, 3)
+            original = db.get(Series, self.fixture["series_id"])
+            self.assertEqual(original.production_skill_id, self.fixture["companion_id"])
+            self.assertEqual(original.revision, 1)
+        self.assert_original_protected()
+
     def test_failed_switch_release_does_not_allow_activation_after_companion_change(self):
         candidate = self.candidate()
         job = self.trial(candidate)

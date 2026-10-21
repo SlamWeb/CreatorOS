@@ -188,10 +188,11 @@ class SkillVersionService:
                 raise ExtractionError("栏目不存在或已移除。", 404)
             if series.revision != expected_revision:
                 raise ExtractionError("栏目配置已变化，请刷新后确认。", 409)
-            role, _ = self._binding(series, skill_id)
+            role, previous_skill_id = self._binding(series, skill_id)
             item = self.catalog.describe(skill_id)
             prior_activation = any(
-                receipt.get("kind") == "skill_version" and receipt.get("result", {}).get("skill_id") == skill_id
+                receipt.get("kind") == "skill_version" and skill_id in (
+                    receipt.get("result", {}).get("skill_id"), receipt.get("previous_skill_id"))
                 for receipt in session.scalars(select(WriteReceipt.response_json).where(
                     WriteReceipt.operation == "update_composition", WriteReceipt.resource_id == series_id)))
             needs_trial = (item["version_status"] == "candidate" or
@@ -209,5 +210,6 @@ class SkillVersionService:
                 raise ExtractionError("栏目已被其他操作修改，未切换。", 409)
             result = dict(series_id=series_id, skill_id=skill_id, revision=expected_revision + 1)
             session.add(WriteReceipt(request_id=receipt_id, operation="update_composition", resource_id=series_id,
-                origin="web", response_json={"kind": "skill_version", "signature": signature(inputs), "result": result}))
+                origin="web", response_json={"kind": "skill_version", "signature": signature(inputs),
+                    "previous_skill_id": previous_skill_id, "result": result}))
             return result
