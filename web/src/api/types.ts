@@ -140,9 +140,10 @@ export interface RunSummary {  id: string;
   card_count: number | null;
 }
 
-export type RunStartInput = { topic_id: string; mode?: "start" } | {
+export type SkillOverrides = { skill_id?: string; mind_skill_id?: string; production_skill_id?: string; expected_digests: Record<string, string> };
+export type RunStartInput = ({ topic_id: string; mode?: "start"; request_id?: string } | {
   topic_id: string; mode: "fresh"; source_run_id: string; expected_version: number; request_id: string;
-};
+}) & { skill_overrides?: SkillOverrides };
 
 export interface RunCancelInput {
   expected_version: number;

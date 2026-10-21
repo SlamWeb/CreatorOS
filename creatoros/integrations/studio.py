@@ -116,12 +116,20 @@ class StudioClient:
         return result
 
     def start(self, topic_id: str, *, mode: str = "start", source_run_id: str | None = None,
-              expected_version: int | None = None, request_id: str | None = None) -> dict:
+              expected_version: int | None = None, request_id: str | None = None,
+              skill_overrides: dict | None = None) -> dict:
         # Creation is idempotent on the server. Never automatically resume an old attempt/revision.
         payload = {"topic_id": topic_id}
         if mode == "fresh":
             payload.update(mode=mode, source_run_id=source_run_id, expected_version=expected_version, request_id=request_id)
-        run = self.request("POST", "/api/runs", payload=payload)
+        if skill_overrides is not None:
+            payload.update(skill_overrides=skill_overrides, request_id=request_id)
+        try:
+            run = self.request("POST", "/api/runs", payload=payload)
+        except StudioClientError as error:
+            if request_id:
+                error.details.update(request_id=request_id, topic_id=topic_id)
+            raise
         revisions = run["revisions"]
         fresh = (run["status"] == "queued" and run["active_revision_number"] == 1
                  and len(revisions) == 1 and not revisions[0]["attempts"])

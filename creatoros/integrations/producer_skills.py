@@ -295,7 +295,7 @@ class ProducerSkillCatalog:
 
     @_skill_io_locked
     def publish_skill_candidate(self, skill_id: str, expected_digest: str) -> dict:
-        """Called only after the version service verifies a successful trial."""
+        """Keep an explicitly confirmed immutable edition; trial is optional."""
         from .skill_versions import publish_candidate
         return publish_candidate(self, skill_id, expected_digest)
 
@@ -714,11 +714,21 @@ class ProducerSkillCatalog:
 
     def resolve(self, skill_id: str) -> Path:
         """生产门禁：只有声明为可生产角色且满足当前轮播产物契约的 Skill 可绑定/生产。"""
+        return self._resolve_production(skill_id, allow_candidate=False)
+
+    def resolve_selected_version(self, skill_id: str, *, expected_digest: str) -> Path:
+        """Explicit one-run selection may freeze a candidate, not bind it globally."""
+        directory = self._resolve_production(skill_id, allow_candidate=True)
+        if _digest(directory) != expected_digest:
+            raise SkillDigestConflict(_digest(directory))
+        return directory
+
+    def _resolve_production(self, skill_id: str, *, allow_candidate: bool) -> Path:
         if skill_id == self.BUILTIN_ID:
             return self.project_root / "creatoros" / "skills" / skill_id
         data = self.describe(skill_id)
-        if data["version_status"] != "released":
-            raise ValueError("候选 Skill 需试用并确认版本后才能绑定生产。")
+        if not allow_candidate and data["version_status"] != "released":
+            raise ValueError("请先保存候选版本，或明确指定此版本用于本次生产。")
         role = self._role(data)
         if role is None:
             raise ValueError("该 Skill 尚未声明内容/制作角色，先完成配置再绑定生产。")

@@ -35,7 +35,7 @@ from .studio import (
     PageArgs, CreatorArgs, TopicsArgs, StartRunArgs, GetRunArgs,
     list_creators, list_creator_series, list_series_topics, start_content_run, get_content_run,
     InstallSkillArgs, SkillJobArgs, ProducerSkillArgs,
-    UpdateProducerSkillFileArgs, NoArgs, install_producer_skill, get_skill_install,
+    UpdateProducerSkillFileArgs, NoArgs, ListProducerSkillsArgs, install_producer_skill, get_skill_install,
     list_producer_skills, get_producer_skill, update_producer_skill_file,
     ResearchTopicsArgs, ResearchBatchArgs, SelectResearchArgs,
     research_series_topics, get_topic_research, prepare_topic_selection,
@@ -55,6 +55,7 @@ from .content_discussion import (
     RequestContentRevisionArgs, discuss_content_run, get_content_discussion,
     get_creator_tasks, request_content_revision,
 )
+from .skill_iterations import ManageSkillIterationArgs, manage_skill_iteration
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -196,17 +197,19 @@ tool_registry = {
              execute=install_producer_skill, args_model=InstallSkillArgs),
         Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记，未绑定栏目，也不保证组合可生产。用户明确要求绑定时，可在栏目页面操作或使用 compose_series/update_series_composition，角色及生产适配器仍需校验。",
              execute=get_skill_install, args_model=SkillJobArgs),
-        Tool(name="list_producer_skills", description="列出已登记生产 Skill 当前本地工作副本的 ID、名称、用途、角色与生产兼容性；正文需按需读取。不执行安装或生产。",
-             execute=list_producer_skills, args_model=NoArgs),
-        Tool(name="get_producer_skill", description="按需读取 Skill：默认仅分页查看 SKILL.md，不返回写入 digest。编辑必须先 list_files=true 列文件，再传 path 读取全文和当前工作副本 digest。路径只能来自文件列表，不能读任意路径。当前工具不能看图；图片返回 skill_text_only，文件列表不代表实际看图。",
+        Tool(name="list_producer_skills", description="列出本地Skill发布版元数据；要找修改候选/历史准确版本传include_versions=true，可用family_skill_id限定家族。账号请求仅看到当前账号绑定家族的全部版本。默认目录没有候选不代表候选不存在。正文按需读取，不生产。",
+             execute=list_producer_skills, args_model=ListProducerSkillsArgs),
+        Tool(name="get_producer_skill", description="按需读取Skill：include_versions=true查所属家族的候选及历史准确ID、版本状态和digest，不是只查栏目默认。默认分页SKILL.md无写入digest；编辑先list_files=true或path读全文与真实digest，路径来自文件列表。看图用read_image，不把图片当文本。",
              execute=get_producer_skill, args_model=ProducerSkillArgs),
-        Tool(name="update_producer_skill_file", description="用户明确要求改已有 Skill 时执行。默认 write_text 更新完整文本；用 add_image/replace_image/delete_image 管理 assets 参考图，新图来自当前会话 attachment_id。先用 get_producer_skill(list_files=true) 或读取目标文本取得真实 digest。已有版本的修改另存候选，正文和 assets 一起保留；后续修改必须用回执的新 skill_id 和 digest，不猜 source_digest。替换保持原图片路径；被正文引用的图片先改引用再删除。只保存候选，不改变栏目或旧 Run；试用与栏目切换由用户在网页确认，不派 Codex 改稿或自动生产。SKILL.md 保留有效 name/description。",
+        Tool(name="update_producer_skill_file", description="用户明确要求改已有Skill时执行。write_text改完整文本；add_image/replace_image/delete_image管理assets，新图来自当前会话attachment_id。先读文件取得真实digest。发布版修改另存完整候选，后续编辑用回执新skill_id/digest。替换保持原路径，被引用图片先改引用再删。只保存候选，不改栏目或旧Run；用户明确要求用新版制作可另用start_content_run指定版本，循环迭代用manage_skill_iteration，不自动切栏目。",
              execute=update_producer_skill_file, args_model=UpdateProducerSkillFileArgs),
+        Tool(name="manage_skill_iteration", description="管理有界RSI校准任务：用户明确要求循环迭代Skill，或本轮RSI已开启时start；指定真实栏目、Skill版本与已入队选题，可携带当前会话参考图。默认最多3轮含基线；DS对比参考建Judge、评审并改候选，Codex干净线程试产。只作用候选，不发布不切栏目。get查询；pause/resume/continue需最新revision，continue仅用户明确要求时。启动后后台推进，返回摘要与链接，不轮询等待、不另建重复任务。",
+             execute=manage_skill_iteration, args_model=ManageSkillIterationArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs),
-        Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。用户给参考图且已明确要制作时，直接用series_id、title、完整instructions和当前会话attachment_ids，不需先调用调研生成候选；默认仅借鉴内容，可按用户要求reference_presentation=true。原图/要求与栏目Skill一起冻结，不修改共享Skill。按最新Skill清空上下文重做时用mode=fresh及来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；结果未知先查同一任务，不盲目重提。",
+        Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。单条可用skill_overrides指定准确Skill版本（含候选）及expected_digests；先用get_producer_skill(include_versions=true)或文件列表取真实ID/digest，不必切换栏目，只冻结本次选择。批量和参考图入口暂不混用版本覆盖。用户给参考图且已明确制作时直接用series_id/title/完整instructions/attachment_ids，不需先调研；默认只参考内容，可reference_presentation=true。按最新或指定版清空上下文重做用mode=fresh和来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；未知先查同一任务，不盲目重提。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),

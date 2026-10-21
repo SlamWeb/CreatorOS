@@ -83,6 +83,8 @@ from .calibration_routes import calibration_routes
 from .work_inbox import work_inbox_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
 from creatoros.integrations.skill_version_service import SkillVersionService
+from creatoros.integrations.skill_iterations import SkillIterationService
+from .skill_iteration_routes import skill_iteration_routes
 from creatoros.integrations.skill_calibration import SkillCalibrationService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
@@ -115,6 +117,7 @@ def create_app(
     publication_client=None,
     eval_root: Path | None = None,
     eval_cases_path: Path | None = None,
+    skill_iteration_evaluator=None,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -146,12 +149,13 @@ def create_app(
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
     skill_versions = SkillVersionService(db, extractions)
+    iterations = SkillIterationService(db, skill_versions, chat, evaluator=skill_iteration_evaluator)
     calibrations = SkillCalibrationService(db, extractions, artifacts)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
     observations = ObservationService(db, chat=chat, research=research,
                                      discussions=discussions, extractions=extractions, runs=runs)
-    agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions)
+    agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions, iterations=iterations)
     scope_request_lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -166,6 +170,7 @@ def create_app(
                 research.start()
                 extractions.start()
                 calibrations.start()
+                iterations.start()
                 discussions.start()
                 feedback.start()
                 yield
@@ -174,7 +179,7 @@ def create_app(
                 await publishing.shutdown()
                 # One timed-out service must not skip the remaining cleanup.
                 with ExitStack() as cleanup:
-                    for service in (executor, skill_installs, research, extractions, chat, discussions):
+                    for service in (executor, skill_installs, research, extractions, chat, discussions, iterations):
                         cleanup.callback(service.shutdown)
         finally:
             if owns_database:
@@ -198,6 +203,7 @@ def create_app(
     app.state.topic_research = research
     app.state.skill_extractions = extractions
     app.state.skill_versions = skill_versions
+    app.state.skill_iterations = iterations
     app.state.skill_calibrations = calibrations
     app.state.content_discussions = discussions
     app.state.observation = observations
@@ -213,6 +219,7 @@ def create_app(
     app.include_router(reference_routes(db, writes, runs, executor, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(skill_version_routes(skill_versions))
+    app.include_router(skill_iteration_routes(iterations, chat))
     app.include_router(chat_routes(chat))
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))
@@ -550,22 +557,24 @@ def create_app(
             source = runs.get(payload.source_run_id)
             if source.topic_id != payload.topic_id:
                 raise ContentRunError("来源任务与选题不匹配。", status_code=409, code="source_mismatch")
-            if session_id and chat.get(session_id).get("scope_kind") == "creator":
+            if not payload.skill_overrides and session_id and chat.get(session_id).get("scope_kind") == "creator":
                 topic = ContentRepository(db).get_topic(payload.topic_id)
                 if topic is not None:
                     account_context.require_series_skills(topic.series_id)
             content_run = runs.restart_fresh(payload.source_run_id, expected_version=payload.expected_version,
-                request_id=payload.request_id, origin_session_id=session_id)
+                request_id=payload.request_id, origin_session_id=session_id, skill_overrides=payload.skill_overrides)
             result = queries.get_run(content_run.id)
             if result is None:
                 raise HTTPException(status_code=503, detail="新任务已创建，请使用同一请求标识核对。")
             return result
-        existing = runs.repository.get_by_idempotency_key(f"content:{payload.topic_id}")
-        if existing is None and session_id and chat.get(session_id).get("scope_kind") == "creator":
+        existing = runs.repository.get_by_idempotency_key(
+            f"selected:{payload.request_id}" if payload.skill_overrides else f"content:{payload.topic_id}")
+        if existing is None and not payload.skill_overrides and session_id and chat.get(session_id).get("scope_kind") == "creator":
             topic = ContentRepository(db).get_topic(payload.topic_id)
             if topic is not None:
                 account_context.require_series_skills(topic.series_id)
-        content_run = runs.create(payload.topic_id, origin_session_id=session_id)
+        content_run = runs.create(payload.topic_id, origin_session_id=session_id,
+                                 skill_overrides=payload.skill_overrides, request_id=payload.request_id)
         response.status_code = 200 if existing is not None else 201
         result = queries.get_run(content_run.id)
         if result is None:

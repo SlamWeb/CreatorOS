@@ -17,6 +17,7 @@ class ChatTurnRequest(BaseModel):
     attachment_ids: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
     expected_version: int = Field(ge=0)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "ultra", "none", "max"] = "high"
+    iteration_mode: bool = False
 
 
 class ChatCreateRequest(BaseModel):
@@ -86,6 +87,7 @@ def chat_routes(service):
         base = f"http://{'[' + host + ']' if ':' in host else host}:{port}"
         return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
                               attachment_ids=payload.attachment_ids,
+                              iteration_mode=payload.iteration_mode,
                               reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)
 
     @router.get("/{session_id}/events")

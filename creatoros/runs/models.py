@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -10,6 +11,26 @@ from creatoros.integrations.topic_references import TaskReferences
 
 class RunModel(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+
+
+class SkillOverrides(RunModel):
+    """An explicit one-run selection, never a change to a Series binding."""
+    skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    mind_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    production_skill_id: str | None = Field(default=None, min_length=1, max_length=120)
+    expected_digests: dict[str, str] = Field(description="明确选择的每个 Skill ID 与读取时的完整目录 SHA256。")
+
+    @model_validator(mode="after")
+    def explicit_selection(self):
+        ids = [value for value in (self.skill_id, self.mind_skill_id, self.production_skill_id) if value]
+        if not ids or (self.skill_id and (self.mind_skill_id or self.production_skill_id)):
+            raise ValueError("请选择完整 Skill 或内容/呈现 Skill，不能混用两种组合。")
+        if any(not re.fullmatch(r"(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})", value) for value in ids):
+            raise ValueError("必须选择 Skill 库的真实 ID，不能提供本地路径。")
+        if set(self.expected_digests) != set(ids) or any(
+                not re.fullmatch(r"[a-f0-9]{64}", value) for value in self.expected_digests.values()):
+            raise ValueError("请提供每个已选择 Skill 当前的完整目录 digest。")
+        return self
 
 
 class ContentRunInput(RunModel):
@@ -31,6 +52,7 @@ class ContentRunInput(RunModel):
     topic_title: str = Field(min_length=1)
     topic_brief: str | None = None
     task_references: TaskReferences | None = None
+    skill_overrides: SkillOverrides | None = None
 
     @model_validator(mode="after")
     def binding(self):

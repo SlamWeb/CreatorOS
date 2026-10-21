@@ -41,3 +41,11 @@ test("new choices default high while legacy pending requests retain their exact 
   assert.equal(initialReasoningEffort("medium"), "medium");
   assert.equal(initialReasoningEffort("future"), "future");
 });
+
+test("RSI authorization is frozen as a boolean and legacy pending requests remain unchanged", () => {
+  const pending = { sessionId: "chat-a", text: "迭代 Skill", request_id: "iteration-a", expected_version: 3,
+    attachment_ids: [], reasoning_effort: "high", iteration_mode: true };
+  assert.deepEqual(parsePendingAgentTurn(JSON.stringify(pending), "chat-a"), pending);
+  assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, iteration_mode: "true" }), "chat-a"), null);
+  assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, iteration_mode: 1 }), "chat-a"), null);
+});

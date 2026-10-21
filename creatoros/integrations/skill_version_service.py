@@ -61,10 +61,17 @@ class SkillVersionService:
                             role=role, skill_id=bound, revision=series.revision))
         return result
 
-    def trial(self, skill_id, expected_digest, request_id, topic, series_id=None):
+    def trial(self, skill_id, expected_digest, request_id, topic, series_id=None, *, task_references=None):
         service = self.extractions
         inputs = dict(skill_id=skill_id, expected_digest=expected_digest, topic=topic, series_id=series_id)
         job_id = signature({"kind": "skill-version-trial", "request_id": request_id})
+        if task_references is not None:
+            from .topic_references import TaskReferences, TopicReferenceStore
+            task_references = TaskReferences.model_validate(task_references)
+            if task_references.series_id != job_id:
+                raise ExtractionError("试用参考不属于当前请求。", 409)
+            TopicReferenceStore(self.database).verify(task_references)
+            inputs["task_references"] = task_references.model_dump(mode="json")
         with service.lock, _SKILL_EDIT_LOCK:
             directory = service._path("jobs", job_id)
             if (directory / "job.json").is_file():
@@ -117,6 +124,8 @@ class SkillVersionService:
                         version_series_revision=series_revision)
                     if companion:
                         job["calibration_companion"] = {key: companion[key] for key in ("id", "name", "role", "digest")}
+                    if task_references is not None:
+                        job["task_references"] = task_references.model_dump(mode="json")
                     (staging / "references").mkdir()
                     _write(staging / "request.json", inputs)
                     _write(staging / "job.json", job)

@@ -24,7 +24,7 @@ _SKILL = (
     "id", "skill_id", "name", "description", "role", "producible",
     "available", "editable", "carousel_compatible", "compatibility_note",
     "github_url",
-    "family_id", "parent_id", "version_number", "version_status",
+    "family_id", "parent_id", "version_number", "version_status", "display_name",
 )
 _TOPIC = (
     "reference_id",
@@ -130,6 +130,7 @@ PROJECTED_TOOLS = frozenset({
     "get_producer_skill", "update_producer_skill_file", "get_creator_tasks",
     "prepare_topic_selection", "queue_topics", "install_producer_skill", "get_skill_install",
     "create_skill_draft",
+    "manage_skill_iteration",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS
 
 
@@ -139,6 +140,15 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return deepcopy(data)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "manage_skill_iteration":
+        result = _pick(data, ("id", "status", "revision", "series_id", "skill_id", "topic_id",
+                            "round_count", "max_rounds", "best_candidate_id", "best_score",
+                            "current_round", "score", "passed", "note", "error", "url", "allowed_actions"))
+        if "judge" in data:
+            result["judge"] = _pick(data["judge"], ("version", "threshold"))
+        if "latest_feedback" in data:
+            result["latest_feedback"] = _pick(data["latest_feedback"], ("summary", "score", "passed"))
+        return result
     if tool_name == "create_skill_draft":
         result = _pick(data, ("id", "status", "digest", "url", "note"))
         if "skills" in data:
@@ -153,7 +163,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name == "list_series_topics":
         return _items(data, _TOPIC, item_projector=_topic) | _pick(data, ("series_id", "url"))
     if tool_name == "list_producer_skills":
-        return _items(data, _SKILL)
+        return _items(data, _SKILL + (("digest",) if data.get("include_versions") else ()))
     if tool_name in {"get_producer_skill", "update_producer_skill_file"}:
         # A requested file's contents are data: do not sanitize/truncate its body.
         result = _pick(data, _SKILL + ("path", "kind", "content", "digest", "operation"))
@@ -161,6 +171,11 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["page"] = _pick(data["page"], _PAGE)
         if "files" in data:
             result["files"] = _list(data["files"], lambda file: _pick(file, ("path", "kind", "size")))
+        if "items" in data:
+            result.update(_items(data, _SKILL + ("digest",)))
+        if "bindings" in data:
+            result["bindings"] = _list(data["bindings"], lambda row:
+                _pick(row, ("series_id", "series_name", "role", "skill_id", "revision")))
         return result
     if tool_name in _RUN_TOOLS:
         if "items" in data:

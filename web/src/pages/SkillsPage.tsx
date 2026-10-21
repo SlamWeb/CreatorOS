@@ -8,6 +8,7 @@ import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
 import { SkillInspector } from "../components/SkillInspector";
+import { SkillIterationHistory, SkillIterationPanel } from "../components/SkillIterationPanel";
 import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./studio-space.css";
 
@@ -68,6 +69,7 @@ export function SkillsPage() {
   const openedSkill = useRef<string | null>(null);
   const viewedSkill = useRef<string | null>(null);
   const requestedSkill = searchParams.get("skill");
+  const requestedIteration = searchParams.get("iteration");
   const requestedVersions = useQuery({ queryKey: ["producer-skill-versions", requestedSkill],
     queryFn: ({ signal }) => studioApi.producerSkillVersions(requestedSkill!, signal),
     enabled: !!requestedSkill && !!skills.data && !skills.data.items.some(item => item.id === requestedSkill), retry: false });
@@ -223,6 +225,7 @@ export function SkillsPage() {
     window.addEventListener("keydown", esc);
   };
 
+  if (requestedIteration) return <div className="space-page"><SkillIterationPanel key={requestedIteration} id={requestedIteration} /></div>;
   if (skills.isPending || creators.isPending) return <LoadingState label="正在读取 Skill 库…" />;
   if (skills.isError || creators.isError) {
     const error = skills.error ?? creators.error;
@@ -257,6 +260,7 @@ export function SkillsPage() {
 
   return <div className="space-page">
     <header className="space-head"><h1>Skill 库</h1></header>
+    <SkillIterationHistory />
     <ArtifactSkillExtraction onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
       setSelectedIds([skill.id]); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
     }} />
@@ -335,6 +339,11 @@ export function SkillsPage() {
       {skillLabel(drag.payload.skill)}
     </div>}
     {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={closeInspector}
+      onSelectSkill={next => {
+        openedSkill.current = next.id;
+        setInspected(next);
+        setSearchParams(previous => { const updated = new URLSearchParams(previous); updated.set("skill", next.id); return updated; }, { replace: true });
+      }}
       onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== inspected.id)); closeInspector(); }}
       onAdd={() => {
         addSkill(inspected);

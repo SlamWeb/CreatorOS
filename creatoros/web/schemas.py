@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.operations.models import OperationPlan
 from creatoros.integrations.production_progress import ProductionProgress
+from creatoros.runs.models import SkillOverrides
 
 
 class ApiModel(BaseModel):
@@ -304,14 +305,18 @@ class RunStartRequest(WriteRequest):
     source_run_id: str | None = Field(default=None, min_length=1, max_length=80)
     expected_version: int | None = Field(default=None, gt=0)
     request_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    skill_overrides: SkillOverrides | None = None
 
     @model_validator(mode="after")
     def valid_mode(self):
         fields = (self.source_run_id, self.expected_version, self.request_id)
         if self.mode == "fresh" and any(value is None for value in fields):
             raise ValueError("从头重做需要原任务、当前版本与请求标识。")
-        if self.mode == "start" and any(value is not None for value in fields):
-            raise ValueError("普通生产不能附带从头重做参数。")
+        if self.mode == "start":
+            if self.source_run_id is not None or self.expected_version is not None:
+                raise ValueError("普通生产不能附带从头重做参数。")
+            if (self.skill_overrides is None) != (self.request_id is None):
+                raise ValueError("指定版本生产必须提供请求标识，普通生产不接受该标识。")
         return self
 
 

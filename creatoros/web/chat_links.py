@@ -83,6 +83,11 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         data = json.loads(content)
         if not isinstance(data, dict):
             return []
+        if name == "manage_skill_iteration" and not is_error:
+            identity = data.get("id")
+            if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):
+                return [{"url": f"/skills?iteration={identity}", "label": "查看校准任务", "source_tool": name}]
+            return []
         if name in {"create_skill_draft", "extract_skill_from_images", "get_skill_extraction", "save_extracted_skills", "edit_extracted_skills"} and not is_error:
             identity = data.get("id")
             if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):

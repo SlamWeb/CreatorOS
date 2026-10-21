@@ -106,10 +106,18 @@ def snapshot_pair(
     production_id: str,
     *,
     native: bool = False,
+    selected_digests: dict[str, str] | None = None,
 ) -> SkillPair:
     mind, production = catalog.describe(mind_id), catalog.describe(production_id)
-    if any(record.get("version_status", "released") != "released" for record in (mind, production)):
-        raise ValueError("候选 Skill 需试用并确认版本后才能绑定生产。")
+    selected_digests = selected_digests or {}
+    if set(selected_digests) - {mind["id"], production["id"]}:
+        raise ValueError("指定 Skill 摘要与组合不匹配。")
+    if any(record.get("version_status", "released") != "released" and record["id"] not in selected_digests
+           for record in (mind, production)):
+        raise ValueError("请先保存候选版本，或明确指定此版本用于本次生产。")
+    if any(record["id"] in selected_digests and record["digest"] != selected_digests[record["id"]]
+           for record in (mind, production)):
+        raise ValueError("选定 Skill 已变化，请重新读取后再提交。")
     if mind["role"] != "mind" or production["role"] != "production":
         raise ValueError("双 Skill 的内容/制作角色不匹配。")
     for record in (mind, production):
@@ -136,9 +144,11 @@ def snapshot_pair(
 
 
 def freeze_pair(catalog: ProducerSkillCatalog, pair: SkillPair, directory: Path,
-                *, source_root: Path | None = None) -> list[tuple[str, Path]]:
+                *, source_root: Path | None = None,
+                selected_digests: dict[str, str] | None = None) -> list[tuple[str, Path]]:
     native = pair.adapter == "native-carousel-v1"
-    if source_root is None and snapshot_pair(catalog, pair.mind.id, pair.production.id, native=native) != pair:
+    if source_root is None and snapshot_pair(catalog, pair.mind.id, pair.production.id,
+                                            native=native, selected_digests=selected_digests) != pair:
         raise ValueError("本地 Skill 已变化，请重新取得本次调用快照。")
     refs = []
     for role in ("mind", "production"):

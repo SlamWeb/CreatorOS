@@ -1,5 +1,13 @@
 # ContentRun SPEC
 
+## 单次显式选定 Skill 版本（2026-10-22）
+
+- `create` / `restart_fresh` 可接 `skill_overrides`：完整 Skill 与内容/呈现二选一，双 Skill 可只替换一边并补栏目默认另一边。明确选择的每个 ID 必须带读取时的完整目录 `expected_digests`；不接受本地路径。不修改 Series 绑定、revision、旧 Run 或在途输入。
+- 只有这一显式路径可读取候选；普通 `resolve`、栏目绑定与普通双 Skill 快照仍拒绝候选。指定版本在接受请求前冻结完整正文、assets、scripts；排队、重启或后续候选编辑均不重读当前目录。冻结文件缺失/变化时拒绝执行，不能偷偷换新版。
+- 选定版本的 start 需要稳定 `request_id`，fresh 沿用既有来源/version/请求身份门禁；重放校验明确选择的 ID 与 digest，相同请求返回原 Run，输入变化拒绝。单 Topic 有现成记录时必须结束后通过 fresh 另开干净 Run，不新增同 Topic 并发。不扩展 batch 或参考图直接制作的覆盖参数。
+- Agent 宿主使用会话/turn/topic 稳定派生身份，所有写请求走原 Studio API 与持久化执行队列；没有新生图执行器，不自动批准/发布。跨账号 Skill 家族和选题作用域继续由 Web 宿主校验。
+- 隔离 `tests.test_selected_skill_run` 原13项全通过，追加第14项及账号HTTP正向2项单独通过：正文/图片/scripts 即时冻结、候选后改不污染、部分双 Skill 默认补齐、单/双形态本次替换、并发重放/输入冲突、读后复制竞争、陈旧摘要、重启/完整性丢失、全局候选门禁、未选默认失效不阻塞明确覆盖、旧 Run/文件不变及真实 loopback HTTP 工具递交。旧fresh领域、fresh API与版本管理27/27回归通过。HTTP 生产器为显式故障注入（收到冻结请求后失败），验证幂等与状态，不代表真实 Codex 生图或质量 Eval；未改正式数据/服务。
+
 ## 已验证隔离交付回填原选题（2026-10-21，正式离线回填通过）
 
 - 用户授权在空闲时重启服务，将60506acd原输入真实重放所得8图离线恢复至原Run页面；同Revision新增Attempt，旧失败Attempt、错误与文件不变，不重新生图、不自动批准。

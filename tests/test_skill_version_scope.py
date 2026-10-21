@@ -3,16 +3,20 @@
 These boundary tests do not claim model selection or image quality validation.
 """
 import json
+import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
 from PIL import Image
+from starlette.requests import Request
 
 from creatoros.storage import ContentRepository, Series
 from creatoros.tools.model_projection import project_model_data
+from creatoros.web.agent_scope import AgentScopeGuard
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
 
@@ -109,7 +113,7 @@ class SkillVersionScopeTests(unittest.TestCase):
         self.assertEqual(denied.status_code, 403)
         self.assertEqual(self.catalog.describe(candidate["skill_id"])["digest"], candidate["digest"])
 
-    def test_untried_candidate_cannot_bypass_binding_gate(self):
+    def test_unpublished_candidate_cannot_implicitly_replace_column_binding(self):
         single = self.candidate(self.legacy)
         pair = self.candidate(self.mind)
         for body in (
@@ -130,17 +134,95 @@ class SkillVersionScopeTests(unittest.TestCase):
             self.assertEqual(series.revision, 1)
             self.assertEqual(db.query(Series).count(), 3)
 
-    def test_even_overview_agent_cannot_trial_publish_or_switch(self):
+    def test_agent_can_discover_and_trial_but_cannot_publish_or_switch(self):
         for session in (self.account, self.overview):
             for path in (
-                f"/api/producer-skills/{self.legacy['id']}/version-trials",
                 f"/api/producer-skills/{self.legacy['id']}/publish-version",
                 "/api/series/agent-notes/skill-version",
             ):
                 response = self.client.post(path, headers=self.header(session), json={})
                 self.assertEqual(response.status_code, 403, response.text)
             response = self.client.get(f"/api/producer-skills/{self.legacy['id']}/versions", headers=self.header(session))
-            self.assertEqual(response.status_code, 403, response.text)
+            self.assertEqual(response.status_code, 200, response.text)
+            # Authorization reaches normal payload validation, not a global trial ban.
+            response = self.client.post(f"/api/producer-skills/{self.legacy['id']}/version-trials",
+                headers=self.header(session), json={})
+            self.assertEqual(response.status_code, 422, response.text)
+
+    def test_version_catalog_includes_owned_candidate_and_old_versions_only(self):
+        candidate = self.candidate(self.legacy)
+        rows = self.client.get("/api/producer-skills", params={"include_versions": "true"}, headers=self.header())
+        self.assertEqual(rows.status_code, 200, rows.text)
+        ids = {item["id"] for item in rows.json()["items"]}
+        self.assertIn(candidate["skill_id"], ids)
+        self.assertIn(self.legacy["id"], ids)
+        self.assertNotIn(self.foreign["id"], ids)
+        denied = self.client.get("/api/producer-skills", headers=self.header(), params={
+            "include_versions": "true", "family_skill_id": self.foreign["id"]})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        denied = self.client.get(f"/api/producer-skills/{candidate['skill_id']}/versions", headers=self.header(self.other))
+        self.assertEqual(denied.status_code, 403, denied.text)
+        # A history response must not leak other-account columns sharing a public family.
+        with self.database.session() as db:
+            db.get(Series, "other-series").skill_name = self.legacy["id"]
+        history = self.client.get(f"/api/producer-skills/{candidate['skill_id']}/versions", headers=self.header())
+        self.assertEqual({item["series_id"] for item in history.json()["bindings"]}, {"agent-notes"})
+        self.assertEqual(self.producer.calls, 0)
+
+    def test_agent_can_read_older_released_version_of_bound_family(self):
+        candidate = self.candidate(self.legacy)
+        # Simulate the already-reviewed activation outcome, never invoke a paid trial here.
+        self.catalog.publish_skill_candidate(candidate["skill_id"], candidate["digest"])
+        with self.database.session() as db:
+            db.get(Series, "agent-notes").skill_name = candidate["skill_id"]
+        response = self.client.get(f"/api/producer-skills/{self.legacy['id']}/files", headers=self.header())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.producer.calls, 0)
+
+    def test_foreign_override_rejected_before_any_run_write(self):
+        before = self.client.get("/api/overview").json()
+        response = self.client.post("/api/runs", headers=self.header(), json={
+            "topic_id": "review-1", "skill_overrides": {"skill_id": self.foreign["id"],
+                "expected_digests": {self.foreign["id"]: self.foreign["digest"]}}})
+        self.assertEqual(response.status_code, 403, response.text)
+        self.assertEqual(self.client.get("/api/overview").json(), before)
+        self.assertEqual(self.producer.calls, 0)
+
+    def test_iteration_read_action_and_files_recheck_owner_and_current_series(self):
+        iteration_id = "a" * 64
+        record = {"creator_id": "review-lab", "series_id": "agent-notes"}
+        guard = AgentScopeGuard(self.database, self.app.state.chat, self.app.state.topic_research,
+                                iterations=SimpleNamespace(get=lambda identity: record))
+        def request(suffix="", session=None, method="GET"):
+            return Request({"type": "http", "method": method, "path": "/api/skill-iterations/" + iteration_id + suffix,
+                "query_string": b"", "headers": [(b"x-creatoros-agent-session", (session or self.account).encode())]})
+        for suffix, method in (("", "GET"), ("/files/ref-1", "GET"), ("/actions", "POST")):
+            self.assertIsNone(asyncio.run(guard.check(request(suffix, method=method))))
+            denied = asyncio.run(guard.check(request(suffix, session=self.other, method=method)))
+            self.assertEqual(denied.status_code, 403)
+        with self.database.session() as db:
+            db.get(Series, "agent-notes").creator_id = "other"
+        self.assertEqual(asyncio.run(guard.check(request())).status_code, 403)
+        self.assertEqual(asyncio.run(guard.check(request(session=self.other))).status_code, 403)
+
+    def test_truthy_version_query_alias_cannot_bypass_family_filter(self):
+        for flag in ("TRUE", "yes", "on", "1"):
+            response = self.client.get("/api/producer-skills", headers=self.header(),
+                                       params={"include_versions": flag})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertNotIn(self.foreign["id"], {item["id"] for item in response.json()["items"]})
+
+    def test_builtin_bound_column_has_version_discovery_without_registry_record(self):
+        with self.database.session() as db:
+            db.add(Series(id="builtin-series", creator_id="review-lab", name="内置栏目", description="", audience="",
+                          skill_name=self.catalog.BUILTIN_ID))
+        response = self.client.get("/api/producer-skills", headers=self.header(), params={"include_versions": "true"})
+        self.assertEqual(response.status_code, 200, response.text)
+        item = next(row for row in response.json()["items"] if row["id"] == self.catalog.BUILTIN_ID)
+        self.assertEqual(item["version_status"], "released")
+        response = self.client.get(f"/api/producer-skills/{self.catalog.BUILTIN_ID}/versions", headers=self.header())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["items"][0]["digest"], item["digest"])
 
     def test_model_projection_keeps_candidate_identity_and_status(self):
         data = {"skill_id": self.legacy["id"], "family_id": "family", "parent_id": "parent",

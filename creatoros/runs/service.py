@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import wraps
 from threading import Event, RLock, Thread
+from tempfile import TemporaryDirectory
 from time import monotonic
 from typing import Literal
 from uuid import uuid4
@@ -13,8 +14,8 @@ from uuid import uuid4
 from sqlalchemy import select, update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill
-from creatoros.integrations.skill_pair import snapshot_pair, prepare_run_pair
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill, inherit_copy_permissions
+from creatoros.integrations.skill_pair import snapshot_pair, prepare_run_pair, freeze_pair
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -29,7 +30,7 @@ from creatoros.storage import (
 )
 
 from .artifacts import validate_artifact
-from .models import ContentRunInput, RunExecutionResult
+from .models import ContentRunInput, RunExecutionResult, SkillOverrides
 from .repository import ContentRunRepository
 from .ownership import LocalExecutionGuard
 
@@ -126,10 +127,18 @@ class ContentRunService:
         idempotency_key: str | None = None,
         origin_session_id: str | None = None,
         context_snapshot_ref: str | None = None,
+        skill_overrides: SkillOverrides | dict | None = None,
+        request_id: str | None = None,
     ) -> ContentRun:
+        if skill_overrides is not None:
+            if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128 or idempotency_key:
+                raise ContentRunError("指定 Skill 版本需要独立且稳定的请求标识。", code="invalid_request", status_code=422)
+            idempotency_key = f"selected:{request_id.strip()}"
+        elif request_id is not None:
+            raise ContentRunError("普通生产无需指定请求标识。", code="invalid_request", status_code=422)
         return self._create(
             topic_id, idempotency_key=idempotency_key, origin_session_id=origin_session_id,
-            context_snapshot_ref=context_snapshot_ref,
+            context_snapshot_ref=context_snapshot_ref, skill_overrides=skill_overrides,
         )
 
     @_serialized
@@ -141,6 +150,7 @@ class ContentRunService:
         request_id: str,
         origin_session_id: str | None = None,
         context_snapshot_ref: str | None = None,
+        skill_overrides: SkillOverrides | dict | None = None,
     ) -> ContentRun:
         """Start the same Topic from current Skills, never from the old Run's history."""
         token = request_id.strip()
@@ -151,6 +161,7 @@ class ContentRunService:
             source.topic_id, idempotency_key=f"fresh:{token}",
             origin_session_id=origin_session_id, context_snapshot_ref=context_snapshot_ref,
             fresh_source=(source_run_id, expected_version),
+            skill_overrides=skill_overrides,
         )
 
     def _create(
@@ -161,7 +172,13 @@ class ContentRunService:
         origin_session_id: str | None = None,
         context_snapshot_ref: str | None = None,
         fresh_source: tuple[str, int] | None = None,
+        skill_overrides: SkillOverrides | dict | None = None,
     ) -> ContentRun:
+        try:
+            selected = SkillOverrides.model_validate(skill_overrides) if skill_overrides is not None else None
+        except ValueError as error:
+            raise ContentRunError(str(error), code="invalid_skill_selection", status_code=422) from error
+        selection_json = selected.model_dump(mode="json", exclude_none=True) if selected else None
         key = (idempotency_key or f"content:{topic_id}").strip()
         if not key:
             raise ContentRunError("idempotency_key 不能为空。")
@@ -173,6 +190,11 @@ class ContentRunService:
         if existing is not None:
             if existing.topic_id != topic_id:
                 raise ContentRunError("请求标识已用于另一个选题。", code="idempotency_conflict")
+            previous_selection = existing.input_snapshot_json.get("skill_overrides")
+            if isinstance(previous_selection, dict):
+                previous_selection = {key: value for key, value in previous_selection.items() if value is not None}
+            if idempotency_key is not None and previous_selection != selection_json:
+                raise ContentRunError("请求标识已用于不同的 Skill 版本或摘要。", code="idempotency_conflict")
             if fresh_source is not None:
                 event = next((item for item in self.repository.list_events(existing.id)
                               if item.event_type is ContentRunEventType.CREATED), None)
@@ -208,14 +230,27 @@ class ContentRunService:
                     raise ContentRunError("请等待当前生产结束后再从头重做。", code="run_active")
             elif topic.status is not TopicStatus.QUEUED:
                 raise ContentRunError("仅待生产选题可以创建 Run。")
+            elif selected is not None:
+                latest = self.get_latest_for_topic(topic_id)
+                if latest is not None:
+                    raise ContentRunError("该选题已有生产记录；请查看原任务，结束后用从头重做选择新版。",
+                                          code="run_exists", run_id=latest.id)
             pair_fields = {}
-            if series.skill_name is None:
+            single_id = selected.skill_id if selected and selected.skill_id else (
+                None if selected and (selected.mind_skill_id or selected.production_skill_id) else series.skill_name)
+            catalog = ProducerSkillCatalog(skills_root_for(self.database))
+            if single_id is None:
+                mind_id = (selected.mind_skill_id if selected else None) or series.mind_skill_id
+                production_id = (selected.production_skill_id if selected else None) or series.production_skill_id
+                if not mind_id or not production_id:
+                    raise ContentRunError("双 Skill 制作需要完整的内容与呈现选择。", code="invalid_skill_selection", status_code=422)
                 try:
                     pair = snapshot_pair(
-                        ProducerSkillCatalog(skills_root_for(self.database)),
-                        series.mind_skill_id,
-                        series.production_skill_id,
+                        catalog,
+                        mind_id,
+                        production_id,
                         native=self.production_protocol == "native-v1",
+                        selected_digests=selected.expected_digests if selected else None,
                     )
                 except ValueError as error:
                     raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
@@ -224,8 +259,10 @@ class ContentRunService:
                                    series_revision=series.revision, topic_source=topic.source.value)
             else:
                 try:
-                    directory = ProducerSkillCatalog(skills_root_for(self.database)).resolve(series.skill_name)
-                    pair_fields = dict(skill_path=str(directory), skill_digest=_digest(directory))
+                    directory = (catalog.resolve_selected_version(single_id, expected_digest=selected.expected_digests[single_id])
+                                 if selected else catalog.resolve(single_id))
+                    pair_fields = dict(skill_path=str(directory), skill_digest=(
+                        selected.expected_digests[single_id] if selected else _digest(directory)))
                 except (ValueError, OSError) as error:
                     raise ContentRunError(str(error), code="invalid_skill") from error
             if topic.reference_id:
@@ -242,13 +279,35 @@ class ContentRunService:
                 series_name=series.name,
                 series_description=series.description,
                 audience=series.audience,
-                skill_name=series.skill_name,
+                skill_name=single_id,
                 topic_id=topic.id,
                 topic_title=topic.title,
                 topic_brief=topic.brief,
+                **({"skill_overrides": selected} if selected else {}),
             )
             run_id = str(uuid4())
             revision_id = str(uuid4())
+            if selected is not None:
+                # A selected candidate remains editable. Freeze its exact complete
+                # directory before accepting the request, not when the queue runs.
+                run_root = self.output_root / snapshot.creator_id / snapshot.series_id / run_id
+                try:
+                    if snapshot.composition is not None:
+                        run_root.mkdir(parents=True, exist_ok=True)
+                        with TemporaryDirectory(prefix=".selected-skills-", dir=run_root) as temporary:
+                            staging = Path(temporary) / "snapshot"
+                            staging.mkdir()
+                            freeze_pair(catalog, snapshot.composition, staging,
+                                        selected_digests=selected.expected_digests)
+                            (staging / "pair.json").write_text(snapshot.composition.model_dump_json(indent=2), encoding="utf-8")
+                            staging.rename(run_root / "skill-snapshot")
+                            inherit_copy_permissions(run_root / "skill-snapshot")
+                    else:
+                        target = run_root / "skill-snapshot" / "skills" / "single"
+                        freeze_skill(Path(snapshot.skill_path), target, snapshot.skill_digest)
+                        snapshot = snapshot.model_copy(update={"skill_path": str(target)})
+                except (ValueError, OSError) as error:
+                    raise ContentRunError(str(error), code="invalid_skill_snapshot") from error
             repository = ContentRunRepository(self.database, session=session)
             content_run = ContentRun(
                 id=run_id,
@@ -788,14 +847,18 @@ class ContentRunService:
                             break
             try:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
+                if input_data.skill_overrides and not (run_root / "skill-snapshot").is_dir():
+                    raise ValueError("本次指定版本的冻结文件缺失，不能改用当前 Skill 重新生产。")
                 if input_data.composition is not None:
                     pair = prepare_run_pair(catalog, input_data.composition, run_root,
-                                            previous_directories, first_start=not previous_directories)
+                                            previous_directories, first_start=not previous_directories and not input_data.skill_overrides)
                     updates = {"composition": pair}
                 else:
                     target = run_root / "skill-snapshot" / "skills" / "single"
+                    if input_data.skill_overrides and not target.is_dir():
+                        raise ValueError("本次指定版本的冻结 Skill 缺失，不能用当前文件替代。")
                     if target.is_dir():
-                        digest = input_data.skill_digest if previous_directories else _digest(target)
+                        digest = input_data.skill_digest if previous_directories or input_data.skill_overrides else _digest(target)
                         if not digest or target.is_symlink() or _digest(target) != digest:
                             raise ValueError("Run 的冻结 Skill 文件已变化。")
                         source = input_data.skill_path

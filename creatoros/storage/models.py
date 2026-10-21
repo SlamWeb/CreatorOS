@@ -723,3 +723,20 @@ class SkillCalibration(TimestampMixin, Base):
     apply_json: Mapped[dict | None] = mapped_column(JSON)
     applied_digest: Mapped[str | None] = mapped_column(String(64))
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class SkillIteration(TimestampMixin, Base):
+    """Durable bounded calibration; never authority to activate a shared Skill."""
+    __tablename__ = "skill_iterations"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    creator_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    series_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    skill_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    topic_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), index=True, nullable=False, default="queued")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    state_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)

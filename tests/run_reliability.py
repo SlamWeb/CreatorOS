@@ -22,6 +22,9 @@ CASES = [
     ("skill_version_catalog", ["-m", "unittest", "tests.test_skill_versions", "-v"]),
     ("skill_version_lifecycle", ["-m", "unittest", "tests.test_skill_version_service", "-v"]),
     ("skill_version_scope", ["-m", "unittest", "tests.test_skill_version_scope", "-v"]),
+    ("selected_skill_run", ["-m", "unittest", "tests.test_selected_skill_run", "-v"]),
+    ("skill_iteration_agent", ["-m", "unittest", "tests.test_skill_iteration_agent", "-v"]),
+    ("skill_iteration_service", ["-m", "unittest", "tests.test_skill_iteration_service", "-v"]),
     ("skill_trial_paths", ["-m", "unittest", "tests.test_skill_trial_paths", "-v"]),
     ("skill_assets", ["-m", "unittest", "tests.test_skill_assets", "tests.test_skill_asset_tools", "-v"]),
     ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "-v"]),
@@ -52,7 +55,7 @@ def main():
             try:
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 300 if name == "skill_calibration" or name.startswith("skill_version_") else 120
+                timeout = 300 if name == "skill_calibration" or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 status = "passed" if process.returncode == 0 else "failed"

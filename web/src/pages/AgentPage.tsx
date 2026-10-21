@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, History, Plus, X } from "lucide-react";
+import { Check, Copy, History, Plus, Repeat2, X } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
 import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
@@ -17,6 +17,7 @@ import { initialReasoningEffort, isReasoningEffort, parsePendingAgentTurn, pendi
   type ContextUsage, type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
 
 type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
+  iteration_mode?: boolean;
   input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
   model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[]; attachments?: ChatAttachment[] };
 type Session = { id: string; title: string; version: number; status: string; error: string | null;
@@ -31,12 +32,14 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
+  manage_skill_iteration: "校准 Skill",
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const base = "/api/agent/sessions";
 const newestSession = (old: Session | undefined, next: Session) => old &&
   (old.version > next.version || (old.version === next.version && old.updated_at > next.updated_at)) ? old : next;
 const draftStorageKey = (scope: string) => `creatoros.agent.draft.v1:${encodeURIComponent(scope)}`;
+const iterationDraftKey = (scope: string) => `creatoros.agent.iteration-draft.v1:${encodeURIComponent(scope)}`;
 const selectedChatStorageKey = (scope: string) => `creatoros.agent.selected-chat.v1:${encodeURIComponent(scope)}`;
 const readSessionValue = (key: string) => {
   try { return window.sessionStorage.getItem(key) ?? ""; } catch { return ""; }
@@ -74,6 +77,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [reasoningPreferences, setReasoningPreferences] = useState<Record<string, string>>({});
+  const [iterationDrafts, setIterationDrafts] = useState<Record<string, boolean>>({});
   const [pendingTurns, setPendingTurns] = useState<Record<string, PendingAgentTurn | null>>({});
   const [checkingPending, setCheckingPending] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -141,6 +145,12 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
   const pendingTurn = id ? (pendingTurns[id] === undefined
     ? parsePendingAgentTurn(readSessionValue(pendingAgentTurnKey(id)), id) : pendingTurns[id]) : null;
+  const iterationMode = pendingTurn ? pendingTurn.iteration_mode === true
+    : iterationDrafts[scopeKey] ?? readSessionValue(iterationDraftKey(scopeKey)) === "true";
+  const chooseIterationMode = (value: boolean) => {
+    writeSessionValue(iterationDraftKey(scopeKey), value ? "true" : "");
+    setIterationDrafts(previous => ({ ...previous, [scopeKey]: value }));
+  };
   const reasoningEffort = pendingTurn?.reasoning_effort ?? initialReasoningEffort(
     reasoningPreferences[preferenceKey] ?? (storedReasoning || doc?.reasoning_effort));
   const reasoningOptions = doc?.reasoning_options ?? [...REASONING_EFFORTS];
@@ -291,20 +301,21 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   };
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, pending }: {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, iterationMode, pending }: {
       text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
-      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; pending?: PendingAgentTurn;
+      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean; pending?: PendingAgentTurn;
     }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
       const snapshot = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
-        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort };
+        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort, iteration_mode: iterationMode };
       savePendingTurn(target.id, snapshot);
       writeSessionValue(reasoningPreferenceKey(target.id), snapshot.reasoning_effort);
       setReasoningPreferences(previous => ({ ...previous, [target.id]: snapshot.reasoning_effort }));
       return request<Session>(`${base}/${target.id}/turns`, { method: "POST", body: JSON.stringify({
         text: snapshot.text, request_id: snapshot.request_id, expected_version: snapshot.expected_version,
         attachment_ids: snapshot.attachment_ids, reasoning_effort: snapshot.reasoning_effort,
+        ...(snapshot.iteration_mode === undefined ? {} : { iteration_mode: snapshot.iteration_mode }),
       }) });
     },
     onSuccess: (next, variables) => {
@@ -312,6 +323,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
       saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
       savePendingTurn(next.id, null);
+      writeSessionValue(iterationDraftKey(variables.submittedScopeKey), "");
+      setIterationDrafts(previous => ({ ...previous, [variables.submittedScopeKey]: false }));
       updateError(variables.submittedScopeKey, "");
       if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
       void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
@@ -336,6 +349,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       cache.setQueryData<Session>(["agent-session", submittedScopeKey, original.sessionId], old => newestSession(old, latest));
       if (latest.entries.some(entry => entry.kind === "user" && entry.turn_id === original.request_id)) {
         savePendingTurn(original.sessionId, null);
+        writeSessionValue(iterationDraftKey(submittedScopeKey), "");
+        setIterationDrafts(previous => ({ ...previous, [submittedScopeKey]: false }));
         if (readSessionValue(draftStorageKey(submittedScopeKey)).trim() === original.text) updateDraft(submittedScopeKey, "");
         saveAttachments(original.sessionId, readAttachmentDraft(original.sessionId).filter(image => !original.attachment_ids.includes(image.id)));
       } else if (latest.status === "running") {
@@ -344,7 +359,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         sendLock.current = true;
         send.mutate({ text: original.text, current: latest, scopeCreatorId: creatorId,
           submittedScopeKey, sourceView: `${submittedScopeKey}:${original.sessionId}`,
-          imageIds: original.attachment_ids, effort: original.reasoning_effort, pending: original });
+          imageIds: original.attachment_ids, effort: original.reasoning_effort, iterationMode: original.iteration_mode === true, pending: original });
       }
     } catch (e) {
       updateError(submittedScopeKey, `核对失败：${e instanceof Error ? e.message : "请稍后再试。"} 原请求仍保留。`);
@@ -353,7 +368,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const submit = () => {
     if ((!draft.trim() && !attachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
-    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort });
+    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort, iterationMode });
   };
   const chooseSession = (next: string | null) => {
     updateError(scopeKey, ""); setHistoryOpen(false);
@@ -440,13 +455,18 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         <AgentComposerControls key={`${scopeKey}:${id ?? "new"}`} usage={!scopeMismatch && !session.isError ? doc?.context_usage : null}
           effort={reasoningEffort} options={reasoningOptions} actualEffortMap={doc?.reasoning_effort_map}
           disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)} onChange={chooseReasoning} />
-        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : "Enter 发送"}</span></span>
+        <button type="button" className="agent-iteration-toggle" aria-label="RSI 迭代模式" aria-pressed={iterationMode}
+          title="仅授权本次请求：最多试用 3 轮，交付候选，不自动切换栏目"
+          disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)}
+          onClick={() => chooseIterationMode(!iterationMode)}><Repeat2 size={15} aria-hidden="true" />RSI</button>
+        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : ""}</span></span>
         <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
       {pendingTurn && !send.isPending && <div className="agent-submit-recovery">
         <span>上次提交待核对</span><button type="button" disabled={checkingPending || cannotSend || (!!id && !doc)} onClick={() => void recoverPending()}>
           {checkingPending ? "正在核对…" : "核对并恢复上次提交"}</button>
       </div>}
       {!validReasoning && !pendingTurn && <p className="form-error" role="alert">当前推理设置不可用，请重新选择。</p>}
+      {iterationMode && <p className="agent-iteration-hint">本次最多 3 轮 · 只交付候选，不自动切换栏目</p>}
     </form>
     {error && <p role="alert" className="review-warning">{error}</p>}
     </div>
@@ -454,7 +474,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
 }
 
 function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionId: string; sessionStatus: string }) {
-  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}</div>;
+  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}
+    {entry.iteration_mode && <small className="chat-user-iteration">RSI · 最多 3 轮</small>}</div>;
   if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,

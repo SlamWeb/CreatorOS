@@ -11,6 +11,13 @@
 .agent-composer .agent-reasoning-control select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .agent-composer .agent-reasoning-control select:disabled { opacity: .55; cursor: default; }
 .agent-composer .agent-compose-status { font-size: 11px; line-height: 1.4; }
+.agent-composer .agent-iteration-toggle { display:inline-flex; align-items:center; gap:4px; min-height:32px; padding:5px 7px; border:0; border-radius:6px; color:var(--muted); background:transparent; font:inherit; font-size:12px; }
+.agent-composer .agent-iteration-toggle:hover:not(:disabled) { color:var(--ink); background:var(--surface); }
+.agent-composer .agent-iteration-toggle[aria-pressed="true"] { color:var(--accent); background:var(--accent-soft); }
+.agent-composer .agent-iteration-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.agent-composer .agent-iteration-toggle:disabled { opacity:.55; cursor:default; }
+.agent-composer .agent-iteration-hint { margin:5px 0 0; color:var(--muted); font-size:11px; line-height:1.5; }
+.chat-user .chat-user-iteration { display:block; margin-top:8px; font-size:11px; color:var(--accent-strong); }
 .agent-context-tooltip { position: fixed; z-index: 100; display: grid; gap: 5px; width: 240px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); color: var(--ink); font-size: 12px; line-height: 1.5; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); pointer-events: none; }
 .agent-context-tooltip strong { font-size: 12px; font-weight: 600; }
 .agent-context-tooltip span { color: var(--muted); font-size: 11px; }
@@ -19,6 +26,7 @@
 @media (max-width: 600px) {
   .agent-composer .agent-composer-toolbar { gap: 4px; }
   .agent-composer .agent-context-ring, .agent-composer .agent-reasoning-control select { min-height: 36px; }
+  .agent-composer .agent-iteration-toggle { min-height:36px; }
   .agent-composer .agent-compose-status { flex-basis: 100%; order: 3; }
   .agent-composer .agent-composer-toolbar > .button { margin-inline-start: auto; }
 }

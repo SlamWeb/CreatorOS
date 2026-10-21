@@ -88,9 +88,10 @@ function TreeFolder({ node, selected, onSelect, disabled }: {
   </div>;
 }
 
-export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, onAgentEdit }: {
+export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, onAgentEdit, onSelectSkill }: {
   skill: ProducerSkillItem; onClose: () => void; onAdd?: () => void;
   onDeleted?: () => void;
+  onSelectSkill?: (skill: ProducerSkillItem) => void;
   editContext?: SkillEditContext; onAgentEdit?: (prompt: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -143,6 +144,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     setActiveSkill(next); setSelected("SKILL.md"); setSource(false); setEditing(false); setDraft("");
     setRenaming(false); setRenameDirty(false); setEditError(""); setLatestContent(null); setAssetDraft(null);
     setAssetError(""); setDeleteError(""); setAgentOpen(false);
+    onSelectSkill?.(next);
   };
   const applySaved = (result: ProducerSkillText) => {
     const resultId = result.skill_id ?? activeSkill.id;

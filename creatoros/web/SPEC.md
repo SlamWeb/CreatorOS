@@ -1,5 +1,14 @@
 # CreatorOS Web API SPEC
 
+## RSI 任务与版本可发现性（2026-10-22）
+
+- 用户随后取消普通版本试用门槛：可直接人工保存或切换，无需选题/试产；旧trial接口保留供RSI内部，人工发布和切版边界不变。以下2026-10-21章节是历史证据，不再作为当前强制试用规则。
+- GET Skill目录支持 include_versions/family_skill_id；账号作用域按已绑定家族包含候选和历史准确版本，并过滤版本历史中的其他账号栏目名。查询布尔别名遵循HTTP校验而不绕过过滤。
+- 账号可创建候选和明确试用，但 publish-version / series skill-version 仍拒绝所有Agent来源；本次 Run覆盖额外核验显式Skill家族归属，不临时切栏目。
+- skill-iterations 创建、读取、动作和受管文件均检查账号及当前栏目归属；会话附件只由宿主来源头确定，模型不能传 origin_session_id。列表将账号固定到当前会话；栏目被转移后旧账号与新账号均不能偷读旧任务。
+- ChatTurnRequest增加严格布尔 iteration_mode，保存到请求账本及用户条目；同一request_id不能更改模式，旧请求按false兼容重放。当前请求开启不改变后续会话默认。
+- 完整流程、持久调度及真实验证状态见 docs/skill-iterations/SPEC.md；本节不宣称正式服务已重启或完成付费试产。
+
 ## Skill 版本入口（2026-10-21）
 
 - Skill 版本历史/创建候选、干净试用与用户确认保存通过独立版本服务接入。栏目切换使用 revision CAS 与 SQLite 幂等回执，版本 ID 精确绑定；账号 Agent 不能代为试用、发布或切换。

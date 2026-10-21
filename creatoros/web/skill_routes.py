@@ -83,8 +83,23 @@ def skill_routes(database, service):
     router = APIRouter(prefix="/api")
 
     @router.get("/producer-skills")
-    def list_skills():
-        return {"items": service.catalog.list()}
+    def list_skills(include_versions: bool = False, family_skill_id: str | None = None):
+        if not include_versions:
+            return {"items": service.catalog.list()}
+        try:
+            if family_skill_id:
+                return {"items": service.catalog.list_skill_versions(family_skill_id)["items"], "include_versions": True}
+            items = {}
+            for representative in service.catalog.list():
+                identity = representative["id"]
+                if identity == service.catalog.BUILTIN_ID:
+                    items[identity] = representative
+                    continue
+                for item in service.catalog.list_skill_versions(identity)["items"]:
+                    items[item["id"]] = item
+            return {"items": list(items.values()), "include_versions": True}
+        except (ValueError, OSError, KeyError) as error:
+            raise HTTPException(404, "Skill版本不可用或未登记。") from error
 
     @router.get("/producer-skills/{skill_id}/content")
     def get_skill_content(skill_id: str, offset: int = Query(default=0, ge=0),

@@ -39,11 +39,12 @@ _PRODUCER_SKILL_FILES = re.compile(
 class AgentScopeGuard:
     """Check every request carrying a persisted creator-scoped Agent session."""
 
-    def __init__(self, db: Database, chat, research, discussions=None):
+    def __init__(self, db: Database, chat, research, discussions=None, iterations=None):
         self.db = db
         self.chat = chat
         self.research = research
         self.discussions = discussions
+        self.iterations = iterations
 
     async def check(self, request: Request) -> Response | None:
         session_id = request.headers.get("x-creatoros-agent-session")
@@ -52,10 +53,8 @@ class AgentScopeGuard:
         # Applying a candidate is a user's explicit review action, not a model tool.
         # Do not let overview sessions bypass this boundary either.
         if (request.url.path.startswith("/api/skill-calibrations")
-                or re.fullmatch(r"/api/producer-skills/[^/]+/(?:version-trials|publish-version)", request.url.path)
-                or re.fullmatch(r"/api/series/[^/]+/skill-version", request.url.path)
-                or (request.method.upper() == "GET"
-                    and re.fullmatch(r"/api/producer-skills/[^/]+/versions", request.url.path))):
+                or re.fullmatch(r"/api/producer-skills/[^/]+/publish-version", request.url.path)
+                or re.fullmatch(r"/api/series/[^/]+/skill-version", request.url.path)):
             return self._denied()
         try:
             session = self.chat.get(session_id)
@@ -69,6 +68,32 @@ class AgentScopeGuard:
             return self._denied()
 
         method, path = request.method.upper(), request.url.path
+
+        if path == "/api/skill-iterations" and method == "GET":
+            requested = request.query_params.get("creator_id")
+            selected = request.query_params.get("series_id")
+            return None if ((requested is None or requested == creator_id)
+                            and (selected is None or self._owns_series(selected, creator_id))) else self._denied()
+        if path == "/api/skill-iterations" and method == "POST":
+            try:
+                payload = await request.json()
+            except Exception:
+                return self._denied()
+            return None if (isinstance(payload, dict)
+                            and self._owns_series(payload.get("series_id", ""), creator_id)
+                            and self._owns_topic(payload.get("topic_id", ""), creator_id)
+                            and self._owns_skill(payload.get("skill_id", ""), creator_id)) else self._denied()
+        iteration = re.fullmatch(r"/api/skill-iterations/([a-f0-9]{64})(?:/(actions|files/[a-zA-Z0-9_-]+))?", path)
+        if iteration:
+            if not self.iterations or not ((method == "GET" and iteration.group(2) != "actions")
+                                          or (method == "POST" and iteration.group(2) == "actions")):
+                return self._denied()
+            try:
+                item = self.iterations.get(iteration.group(1))
+                allowed = item.get("creator_id") == creator_id and self._owns_series(item.get("series_id", ""), creator_id)
+            except Exception:
+                allowed = False
+            return None if allowed else self._denied()
 
         analytics = re.fullmatch(r"/api/creators/([^/]+)/analytics(?:/(settings|refresh))?", path)
         if analytics:
@@ -94,6 +119,8 @@ class AgentScopeGuard:
 
         # The shared catalog is read-only and has no account-owned records.
         if method == "GET" and path == "/api/producer-skills":
+            if request.query_params.get("include_versions", "").casefold() in {"true", "1", "on", "yes"}:
+                return self._version_catalog(request, creator_id)
             return None
         match = _PRODUCER_SKILL_CONTENT.fullmatch(path)
         if method == "GET" and match:
@@ -107,8 +134,34 @@ class AgentScopeGuard:
                     or self._owns_skill(match.group(1), creator_id) else self._denied())
 
         match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/versions", path)
+        if match and method in {"GET", "POST"}:
+            if not self._owns_skill(match.group(1), creator_id):
+                return self._denied()
+            if method == "GET":
+                identity = match.group(1)
+                if identity == self.research.catalog.BUILTIN_ID:
+                    result = {"family_id": identity, "items": [self._builtin_version()], "bindings": []}
+                    with self.db.session() as db:
+                        for series in db.scalars(select(Series).where(Series.creator_id == creator_id)):
+                            if series.skill_name == identity:
+                                result["bindings"].append(dict(series_id=series.id, series_name=series.name,
+                                    role="single", skill_id=identity, revision=series.revision))
+                else:
+                    result = request.app.state.skill_versions.history(identity)
+                result["bindings"] = [item for item in result.get("bindings", [])
+                                      if self._owns_series(item["series_id"], creator_id)]
+                return JSONResponse(result, headers={"Cache-Control": "no-store"})
+            return None
+
+        match = re.fullmatch(r"/api/producer-skills/([^/]+)/version-trials", path)
         if match and method == "POST":
-            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
+            try:
+                payload = await request.json()
+            except Exception:
+                return self._denied()
+            selected = payload.get("series_id") if isinstance(payload, dict) else None
+            return None if (self._owns_skill(match.group(1), creator_id)
+                            and (selected is None or self._owns_series(selected, creator_id))) else self._denied()
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
         if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
@@ -226,7 +279,7 @@ class AgentScopeGuard:
             allowed = (isinstance(topic_ids, list) and bool(topic_ids)
                        and all(isinstance(topic_id, str) and self._owns_topic(topic_id.strip(), creator_id)
                                for topic_id in topic_ids))
-            return None if allowed else self._denied()
+            return None if allowed and self._owns_overrides(payload, creator_id) else self._denied()
 
         if method == "POST" and path == "/api/runs":
             try:
@@ -238,7 +291,7 @@ class AgentScopeGuard:
             if allowed and payload.get("mode") == "fresh":
                 source_id = payload.get("source_run_id")
                 allowed = isinstance(source_id, str) and self._owns_run(source_id, creator_id)
-            return None if allowed else self._denied()
+            return None if allowed and self._owns_overrides(payload, creator_id) else self._denied()
 
         match = _RUN.fullmatch(path)
         if method == "GET" and match:
@@ -303,9 +356,7 @@ class AgentScopeGuard:
         try:
             catalog = self.research.catalog
             candidate = catalog._record(skill_id)
-            if candidate.get("version_status") != "candidate":
-                return False
-            family_id = candidate.get("family_id")
+            family_id = candidate.get("family_id", candidate.get("id"))
             if not isinstance(family_id, str) or not family_id:
                 return False
             for binding in bindings:
@@ -319,6 +370,44 @@ class AgentScopeGuard:
             return False
         except (AttributeError, ValueError, OSError, KeyError):
             return False
+
+    def _owns_overrides(self, payload, creator_id):
+        overrides = payload.get("skill_overrides") if isinstance(payload, dict) else None
+        if overrides is None:
+            return True
+        if not isinstance(overrides, dict):
+            return False
+        identifiers = [overrides[key] for key in ("skill_id", "mind_skill_id", "production_skill_id")
+                       if overrides.get(key) is not None]
+        return bool(identifiers) and all(isinstance(value, str) and self._owns_skill(value, creator_id)
+                                         for value in identifiers)
+
+    def _version_catalog(self, request, creator_id):
+        catalog = self.research.catalog
+        requested = request.query_params.get("family_skill_id")
+        if requested and not self._owns_skill(requested, creator_id):
+            return self._denied()
+        with self.db.session() as session:
+            series = session.scalars(select(Series).where(Series.creator_id == creator_id))
+            bindings = {binding for item in series
+                        for binding in (item.skill_name, item.mind_skill_id, item.production_skill_id) if binding}
+        items = {}
+        for identity in ([requested] if requested else bindings):
+            if identity == catalog.BUILTIN_ID:
+                items[identity] = self._builtin_version()
+                continue
+            try:
+                for item in catalog.list_skill_versions(identity)["items"]:
+                    items[item["id"]] = item
+            except (ValueError, OSError, KeyError):
+                continue
+        return JSONResponse({"items": list(items.values()), "include_versions": True}, headers={"Cache-Control": "no-store"})
+
+    def _builtin_version(self):
+        catalog = self.research.catalog
+        item = next(row for row in catalog.list() if row["id"] == catalog.BUILTIN_ID)
+        return {**item, "family_id": catalog.BUILTIN_ID, "version_number": 1,
+                "version_status": "released", "digest": catalog.list_skill_files(catalog.BUILTIN_ID)["digest"]}
 
     def _owns_queue_receipt(self, series_id: str, request_id, creator_id: str) -> bool:
         if not isinstance(request_id, str):

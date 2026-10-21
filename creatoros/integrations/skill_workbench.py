@@ -162,6 +162,9 @@ def trial(service, job_id, request_id, expected_digest, topic):
         source = service._draft_root(job)
         request = {"request_id": request_id, "digest": expected_digest, "topic": topic,
                    "mode": job["mode"], "skills": job["skills"], "companion": companion}
+        task_references = job.get("task_references")
+        if task_references:
+            request["task_references"] = task_references
         if not prepared_operation(root, request):
             versions = {}
             for skill in job["skills"]:
@@ -177,6 +180,7 @@ def trial(service, job_id, request_id, expected_digest, topic):
                                              digest=companion["digest"], local_path=str(snapshot / role))
             _write(root / "request.json", {"topic": topic, "mode": job["mode"],
                 "skills": job["skills"], "companion": bool(companion),
+                **({"task_references": task_references} if task_references else {}),
                 "versions": {role: version.model_dump() for role, version in versions.items()}})
             _write(root / "preparation.json", request)
         directory = root / "revision-001" / "attempt-001"
@@ -214,6 +218,9 @@ def run_trial(service, job_id, key):
             series_id=job_id, topic_id=key, topic_title=request["topic"], topic_brief=request["topic"],
             production_protocol="native-v1", cancel_event=service.cancel_event,
             on_thread_started=lambda value: update(thread_id=value))
+        if request.get("task_references"):
+            from .topic_references import TaskReferences
+            kwargs["task_references"] = TaskReferences.model_validate(request["task_references"])
         if request["mode"] == "pair" or request["companion"]:
             kwargs["composition"] = SkillPair(adapter="native-carousel-v1", **versions)
         else:

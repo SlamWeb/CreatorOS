@@ -11,6 +11,7 @@ from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
 from .research_wait import observe_research
+from ..runs.models import SkillOverrides
 
 
 class ResearchTopicsArgs(BaseModel):
@@ -89,10 +90,14 @@ class StartRunArgs(BaseModel):
     instructions: str = Field(default="", max_length=3000, description="用户对参考作品的完整原始要求；不要缩成标题后丢弃。")
     attachment_ids: list[str] = Field(default_factory=list, max_length=20, description="当前会话参考图片的已有ID，直接制作必须提供。")
     reference_presentation: bool = Field(default=False, description="默认只借鉴内容，用户明确要求同时参考呈现才为true。")
+    skill_overrides: SkillOverrides | None = Field(default=None,
+        description="仅本次单选题选择完整 Skill 或内容/呈现版本，允许候选；每个指定ID须提供读取时expected_digests。可只换双Skill一边，不改栏目默认。")
 
     @model_validator(mode="after")
     def exactly_one(self):
         if self.attachment_ids:
+            if self.skill_overrides is not None:
+                raise ValueError("指定版本目前使用已有单选题；参考图直接制作不能混用版本覆盖。")
             if not self.series_id or not self.title or self.topic_id or self.topic_ids or self.mode != "start" or self.source_run_id or self.expected_version:
                 raise ValueError("参考作品直接制作需要series_id、title和attachment_ids，不能混用已有选题/重做参数。")
             return self
@@ -102,6 +107,8 @@ class StartRunArgs(BaseModel):
             raise ValueError("topic_id 与 topic_ids 必须二选一。")
         if self.topic_ids and any(not value.strip() or len(value) > 80 for value in self.topic_ids):
             raise ValueError("请选择有效选题。")
+        if self.topic_ids and self.skill_overrides is not None:
+            raise ValueError("指定版本仅支持单选题，不混用批量生产。")
         if self.mode == "fresh" and (self.topic_id is None or self.source_run_id is None or self.expected_version is None):
             raise ValueError("从头重做仅支持单选题，且需要来源 Run 和当前版本。")
         if self.mode == "start" and (self.source_run_id is not None or self.expected_version is not None):
@@ -254,6 +261,14 @@ class ProducerSkillArgs(BaseModel):
                              description="只读取指定 Markdown/UTF-8 文本；路径须先从 list_files=true 的结果取得。"
                                          "图片路径返回能力错误，文件列表不代表实际看图。")
     list_files: bool = Field(default=False, description="true 时列出受管工作副本文件；不读取正文。")
+    include_versions: bool = Field(default=False, description="true 时读取该Skill家族所有版本、候选和digest，不读取正文。")
+
+
+class ListProducerSkillsArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    include_versions: bool = Field(default=False, description="包含当前可访问Skill的历史版本和候选。")
+    family_skill_id: str | None = Field(default=None,
+        pattern=r"^[a-z0-9-]+--[a-f0-9]{16}$", description="只查看这个真实Skill所属家族，可找到刚创建的候选。")
 
 
 class UpdateProducerSkillFileArgs(BaseModel):
@@ -300,11 +315,16 @@ def get_skill_install(job_id, context=None):
     return _call(lambda c: c.request("GET", f"/api/producer-skills/jobs/{job_id}"), context)
 
 
-def list_producer_skills(context=None):
-    return _call(lambda c: c.request("GET", "/api/producer-skills"), context)
+def list_producer_skills(context=None, include_versions=False, family_skill_id=None):
+    params = {"include_versions": include_versions}
+    if family_skill_id is not None:
+        params["family_skill_id"] = family_skill_id
+    return _call(lambda c: c.request("GET", "/api/producer-skills", params=params), context)
 
 
-def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=False, context=None):
+def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=False, context=None, include_versions=False):
+    if include_versions:
+        return _call(lambda c: c.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/versions"), context)
     if list_files:
         return _call(lambda c: c.request(
             "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files"), context)
@@ -384,7 +404,18 @@ def _prepare_task_reference(client, context, series_id, attachment_ids, instruct
 
 
 def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None,
-                      series_id=None, title=None, instructions="", attachment_ids=None, reference_presentation=False):
+                      series_id=None, title=None, instructions="", attachment_ids=None, reference_presentation=False,
+                      skill_overrides=None):
+    if skill_overrides is not None:
+        selected = SkillOverrides.model_validate(skill_overrides).model_dump(mode="json", exclude_none=True)
+        turn = getattr(context, "user_request_id", None)
+        session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
+        identity = ["selected-production-v1", session, turn, mode, source_run_id, topic_id]
+        if not turn:
+            identity.append(selected)
+        request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return _call(lambda client: client.start(topic_id, mode=mode, source_run_id=source_run_id,
+            expected_version=expected_version, request_id=request_id, skill_overrides=selected), context)
     if attachment_ids:
         def direct(client):
             ref = _prepare_task_reference(client, context, series_id, attachment_ids, instructions, reference_presentation)

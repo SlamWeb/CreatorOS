@@ -88,6 +88,58 @@ test("unknown response survives refresh and explicitly replays the exact origina
   expect(submitted[1]).toEqual(submitted[0]);
 });
 
+test("RSI grants only the submitted turn and resets after acceptance", async ({ page }) => {
+  let doc = session();
+  const submitted: Record<string, unknown>[] = [];
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: doc }));
+  await page.route(`**/api/agent/sessions/${chatId}/turns`, route => {
+    const payload = route.request().postDataJSON(); submitted.push(payload);
+    doc = session({ version: submitted.length * 2, entries: [{ kind: "user", text: payload.text, turn_id: payload.request_id }] });
+    return route.fulfill({ json: doc });
+  });
+  await page.goto(`/agent?chat=${chatId}`);
+  await expect(page.getByText("Enter 发送", { exact: true })).toHaveCount(0);
+  const rsi = page.getByRole("button", { name: "RSI 迭代模式" });
+  await expect(rsi).toHaveAttribute("aria-pressed", "false");
+  await rsi.click();
+  await expect(page.getByText("本次最多 3 轮 · 只交付候选，不自动切换栏目", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("把这个 Skill 迭代到参考图的水平");
+  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0].iteration_mode).toBe(true);
+  await expect(rsi).toHaveAttribute("aria-pressed", "false");
+  await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("只看看当前栏目");
+  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await expect.poll(() => submitted.length).toBe(2);
+  expect(submitted[1].iteration_mode).toBe(false);
+});
+
+test("RSI unknown response survives reload without losing or broadening authorization", async ({ page }) => {
+  let doc = session();
+  const submitted: Record<string, unknown>[] = [];
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: doc }));
+  await page.route(`**/api/agent/sessions/${chatId}/turns`, async route => {
+    const payload = route.request().postDataJSON(); submitted.push(payload);
+    if (submitted.length === 1) await route.abort("failed");
+    else { doc = session({ version: 2, entries: [{ kind: "user", text: payload.text, turn_id: payload.request_id }] }); await route.fulfill({ json: doc }); }
+  });
+  await page.goto(`/agent?chat=${chatId}`);
+  await page.getByRole("button", { name: "RSI 迭代模式" }).click();
+  await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("最多三轮优化 Skill，不切栏目");
+  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toBeVisible();
+  await page.reload();
+  const rsi = page.getByRole("button", { name: "RSI 迭代模式" });
+  await expect(rsi).toHaveAttribute("aria-pressed", "true");
+  await expect(rsi).toBeDisabled();
+  expect(submitted).toHaveLength(1);
+  await page.getByRole("button", { name: "核对并恢复上次提交" }).click();
+  await expect(rsi).toBeEnabled();
+  expect(submitted[1]).toEqual(submitted[0]);
+  expect(submitted[1].iteration_mode).toBe(true);
+  await expect(rsi).toHaveAttribute("aria-pressed", "false");
+});
+
 test("unknown reasoning setting requires an explicit valid choice", async ({ page }) => {
   await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: session({ reasoning_effort: "future" }) }));
   await page.goto(`/agent?chat=${chatId}`);

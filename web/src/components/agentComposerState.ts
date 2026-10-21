@@ -8,6 +8,7 @@ export type ContextUsage = {
 export type PendingAgentTurn = {
   sessionId: string; text: string; request_id: string; expected_version: number;
   attachment_ids: string[]; reasoning_effort: ReplayReasoningEffort;
+  iteration_mode?: boolean;
 };
 export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   REASONING_EFFORTS.some(option => option === value);
@@ -24,7 +25,8 @@ export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAg
       typeof value.request_id === "string" && !!value.request_id &&
       Number.isInteger(value.expected_version) && value.expected_version >= 0 &&
       Array.isArray(value.attachment_ids) && value.attachment_ids.every(id => typeof id === "string") &&
-      isReplayReasoningEffort(value.reasoning_effort) ? value : null;
+      isReplayReasoningEffort(value.reasoning_effort) &&
+      (value.iteration_mode === undefined || typeof value.iteration_mode === "boolean") ? value : null;
   } catch { return null; }
 }
 export function contextUsageView(usage: ContextUsage | null | undefined) {
