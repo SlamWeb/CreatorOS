@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 本轮修改正式加载（2026-10-22）
+
+- 用户授权仅空闲时重启。两次检查正式SQLite：无producing/validating Run、running Attempt、pending/running生产队列、在途调研或发布；69份提炼/安装/调研/聊天/讨论元数据均无活动项且全部可读。7条旧queued Run没有待消费执行项，原样保留，不替用户提交生产。
+- 已先备份SQLite，再核对8765确为PID31952的项目Python服务后替换为PID21676；没有终止Codex进程、提交试产、切换任何栏目或修改Skill。新服务自动升级至0016，健康/数据库均ok，首页和准确构建资源HTTP200。
+- 正式OpenAPI确认publish只必填expected_digest/request_id、不再必填试用字段；RunStartRequest含skill_overrides，RSI路由可只读查询且无意外新任务。原6张业务表的全部列值（6账号/15栏目/100选题/90Run/102Revision/100Attempt）及3211个旧Skill工作副本/产物文件逐项一致；SQLite integrity=ok、外键错误0。
+- 本地备份和只读核验记录：tmp/restart-skill-iterations-20261022/before.sqlite、before.json、after.json及服务日志。不把本次部署验收当作新模型测试或内容质量提升证据。
+
 ## RSI 任务与版本可发现性（2026-10-22）
 
 - 用户随后取消普通版本试用门槛：可直接人工保存或切换，无需选题/试产；旧trial接口保留供RSI内部，人工发布和切版边界不变。以下2026-10-21章节是历史证据，不再作为当前强制试用规则。
