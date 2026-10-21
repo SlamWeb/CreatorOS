@@ -68,11 +68,16 @@ export function SkillsPage() {
   const openedSkill = useRef<string | null>(null);
   const viewedSkill = useRef<string | null>(null);
   const requestedSkill = searchParams.get("skill");
+  const requestedVersions = useQuery({ queryKey: ["producer-skill-versions", requestedSkill],
+    queryFn: ({ signal }) => studioApi.producerSkillVersions(requestedSkill!, signal),
+    enabled: !!requestedSkill && !!skills.data && !skills.data.items.some(item => item.id === requestedSkill), retry: false });
   useEffect(() => {
     if (!requestedSkill || openedSkill.current === requestedSkill) return;
-    const item = skills.data?.items.find(skill => skill.id === requestedSkill);
+    const item = skills.data?.items.find(skill => skill.id === requestedSkill)
+      ?? requestedVersions.data?.items.find(skill => skill.id === requestedSkill);
     if (item) { openedSkill.current = requestedSkill; setInspected(item); }
-  }, [requestedSkill, skills.data]);
+  }, [requestedSkill, skills.data, requestedVersions.data]);
+  useEffect(() => { if (requestedVersions.error) setNotice({ kind: "error", text: `无法打开指定 Skill：${requestedVersions.error.message}` }); }, [requestedVersions.error]);
   useEffect(() => {
     if (!inspected) { viewedSkill.current = null; return; }
     if (inbox.data && viewedSkill.current !== inspected.id) {

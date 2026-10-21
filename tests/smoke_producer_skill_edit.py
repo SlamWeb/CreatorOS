@@ -37,16 +37,18 @@ with TemporaryDirectory() as temporary:
     (source / "SKILL.md").write_text(original_text, encoding="utf-8")
     (source / "notes.md").write_text("Original notes\n", encoding="utf-8")
     registered = catalog.register_local(source, role="production")
-    skill_id = registered["id"]
+    released_id = registered["id"]
+    candidate = catalog.create_skill_candidate(released_id, registered["digest"], "edit-smoke")
+    skill_id = candidate["id"]
     working = catalog.root / "working" / skill_id
-    original = catalog.root / "versions" / skill_id
+    original = catalog.root / "versions" / released_id
     historical = root / "historical-run-snapshot"
     shutil.copytree(working, historical)
     original_digest = catalog.describe(skill_id)["source_digest"]
 
     with database.session() as session:
         session.add(Series(id="series-a", creator_id="creator-a", name="A series",
-                           description="", audience="", skill_name=skill_id,
+                           description="", audience="", skill_name=released_id,
                            mind_skill_id=None, production_skill_id=None))
         session.add(Series(id="series-b", creator_id="creator-b", name="B series",
                            description="", audience="", skill_name="other-skill",
@@ -184,12 +186,16 @@ with TemporaryDirectory() as temporary:
         assert rename.json()["content"].split("\n---\n", 1)[1] == multiline.split("\n---\n", 1)[1]
         assert "creatoros-output: social-content-pack.image-carousel" in rename.json()["content"]
         assert client.get(f"/api/producer-skills/{skill_id}/files").json()["display_name"] == "柯基漫画"
-        assert next(s for s in client.get("/api/producer-skills").json()["items"] if s["id"] == skill_id)["display_name"] == "柯基漫画"
+        # Candidate metadata is visible in history, not activated in the shared
+        # library card or the account's still-bound released version.
+        assert skill_id not in {s["id"] for s in client.get("/api/producer-skills").json()["items"]}
+        assert next(s for s in catalog.list_skill_versions(released_id)["items"] if s["id"] == skill_id)["display_name"] == "柯基漫画"
         from creatoros.web.account_context import CreatorContextBuilder
         context_skill = CreatorContextBuilder(database, catalog).build("creator-a")["skills"][0]
-        assert context_skill["name"] == "account-skill" and context_skill["display_name"] == "柯基漫画"
+        assert context_skill["name"] == "account-skill" and context_skill["display_name"] == "account-skill"
         with database.session() as session:
-            assert session.get(Series, "series-a").skill_name == skill_id
+            assert session.get(Series, "series-a").skill_name == released_id
+        assert catalog.read_skill_file(released_id, "SKILL.md")["content"].encode("utf-8") == (source / "SKILL.md").read_bytes()
         assert original.joinpath("SKILL.md").read_text(encoding="utf-8") == original_text
         assert historical.joinpath("SKILL.md").read_text(encoding="utf-8") == original_text
         latest = rename.json()["digest"]

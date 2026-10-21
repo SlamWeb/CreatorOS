@@ -8,6 +8,7 @@ import type { CardView, PartialCardView, RevisionView, RunDetail } from "../api/
 import { RunControls } from "./RunControls";
 import { StatusPill, formatDate } from "./StatusPill";
 import { SkillInspector } from "./SkillInspector";
+import { SkillReferenceButton } from "./SkillReferenceButton";
 import type { ProducerSkillItem } from "../api/types";
 import { RunDiscussion } from "./RunDiscussion";
 import { PublicationPanel } from "./PublicationPanel";
@@ -100,8 +101,8 @@ export function RunInspector({ run }: { run: RunDetail }) {
         {usedSkills.length ? <section className="run-skill-links" aria-label="本次运行使用的 Skill">
           {usedSkills.map(item => {
             const current = skills.data?.items.find(skill => skill.id === item.id);
-            return <button key={`${item.role}-${item.id}`} type="button" className="run-skill-link" disabled={!current}
-              title={current ? "查看或编辑本地 Skill" : "本地 Skill 暂不可读"} onClick={() => current && setInspectedSkill(current)}>{current?.display_name ?? current?.name ?? item.name}</button>;
+            return <SkillReferenceButton key={`${item.role}-${item.id}`} id={item.id} known={current} fallback={item.name}
+              className="run-skill-link" onInspect={setInspectedSkill} />;
           })}
           {skills.isError ? <button type="button" className="text-link" onClick={() => void skills.refetch()}>Skill 读取失败，重试</button> : null}
         </section> : null}

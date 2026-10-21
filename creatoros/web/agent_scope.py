@@ -30,7 +30,7 @@ _RUN_DISCUSSION = re.compile(r"^/api/runs/([^/]+)/discussion$")
 _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
 _TOPIC_REMOVE = re.compile(r"^/api/topics/([^/]+)/remove$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
-_PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
+_PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 _PRODUCER_SKILL_FILES = re.compile(
     r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/files(?:/(?:content|text))?$"
 )
@@ -51,7 +51,11 @@ class AgentScopeGuard:
             return None
         # Applying a candidate is a user's explicit review action, not a model tool.
         # Do not let overview sessions bypass this boundary either.
-        if request.url.path.startswith("/api/skill-calibrations"):
+        if (request.url.path.startswith("/api/skill-calibrations")
+                or re.fullmatch(r"/api/producer-skills/[^/]+/(?:version-trials|publish-version)", request.url.path)
+                or re.fullmatch(r"/api/series/[^/]+/skill-version", request.url.path)
+                or (request.method.upper() == "GET"
+                    and re.fullmatch(r"/api/producer-skills/[^/]+/versions", request.url.path))):
             return self._denied()
         try:
             session = self.chat.get(session_id)
@@ -91,8 +95,20 @@ class AgentScopeGuard:
         # The shared catalog is read-only and has no account-owned records.
         if method == "GET" and path == "/api/producer-skills":
             return None
-        if method == "GET" and _PRODUCER_SKILL_CONTENT.fullmatch(path):
-            return None
+        match = _PRODUCER_SKILL_CONTENT.fullmatch(path)
+        if method == "GET" and match:
+            # Released library instructions remain intentionally shared. A new
+            # unreviewed candidate stays within accounts using its Skill family.
+            try:
+                record = self.research.catalog._record(match.group(1))
+            except (AttributeError, ValueError, OSError, KeyError):
+                return None  # Preserve the route's normal not-found response.
+            return (None if record.get("version_status") != "candidate"
+                    or self._owns_skill(match.group(1), creator_id) else self._denied())
+
+        match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/versions", path)
+        if match and method == "POST":
+            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
         if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
@@ -279,8 +295,30 @@ class AgentScopeGuard:
     def _owns_skill(self, skill_id: str, creator_id: str) -> bool:
         with self.db.session() as session:
             series = session.scalars(select(Series).where(Series.creator_id == creator_id))
-            return any(skill_id in {item.skill_name, item.mind_skill_id, item.production_skill_id}
-                       for item in series)
+            bindings = {binding for item in series
+                        for binding in (item.skill_name, item.mind_skill_id, item.production_skill_id)
+                        if binding}
+        if skill_id in bindings:
+            return True
+        try:
+            catalog = self.research.catalog
+            candidate = catalog._record(skill_id)
+            if candidate.get("version_status") != "candidate":
+                return False
+            family_id = candidate.get("family_id")
+            if not isinstance(family_id, str) or not family_id:
+                return False
+            for binding in bindings:
+                if binding == catalog.BUILTIN_ID:
+                    continue
+                try:
+                    if catalog._record(binding).get("family_id", binding) == family_id:
+                        return True
+                except (ValueError, OSError, KeyError):
+                    continue
+            return False
+        except (AttributeError, ValueError, OSError, KeyError):
+            return False
 
     def _owns_queue_receipt(self, series_id: str, request_id, creator_id: str) -> bool:
         if not isinstance(request_id, str):

@@ -309,6 +309,12 @@ class SeriesCompositionService:
         if skill_id == ProducerSkillCatalog.BUILTIN_ID:
             raise CompositionError(f"内置端到端 Skill 不能作为{label}参与组合。")
         try:
-            return self.catalog.describe(skill_id)
+            record = self.catalog.describe(skill_id)
         except ValueError as error:
             raise CompositionError(f"{label}不可用：{error}") from error
+        if record.get("version_status") == "candidate":
+            raise CompositionError(
+                f"{label}是修改候选；请先试用并确认版本，不能直接绑定栏目。",
+                status_code=409, code="skill_candidate_unpublished",
+            )
+        return record

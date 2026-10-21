@@ -220,7 +220,11 @@ class ObservationService:
                     action = doc.get("actions", {}).get(key)
                     if not re.fullmatch(r"[a-f0-9]{64}", key) or not action or action.get("operation") != operation:
                         raise HTTPException(404, "提炼操作记录不存在。")
-                    relative = f"revisions/{key}" if operation == "revise" else f"trials/{key}/revision-001/attempt-001"
+                    if operation == "revise":
+                        relative = f"revisions/{key}"
+                    else:
+                        from creatoros.integrations.skill_workbench import trial_directory
+                        relative = trial_directory(self.extractions, identifier, key).relative_to(job_root).as_posix()
                     trial = next((t for t in doc.get("trials", []) if t.get("id") == key), {})
                     thread = trial.get("thread_id") if operation == "trial" else doc.get("thread_id") if relative == doc.get("progress_directory") else None
                 else:
@@ -324,7 +328,12 @@ class ObservationService:
         operation = tail[0] if kind == "extraction_execution" else doc.get("operation") or "initial"
         expected = current_directory
         if kind == "extraction_execution":
-            expected = "." if operation == "initial" else f"revisions/{tail[1]}" if operation == "revise" else f"trials/{tail[1]}/revision-001/attempt-001"
+            if operation == "trial":
+                from creatoros.integrations.skill_workbench import trial_directory
+                job_root = self.extractions._path("jobs", identifier)
+                expected = trial_directory(self.extractions, identifier, tail[1]).relative_to(job_root).as_posix()
+            else:
+                expected = "." if operation == "initial" else f"revisions/{tail[1]}"
         current = expected == current_directory
         active = current and doc.get("status") not in {"failed", "interrupted", "cancelled"} and (
             doc.get("status") in {"queued", "running"} if operation == "initial" else doc.get("operation") == operation)

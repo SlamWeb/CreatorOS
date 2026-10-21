@@ -9,6 +9,7 @@ import { ErrorState, LoadingState } from "../components/PageState";
 import { LibraryFilters, TopicLibrary } from "../components/TopicLibrary";
 import { useAgentChat } from "../components/AgentChatHost";
 import { SkillInspector } from "../components/SkillInspector";
+import { SkillReferenceButton } from "../components/SkillReferenceButton";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
@@ -342,7 +343,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
               const label = bound?.display_name ?? bound?.name ?? "Skill 信息不可读取";
               return <span key={`${id}-${index}`}>
                 {index > 0 && <span aria-hidden="true"> × </span>}
-                {bound ? <button type="button" onClick={() => onInspectSkill(bound)}>{label}</button> : <span title={`当前 Skill 不在可查看目录中：${id}`}>{label}</span>}
+                <SkillReferenceButton id={id} known={bound} fallback={label} onInspect={onInspectSkill} />
               </span>;
             })}
         </div>

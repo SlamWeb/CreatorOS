@@ -200,7 +200,7 @@ tool_registry = {
              execute=list_producer_skills, args_model=NoArgs),
         Tool(name="get_producer_skill", description="按需读取 Skill：默认仅分页查看 SKILL.md，不返回写入 digest。编辑必须先 list_files=true 列文件，再传 path 读取全文和当前工作副本 digest。路径只能来自文件列表，不能读任意路径。当前工具不能看图；图片返回 skill_text_only，文件列表不代表实际看图。",
              execute=get_producer_skill, args_model=ProducerSkillArgs),
-        Tool(name="update_producer_skill_file", description="用户明确要求改已有 Skill 时执行。默认 write_text 更新完整文本；用 add_image/replace_image/delete_image 管理 assets 参考图，新图来自当前会话 attachment_id。先用 get_producer_skill(list_files=true) 或读取目标文本取得真实 digest，每次成功后使用最新摘要，不猜 source_digest。替换保持原图片路径；被正文引用的图片先改引用再删除。只改共享 working，影响后续绑定栏目，versions/旧 Run 不变；不派 Codex、不自动生产。SKILL.md 保留有效 name/description。",
+        Tool(name="update_producer_skill_file", description="用户明确要求改已有 Skill 时执行。默认 write_text 更新完整文本；用 add_image/replace_image/delete_image 管理 assets 参考图，新图来自当前会话 attachment_id。先用 get_producer_skill(list_files=true) 或读取目标文本取得真实 digest。已有版本的修改另存候选，正文和 assets 一起保留；后续修改必须用回执的新 skill_id 和 digest，不猜 source_digest。替换保持原图片路径；被正文引用的图片先改引用再删除。只保存候选，不改变栏目或旧 Run；试用与栏目切换由用户在网页确认，不派 Codex 改稿或自动生产。SKILL.md 保留有效 name/description。",
              execute=update_producer_skill_file, args_model=UpdateProducerSkillFileArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),

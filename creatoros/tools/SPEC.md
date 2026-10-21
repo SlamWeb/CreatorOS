@@ -1,5 +1,10 @@
 # CreatorOS Tool Exposure SPEC
 
+## Skill 候选写入回执（2026-10-21）
+
+- 不新增模型工具。现有 update_producer_skill_file 写发布版会另存候选，回执保留新 skill_id、digest、family_id、parent_id、version_number、version_status；后续读写必须跟随候选 ID。
+- 账号 Agent 可读写其已绑定家族的候选，但版本试用、发布和栏目切换均为人工 Web 入口；不能声称保存候选等于栏目已更新。完整验收见 docs/skill-versions/SPEC.md。
+
 ## 调研排队状态（2026-10-20）
 
 - 不增加工具；research_series_topics 可返回 queued，与 researching 都属于已接受、尚未完成。宿主观察同一批次时覆盖这两个状态，不因为排队而误报已完成或自动再次提交。

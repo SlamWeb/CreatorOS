@@ -242,7 +242,9 @@ class ProducerSkillCatalog:
 
     @_skill_io_locked
     def describe(self, reference: str) -> dict:
-        """A catalog ID is an alias for the same editable local path."""
+        """An ID names one exact released version or an editable candidate."""
+        from .skill_versions import version_metadata
+
         data = self._record(reference)
         directory = self._working_directory(data)
         skill = next((s for s in SkillLoader([directory]).discover()
@@ -250,12 +252,12 @@ class ProducerSkillCatalog:
         if skill is None:
             raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
         receipt = _inspect_checkout(directory, ".")
-        current = {**data, "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
+        current = {**data, **version_metadata(data), "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
                    "source_digest": data["digest"], "digest": _digest(directory),
                    "local_path": str(directory), "role": self._role(data),
                    "carousel_compatible": receipt.carousel_compatible,
                    "compatibility_note": receipt.compatibility_note}
-        return {**current, "producible": self._producible(current)}
+        return {**current, "producible": self._producible(current) and current["version_status"] == "released"}
 
     def list(self):
         builtin = {"id": self.BUILTIN_ID, "name": self.BUILTIN_ID,
@@ -264,15 +266,53 @@ class ProducerSkillCatalog:
                    "role": "legacy_end_to_end", "producible": True,
                    "local_path": str(self.project_root / "creatoros" / "skills" / self.BUILTIN_ID)}
         items = [builtin]
+        families = {}
         for path in sorted((self.root / "registry").glob("*.json")):
             data = json.loads(path.read_text(encoding="utf-8"))
             try:
-                items.append(self.describe(data["id"]))
+                described = self.describe(data["id"])
+                if described["version_status"] == "candidate":
+                    continue
+                family = described["family_id"]
+                previous = families.get(family)
+                if previous is None or described["version_number"] > previous["version_number"]:
+                    families[family] = described
             except (ValueError, OSError) as error:
                 items.append({**data, "role": self._role(data), "producible": False,
                               "local_path": str(self.root / "working" / data["id"]),
                               "local_error": str(error)})
-        return items
+        return [*items, *families.values()]
+
+    @_skill_io_locked
+    def create_skill_candidate(self, skill_id: str, expected_digest: str, request_id: str) -> dict:
+        from .skill_versions import create_candidate
+        return create_candidate(self, skill_id, expected_digest, request_id)
+
+    @_skill_io_locked
+    def list_skill_versions(self, skill_id: str) -> dict:
+        from .skill_versions import list_versions
+        return list_versions(self, skill_id)
+
+    @_skill_io_locked
+    def publish_skill_candidate(self, skill_id: str, expected_digest: str) -> dict:
+        """Called only after the version service verifies a successful trial."""
+        from .skill_versions import publish_candidate
+        return publish_candidate(self, skill_id, expected_digest)
+
+    @_skill_io_locked
+    def create_skill_candidate_from_directory(self, skill_id: str, expected_digest: str,
+                                              source_directory: Path, request_id: str) -> dict:
+        from .skill_versions import create_candidate_from_directory
+        return create_candidate_from_directory(self, skill_id, expected_digest, source_directory, request_id)
+
+    @_skill_io_locked
+    def same_skill_family(self, first_id: str, second_id: str) -> bool:
+        from .skill_versions import version_metadata
+        if self.BUILTIN_ID in {first_id, second_id}:
+            return first_id == second_id
+        # Identity checks must not rehash every asset in every bound version.
+        return (version_metadata(self._record(first_id))["family_id"]
+                == version_metadata(self._record(second_id))["family_id"])
 
     def read_skill_page(self, skill_id: str, *, offset: int = 0, limit: int = 2000) -> dict:
         """Read one bounded page of a registered Skill's SKILL.md without repairing files."""
@@ -338,7 +378,8 @@ class ProducerSkillCatalog:
                 raise ValueError("Skill 注册记录与 ID 不匹配。")
             directory = self.root / "working" / skill_id
             managed_root = self.root / "working"
-            item = {"id": skill_id, "role": self._role(data), "editable": True}
+            from .skill_versions import version_metadata
+            item = {"id": skill_id, "role": self._role(data), "editable": True, **version_metadata(data)}
 
         if (self._is_link_or_reparse(managed_root) or not managed_root.is_dir()
                 or not managed_root.resolve().is_relative_to(base)):
@@ -476,20 +517,86 @@ class ProducerSkillCatalog:
     def update_skill_file(self, skill_id: str, relative_path: str, content: str,
                           expected_digest: str, *, display_name: str | None = None) -> dict:
         with _SKILL_EDIT_LOCK:
-            return self._update_skill_file_locked(skill_id, relative_path, content, expected_digest, display_name=display_name)
+            from .skill_versions import edit_result, edit_target
+            if skill_id == self.BUILTIN_ID:
+                raise PermissionError("内置 Skill 只读。")
+            # Check invalid input before creating a visible candidate. The same
+            # checks still run inside the final atomic text writer.
+            normalized = _with_display_name(content, display_name) if display_name is not None else content
+            if display_name is not None and Path(relative_path).as_posix().casefold() != "skill.md":
+                raise ValueError("显示名称只能在 SKILL.md 中修改。")
+            if not isinstance(normalized, str) or len(normalized.encode("utf-8")) > self.MAX_TEXT_BYTES:
+                raise OverflowError("Skill 文本文件最多 512 KiB。")
+            readable = self.read_skill_file(skill_id, relative_path)
+            if readable["kind"] not in {"markdown", "text"}:
+                raise TypeError("只支持编辑已列出的 Markdown 或文本文件。")
+            if Path(relative_path).as_posix().casefold() == "skill.md":
+                _validate_skill_frontmatter(normalized)
+            target_id, replayed = edit_target(self, skill_id, expected_digest,
+                {"operation": "text", "path": relative_path, "content": normalized})
+            if replayed:
+                updated = self.read_skill_file(target_id, relative_path)
+                if updated["content"] != normalized:
+                    raise SkillDigestConflict(updated["digest"])
+                described = self.describe(target_id)
+                result = {**updated, "name": described["name"], "description": described["description"],
+                          "display_name": described["display_name"]}
+            else:
+                result = self._update_skill_file_locked(target_id, relative_path, normalized, expected_digest)
+            return edit_result(self, target_id, result)
 
     def save_skill_image(self, skill_id: str, path: str, raw: bytes,
                          expected_digest: str, overwrite: bool = False) -> dict:
-        from .skill_assets import save_skill_image
+        from .skill_assets import (SkillAssetExistsError, _target, _check_digest, _validate_image,
+                                   _projected_size, save_skill_image)
+        from .skill_versions import edit_result, edit_target
 
         with _SKILL_EDIT_LOCK:
-            return save_skill_image(self, skill_id, path, raw, expected_digest, overwrite=overwrite)
+            directory, relative, target = _target(self, skill_id, path)
+            _check_digest(directory, expected_digest)
+            if target.exists() != overwrite:
+                raise SkillAssetExistsError("新增路径已存在；请明确选择替换。" if target.exists()
+                                            else "替换目标不存在；请先刷新文件列表。")
+            _validate_image(self, relative, raw)
+            _projected_size(self, directory, target, len(raw))
+            if not target.exists() and len(self._list_skill_files_locked(skill_id)["files"]) >= self.MAX_BROWSE_FILES:
+                raise ValueError("Skill 文件数量已达上限。")
+            target_id, replayed = edit_target(self, skill_id, expected_digest,
+                {"operation": "image", "path": path, "sha256": hashlib.sha256(raw).hexdigest(), "overwrite": overwrite})
+            if replayed:
+                updated = self.read_skill_file(target_id, path)
+                if updated["content"] != raw:
+                    raise SkillDigestConflict(updated["digest"])
+                result = {"path": path, "kind": "image", "digest": updated["digest"], "editable": True,
+                          "operation": "replace" if overwrite else "add"}
+            else:
+                result = save_skill_image(self, target_id, path, raw, expected_digest, overwrite=overwrite)
+            return edit_result(self, target_id, result)
 
     def delete_skill_image(self, skill_id: str, path: str, expected_digest: str) -> dict:
-        from .skill_assets import delete_skill_image
+        from .skill_assets import (SkillAssetExistsError, SkillReferencedError, _target,
+                                   _check_digest, _referencing_files, delete_skill_image)
+        from .skill_versions import edit_result, edit_target
 
         with _SKILL_EDIT_LOCK:
-            return delete_skill_image(self, skill_id, path, expected_digest)
+            directory, relative, target = _target(self, skill_id, path)
+            _check_digest(directory, expected_digest)
+            if not target.is_file():
+                raise SkillAssetExistsError("图片不存在，请刷新文件列表。")
+            referenced = _referencing_files(self, directory, relative)
+            if referenced:
+                raise SkillReferencedError(referenced)
+            target_id, replayed = edit_target(self, skill_id, expected_digest,
+                {"operation": "delete_image", "path": path})
+            if replayed:
+                candidate_path = self.locate(target_id) / relative
+                if candidate_path.exists():
+                    raise SkillDigestConflict(self.describe(target_id)["digest"])
+                result = {"path": path, "kind": "image", "digest": self.describe(target_id)["digest"],
+                          "editable": True, "operation": "delete"}
+            else:
+                result = delete_skill_image(self, target_id, path, expected_digest)
+            return edit_result(self, target_id, result)
 
     def remove_unused_skill(self, skill_id: str, expected_digest: str, database) -> dict:
         from .skill_removal import remove_unused_skill
@@ -578,6 +685,10 @@ class ProducerSkillCatalog:
         if directory.is_symlink() or not directory.resolve().is_relative_to(self.root):
             raise ValueError("Skill 目录不在受管理的安装范围内。")
         if not directory.is_dir() or _digest(directory) != expected_digest:
+            from .skill_versions import baseline_original
+            baseline = baseline_original(self, data["id"], expected_digest)
+            if baseline is not None:
+                return baseline
             raise ValueError("原 Run 的 Skill 快照缺失，导入原件也不匹配。")
         return directory
 
@@ -586,10 +697,13 @@ class ProducerSkillCatalog:
         if directory.is_symlink() or not directory.resolve().is_relative_to(self.root / "working"):
             raise ValueError("本地 Skill 路径越界。")
         if not directory.exists():
-            freeze_skill(self.original(data["id"], data["digest"]), directory, data["digest"])
+            digest = data.get("release_digest", data["digest"])
+            freeze_skill(self.original(data["id"], digest), directory, digest)
         if not directory.is_dir():
             raise ValueError("本地 Skill 目录不存在。")
-        _digest(directory)  # retain file/path checks; content is intentionally editable
+        digest = _digest(directory)
+        if data.get("version_status") == "released" and data.get("release_digest") not in {None, digest}:
+            raise ValueError("已发布 Skill 的文件已变化；请恢复版本原件，不能覆盖历史版本。")
         return directory
 
     def locate(self, skill_id: str) -> Path:
@@ -603,6 +717,8 @@ class ProducerSkillCatalog:
         if skill_id == self.BUILTIN_ID:
             return self.project_root / "creatoros" / "skills" / skill_id
         data = self.describe(skill_id)
+        if data["version_status"] != "released":
+            raise ValueError("候选 Skill 需试用并确认版本后才能绑定生产。")
         role = self._role(data)
         if role is None:
             raise ValueError("该 Skill 尚未声明内容/制作角色，先完成配置再绑定生产。")

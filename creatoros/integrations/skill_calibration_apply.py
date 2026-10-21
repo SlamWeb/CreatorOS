@@ -48,7 +48,7 @@ def _finish(service, row, receipt):
     # non-authoritative UI update fails. No later read error can roll it back.
     try:
         service.extractions._update(row.job_id, status="saved", operation=None,
-            saved_skills=[service.catalog.describe(row.skill_id)], error=None)
+            saved_skills=[service.catalog.describe(receipt.get("version_skill_id", row.skill_id))], error=None)
     except (OSError, ValueError, KeyError):
         # Losing a UI projection must not roll back a committed shared Skill.
         pass
@@ -58,6 +58,12 @@ def recover(service, identifier):
     row = service._row(identifier)
     receipt = row.apply_json
     if row.status != "applying" or not receipt:
+        return
+    if receipt.get("kind") == "skill_version":
+        try:
+            _activate_version(service, row, receipt)
+        except (OSError, ValueError) as error:
+            service._update(row.id, last_error="版本切换尚未完成，旧文件保留；请刷新后核对。")
         return
     directory = _directory(service, row.id, receipt["request_key"])
     source, backup = _working(service, row), directory / "backup"
@@ -79,6 +85,15 @@ def recover(service, identifier):
         service._update(row.id, last_error="保存结果尚未核实，未再次覆盖 Skill；请检查校准备份。")
         if isinstance(error, ExtractionError):
             return
+
+
+def _activate_version(service, row, receipt):
+    """A persisted switch intent is replayable; never rename the old working tree."""
+    from .skill_version_service import SkillVersionService
+    versions = SkillVersionService(service.database, service.extractions)
+    versions.switch(row.series_id, receipt["version_skill_id"], receipt["series_revision"],
+                    receipt["switch_request_id"], validated_calibration=True)
+    _finish(service, row, receipt)
 
 
 def apply(service, identifier, request_id, expected_digest, expected_skill_digest, trial_id):
@@ -144,47 +159,20 @@ def apply(service, identifier, request_id, expected_digest, expected_skill_diges
         if _digest(source) != row.base_skill_digest:
             raise ExtractionError("共享 Skill 已被其他编辑修改，请重新校准；不会覆盖。", 409)
         current_candidate = _digest(candidate)
-        request_key = signature({"request_id": request_id})
-        publication = _directory(service, row.id, request_key)
-        staging, backup = publication / "candidate", publication / "backup"
-        if backup.exists():
-            raise ExtractionError("此保存请求已有备份记录，请使用新的请求 ID。", 409)
-        freeze_skill(candidate, staging, current_candidate)
-        receipt = {"request_id": request_id, "signature": request_signature, "request_key": request_key,
+        edition = service.catalog.create_skill_candidate_from_directory(
+            row.skill_id, row.base_skill_digest, candidate, "calibration-" + signature(inputs))
+        service.catalog.publish_skill_candidate(edition["id"], current_candidate)
+        receipt = {"kind": "skill_version", "request_id": request_id, "signature": request_signature,
                    "draft_digest": expected_digest, "trial_id": trial_id,
-                   "candidate_digest": current_candidate, "phase": "prepared"}
-        _write(publication / "receipt.json", receipt)
+                   "candidate_digest": current_candidate, "phase": "prepared",
+                   "version_skill_id": edition["id"], "series_revision": series.revision,
+                   "switch_request_id": "calibration-" + signature({"id": row.id, **inputs})}
         service._update(row.id, status="applying", apply_json=receipt, last_error=None)
         try:
-            if _digest(source) != row.base_skill_digest or _digest(staging) != current_candidate:
-                raise ExtractionError("发布前文件已变化，不会覆盖。", 409)
-            # Old bytes stay in backup. Existing Runs use their own frozen snapshots.
-            source.rename(backup)
-            staging.rename(source)
-            if _digest(source) != current_candidate or _digest(backup) != row.base_skill_digest:
-                raise ExtractionError("保存后的文件摘要不一致。", 409)
-            _finish(service, row, receipt)
+            _activate_version(service, row, receipt)
         except Exception as error:
-            # A DB driver may report an error after the commit reached disk.
             committed = service._row(row.id)
-            if (committed.status == "applied" and committed.apply_json
-                    and committed.apply_json.get("signature") == request_signature):
-                raise ExtractionError("Skill 已保存，页面读取暂时失败；请刷新查看，不要重复提交。", 409) from error
-            try:
-                if _maybe_digest(backup) == row.base_skill_digest:
-                    current = _maybe_digest(source)
-                    if current == current_candidate:
-                        source.rename(publication / "failed-candidate")
-                    elif current is not None:
-                        raise ExtractionError("保存中发生其他编辑，未自动覆盖。", 409)
-                    freeze_skill(backup, source, row.base_skill_digest)
-                service._update(row.id, status="draft", apply_json={**receipt, "phase": "rolled_back"},
-                                applied_digest=None, last_error="保存未完成，原 Skill 与旧产物已保留；请检查后重试。")
-            except Exception:
-                # Do not claim rollback while publication state is uncertain.
-                service._update(row.id, last_error="保存结果待核实，已阻止再次覆盖；请检查校准备份。")
-            if isinstance(error, ExtractionError):
-                raise
-            raise ExtractionError("保存未完成；旧版本与校准备份保留，不会重新生产。", 409) from error
-        # Rendering/projection is outside the publication rollback boundary.
+            if committed.status != "applied":
+                service._update(row.id, last_error="候选版本已保留，栏目切换待核实；刷新不会重新生图。")
+            raise ExtractionError("版本切换结果待核实，请刷新同一记录；旧版本和产物均保留。", 409) from error
         return service.get(identifier)

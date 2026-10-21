@@ -35,6 +35,8 @@ def references(service, job):
 def edit(service, job_id, expected_digest, skills):
     with service.lock:
         job = service._read(job_id)
+        if job.get("task_kind") == "skill_version":
+            raise ExtractionError("试用输入已冻结，请回到 Skill 候选版本编辑，再重新试用。", 409)
         # A lost response can retry the exact same edit without losing a version.
         signature = hashlib.sha256(json.dumps(skills, sort_keys=True).encode()).hexdigest()
         previous = job.get("last_edit", {})
@@ -90,6 +92,8 @@ def prepared_operation(directory, request):
 
 def revise(service, job_id, request_id, expected_digest, instruction):
     with service.lock:
+        if service._read(job_id).get("task_kind") == "skill_version":
+            raise ExtractionError("试用输入已冻结，请回到 Skill 候选版本修改。", 409)
         job, key, fresh = begin(service, job_id, request_id, expected_digest, "revise", instruction)
         if not fresh:
             return service.get(job_id)
@@ -149,11 +153,11 @@ def trial(service, job_id, request_id, expected_digest, topic):
         job, key, fresh = begin(service, job_id, request_id, expected_digest, "trial", topic)
         if not fresh:
             return service.get(job_id)
-        companion = job.get("calibration_companion") if job.get("task_kind") == "calibrate" else None
+        companion = job.get("calibration_companion") if job.get("task_kind") in {"calibrate", "skill_version"} else None
         if (job["mode"] == "mind" and not companion) or any(s.get("output_kind", "image-carousel") != "image-carousel"
                                         for s in job["skills"] if s["role"] != "mind"):
             raise ExtractionError("当前草稿不包含图片制作能力；可入库后在栏目中组合使用。")
-        root = service._path("jobs", job_id) / "trials" / key
+        root = trial_root(service, job_id, key)
         snapshot = root / "skill-snapshot" / "skills"
         source = service._draft_root(job)
         request = {"request_id": request_id, "digest": expected_digest, "topic": topic,
@@ -187,7 +191,7 @@ def trial(service, job_id, request_id, expected_digest, topic):
 def run_trial(service, job_id, key):
     from .skill_pair import SkillPair, SkillVersion
     job = service._read(job_id)
-    root = service._path("jobs", job_id) / "trials" / key
+    root = trial_root(service, job_id, key)
     request = json.loads((root / "request.json").read_text(encoding="utf-8"))
     directory = root / "revision-001" / "attempt-001"
     snapshot = root / "skill-snapshot" / "skills"
@@ -223,7 +227,7 @@ def run_trial(service, job_id, key):
         from ..runs.artifacts import validate_artifact
         composition = kwargs.get("composition")
         checked = validate_artifact(directory, composition=composition,
-            production_protocol="native-v1") if job.get("task_kind") == "calibrate" else None
+            production_protocol="native-v1") if job.get("task_kind") in {"calibrate", "skill_version"} else None
         update(status="completed", **({"artifact_digest": checked.artifact_digest,
             "composition": composition.model_dump() if composition else None} if checked else {}))
     except Exception as error:
@@ -238,10 +242,18 @@ def run_trial(service, job_id, key):
         service._update(job_id, operation=None, cancel_requested=False)
 
 
-def trial_directory(service, job_id, key):
+def trial_root(service, job_id, key):
     if not key or len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
         raise ExtractionError("试用记录不存在。", 404)
-    return service._path("jobs", job_id) / "trials" / key / "revision-001" / "attempt-001"
+    parent = service._path("jobs", job_id) / "trials"
+    legacy = parent / key
+    # Retain old files at their original paths; new names leave Windows shell
+    # room for assets and delivery filenames below the 260-character boundary.
+    return legacy if legacy.exists() else parent / key[:16]
+
+
+def trial_directory(service, job_id, key):
+    return trial_root(service, job_id, key) / "revision-001" / "attempt-001"
 
 
 def trial_cards(directory, job_id, key, complete=False):

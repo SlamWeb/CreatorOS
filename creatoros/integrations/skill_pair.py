@@ -108,6 +108,8 @@ def snapshot_pair(
     native: bool = False,
 ) -> SkillPair:
     mind, production = catalog.describe(mind_id), catalog.describe(production_id)
+    if any(record.get("version_status", "released") != "released" for record in (mind, production)):
+        raise ValueError("候选 Skill 需试用并确认版本后才能绑定生产。")
     if mind["role"] != "mind" or production["role"] != "production":
         raise ValueError("双 Skill 的内容/制作角色不匹配。")
     for record in (mind, production):

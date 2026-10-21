@@ -26,6 +26,8 @@ def remove_unused_skill(catalog, skill_id: str, expected_digest: str, database) 
     current = _digest(directory)
     if current != expected_digest:
         raise SkillDigestConflict(current)
+    if len(catalog.list_skill_versions(skill_id)["items"]) > 1:
+        raise PermissionError("这份 Skill 已有版本历史，不能单独移出，以免丢失回退入口。")
     record = catalog.root / "registry" / f"{skill_id}.json"
     if catalog._is_link_or_reparse(record) or not record.is_file():
         raise ValueError("Skill 注册记录不存在或路径无效。")

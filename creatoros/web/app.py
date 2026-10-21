@@ -77,10 +77,12 @@ from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
 from .account_context import CreatorContextBuilder
 from .skill_routes import skill_routes
+from .skill_version_routes import skill_version_routes
 from .extraction_routes import extraction_routes
 from .calibration_routes import calibration_routes
 from .work_inbox import work_inbox_routes
 from creatoros.integrations.skill_extraction import SkillExtractionService
+from creatoros.integrations.skill_version_service import SkillVersionService
 from creatoros.integrations.skill_calibration import SkillCalibrationService
 from .research_routes import research_routes
 from creatoros.integrations.topic_research import TopicResearchService
@@ -143,6 +145,7 @@ def create_app(
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
+    skill_versions = SkillVersionService(db, extractions)
     calibrations = SkillCalibrationService(db, extractions, artifacts)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
@@ -194,6 +197,7 @@ def create_app(
     app.state.skill_installs = skill_installs
     app.state.topic_research = research
     app.state.skill_extractions = extractions
+    app.state.skill_versions = skill_versions
     app.state.skill_calibrations = calibrations
     app.state.content_discussions = discussions
     app.state.observation = observations
@@ -208,6 +212,7 @@ def create_app(
     app.include_router(research_routes(research, queries))
     app.include_router(reference_routes(db, writes, runs, executor, queries))
     app.include_router(skill_routes(db, skill_installs))
+    app.include_router(skill_version_routes(skill_versions))
     app.include_router(chat_routes(chat))
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))

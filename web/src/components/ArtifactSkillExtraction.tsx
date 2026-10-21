@@ -143,6 +143,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
   }, [open, activeJob?.id, activeJob?.digest, activeJob?.status, inbox.items, inbox.isUnseen, inbox.markSeen]);
   const calibrationId = activeJob?.calibration_id;
   const isCalibration = activeJob?.task_kind === "calibrate" || Boolean(calibrationId);
+  const isVersionTrial = activeJob?.task_kind === "skill_version";
   const activeJobRef = useRef(activeJob);
   activeJobRef.current = activeJob;
   const calibration = useQuery({ queryKey: ["skill-calibration", calibrationId], queryFn: async ({ signal }) => {
@@ -508,14 +509,14 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           <div className="extraction-file-viewer">
             <div className="extraction-viewer-heading">
               <strong>{selectedFile?.path ?? "SKILL.md"}</strong>
-              {selectedFile?.path.toLowerCase() === "skill.md" && activeJob.status === "ready" && <div>
+              {selectedFile?.path.toLowerCase() === "skill.md" && activeJob.status === "ready" && !isVersionTrial && <div>
                 <button type="button" className="button button-secondary" disabled={Boolean(activeJob.operation)} onClick={() => setViewerMode("preview")}>预览</button>
                 <button type="button" className="button button-secondary" disabled={Boolean(activeJob.operation)} onClick={() => setViewerMode("edit")}>编辑</button>
               </div>}
             </div>
             {selectedFile?.kind === "image" ? <img className="extraction-asset-preview" src={apiUrl(selectedFile.url)} alt={selectedFile.path} />
               : selectedFile?.path.toLowerCase() === "skill.md" && selectedSkill ? <>
-                {activeJob.status === "ready" && <div className="extraction-skill-fields">
+                {activeJob.status === "ready" && !isVersionTrial && <div className="extraction-skill-fields">
                   <label>Skill 名称
                     <input aria-label={`${roleLabels[selectedSkill.role]} Frontmatter 名称`} value={selectedSkill.name}
                       onChange={event => editSkill(selectedSkillIndex, {
@@ -529,7 +530,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
                     </select>
                   </label>
                 </div>}
-                {viewerMode === "edit" && activeJob.status === "ready" ? <textarea className="extraction-markdown-editor" aria-label="编辑 SKILL.md" disabled={Boolean(activeJob.operation) || create.isPending}
+                {viewerMode === "edit" && activeJob.status === "ready" && !isVersionTrial ? <textarea className="extraction-markdown-editor" aria-label="编辑 SKILL.md" disabled={Boolean(activeJob.operation) || create.isPending}
                   value={selectedSkill.skill_md} onChange={event => editSkill(selectedSkillIndex, { skill_md: event.target.value })} />
                   : <div className="extraction-markdown">
                     {selectedSkillDocument?.frontmatter && <pre className="extraction-frontmatter">{selectedSkillDocument.frontmatter}</pre>}
@@ -554,7 +555,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
         {isStaleDraft && <div className="extraction-conflict" role="alert">服务器草稿已更新；你当前编辑基于旧摘要。重新载入会放弃本地未保存内容。
           <button type="button" className="button button-secondary" onClick={reloadDraft}>重新载入服务器草稿</button>
         </div>}
-        {activeJob.status === "ready" && <div className="extraction-save">
+        {isVersionTrial && activeJob.version_candidate_id && <p className="extraction-help">这是版本试用记录。<Link to={`/skills?skill=${encodeURIComponent(activeJob.version_candidate_id)}`}>回到候选 Skill</Link></p>}
+        {activeJob.status === "ready" && !isVersionTrial && <div className="extraction-save">
           <div className="extraction-draft-actions">
             {draftDirty && <span role="status">有未保存的草稿修改</span>}
             <button type="button" className="button button-secondary" disabled={!draftDirty || isStaleDraft || updateDraft.isPending || Boolean(activeJob.operation) || create.isPending}
@@ -568,8 +570,8 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           {updateDraft.isError && <p role="alert" className="extraction-error">草稿保存失败：{updateDraft.error.message}</p>}
           {save.isError && <p role="alert" className="extraction-error">入库失败：{save.error.message}</p>}
           {isCalibration && applyOpen && <div className="extraction-apply-confirm" role="group" aria-label="确认更新共享 Skill">
-            <strong>保存到原 Skill，以下栏目将使用新版</strong><p>{calibration.data?.affected_series.map(item => item.name).join("、") || "暂无绑定栏目"}</p>
-            <p>旧 Skill 备份和已有产物保留。</p>
+            <strong>保存新版本并用于当前栏目</strong><p>{calibrationSeries.data?.name ?? "当前栏目"}</p>
+            <p>其他栏目保持原版；旧版本和已有产物保留。</p>
             {eligibleTrials.length > 1 && <label>验收的试产结果<select aria-label="验收的试产结果" value={selectedApplyTrial?.id || ""} onChange={event => setTrialToApply(event.target.value)}>{eligibleTrials.map((item, index) => <option key={item.id} value={item.id}>试产 {index + 1} · {item.topic}</option>)}</select></label>}
             <div><button type="button" className="button button-primary" disabled={apply.isPending || draftDirty || isStaleDraft || !selectedApplyTrial || Boolean(activeJob.operation)} onClick={() => apply.mutate()}>{apply.isPending ? "正在保存…" : "试用满意，确认保存"}</button><button type="button" className="button button-secondary" disabled={apply.isPending} onClick={() => setApplyOpen(false)}>先不保存</button></div>
           </div>}
@@ -602,7 +604,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
           </div>
         </div>}
         {activeJob.status === "saved" && <div className="extraction-saved" role="status">
-          <strong>{isCalibration ? "已保存到原 Skill" : "已加入 CreatorOS Skill 库"}</strong>
+          <strong>{isCalibration ? "已确认保存" : "已加入 CreatorOS Skill 库"}</strong>
           {activeJob.saved_skills.map(skill => <p key={skill.id}>{isCalibration
             ? <Link to={`/skills?skill=${encodeURIComponent(skill.id)}`}>{skill.display_name ?? skill.name}</Link>
             : <>{skill.name}{skill.local_path ? <> · 本地路径：<code>{skill.local_path}</code></> : ""}</>}</p>)}

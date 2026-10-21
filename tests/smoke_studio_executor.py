@@ -119,7 +119,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     cleanup.callback(database.close)
     producer = ControlledProducer(block_first=True)
     service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
-                                lease_seconds=0.6, production_protocol="legacy")
+                                lease_seconds=3.0, production_protocol="legacy")
     with ThreadPoolExecutor(max_workers=4) as clients:
         ids = list(clients.map(lambda _: service.create("topic-1").id, range(4)))
     assert len(set(ids)) == 1
@@ -136,7 +136,9 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     expect_error("conflict", lambda: service.cancel(first.id, expected_version=service.get(first.id).version))
     before = service.get(first.id)
     event_count = len(service.repository.list_events(first.id))
-    sleep(0.25)
+    # Wait for the event being tested, not a 250ms wall-clock scheduling guess.
+    # A sub-second lease can expire during concurrent Windows filesystem tests.
+    wait_until(lambda: service.get(first.id).heartbeat_at > before.heartbeat_at)
     after = service.get(first.id)
     assert after.version == before.version
     assert after.heartbeat_at > before.heartbeat_at

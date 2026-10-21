@@ -83,8 +83,23 @@ class CalibrationTests(unittest.TestCase):
         return dict(request_id=uuid4().hex, expected_digest=calibration["job"]["digest"],
             expected_skill_digest=calibration["base_skill_digest"], trial_id=calibration["job"]["trials"][-1]["id"])
 
-    def assert_formal_unchanged(self, target=True):
+    def assert_formal_unchanged(self, target=True, switched=False):
         actual = calibration_evidence(self.app)
+        if switched:
+            # A confirmed version changes exactly this Series' version binding,
+            # CAS revision and update timestamp. Every other original column,
+            # account, topic, Run, Revision and Attempt remains byte-for-byte data.
+            series_id = self.fixture["series_id"]
+            before = self.baseline["protected_records"]["series"][series_id]
+            after = actual["protected_records"]["series"][series_id]
+            self.assertNotEqual(after["mind_skill_id"], before["mind_skill_id"])
+            self.assertEqual(after["revision"], before["revision"] + 1)
+            self.assertTrue(self.catalog.same_skill_family(after["mind_skill_id"], before["mind_skill_id"]))
+            self.assertEqual(self.catalog.describe(after["mind_skill_id"])["version_status"], "released")
+            allowed = {"mind_skill_id", "revision", "updated_at"}
+            self.assertEqual({key: value for key, value in after.items() if key not in allowed},
+                             {key: value for key, value in before.items() if key not in allowed})
+            actual["protected_records"]["series"][series_id] = before
         for key in ("counts", "protected_records", "companion_files", "artifact_files"):
             self.assertEqual(actual[key], self.baseline[key], key)
         if target:
@@ -157,7 +172,7 @@ class CalibrationTests(unittest.TestCase):
         response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply",
                                     json=self.apply_payload(calibration))
         self.assertEqual(response.status_code, 200, response.text)
-        self.assert_formal_unchanged(target=False)
+        self.assert_formal_unchanged(switched=True)
 
     def test_database_protection_detects_changed_original_row_even_when_counts_match(self):
         with self.db.session() as session:
@@ -191,6 +206,17 @@ class CalibrationTests(unittest.TestCase):
         self.assert_formal_unchanged()
 
     def test_mind_trial_frozen_visual_clean_thread_and_confirmed_apply(self):
+        # Another column deliberately shares v1; confirming this calibration
+        # must not silently upgrade that second column.
+        other_id = "other-column-sharing-v1"
+        with self.db.session() as session:
+            current = session.get(Series, self.fixture["series_id"])
+            session.add(Series(id=other_id, creator_id=current.creator_id, name="另一个共享栏目",
+                description="保留定位", audience="保留受众", skill_name=None,
+                mind_skill_id=current.mind_skill_id, production_skill_id=current.production_skill_id))
+        with self.db.session() as session:
+            other = session.get(Series, other_id)
+            other_before = {column.name: getattr(other, column.name) for column in Series.__table__.columns}
         calibration = self.create()
         producer = ControlledCalibrationProducer()
         self.extractions.producer_factory = lambda: producer
@@ -207,13 +233,18 @@ class CalibrationTests(unittest.TestCase):
         result = response.json()
         self.assertEqual(result["status"], "applied")
         self.assertEqual(result["skill_id"], self.fixture["skill_id"])
-        self.assertEqual(self.catalog.describe(self.fixture["skill_id"])["digest"], result["applied_digest"])
-        backups = list((self.catalog.root / "calibration-applications").glob("*/*/backup"))
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(tree_hashes(backups[0]), self.fixture["baseline_files"])
+        receipt = self.service._row(calibration["id"]).apply_json
+        version_id = receipt["version_skill_id"]
+        self.assertNotEqual(version_id, self.fixture["skill_id"])
+        self.assertEqual(self.catalog.describe(version_id)["digest"], result["applied_digest"])
+        self.assertEqual(self.catalog.describe(self.fixture["skill_id"])["digest"], calibration["base_skill_digest"])
+        self.assertEqual(tree_hashes(self.catalog.original(self.fixture["skill_id"], calibration["base_skill_digest"])), self.fixture["baseline_files"])
         self.assertEqual(self.client.post(endpoint, json=request).json()["applied_digest"], result["applied_digest"])
         self.assertEqual(self.client.post(endpoint, json={**request, "trial_id": "b" * 64}).status_code, 409)
-        self.assert_formal_unchanged(target=False)
+        self.assert_formal_unchanged(switched=True)
+        with self.db.session() as session:
+            other = session.get(Series, other_id)
+            self.assertEqual({column.name: getattr(other, column.name) for column in Series.__table__.columns}, other_before)
         self.assertEqual(self.client.post(f"/api/skill-extractions/{calibration['job_id']}/draft", json={
             "expected_digest": calibration["job"]["digest"], "skills": calibration["job"]["skills"]}).status_code, 409)
 
@@ -307,7 +338,7 @@ class CalibrationTests(unittest.TestCase):
             applied = client.post(f"/api/skill-calibrations/{identifier}/apply", json=self.apply_payload(calibration))
             self.assertEqual(applied.status_code, 200, applied.text)
             self.assertEqual(applied.json()["status"], "applied")
-        self.assert_formal_unchanged(target=False)
+        self.assert_formal_unchanged(switched=True)
 
     def test_failed_revise_retains_original_draft_and_failure_evidence(self):
         async def fail(*args, **kwargs):
@@ -376,50 +407,61 @@ class CalibrationTests(unittest.TestCase):
         self.assertNotEqual(_digest(companion), old_digest)
         self.assertEqual(calibration_evidence(self.app)["artifact_files"], self.baseline["artifact_files"])
 
-    def test_publication_rename_failure_rolls_back_and_keeps_backup(self):
+    def test_version_switch_failure_keeps_old_binding_and_restart_replays_intent(self):
+        from creatoros.integrations.skill_version_service import SkillVersionService
         calibration = self.trial(self.create())
-        old_rename = Path.rename
-        target = Path(self.fixture["target_path"])
-        def rename(path, destination):
-            if path.name == "candidate" and Path(destination) == target:
-                raise OSError("injected Windows rename refusal")
-            return old_rename(path, destination)
-        with patch.object(Path, "rename", rename):
-            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=self.apply_payload(calibration))
+        payload = self.apply_payload(calibration)
+        endpoint = f"/api/skill-calibrations/{calibration['id']}/apply"
+        with patch.object(SkillVersionService, "switch", side_effect=OSError("injected switch DB unavailable")):
+            response = self.client.post(endpoint, json=payload)
         self.assertEqual(response.status_code, 409, response.text)
-        self.assertEqual(self.service._row(calibration["id"]).status, "draft")
-        self.assertEqual(self.service.get(calibration["id"])["apply_phase"], "rolled_back")
-        self.assertTrue(list((self.catalog.root / "calibration-applications").glob("*/*/backup/SKILL.md")))
+        row = self.service._row(calibration["id"])
+        self.assertEqual(row.status, "applying")
+        self.assertEqual(row.apply_json["kind"], "skill_version")
+        version_id = row.apply_json["version_skill_id"]
+        self.assertEqual(self.catalog.describe(version_id)["version_status"], "released")
         self.assert_formal_unchanged()
-        # A known rollback requires a NEW explicit confirmation request, but not
-        # another paid trial: the checked candidate and existing trial are unchanged.
-        retry = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply",
-                                 json=self.apply_payload(calibration))
+        # The user already authorized this exact switch. Restart only completes
+        # its persisted intent, without repeating a model/trial or editing old files.
+        with patch.object(self.extractions, "reviser", side_effect=AssertionError("must not call SDK")), \
+                patch.object(self.extractions, "producer_factory", side_effect=AssertionError("must not regenerate")):
+            self.service.start()
+        self.assertEqual(self.service._row(calibration["id"]).status, "applied")
+        retry = self.client.post(endpoint, json=payload)
         self.assertEqual(retry.status_code, 200, retry.text)
         self.assertEqual(retry.json()["apply_phase"], "applied")
         self.assertEqual(len(retry.json()["job"]["trials"]), 1)
+        self.assertEqual(len(self.catalog.list_skill_versions(version_id)["items"]), 2)
+        self.assert_formal_unchanged(switched=True)
 
-    def test_db_commit_failure_rolls_back_files_but_postcommit_read_failure_does_not(self):
+    def test_finalize_failure_preserves_committed_switch_and_postcommit_read_does_not_revert_it(self):
         calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        endpoint = f"/api/skill-calibrations/{calibration['id']}/apply"
         original = self.service._update
         def fail_commit(identifier, **changes):
             if changes.get("status") == "applied":
                 raise OSError("injected DB commit failure")
             return original(identifier, **changes)
         with patch.object(self.service, "_update", fail_commit):
-            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=self.apply_payload(calibration))
+            response = self.client.post(endpoint, json=payload)
         self.assertEqual(response.status_code, 409, response.text)
-        self.assert_formal_unchanged()
-        payload = self.apply_payload(calibration)
+        self.assertEqual(self.service._row(calibration["id"]).status, "applying")
+        self.assert_formal_unchanged(switched=True)
+        # The switch receipt committed even though the calibration projection
+        # did not. Idempotent recovery must not increment Series.revision twice.
+        self.service.start()
+        self.assertEqual(self.service._row(calibration["id"]).status, "applied")
         with patch.object(self.service, "get", side_effect=OSError("injected response read failure")):
-            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+            response = self.client.post(endpoint, json=payload)
         self.assertEqual(response.status_code, 409, response.text)
         row = self.service._row(calibration["id"])
         self.assertEqual(row.status, "applied")
-        self.assertEqual(_digest(Path(self.fixture["target_path"])), row.applied_digest)
-        repeated = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+        self.assertEqual(self.catalog.describe(row.apply_json["version_skill_id"])["digest"], row.applied_digest)
+        self.assertEqual(_digest(Path(self.fixture["target_path"])), self.fixture["skill_digest"])
+        repeated = self.client.post(endpoint, json=payload)
         self.assertEqual(repeated.status_code, 200, repeated.text)
-        self.assert_formal_unchanged(target=False)
+        self.assert_formal_unchanged(switched=True)
 
     def test_restart_recovers_unfinished_swap_without_model_or_losing_original(self):
         from creatoros.integrations.skill_calibration_apply import _directory

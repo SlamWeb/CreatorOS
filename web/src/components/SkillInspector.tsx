@@ -7,6 +7,7 @@ import { ApiError, apiUrl, studioApi } from "../api/client";
 import type { ProducerSkillFile, ProducerSkillItem, ProducerSkillText } from "../api/types";
 import { skillEditPrompt, type SkillEditContext } from "./skillEditHandoff";
 import { useAgentChat } from "./AgentChatHost";
+import { SkillVersionControls } from "./SkillVersionControls";
 import "./skill-inspector.css";
 
 type TreeNode = { name: string; path: string; file?: ProducerSkillFile; children: TreeNode[] };
@@ -98,6 +99,8 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const chat = useAgentChat();
   const queryClient = useQueryClient();
   const titleId = useId();
+  const [activeSkill, setActiveSkill] = useState(skill);
+  const [versionBusy, setVersionBusy] = useState(false);
   const [selected, setSelected] = useState("SKILL.md");
   const [source, setSource] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -117,30 +120,43 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const [deleteError, setDeleteError] = useState("");
   const fileListId = useId();
   const latestId = useId();
+  const versions = useQuery({ queryKey: ["producer-skill-versions", activeSkill.id],
+    queryFn: ({ signal }) => studioApi.producerSkillVersions(activeSkill.id, signal), enabled: activeSkill.id.includes("--"), retry: false });
+  const currentSkill = versions.data?.items.find(item => item.id === activeSkill.id) ?? activeSkill;
+  const candidate = currentSkill.version_status === "candidate";
   const files = useQuery({
-    queryKey: ["producer-skill-files", skill.id],
-    queryFn: ({ signal }) => studioApi.producerSkillFiles(skill.id, signal),
+    queryKey: ["producer-skill-files", activeSkill.id],
+    queryFn: ({ signal }) => studioApi.producerSkillFiles(activeSkill.id, signal),
     retry: false, gcTime: 0,
   });
   const tree = useMemo(() => fileTree(files.data?.files ?? []), [files.data]);
   const file = files.data?.files.find(item => item.path === selected);
   const text = useQuery({
-    queryKey: ["producer-skill-file", skill.id, selected],
-    queryFn: ({ signal }) => studioApi.producerSkillText(skill.id, selected, signal),
+    queryKey: ["producer-skill-file", activeSkill.id, selected],
+    queryFn: ({ signal }) => studioApi.producerSkillText(activeSkill.id, selected, signal),
     enabled: file?.kind === "markdown" || file?.kind === "text",
     retry: false, gcTime: 0,
   });
   const dirty = (editing && draft !== text.data?.content) || renameDirty;
+  const chooseVersion = (next: ProducerSkillItem) => {
+    if ((dirty || assetDraft) && !window.confirm("有未保存的修改。切换版本会丢弃草稿，仍要切换吗？")) return;
+    setActiveSkill(next); setSelected("SKILL.md"); setSource(false); setEditing(false); setDraft("");
+    setRenaming(false); setRenameDirty(false); setEditError(""); setLatestContent(null); setAssetDraft(null);
+    setAssetError(""); setDeleteError(""); setAgentOpen(false);
+  };
   const applySaved = (result: ProducerSkillText) => {
-    queryClient.setQueryData(["producer-skill-file", skill.id, result.path], result);
-    queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) => current
+    const resultId = result.skill_id ?? activeSkill.id;
+    queryClient.setQueryData(["producer-skill-file", resultId, result.path], result);
+    queryClient.setQueryData(["producer-skill-files", resultId], (current: typeof files.data) => current
       ? { ...current, digest: result.digest, name: result.name ?? current.name,
         display_name: result.display_name, description: result.description ?? current.description } : current);
+    if (resultId !== activeSkill.id) setActiveSkill({ ...currentSkill, id: resultId, version_status: "candidate" });
+    void queryClient.invalidateQueries({ queryKey: ["producer-skill-versions"] });
     void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
-    if (result.path !== selected) void queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id, selected] });
+    if (result.path !== selected) void queryClient.invalidateQueries({ queryKey: ["producer-skill-file", resultId, selected] });
   };
   const save = useMutation({
-    mutationFn: () => studioApi.saveProducerSkillText(skill.id, {
+    mutationFn: () => studioApi.saveProducerSkillText(activeSkill.id, {
       path: selected, content: draft, expected_digest: editDigest,
     }),
     onSuccess: result => {
@@ -151,45 +167,50 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   });
   const assetSave = useMutation({
     retry: false,
-    mutationFn: async (asset: AssetDraft) => studioApi.saveProducerSkillAsset(skill.id, {
+    mutationFn: async (asset: AssetDraft) => studioApi.saveProducerSkillAsset(activeSkill.id, {
       path: asset.path.trim(), data_base64: await fileBase64(asset.file),
       expected_digest: asset.expectedDigest, overwrite: asset.mode === "replace",
     }),
     onSuccess: async result => {
-      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) =>
+      queryClient.setQueryData(["producer-skill-files", result.skill_id], (current: typeof files.data) =>
         current ? { ...current, digest: result.digest } : current);
+      if (result.skill_id !== activeSkill.id) setActiveSkill({ ...currentSkill, id: result.skill_id, version_status: "candidate" });
       setAssetDraft(null); setAssetError(""); setSelected(result.path);
-      await files.refetch();
-      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id] });
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-files", result.skill_id] });
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", result.skill_id] });
+      void queryClient.invalidateQueries({ queryKey: ["producer-skill-versions"] });
       void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
     },
     onError: error => setAssetError(error.message),
   });
   const assetDelete = useMutation({
     retry: false,
-    mutationFn: (input: { path: string; digest: string }) => studioApi.deleteProducerSkillAsset(skill.id, {
+    mutationFn: (input: { path: string; digest: string }) => studioApi.deleteProducerSkillAsset(activeSkill.id, {
       path: input.path, expected_digest: input.digest,
     }),
     onSuccess: async result => {
-      queryClient.setQueryData(["producer-skill-files", skill.id], (current: typeof files.data) =>
+      queryClient.setQueryData(["producer-skill-files", result.skill_id], (current: typeof files.data) =>
         current ? { ...current, digest: result.digest } : current);
+      if (result.skill_id !== activeSkill.id) setActiveSkill({ ...currentSkill, id: result.skill_id, version_status: "candidate" });
       setAssetError(""); setSelected("SKILL.md");
-      await files.refetch();
-      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", skill.id] });
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-files", result.skill_id] });
+      await queryClient.invalidateQueries({ queryKey: ["producer-skill-file", result.skill_id] });
+      void queryClient.invalidateQueries({ queryKey: ["producer-skill-versions"] });
       void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
     },
     onError: error => setAssetError(error.message),
   });
   const skillDelete = useMutation({
     retry: false,
-    mutationFn: (digest: string) => studioApi.deleteProducerSkill(skill.id, { expected_digest: digest }),
+    mutationFn: (digest: string) => studioApi.deleteProducerSkill(activeSkill.id, { expected_digest: digest }),
     onSuccess: () => {
       if (onDeleted) onDeleted(); else onClose();
       void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
     },
     onError: error => setDeleteError(error.message),
   });
-  const busy = renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending;
+  const busy = renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending || versionBusy;
+  const editable = !!files.data?.editable && candidate;
   useEffect(() => {
     const node = dialog.current;
     const origin = document.activeElement as HTMLElement | null;
@@ -268,7 +289,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   };
   const handToAgent = () => {
     if (!agentRequest.trim() || save.isPending || busy || renaming || !confirmDiscard()) return;
-    const payload = { ...editContext, skillId: skill.id, skillName: name, path: selected, request: agentRequest.trim() };
+    const payload = { ...editContext, skillId: activeSkill.id, skillName: name, path: selected, request: agentRequest.trim() };
     if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
     chat.open({ creatorId: editContext?.creatorId ?? null, draftSeed: skillEditPrompt(payload) });
     onClose();
@@ -280,9 +301,9 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
       return files.data?.files.find(item => item.path === path);
     } catch { return undefined; }
   };
-  const role = files.data ? files.data.role : skill.role;
-  const name = files.data?.display_name ?? files.data?.name ?? skill.display_name ?? skill.name;
-  const imagePath = (path: string) => `${apiUrl(studioApi.producerSkillFilePath(skill.id, path))}&digest=${encodeURIComponent(files.data?.digest ?? "")}`;
+  const role = files.data ? files.data.role : currentSkill.role;
+  const name = files.data?.display_name ?? files.data?.name ?? currentSkill.display_name ?? currentSkill.name;
+  const imagePath = (path: string) => `${apiUrl(studioApi.producerSkillFilePath(activeSkill.id, path))}&digest=${encodeURIComponent(files.data?.digest ?? "")}`;
   const imageUrl = file?.kind === "image" ? imagePath(file.path) : "";
   const markdown = text.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "") ?? "";
   const assetConflict = assetSave.error instanceof ApiError && assetSave.error.status === 409
@@ -309,21 +330,26 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     <header className="skill-inspector-header">
       <div className="skill-inspector-heading"><span className="skill-inspector-mark"><BookOpen size={23} /></span>
         <div><div className="skill-inspector-title"><h2 id={titleId}>{name}</h2>
-          {files.data?.editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending || busy || !!assetDraft}
+          {editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending || busy || !!assetDraft}
             onClick={() => setRenaming(true)}>改名</button>}
           <span className="skill-inspector-role">{role === "mind" ? "Mind" : role === "production" ? "Visualize" : role ? "完整 Skill" : "未分类"}</span></div>
-          <p>{files.data?.description ?? skill.description}</p>
-          {renaming && <SkillRenameForm skillId={skill.id} initialName={name} onDirty={setRenameDirty} onBusy={setRenameBusy}
+          <p>{files.data?.description ?? currentSkill.description}</p>
+          {renaming && <SkillRenameForm skillId={activeSkill.id} initialName={name} onDirty={setRenameDirty} onBusy={setRenameBusy}
             onCancel={() => { setRenaming(false); setRenameDirty(false); }}
             onSaved={result => { applySaved(result); setRenaming(false); setRenameDirty(false); }} />}
         </div>
       </div>
       <div className="skill-inspector-actions">
-        {onAdd && <button type="button" className="skill-inspector-add" disabled={save.isPending || busy}
+        {onAdd && activeSkill.id === skill.id && !candidate && <button type="button" className="skill-inspector-add" disabled={save.isPending || busy}
           onClick={() => { if (confirmDiscard()) onAdd(); }}>加入组合</button>}
         <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending || busy} onClick={close}><X size={20} /></button>
       </div>
     </header>
+    {versions.data ? <SkillVersionControls key={activeSkill.id} skill={currentSkill} digest={files.data?.digest ?? currentSkill.digest ?? ""}
+      history={versions.data} seriesId={editContext?.seriesId} disabled={save.isPending || renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending || editing || renaming || !!assetDraft}
+      onChoose={chooseVersion} onBusy={setVersionBusy} />
+      : <div className="skill-version-loading">{activeSkill.id.includes("--") && versions.isPending ? <span role="status">正在读取版本…</span>
+        : files.data?.editable && <span role="alert">{versions.error?.message} <button type="button" onClick={() => void versions.refetch()}>重新读取版本</button></span>}</div>}
     {files.isPending ? <p className="skill-inspector-state" role="status">正在读取 Skill 文件…</p>
       : files.isError ? <div className="skill-inspector-state" role="alert"><p>{files.error.message}</p>
         <button type="button" onClick={() => void files.refetch()}>重新读取</button></div>
@@ -331,13 +357,13 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
         <aside className="skill-inspector-sidebar">
           <button type="button" className="skill-files-trigger" aria-expanded={filesOpen} aria-controls={fileListId}
             onClick={() => setFilesOpen(value => !value)}>文件<span>{filesOpen ? "收起" : "展开"}</span></button>
-          {files.data?.editable && <button type="button" className="skill-asset-add" disabled={busy || save.isPending || renaming}
+          {editable && <button type="button" className="skill-asset-add" disabled={busy || save.isPending || renaming}
             onClick={() => chooseAsset("add")}><Plus size={14} aria-hidden="true" />添加图片</button>}
           <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending || busy || renaming} /></nav>
         </aside>
         <section className="skill-inspector-preview" aria-label="文件预览">
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
-            {file?.kind === "image" && files.data?.editable && <div className="skill-asset-toolbar">
+            {file?.kind === "image" && editable && <div className="skill-asset-toolbar">
               <button type="button" disabled={busy || save.isPending || renaming} onClick={() => chooseAsset("replace")}>替换图片</button>
               <button type="button" className="skill-danger-link" disabled={busy || save.isPending || renaming} onClick={deleteAsset}>删除图片</button>
             </div>}
@@ -349,7 +375,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
                   onClick={() => { setEditError(""); save.mutate(); }}>{save.isPending ? "正在保存…" : latestContent !== null ? "覆盖保存" : "保存文件"}</button></>
                 : <><button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
                   {file.kind === "markdown" && <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>}
-                  {files.data?.editable && <button type="button" disabled={renaming || busy || !!assetDraft} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
+                  {editable && <button type="button" disabled={renaming || busy || !!assetDraft} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
             </div>}
           </div>
           <div className="skill-file-content" key={selected}>
@@ -385,7 +411,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
               {text.isPending && <p role="status">正在读取文件…</p>}
               {text.isError && <div role="alert"><p>{text.error.message}</p><button type="button" onClick={() => void text.refetch()}>重新读取文件</button></div>}
               {text.data && editing ? <div className="skill-file-editor"><textarea aria-label={`编辑 ${selected}`} disabled={save.isPending} value={draft} onChange={event => setDraft(event.target.value)} spellCheck={false} />
-                <p>修改只影响后续生产。</p></div>
+                <p>保存到候选，不会改变栏目正在使用的版本。</p></div>
                 : text.data && (file.kind === "text" || source
                 ? <pre className="skill-file-source">{text.data.content}</pre>
                 : <div className="skill-file-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
@@ -412,7 +438,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
           </div>
         </section>
       </div>}
-    {files.data?.editable && <footer className="skill-inspector-footer">
+    {files.data?.editable && versions.data?.items.length === 1 && <footer className="skill-inspector-footer">
       <button type="button" className="skill-delete-trigger" disabled={busy || save.isPending || renaming} onClick={deleteSkill}>
         <Trash2 size={15} />{skillDelete.isPending ? "正在移除…" : "删除这个 Skill"}</button>
       {deleteError && <div role="alert"><p>{deleteError}</p>

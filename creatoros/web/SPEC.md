@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## Skill 版本入口（2026-10-21）
+
+- Skill 版本历史/创建候选、干净试用与用户确认保存通过独立版本服务接入。栏目切换使用 revision CAS 与 SQLite 幂等回执，版本 ID 精确绑定；账号 Agent 不能代为试用、发布或切换。
+- Web/Agent 正文及图片编辑均只改候选；回执包含新 skill_id/digest/版本身份，后续工具必须沿该 ID 编辑。历史 Run、排队输入和其他栏目不跟随更新。
+- 多版本家族暂不开放逐版删除，避免移出旧登记导致无法回退；与版本无关的旧 API 保持兼容。Observation 同时读取旧长路径和新短路径试用记录。
+- 完整约束和验收见 `docs/skill-versions/SPEC.md`。
+
 ## 推理档位按用户五档命名（2026-10-21，正式加载）
 
 - 新聊天默认high，选项low/medium/high/xhigh/ultra；按官方实际映射归一为low/high/high/high/max。保留用户requested值用于幂等/偏好，实际档位可检查；不宣称中高极高是不同底层强度。

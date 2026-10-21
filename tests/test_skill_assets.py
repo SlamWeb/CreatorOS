@@ -36,7 +36,9 @@ class SkillAssetTests(unittest.TestCase):
         (source / "assets" / "original.png").write_bytes(picture())
         self.skill = self.catalog.register_local(source, role="mind")
         self.skill_id = self.skill["id"]
+        self.released_id = self.skill_id
         self.working = Path(self.skill["local_path"])
+        self.released_working = self.working
         self.original = self.catalog.root / "versions" / self.skill_id
         app = FastAPI()
         app.include_router(skill_routes(self.db, SkillInstallService(self.catalog)))
@@ -66,11 +68,21 @@ class SkillAssetTests(unittest.TestCase):
             "path": path, "expected_digest": digest or self.files()["digest"],
         })
 
+    def follow_candidate(self, result):
+        self.skill_id = result["skill_id"]
+        self.working = self.catalog.locate(self.skill_id)
+
+    def edit_candidate(self):
+        candidate = self.catalog.create_skill_candidate(self.skill_id, self.files()["digest"], "asset-test-candidate")
+        self.follow_candidate({"skill_id": candidate["id"]})
+
     def test_add_replace_delete_preserves_original_and_reads_actual_bytes(self):
         original_bytes = (self.original / "assets" / "original.png").read_bytes()
         first = self.add()
         self.assertEqual(first.status_code, 200, first.text)
         self.assertEqual(first.json()["operation"], "add")
+        self.assertNotEqual(first.json()["skill_id"], self.released_id)
+        self.follow_candidate(first.json())
         image = self.client.get(f"/api/producer-skills/{self.skill_id}/files/content",
                                 params={"path": "assets/new.png"})
         self.assertEqual(image.status_code, 200, image.text)
@@ -85,6 +97,7 @@ class SkillAssetTests(unittest.TestCase):
         self.assertEqual(removed.json()["operation"], "delete")
         self.assertFalse((self.working / "assets/new.png").exists())
         self.assertEqual((self.original / "assets/original.png").read_bytes(), original_bytes)
+        self.assertFalse((self.released_working / "assets/new.png").exists())
         self.assertGreaterEqual(len(list((self.catalog.root / "trash/asset-backups").rglob("new.png"))), 2)
 
     def test_conflicts_invalid_images_path_and_reference_guard_are_zero_write(self):
@@ -103,6 +116,7 @@ class SkillAssetTests(unittest.TestCase):
         self.assertEqual(self.files()["digest"], initial)
         added = self.add()
         self.assertEqual(added.status_code, 200, added.text)
+        self.follow_candidate(added.json())
         stale = self.delete("assets/new.png", initial)
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json()["error"]["code"], "skill_digest_conflict")
@@ -122,7 +136,9 @@ class SkillAssetTests(unittest.TestCase):
         old.write_bytes(b"old invalid image" * 350_000)
         deleted = self.delete("assets/old.png")
         self.assertEqual(deleted.status_code, 200, deleted.text)
-        self.assertFalse(old.exists())
+        self.follow_candidate(deleted.json())
+        self.assertTrue(old.exists(), "old released version retains even the invalid historical asset")
+        self.assertFalse((self.working / "assets/old.png").exists())
         filler = self.working / "large.txt"
         with filler.open("wb") as stream:
             stream.truncate(96 * 1024 * 1024)
@@ -133,6 +149,7 @@ class SkillAssetTests(unittest.TestCase):
         self.assertEqual(self.files()["digest"], before)
 
     def test_linked_asset_or_backup_parent_rejected(self):
+        self.edit_candidate()
         initial = self.files()["digest"]
         outside = self.root / "outside.png"
         outside.write_bytes(picture())

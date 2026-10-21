@@ -64,6 +64,7 @@ class SkillAssetToolTests(unittest.TestCase):
                 (source / "assets/ref.png").write_bytes(png("blue"))
                 skill = catalog.register_local(source, role="legacy_end_to_end")
                 identity = skill["id"]
+                released_id = identity
                 working = catalog.locate(identity)
                 frozen = root / "frozen"
                 freeze_skill(working, frozen, _digest(working))
@@ -86,7 +87,11 @@ class SkillAssetToolTests(unittest.TestCase):
                     updated = json.loads(result.content)
                     self.assertNotEqual(updated["digest"], digest)
                     self.assertNotIn("base64", result.content)
+                    identity = updated["skill_id"]
+                    self.assertNotEqual(identity, released_id)
+                    request = {**request, "skill_id": identity}
                     self.assertEqual(catalog.read_skill_file(identity, "assets/ref.png")["content"], png("red"))
+                    self.assertEqual(catalog.read_skill_file(released_id, "assets/ref.png")["content"], png("blue"))
                     self.assertEqual(json.loads(result.model_content)["operation"], "replace")
                     stale = execute(request)
                     self.assertTrue(stale.is_error)
@@ -120,11 +125,13 @@ class SkillAssetToolTests(unittest.TestCase):
                         expected_digest=json.loads(text_result.content)["digest"]))
                     self.assertFalse(removed_ref.is_error, removed_ref.content)
                     self.assertEqual(catalog.read_skill_file(identity, "SKILL.md")["content"], changed)
+                    self.assertEqual(catalog.read_skill_file(released_id, "SKILL.md")["content"].encode("utf-8"), (source / "SKILL.md").read_bytes())
                     self.assertEqual(_digest(frozen), frozen_digest)
                     self.assertEqual((frozen / "assets/ref.png").read_bytes(), png("blue"))
                     self.assertEqual((source / "assets/ref.png").read_bytes(), png("blue"))
                     with database.session() as db:
                         self.assertEqual(db.scalar(select(func.count()).select_from(ContentRun)), 0)
+                        self.assertEqual(db.get(Series, "agent-notes").skill_name, released_id)
                     self.assertEqual(producer.calls, 0)
             finally:
                 database.close()

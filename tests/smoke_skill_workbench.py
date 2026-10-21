@@ -173,7 +173,8 @@ def main():
             assert len(catalog.list()) == 1  # built-in only; a trial is not a formal catalog write
 
             # Trials freeze their Skill snapshot; later edits preserve and label the old result.
-            frozen_skill = service.root / "jobs" / job_id / "trials" / trial_id / "skill-snapshot/skills/legacy_end_to_end/SKILL.md"
+            from creatoros.integrations.skill_workbench import trial_root
+            frozen_skill = trial_root(service, job_id, trial_id) / "skill-snapshot/skills/legacy_end_to_end/SKILL.md"
             frozen_text = frozen_skill.read_text(encoding="utf-8")
             newer = client.post(f"{base}/{job_id}/draft", json={
                 "expected_digest": edited["digest"],

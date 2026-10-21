@@ -359,6 +359,27 @@ export interface ProducerSkillItem {
   producible: boolean;
   editable?: boolean;
   local_path?: string | null;
+  digest?: string;
+  family_id?: string;
+  parent_id?: string | null;
+  version_number?: number;
+  version_status?: "candidate" | "released";
+  latest_trial_job_id?: string | null;
+  version_trial_job_id?: string | null;
+}
+
+export interface SkillVersionBinding {
+  series_id: string;
+  series_name: string;
+  role: "single" | "mind" | "production";
+  skill_id: string;
+  revision: number;
+}
+
+export interface SkillVersionHistory {
+  family_id: string;
+  items: ProducerSkillItem[];
+  bindings: SkillVersionBinding[];
 }
 
 export type ProducerSkillFileKind = "markdown" | "text" | "image" | "unsupported";
@@ -471,8 +492,12 @@ export interface SkillExtractionEventPage {
 export interface SkillExtractionJob {
   queue_state?: "queued" | "running" | "completed" | "failed" | "interrupted" | null;
   observation_warning?: string | null;
-  task_kind?: "extract" | "merge" | "author" | "calibrate";
+  task_kind?: "extract" | "merge" | "author" | "calibrate" | "skill_version";
   calibration_id?: string;
+  version_candidate_id?: string;
+  version_candidate_digest?: string;
+  version_series_revision?: number | null;
+  version_series_id?: string | null;
   source_skills?: { id: string; name: string; role: ProducerSkillItem["role"]; digest: string }[];
   id: string;
   request_id: string;

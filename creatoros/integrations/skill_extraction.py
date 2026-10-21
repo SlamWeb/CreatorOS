@@ -647,8 +647,8 @@ class SkillExtractionService:
     def save(self, job_id, expected_digest):
         with self.lock:
             job = self._read(job_id)
-            if job.get("task_kind") == "calibrate":
-                raise ExtractionError("校准草稿请先试用，再在校准工作台确认更新原 Skill；不能直接入库。", 409)
+            if job.get("task_kind") in {"calibrate", "skill_version"}:
+                raise ExtractionError("这份候选请先试用，再通过版本入口确认；不能绕过版本审核入库。", 409)
             if not expected_digest or job["digest"] != expected_digest:
                 raise ExtractionError("草稿版本已变化，请刷新后重新确认。", 409)
             if job["status"] == "saved":

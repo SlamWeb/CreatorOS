@@ -16,6 +16,7 @@ import type {
   ProducerSkillText,
   ProducerSkillAssetResult,
   ProducerSkillDeleteResult,
+  SkillVersionHistory,
   SkillExtractionJob,
   SkillExtractionEvent,
   SkillExtractionEventPage,
@@ -112,6 +113,16 @@ export const studioApi = {
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
   seriesAll: () => request<SeriesView[]>("/api/series"),
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
+  producerSkillVersions: (id: string, signal?: AbortSignal) => request<SkillVersionHistory>(
+    `/api/producer-skills/${encodeURIComponent(id)}/versions`, { signal }),
+  createSkillVersion: (id: string, input: { expected_digest: string; request_id: string }) =>
+    request<ProducerSkillItem>(`/api/producer-skills/${encodeURIComponent(id)}/versions`, { method: "POST", body: JSON.stringify(input) }),
+  createSkillVersionTrial: (id: string, input: { expected_digest: string; request_id: string; series_id?: string; topic: string }) =>
+    request<SkillExtractionJob>(`/api/producer-skills/${encodeURIComponent(id)}/version-trials`, { method: "POST", body: JSON.stringify(input) }),
+  publishSkillVersion: (id: string, input: { expected_digest: string; request_id: string; trial_job_id: string; trial_id: string }) =>
+    request<ProducerSkillItem>(`/api/producer-skills/${encodeURIComponent(id)}/publish-version`, { method: "POST", body: JSON.stringify(input) }),
+  switchSeriesSkillVersion: (id: string, input: { skill_id: string; expected_revision: number; request_id: string; trial_job_id?: string; trial_id?: string }) =>
+    request<{ series_id: string; skill_id: string; revision: number }>(`/api/series/${encodeURIComponent(id)}/skill-version`, { method: "POST", body: JSON.stringify(input) }),
   skillCalibrations: (seriesId?: string) => request<{ items: SkillCalibration[] }>(`/api/skill-calibrations${seriesId ? `?series_id=${encodeURIComponent(seriesId)}` : ""}`),
   skillCalibration: (id: string, signal?: AbortSignal) => request<SkillCalibration>(`/api/skill-calibrations/${encodeURIComponent(id)}`, { signal }),
   createSkillCalibration: (input: SkillCalibrationInput) => request<SkillCalibration>("/api/skill-calibrations", { method: "POST", body: JSON.stringify(input) }),

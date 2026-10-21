@@ -24,6 +24,7 @@ _SKILL = (
     "id", "skill_id", "name", "description", "role", "producible",
     "available", "editable", "carousel_compatible", "compatibility_note",
     "github_url",
+    "family_id", "parent_id", "version_number", "version_status",
 )
 _TOPIC = (
     "reference_id",
