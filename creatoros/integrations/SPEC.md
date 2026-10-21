@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## Skill 保存不强制试产（2026-10-22）
+
+- 人工保存候选可直接成为可用版本，不要求选题/试产；publish保留完整目录digest CAS，栏目切版保留revision CAS/幂等/准确家族与角色边界。试用字段仅向后兼容，不作为启用门槛。
+- 保存不自动改栏目；人工切候选可同时保存，该动作不调用模型。新网页传expected_digest防误选已变化候选，旧客户端兼容；Agent仍不能代为publish/switch。
+- 可选trial/checked_trial保留完整资产和产物验证并供RSI复用，历史试用记录不改。下方2026-10-21“必须先试用”条款已由本节取代；现有产物/在途Run仍使用原冻结版本。
+- 定向隔离验证见 docs/skill-versions/SPEC.md，不以受控产物测试宣称真实模型质量提升。
+
 ## 完整 Skill 版本与显式切换（2026-10-21）
 
 - 修改共享 Skill 改为独立候选 ID，完整保留正文/assets/scripts；旧 ID 与冻结 Run 不变。发布版只读，候选经干净线程试用后，由用户保存并切换指定栏目；历史版本可回退，不使用浮动 latest 绑定。

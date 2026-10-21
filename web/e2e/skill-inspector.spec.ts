@@ -448,10 +448,9 @@ test("candidate keeps the full folder, asset changes stay isolated, and refresh 
   await expect(card.getByRole("img", { name: "assets/diagram.png" })).toHaveJSProperty("naturalWidth", 1);
   expect(await request.get(`${basePath}/files/content?path=assets%2Fdiagram.png`).then(response => response.body())).toEqual(originalImage);
   expect((await request.get(`${basePath}/files`).then(response => response.json())).digest).toBe(before.digest);
-  await card.getByRole("button", { name: "试用与启用", exact: true }).click();
-  await card.getByRole("textbox", { name: "版本试用选题" }).fill("对照原参考图制作新内容");
-  await expect(card.getByRole("button", { name: "干净线程试用", exact: true })).toBeDisabled();
-  await expect(card.getByText("请选择栏目，试用会带上该栏目的另一份 Skill。", { exact: true })).toBeVisible();
+  await expect(card.getByRole("button", { name: "保存版本", exact: true })).toBeEnabled();
+  await expect(card.getByRole("textbox", { name: "版本试用选题" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "干净线程试用", exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("skill-version-candidate-desktop.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: info.outputPath("skill-version-candidate-mobile.png") });
@@ -483,4 +482,98 @@ test("unknown candidate creation survives refresh, reuses its request identity, 
   expect(ids).toHaveLength(2); expect(ids[0]).toBe(ids[1]);
   const after = await request.get(versionsPath).then(response => response.json());
   expect(after.items).toHaveLength(before.items.length + 1);
+});
+
+test("candidate saves, switches and rolls back without any trial or production", async ({ page, request }, info) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const created = await request.post("/api/series", { data: { name: `版本选题验收-${crypto.randomUUID().slice(0, 8)}`,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id, description: "", audience: "", request_id: crypto.randomUUID() } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const series = (await created.json()).series;
+  const otherResult = await request.post("/api/series", { data: { name: `不切换栏目-${crypto.randomUUID().slice(0, 8)}`,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id, description: "", audience: "", request_id: crypto.randomUUID() } });
+  expect(otherResult.ok(), await otherResult.text()).toBeTruthy();
+  const other = (await otherResult.json()).series;
+  await page.goto(`/skills?skill=${fixture.mind.id}`);
+  const card = page.getByRole("dialog");
+  const candidateId = await createCandidate(page, card);
+  let trialPosts = 0, productionPosts = 0;
+  const saves: Record<string, unknown>[] = [], switches: Record<string, unknown>[] = [];
+  page.on("request", req => {
+    if (req.method() !== "POST") return;
+    const url = new URL(req.url()).pathname;
+    if (url.includes("/version-trials") || url.endsWith("/trials")) trialPosts++;
+    if (url.startsWith("/api/runs")) productionPosts++;
+    if (url.endsWith("/publish-version")) saves.push(req.postDataJSON());
+    if (url.endsWith("/skill-version")) switches.push(req.postDataJSON());
+  });
+  await expect(card.getByRole("textbox", { name: "版本试用选题" })).toHaveCount(0);
+  await expect(card.getByRole("combobox", { name: "选择已有选题试用" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "干净线程试用", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "保存版本", exact: true })).toBeEnabled();
+  page.once("dialog", dialog => dialog.accept());
+  await card.getByRole("button", { name: "保存版本", exact: true }).click();
+  await expect(card.getByText("已保存版本", { exact: true })).toBeVisible();
+  expect(Object.keys(saves[0]).sort()).toEqual(["expected_digest", "request_id"]);
+  expect((await request.get(`/api/series/${series.id}`).then(r => r.json())).mind_skill_id).toBe(fixture.mind.id);
+  await card.getByRole("button", { name: "栏目版本", exact: true }).click();
+  await card.getByRole("combobox", { name: "版本应用栏目" }).selectOption(series.id);
+  page.once("dialog", dialog => dialog.accept());
+  await card.getByRole("button", { name: "使用这个版本", exact: true }).click();
+  await expect.poll(async () => (await request.get(`/api/series/${series.id}`).then(r => r.json())).mind_skill_id).toBe(candidateId);
+  expect(Object.keys(switches[0]).sort()).toEqual(["expected_digest", "expected_revision", "request_id", "skill_id"]);
+  expect((await request.get(`/api/series/${other.id}`).then(r => r.json())).mind_skill_id).toBe(fixture.mind.id);
+  await card.getByRole("combobox", { name: "查看 Skill 版本" }).selectOption(fixture.mind.id);
+  await card.getByRole("button", { name: "栏目版本", exact: true }).click();
+  await card.getByRole("combobox", { name: "版本应用栏目" }).selectOption(series.id);
+  page.once("dialog", dialog => dialog.accept());
+  await card.getByRole("button", { name: "使用这个版本", exact: true }).click();
+  await expect.poll(async () => (await request.get(`/api/series/${series.id}`).then(r => r.json())).mind_skill_id).toBe(fixture.mind.id);
+  expect(trialPosts).toBe(0); expect(productionPosts).toBe(0);
+  await page.screenshot({ path: info.outputPath("simple-versions-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("simple-versions-mobile.png") });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("candidate can be used directly and unknown switch replays the same frozen digest after reload", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const response = await request.post("/api/series", { data: { name: `直接使用候选-${crypto.randomUUID().slice(0, 8)}`,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id, description: "", audience: "", request_id: crypto.randomUUID() } });
+  expect(response.ok(), await response.text()).toBeTruthy(); const series = (await response.json()).series;
+  await page.goto(`/skills?skill=${fixture.mind.id}`);
+  const candidateId = await createCandidate(page, page.getByRole("dialog"));
+  const payloads: Record<string, unknown>[] = [];
+  await page.route(`**/api/series/${series.id}/skill-version`, async route => {
+    payloads.push(route.request().postDataJSON());
+    const actual = await route.fetch(); expect(actual.ok(), await actual.text()).toBeTruthy();
+    if (payloads.length === 1) await route.abort("failed"); else await route.fulfill({ response: actual });
+  });
+  const card = page.getByRole("dialog");
+  await card.getByRole("button", { name: "栏目版本", exact: true }).click();
+  await card.getByRole("combobox", { name: "版本应用栏目" }).selectOption(series.id);
+  page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "使用这个版本", exact: true }).click();
+  await expect(card.getByRole("button", { name: "核对并恢复上次操作" })).toBeVisible();
+  const accepted = await request.get(`/api/series/${series.id}`).then(r => r.json()); expect(accepted.mind_skill_id).toBe(candidateId);
+  await page.reload();
+  await page.getByRole("dialog").getByRole("button", { name: "核对并恢复上次操作" }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "核对并恢复上次操作" })).toHaveCount(0);
+  expect(payloads).toHaveLength(2); expect(payloads[1]).toEqual(payloads[0]);
+  expect((await request.get(`/api/series/${series.id}`).then(r => r.json())).revision).toBe(accepted.revision);
+});
+
+test("library version selection replaces only its Skill query and refresh restores the candidate", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  await page.goto(`/skills?skill=${fixture.mind.id}&extraction=preserve-existing-task`);
+  const candidateId = await createCandidate(page, page.getByRole("dialog"));
+  await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(candidateId);
+  expect(new URL(page.url()).searchParams.get("extraction")).toBe("preserve-existing-task");
+  await page.reload();
+  const card = page.getByRole("dialog");
+  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidateId);
+  await expect(card.getByRole("button", { name: "保存版本", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const box = await card.getByRole("combobox", { name: "查看 Skill 版本" }).boundingBox();
+  expect(box!.width).toBeGreaterThanOrEqual(112);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

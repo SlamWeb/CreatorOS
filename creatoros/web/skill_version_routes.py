@@ -20,8 +20,8 @@ class VersionTrialRequest(CandidateRequest):
 
 
 class PublishVersionRequest(CandidateRequest):
-    trial_job_id: str = Field(pattern=r"^[a-f0-9]{64}$")
-    trial_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    trial_job_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    trial_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class SwitchVersionRequest(BaseModel):
@@ -29,6 +29,7 @@ class SwitchVersionRequest(BaseModel):
     skill_id: str = Field(min_length=1, max_length=120)
     expected_revision: int = Field(ge=1)
     request_id: str = Field(min_length=1, max_length=128)
+    expected_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     trial_job_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     trial_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 

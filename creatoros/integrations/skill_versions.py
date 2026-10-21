@@ -2,7 +2,8 @@
 
 Registry IDs remain production identities, so old Runs and queued snapshots keep
 their original files.  This module never selects a version for a Series: that
-separate, explicit operation must first validate a successful trial.
+separate, explicit human operation checks the selected version and column
+revision. A production trial is optional, not a publishing prerequisite.
 """
 from __future__ import annotations
 

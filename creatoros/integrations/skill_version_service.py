@@ -153,7 +153,7 @@ class SkillVersionService:
         trial = next((item for item in job.get("trials", []) if item["id"] == trial_id), None)
         if (not trial or trial["status"] != "completed" or trial["digest"] != job["digest"]
                 or not trial.get("thread_id") or not trial.get("artifact_digest")):
-            raise ExtractionError("请先成功试用当前版本，再确认保存。", 409)
+            raise ExtractionError("这次试用未成功完成或缺少产物凭据，不能作为有效试用记录。", 409)
         directory = trial_directory(self.extractions, job_id, trial_id)
         trial_cards(directory, job_id, trial_id, complete=True)
         composition = SkillPair.model_validate(trial["composition"]) if trial.get("composition") else None
@@ -173,18 +173,22 @@ class SkillVersionService:
                     raise ExtractionError("试用搭档已变化，请重新试用。", 409)
         return job
 
-    def publish(self, skill_id, expected_digest, trial_job_id, trial_id, request_id):
+    def publish(self, skill_id, expected_digest, trial_job_id=None, trial_id=None, request_id=None):
         with self.extractions.lock, _SKILL_EDIT_LOCK:
             item = self.catalog.describe(skill_id)
             if item["digest"] != expected_digest:
                 raise ExtractionError("候选版本已变化，请刷新后确认。", 409)
-            self.checked_trial(skill_id, expected_digest, trial_job_id, trial_id)
+            # Publishing is the user's decision to keep this exact full-folder
+            # version, not a claim that a model trial or aesthetic judge passed.
+            # Legacy trial fields remain accepted but do not gate availability.
             return self.catalog.publish_skill_candidate(skill_id, expected_digest)
 
     def switch(self, series_id, skill_id, expected_revision, request_id, trial_job_id=None, trial_id=None,
-               *, validated_calibration=False):
+               *, validated_calibration=False, expected_digest=None):
         inputs = dict(series_id=series_id, skill_id=skill_id, expected_revision=expected_revision,
                       trial_job_id=trial_job_id, trial_id=trial_id)
+        if expected_digest is not None:
+            inputs["expected_digest"] = expected_digest
         receipt_id = signature({"kind": "switch-skill-version", "request_id": request_id})
         with self.extractions.lock, _SKILL_EDIT_LOCK, self.database.session() as session:
             previous = session.get(WriteReceipt, receipt_id)
@@ -199,19 +203,10 @@ class SkillVersionService:
                 raise ExtractionError("栏目配置已变化，请刷新后确认。", 409)
             role, previous_skill_id = self._binding(series, skill_id)
             item = self.catalog.describe(skill_id)
-            prior_activation = any(
-                receipt.get("kind") == "skill_version" and skill_id in (
-                    receipt.get("result", {}).get("skill_id"), receipt.get("previous_skill_id"))
-                for receipt in session.scalars(select(WriteReceipt.response_json).where(
-                    WriteReceipt.operation == "update_composition", WriteReceipt.resource_id == series_id)))
-            needs_trial = (item["version_status"] == "candidate" or
-                           item.get("parent_id") and not prior_activation and not validated_calibration)
-            if needs_trial or trial_job_id or trial_id:
-                if not trial_job_id or not trial_id:
-                    raise ExtractionError("请先试用候选版本。", 409)
-                self.checked_trial(skill_id, item["digest"], trial_job_id, trial_id, series)
+            if expected_digest is not None and item["digest"] != expected_digest:
+                raise ExtractionError("Skill版本已变化，请刷新后确认。", 409)
             if item["version_status"] == "candidate":
-                self.catalog.publish_skill_candidate(skill_id, item["digest"])
+                self.catalog.publish_skill_candidate(skill_id, expected_digest or item["digest"])
             field = {"single": "skill_name", "mind": "mind_skill_id", "production": "production_skill_id"}[role]
             changed = session.execute(update(Series).where(Series.id == series_id,
                 Series.revision == expected_revision).values(**{field: skill_id, "revision": expected_revision + 1}))

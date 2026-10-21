@@ -15,7 +15,7 @@ from PIL import Image
 from sqlalchemy import event, select
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
-from creatoros.integrations.skill_extraction import SkillExtractionService
+from creatoros.integrations.skill_extraction import ExtractionError, SkillExtractionService
 from creatoros.runs import ContentRunService
 from creatoros.storage import ContentRepository, ContentRevision, ContentRun, Database, Series, TopicSource, WriteReceipt, upgrade_database
 from creatoros.web import create_app
@@ -74,6 +74,8 @@ class SkillVersionServiceTests(unittest.TestCase):
     def switch_payload(self, candidate, job=None, revision=1, request_id=None):
         value = dict(skill_id=candidate["skill_id"], expected_revision=revision,
                      request_id=request_id or uuid4().hex)
+        if candidate.get("digest"):
+            value["expected_digest"] = candidate["digest"]
         if job:
             value.update(trial_job_id=job["id"], trial_id=job["trials"][-1]["id"])
         return value
@@ -98,10 +100,11 @@ class SkillVersionServiceTests(unittest.TestCase):
             "creatoros-output: social-content-pack.image-carousel\n---\n制作一张图片。\n", encoding="utf-8")
         return self.catalog.register_local(source, role="production")
 
-    def publish(self, candidate, job):
-        response = self.client.post(f"/api/producer-skills/{candidate['skill_id']}/publish-version", json={
-            "expected_digest": candidate["digest"], "request_id": uuid4().hex,
-            "trial_job_id": job["id"], "trial_id": job["trials"][-1]["id"]})
+    def publish(self, candidate, job=None):
+        payload = {"expected_digest": candidate["digest"], "request_id": uuid4().hex}
+        if job:
+            payload.update(trial_job_id=job["id"], trial_id=job["trials"][-1]["id"])
+        response = self.client.post(f"/api/producer-skills/{candidate['skill_id']}/publish-version", json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
@@ -113,8 +116,9 @@ class SkillVersionServiceTests(unittest.TestCase):
             "expected_digest": candidate["digest"]})
         self.assertEqual(changed.status_code, 200, changed.text)
         candidate = changed.json()
-        stale = self.switch(self.switch_payload(candidate, first))
-        self.assertEqual(stale.status_code, 409, stale.text)
+        with self.assertRaises(ExtractionError):
+            self.service.checked_trial(candidate["skill_id"], candidate["digest"],
+                                       first["id"], first["trials"][-1]["id"])
         second = self.trial(candidate)
         self.assertNotEqual(first["trials"][-1]["thread_id"], second["trials"][-1]["thread_id"])
         payload = self.switch_payload(candidate, second)
@@ -134,15 +138,16 @@ class SkillVersionServiceTests(unittest.TestCase):
             self.assertEqual(len(receipts), 2)
         self.assert_original_protected()
 
-    def test_trial_artifact_changed_rejects_activation(self):
+    def test_explicit_trial_validation_rejects_changed_artifact(self):
         candidate = self.candidate()
         job = self.trial(candidate)
         from creatoros.integrations.skill_workbench import trial_directory
         directory = trial_directory(self.extractions, job["id"], job["trials"][-1]["id"])
         image = next((directory / "images").glob("*.png"))
         Image.new("RGB", (20, 20), "red").save(image)
-        rejected = self.switch(self.switch_payload(candidate, job))
-        self.assertIn(rejected.status_code, (409, 422), rejected.text)
+        with self.assertRaises((ExtractionError, ValueError)):
+            self.service.checked_trial(candidate["skill_id"], candidate["digest"],
+                                       job["id"], job["trials"][-1]["id"])
         self.assertEqual(self.catalog.describe(candidate["skill_id"])["version_status"], "candidate")
         self.assert_original_protected()
 
@@ -177,7 +182,7 @@ class SkillVersionServiceTests(unittest.TestCase):
             self.assertEqual(new.status.value, "queued")
         self.assert_original_protected()
 
-    def test_column_or_companion_change_after_trial_requires_new_trial(self):
+    def test_explicit_trial_validation_rejects_column_change_and_switch_keeps_revision_cas(self):
         candidate = self.candidate()
         job = self.trial(candidate)
         with self.db.session() as db:
@@ -185,8 +190,14 @@ class SkillVersionServiceTests(unittest.TestCase):
             column.description = "试用后的真实栏目配置变更"
             db.flush()
             changed_revision = column.revision
-        rejected = self.switch(self.switch_payload(candidate, job, revision=changed_revision))
+        with self.db.session() as db:
+            column = db.get(Series, self.fixture["series_id"])
+            with self.assertRaises(ExtractionError):
+                self.service.checked_trial(candidate["skill_id"], candidate["digest"],
+                    job["id"], job["trials"][-1]["id"], series=column)
+        rejected = self.switch(self.switch_payload(candidate, revision=1))
         self.assertEqual(rejected.status_code, 409, rejected.text)
+        self.assertGreater(changed_revision, 1)
         self.assert_original_protected()
 
     def test_committed_receipt_replays_after_candidate_was_published(self):
@@ -230,26 +241,81 @@ class SkillVersionServiceTests(unittest.TestCase):
         self.assertEqual(len(self.extractions.get(job["id"])["trials"]), 1)
         self.assert_original_protected()
 
-    def test_publish_cannot_skip_first_activation_trial_or_companion_check(self):
+    def test_publish_without_trial_then_first_activation_and_rollback_does_not_generate(self):
         candidate = self.candidate()
-        job = self.trial(candidate)
-        self.publish(candidate, job)
-        no_trial = self.switch(self.switch_payload(candidate))
-        self.assertEqual(no_trial.status_code, 409, no_trial.text)
-        alternate = self.alternative_companion()
+        jobs_before = set((self.extractions.root / "jobs").glob("*/job.json"))
+        published = self.publish(candidate)
+        self.assertEqual(published["version_status"], "released")
+        self.assertEqual(self.publish(candidate)["digest"], candidate["digest"])
+        with self.db.session() as db:
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).mind_skill_id, self.fixture["skill_id"])
+        activated = self.switch(self.switch_payload(candidate))
+        self.assertEqual(activated.status_code, 200, activated.text)
+        rollback = self.switch(self.switch_payload({"skill_id": self.fixture["skill_id"]}, revision=2))
+        self.assertEqual(rollback.status_code, 200, rollback.text)
         with self.db.session() as db:
             column = db.get(Series, self.fixture["series_id"])
-            column.production_skill_id = alternate["id"]
-            db.flush()
-            revision = column.revision
-        old_trial = self.switch(self.switch_payload(candidate, job, revision=revision))
-        self.assertEqual(old_trial.status_code, 409, old_trial.text)
+            self.assertEqual(column.mind_skill_id, self.fixture["skill_id"])
+            self.assertEqual(column.revision, 3)
+        self.assertEqual(set((self.extractions.root / "jobs").glob("*/job.json")), jobs_before)
         self.assert_original_protected()
 
-    def test_activation_in_one_column_is_not_rollback_authority_for_another(self):
+    def test_human_switch_can_keep_candidate_without_trial_and_legacy_fields_are_optional(self):
         candidate = self.candidate()
-        job = self.trial(candidate)
-        activated = self.switch(self.switch_payload(candidate, job))
+        payload = self.switch_payload(candidate)
+        with patch.object(self.service, "checked_trial", side_effect=AssertionError("no implicit paid gate")):
+            switched = self.switch(payload)
+            self.assertEqual(switched.status_code, 200, switched.text)
+            self.assertEqual(self.switch(payload).json(), switched.json())
+        self.assertEqual(self.catalog.describe(candidate["skill_id"])["version_status"], "released")
+        self.assertEqual(list((self.extractions.root / "jobs").glob("*/job.json")), [])
+        self.assert_original_protected()
+
+    def test_publish_and_switch_reject_stale_digest_without_touching_binding_or_files(self):
+        candidate = self.candidate()
+        changed = self.catalog.update_skill_file(candidate["skill_id"], "SKILL.md",
+            candidate["content"] + "\n人工补充一处细节。\n", candidate["digest"])
+        candidate_bytes = tree_hashes(self.catalog.locate(candidate["skill_id"]))
+        published = self.client.post(f"/api/producer-skills/{candidate['skill_id']}/publish-version", json={
+            "expected_digest": candidate["digest"], "request_id": uuid4().hex})
+        self.assertEqual(published.status_code, 409, published.text)
+        stale_switch = self.switch(self.switch_payload(candidate))
+        self.assertEqual(stale_switch.status_code, 409, stale_switch.text)
+        with self.db.session() as db:
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).revision, 1)
+            self.assertEqual(db.query(WriteReceipt).count(), 0)
+        self.assertEqual(self.catalog.describe(candidate["skill_id"])["version_status"], "candidate")
+        self.assertEqual(tree_hashes(self.catalog.locate(candidate["skill_id"])), candidate_bytes)
+        self.assertNotEqual(changed["digest"], candidate["digest"])
+        self.assert_original_protected()
+
+    def test_unused_legacy_trial_fields_do_not_gate_publish_or_switch(self):
+        candidate = self.candidate()
+        with patch.object(self.service, "checked_trial", side_effect=AssertionError("legacy hints are not authority")):
+            published = self.client.post(f"/api/producer-skills/{candidate['skill_id']}/publish-version", json={
+                "expected_digest": candidate["digest"], "request_id": uuid4().hex,
+                "trial_job_id": "a" * 64, "trial_id": "b" * 64})
+            self.assertEqual(published.status_code, 200, published.text)
+            switched = self.switch({**self.switch_payload(candidate),
+                                   "trial_job_id": "a" * 64, "trial_id": "b" * 64})
+            self.assertEqual(switched.status_code, 200, switched.text)
+        self.assertEqual(list((self.extractions.root / "jobs").glob("*/job.json")), [])
+        self.assert_original_protected()
+
+    def test_saving_version_does_not_remove_family_binding_boundary(self):
+        candidate = self.candidate()
+        self.publish(candidate)
+        unrelated = self.alternative_companion()
+        rejected = self.switch(self.switch_payload({"skill_id": unrelated["id"], "digest": unrelated["digest"]}))
+        self.assertEqual(rejected.status_code, 409, rejected.text)
+        with self.db.session() as db:
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).mind_skill_id, self.fixture["skill_id"])
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).revision, 1)
+        self.assert_original_protected()
+
+    def test_activation_changes_only_selected_column_and_other_column_may_explicitly_select(self):
+        candidate = self.candidate()
+        activated = self.switch(self.switch_payload(candidate))
         self.assertEqual(activated.status_code, 200, activated.text)
         alternate = self.alternative_companion()
         other_id = "another-series-" + uuid4().hex
@@ -258,12 +324,14 @@ class SkillVersionServiceTests(unittest.TestCase):
                 description="", audience="", skill_name=None, mind_skill_id=self.fixture["skill_id"],
                 production_skill_id=alternate["id"]))
         request = self.switch_payload(candidate)
-        denied = self.client.post(f"/api/series/{other_id}/skill-version", json=request)
-        self.assertEqual(denied.status_code, 409, denied.text)
-        denied = self.client.post(f"/api/series/{other_id}/skill-version", json=self.switch_payload(candidate, job))
-        self.assertEqual(denied.status_code, 409, denied.text)
         with self.db.session() as db:
             self.assertEqual(db.get(Series, other_id).mind_skill_id, self.fixture["skill_id"])
+            original_revision = db.get(Series, self.fixture["series_id"]).revision
+        selected = self.client.post(f"/api/series/{other_id}/skill-version", json=request)
+        self.assertEqual(selected.status_code, 200, selected.text)
+        with self.db.session() as db:
+            self.assertEqual(db.get(Series, other_id).mind_skill_id, candidate["skill_id"])
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).revision, original_revision)
         self.assert_original_protected()
 
     def test_normally_bound_published_version_remains_a_rollback_target(self):
@@ -289,8 +357,10 @@ class SkillVersionServiceTests(unittest.TestCase):
         endpoint = f"/api/series/{series_id}/skill-version"
         switched = self.client.post(endpoint, json=self.switch_payload(v3, j3))
         self.assertEqual(switched.status_code, 200, switched.text)
-        unrelated = self.switch(self.switch_payload(v2))
-        self.assertEqual(unrelated.status_code, 409, unrelated.text)
+        # Saving/rebinding this edition elsewhere does not mutate the original column.
+        with self.db.session() as db:
+            self.assertEqual(db.get(Series, self.fixture["series_id"]).production_skill_id,
+                             self.fixture["companion_id"])
         rollback = self.client.post(endpoint, json=self.switch_payload(v2, revision=2))
         self.assertEqual(rollback.status_code, 200, rollback.text)
         with self.db.session() as db:
@@ -302,7 +372,7 @@ class SkillVersionServiceTests(unittest.TestCase):
             self.assertEqual(original.revision, 1)
         self.assert_original_protected()
 
-    def test_failed_switch_release_does_not_allow_activation_after_companion_change(self):
+    def test_failed_switch_release_preserves_revision_cas_after_companion_change(self):
         candidate = self.candidate()
         job = self.trial(candidate)
         request = self.switch_payload(candidate, job)
@@ -323,12 +393,15 @@ class SkillVersionServiceTests(unittest.TestCase):
             column.production_skill_id = alternate["id"]
             db.flush()
             revision = column.revision
-        for trial in (None, job):
-            response = self.switch(self.switch_payload(candidate, trial, revision=revision))
-            self.assertEqual(response.status_code, 409, response.text)
+        stale = self.switch(request)
+        self.assertEqual(stale.status_code, 409, stale.text)
         with self.db.session() as db:
             self.assertEqual(db.get(Series, self.fixture["series_id"]).mind_skill_id, self.fixture["skill_id"])
             self.assertEqual(db.query(WriteReceipt).count(), 0)
+        # A fresh explicit human confirmation may use the saved edition with
+        # the latest companion; it does not need another paid trial.
+        confirmed = self.switch(self.switch_payload(candidate, revision=revision))
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
         self.assert_original_protected()
 
     def test_account_context_keeps_exact_older_binding_after_new_version_release(self):
