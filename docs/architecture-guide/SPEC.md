@@ -1,5 +1,12 @@
 # CreatorOS 架构学习手册
 
+## 2026-10-22 Query / RSI / Codex 三种上下文走读
+
+- 按当前源码与真实隔离试产原件新增rsi-context-20261022/，明确Query是user消息、账号目录按需投影、tools是独立Schema、历史摘要不是跨会话长期记忆；聊天DS与后台独立DS调用不共享整段会话。
+- 图包含持久RSI建标/基线/候选/新线程生产/收图/评分/改稿回路，以及按角色评分范围和操作约束不计分。本次v2新任务含冻结brief与scope，旧请求保持原样；Mind仍图文试产、无独立完整剧本交付，不把该限制画成已完成能力。
+- 使用内置image_gen，按用户PersonClone风格参考生成并定向修正箭头；最终1672×941位图落入仓库，原提示词/修图提示词/统一风格一并保存。图中文字不塞全文Prompt，另附真实生产TextInput与Developer/SDK/SkillInput/LocalImageInput说明。全量TextInput拷贝SHA256与隔离原件97fa2a86...fb3fe1一致，不上传Skill参考原图或正式运营内容。
+- 本图未再次调用Codex或重跑旧RSI；新Judge真实DS建标和后端回归单列skill-iterations/SPEC，正式空闲启动及9表/4617文件保护证据单列web/SPEC。文档本地链接检查通过，生成图对照源码复核；不把图当模型E2E或审美提升证据。
+
 ## 2026-09-18 当前架构图与理解债学习切片
 
 - 原 HTML 固定于 bb219dd，保留作历史；不把其中“Web 未复用 Loop”等旧限制当作当前事实。

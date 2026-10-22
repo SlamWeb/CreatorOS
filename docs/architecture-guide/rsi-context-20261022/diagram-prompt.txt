@@ -1,0 +1,75 @@
+Use case: infographic-diagram.
+Asset: a single detailed Chinese teaching diagram for the real CreatorOS application, not a hypothetical architecture.
+Reference image: use the supplied Person Clone diagram ONLY for visual style (warm white, fine black strokes, orange border, pale stacked context blocks); do not copy its content, RAG, Planner or user-memory features.
+
+=== SCENE DESCRIPTION ===
+Create one coherent large landscape 3840×2160 diagram titled "CreatorOS · Query 到 Skill 迭代". Subtitle: "聊天负责发起；后台负责等图、评分与续跑". Explain where a user's Query enters DS context, how a durable RSI task runs without the chat staying alive, and what Codex actually receives. Clear numbered regions and an orange feedback loop. Chinese labels must be crisp and accurate; generous white space. This is a readable technical map, not a grid of decorative dashboard cards.
+
+=== VISUAL ELEMENTS ===
+REGION 1, upper left, compact input sources:
+Node "你的 Query" with the exact example "修正 Skill A，直到与优秀作品对标".
+Below, a second small node "上传参考图"; below that "历史对话 → 按预算压缩"; a fourth source "SQLite 账号／栏目 → 绑定 Skill 名称与简介".
+Arrows from the sources into the appropriate layers of REGION 2. The Query arrow must reach the bottom user-message layer, NOT System Prompt.
+
+REGION 2, upper middle, a large orange-outline stacked panel titled "聊天 DS 的上下文". Five distinct pastel bands, top to bottom:
+1 cream: "System Prompt" then "行为规则 · 当前账号权限 · 本轮 RSI 授权".
+2 green: "历史摘要（需要时）".
+3 cream: "当前账号目录" then "账号 → 栏目 → Skill 名称／简介".
+4 green: "保留的历史消息" then "assistant 工具调用 + tool 结果".
+5 blue: "本轮 user 消息" then "Query + 明确上传的图片".
+Beside the panel, small separate rectangle "tools：独立工具 Schema" with an arrow toward DS, NOT inside user text.
+Under the panel: "完整选题、Skill 正文、产物图片：用工具按需读".
+
+REGION 3, upper right, simple two-node action:
+"聊天 DS" → "管理校准任务" → "后台 RSI".
+Under the first arrow: "检查归属，选择准确版本与选题".
+Inside the RSI box: "冻结：原 Skill、搭档、选题正文、参考作品、用户要求".
+Below: "SQLite：阶段／轮次／试产凭证；文件：原稿／图片／Trace".
+Under chat DS: "拿到真实回执即可回复；不是靠聊天轮询".
+Prominent small note between upper and lower halves: "后台 DS 调用不继承整段聊天：只接收本阶段显式输入".
+
+REGION 4, bottom main flow, occupying most width, label "持久化 Skill Training 循环 · 默认最多 3 轮（含基线）".
+Flow left to right:
+A "DS 建立 Judge" with "冻结参考 + 用户要求 + 目标角色".
+B "Codex 新线程试产" with "第 1 轮：原版副本；后续：候选版".
+C "宿主接图／核验" with "图片 + 发布文案 + 内容稿 + 资产编号".
+D "DS 逐项评审" with "固定准则 + 参考原图 + 产物图／文".
+E small decision diamond "达标？".
+YES arrow to light-green node "交付候选，等你确认".
+NO arrow downward, labelled "还有轮次", to cream node "DS 修改目标 Skill 正文"; orange return arrow to B labelled "独立候选 + 新 Codex 线程". Do not return to user Query or start another chat.
+NO when exhausted arrow to "到上限：保留最佳版本与失败记录".
+Near D: "平均 ≥80，关键项 ≥60：程序算分".
+Below loop: "只追加 Judge 时，同一标准重评基线与候选；评分格式失败只修评分，不重画".
+
+REGION 5, bottom left adjacent to B, compact orange-outline context stack "Codex 实际输入包" connected directly into B:
+"Developer：独立生产边界"
+"TextInput：生产要求 + 完整选题 + 交付协议"
+"SkillInput：准确版本 SKILL.md + 同目录 assets／scripts"
+"LocalImageInput：本轮参考原图"
+"新 thread · 独立工作目录 · delivery.json"
+Footer under this packet: "完整文本另附：不是把聊天原样转发".
+
+REGION 6, bottom right, compact role scope box "新 Judge：按目标角色评分" with three rows:
+"Mind → 内容／故事／文案"
+"Visualize → 版式／画风／文字呈现"
+"整体 Skill → 两者都评"
+Next small note: "跑几轮／不发布／不切栏目：宿主约束，不是图片得分".
+Dashed limitation note: "当前 Mind 仍搭配呈现 Skill 出图；独立完整剧本评测尚未接通".
+
+Bottommost unobtrusive footer: "不自动切栏目 · 不覆盖共享 Skill · 不批准／发布 · 旧任务与图片原样保留".
+
+=== COMPOSITION & LAYOUT ===
+Upper half: sources → ordered chat-context stack → DS submission and frozen task.
+Lower half: durable loop with real arrows; Codex packet is an attached small stack, not an unrelated new pipeline. Route arrows around text, avoid crossings. Distinguish ongoing data flows from static context grouping. Do not duplicate nodes simply to fill space. This is one connected architecture.
+
+=== COLOR PALETTE ===
+Warm white #FFFEFB background; ink #262421; cream #FBEEDB for fixed inputs/rules; green #EAF2ED for history/results; blue #EDF2FA for current inputs/production; orange #D6662C for boundaries and feedback. Consistent thin strokes, flat fills.
+
+=== STYLE SPECIFICATIONS ===
+Restrained whiteboard / manuscript diagram like reference. Clear Chinese sans-serif body, informal Latin title lettering only. Rounded rectangles, one decision diamond, no shadows, no gradients, no 3D. Spacious composition; visual hierarchy over decoration.
+
+=== TECHNICAL SPECS ===
+Target 3840×2160 landscape, high-resolution bitmap. Chinese labels legible at normal zoom.
+
+=== NEGATIVE PROMPT ===
+No invented RAG or universal Planner, no automatic long-term user memory, no arrows that imply main chat history is automatically forwarded to Codex or RSI Judge, no picture scores for publishing restrictions, no automatic Skill activation, no automatic deletion of old scores, no pure-text Mind production claim, no decorative robots, no dark background, no blurry or overlapping text.
