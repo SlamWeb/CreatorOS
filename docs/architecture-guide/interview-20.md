@@ -68,6 +68,8 @@ CreatorOS 是 Python/FastAPI 实现的本地内容运营工作台，架构上是
 
 **代码：** [账号目录](../../creatoros/web/account_context.py)、[上下文组装](../../creatoros/agent/loop.py)。
 
+**直接披露和按需读取（2026-10-23源码核对）：** Web账号模式由宿主按绑定creator_id读取SQLite，主动投影账号基本资料、栏目ID/名称/已有定位字段/绑定关系、所绑定Skill的name/display_name/description和可用性。目录作为本次模型请求的数据消息插入，不重复写进会话原账本；可在明确业务修改后重新构建，并非数据库实时推送。选题列表、生产任务、Skill正文/assets、动态反馈不默认全量注入，通过工具查询。查询结果和读过的图片可能出现在保留历史里，因此“默认不注入”不等于以后每轮绝对不可见；预算和压缩会改变实际送模内容。
+
 ## 07. 怎么防止一个账号 Agent 操作另一个账号？
 
 **短答：** 会话绑定账号，宿主提供作用域信息，工具参数绑定和 API 守卫再检查目标资源归属，不只依赖 Prompt。边界是本地 Agent 的正确性保护，不是对公网开放的完整多租户认证系统，不能宣称数据库里每行都有独立安全策略。
@@ -85,6 +87,22 @@ CreatorOS 是 Python/FastAPI 实现的本地内容运营工作台，架构上是
 **短答：** SQLite 保存账号、栏目、选题、Run、执行尝试、队列及发布反馈等需要关联和约束的状态。JSON/JSONL 保存会话、Checkpoint、部分任务记录和 Trace；图片、Skill 正文及 assets 保存为本地文件。不是所有记录都进数据库，也不是数据库与文件天然拥有同一个事务。
 
 **代码：** [数据模型](../../creatoros/storage/models.py)、[聊天存储](../../creatoros/web/chat.py)、[会话原文](../../creatoros/session/snapshot.py)、[Skill 库](../../creatoros/integrations/producer_skills.py)。
+
+**默认本机位置（不是所有测试库都用这些路径）：**
+
+- `data/creatoros.db`：creators账号、series栏目、topics选题、生产Run/Revision/Attempt、队列和发布反馈等结构化状态。
+- `data/creatoros-agent-sessions/<session_id>/messages.json`：Web会话原文；`view.json`为页面展示和会话元数据；`messages.compaction.json`为按需生成的压缩Checkpoint；`messages.context-trace.jsonl`为上下文轨迹。外置工具结果在同会话的`messages.tool-results/`。CLI默认会话另为`sessions/latest.json`。
+- 同会话`attachments/<attachment_id>/image`存图片字节、`meta.json`存图片信息；原文件无需保留jpg/png扩展名，MIME等信息来自校验后的元数据。
+- `outputs/<creator_id>/<series_id>/<run_id>/revision-NNN/attempt-NNN/`：每次生产的图片、交付索引、Checkpoint和执行日志等；Run目录中另有冻结Skill材料。数据库记录任务关联、目录和校验摘要，不保存全部图片BLOB。
+- `data/producer-skills/working/<skill_id>/`：本地Skill正文与assets等；`registry/`为JSON登记；`versions/`保存版本材料；`extractions/`保存提炼上传、草稿和任务文件。
+- `data/producer-skills-topic-research/`保存调研批次JSON/工作文件，`data/creatoros-topic-references/`保存选题参考材料；调研执行排队状态另在SQLite。
+- Markdown用于Skill正文和项目文档，不是聊天记录的主要存储格式。自定义数据库、输出根目录或chat_root时路径可变，以应用配置为准。
+
+**Agent实际看一张生产图的链路：** `manage_topics(list)`按栏目查到选题和existing_run_id → `get_content_run(run_id)`查询准确版本revision_id、图片数量与可用性 → `read_image(run_id, revision_id, image_index)`。并非只传topic_id，也不接受任意本地绝对路径。若任务身份已经在用户要求或保留历史中，可跳过前面的重复定位。
+
+**读取图片的三种参数形态：** 当前会话图片用attachment_id；Skill参考图用skill_id加受管相对path（先读文件列表）；产物图用run_id加revision_id及从1开始的image_index。后端检查会话/账号归属、版本和文件完整性，定位真实字节；Skill或产物图片再保存为当前会话附件。工具结果携带附件元数据，Loop追加image_ref图片消息，DeepSeek Provider安全解析为Base64 data URL随下一次模型请求发送。仅返回ID、URL或路径文本不等于模型已经看过图片，前端显示图片也不等于模型收到图片。
+
+**看图代码入口：** [参数约束及工具](../../creatoros/tools/chat_images.py)、[归属与产物定位](../../creatoros/web/chat_image_actions.py)、[产物文件校验](../../creatoros/web/artifacts.py)、[会话附件](../../creatoros/web/chat_attachments.py)、[模型图片转换](../../creatoros/ai/deepseek.py)、[历史图片预算](../../creatoros/ai/context.py)。历史图片超出传输预算时可能仅保留文字引用，需要再读；本次只静态核对，不宣称模型视觉质量已验收。
 
 ## 10. 为什么用 SQLite，不用 MySQL 或 PostgreSQL？
 
