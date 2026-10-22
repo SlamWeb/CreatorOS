@@ -55,6 +55,11 @@ class ControlledEvaluator:
                 changes="仅在独立候选增加具体动作，不覆盖共享正文或assets。")
         else:
             raise AssertionError(kind)
+        if payload.get("judge_policy", {}).get("version") == 2:
+            scope = payload["judge_policy"]["scope"]
+            for index, criterion in enumerate(result.get("criteria", []) + result.get("new_criteria", [])):
+                criterion["quality_kind"] = ("presentation" if scope == "presentation"
+                    or (scope == "overall" and index % 2) else "content")
         return result, {"input_tokens": 100, "output_tokens": 20}
 
 

@@ -23,7 +23,8 @@ from ..storage import ContentRun, ContentRunStatus, Creator, Series, SkillIterat
 from ..storage.models import ProductionQueueItem
 from .producer_skills import _SKILL_EDIT_LOCK, _digest, _write, freeze_skill
 from .skill_extraction import ExtractionError
-from .skill_iteration_judge import ReplyFormatError, default_provider, evaluate, parse_reply, score_result
+from .skill_iteration_judge import (ReplyFormatError, default_provider, evaluate, evaluation_scope,
+    parse_reply, score_result)
 
 log = logging.getLogger(__name__)
 ACTIVE = {"queued", "running", "waiting_production"}
@@ -176,7 +177,8 @@ class SkillIterationService:
                     series_revision=series.revision, skill_id=skill_id, skill_name=item.get("display_name") or item["name"],
                     base_digest=item["digest"], skill_role=item["role"], topic_id=topic_id, topic_title=topic.title,
                     topic_brief=topic.brief, instructions=instructions, origin_session_id=origin_session_id,
-                    companion=self.catalog.describe(companion_id) if companion_id else None)
+                    companion=self.catalog.describe(companion_id) if companion_id else None,
+                    judge_policy_version=2, evaluation_scope=evaluation_scope(item["role"]))
             directory = self._path(identity)
             directory.mkdir(parents=True, exist_ok=True)
             manifest = directory / "identity.json"
@@ -653,14 +655,26 @@ class SkillIterationService:
                 row.status = status
         self._update(identifier, apply)
 
+    @staticmethod
+    def _policy_payload(config, payload):
+        # Absent means v1. Do not change an old request or its durable hash,
+        # even when explicitly resuming it on a newer host.
+        if config.get("judge_policy_version", 1) != 2:
+            return payload
+        return dict(payload, topic_brief=config["topic_brief"], judge_policy=dict(
+            version=2, scope=config["evaluation_scope"], role=config["skill_role"]))
+
     def _rubric(self, row):
         c = row.config_json
-        result = self._model(row, "rubric", "rubric", dict(instructions=c["instructions"],
-            topic=c["topic_title"], role=c["skill_role"]), self._images(row))
+        result = self._model(row, "rubric", "rubric", self._policy_payload(c, dict(instructions=c["instructions"],
+            topic=c["topic_title"], role=c["skill_role"])), self._images(row))
         def save(state):
             criteria = [{"id": f"c{index}", **item} for index, item in enumerate(result["criteria"], 1)]
             state["judge"].update(version=1, criteria=criteria,
                 history=[dict(version=1, added_ids=[c["id"] for c in criteria], reason="依据冻结优秀参考建立", at=stamp())])
+            if c.get("judge_policy_version", 1) == 2:
+                state["judge"].update(policy_version=2, scope=c["evaluation_scope"],
+                    workflow_constraints=result["workflow_constraints"])
             self._event(state, "judge_created", "基础Judge已固定；后续只能追加，不能放宽或删除。")
         self._advance(row.id, "prepare", save)
 
@@ -764,7 +778,8 @@ class SkillIterationService:
             allow = s.get("allow_additions", False) and pending["number"] == s["rounds"][-1]["number"] and len(judge["criteria"]) < 12
             payload = dict(criteria=judge["criteria"], allow_additions=allow, instructions=c["instructions"],
                 topic=c["topic_title"], production_text=pending.get("production_text", ""))
-            result = self._model(row, "judge", f"judge-{pending['number']}-{judge['version']}", payload, self._images(row, pending))
+            result = self._model(row, "judge", f"judge-{pending['number']}-{judge['version']}",
+                self._policy_payload(c, payload), self._images(row, pending))
             if result.get("new_criteria") and not allow:
                 raise ExtractionError("Judge试图在固定重评阶段改标准，已停止。", 409)
             # Validate every old criterion before considering append-only proposals.
@@ -827,9 +842,9 @@ class SkillIterationService:
         if item["digest"] != best["digest"]:
             raise ExtractionError("候选被其他编辑修改，迭代已停止，不覆盖你的修改。", 409)
         result = self._model(row, "revise", f"revise-{len(s['rounds'])}-{s['judge']['version']}",
-            dict(skill_md=item["content"], files=self.catalog.list_skill_files(best["skill_id"])["files"],
+            self._policy_payload(c, dict(skill_md=item["content"], files=self.catalog.list_skill_files(best["skill_id"])["files"],
                  judge=s["judge"], scores=best["scores"], feedback=best.get("feedback"),
-                 instructions=c["instructions"], topic=c["topic_title"]), self._images(row, best))
+                 instructions=c["instructions"], topic=c["topic_title"])), self._images(row, best))
         def save(state):
             state.update(next_parent_id=best["skill_id"], next_parent_digest=best["digest"],
                          next_content=result["skill_md"], next_changes=result["changes"])

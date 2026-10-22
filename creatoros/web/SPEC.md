@@ -1,5 +1,12 @@
 # CreatorOS Web API SPEC
 
+## 新 Judge 策略与本轮正式加载（2026-10-22）
+
+- 用户要求先确认空闲：8765原本无监听；生产/Attempt/执行队列/调研/发布/RSI均无活动记录，75份辅助元数据无活动项，未停止或中断任何生产。SQLite先独立备份，启动前再次通过空闲门禁，使用项目deepcode Python启动正式8765 PID32924。
+- 已加载当前分支的RSI恢复、原Topic编辑、聊天增量及新建任务Judge v2；迁移0017仅按既有选题编辑回执契约升级。启动后的9张相关表全部原行列值与启动前一致，包括完整旧skill_iterations config/state、生产与调研队列；4617个旧Skill/任务/输出文件SHA256完全一致，integrity=ok、外键错误0。旧failed RSI未resume、未重评，没有新生产或Codex调用。
+- HTTP健康/数据库ok，首页与准确静态包HTTP200；服务实际返回index-BfCpolbP.js，字节与当前web/dist一致。只读OpenAPI确认迭代接口存在，没有向正式账号发测试聊天或创建任务。备份、before/after与HTTP核验记录在tmp/restart-rsi-policy-20261022/，不提交业务库与凭证。
+- Judge修复的隔离回归和真实DS建标探针详见docs/skill-iterations/SPEC.md，不能把健康检查当作新端到端生产或内容质量证明。
+
 ## RSI 与聊天可观测契约修复（2026-10-22，隔离验收完成）
 
 - RSI 进度必须包含当前阶段和真实试产状态；同选题活跃校准不能被误读成尚未生产并另开普通 Run。失败评审恢复复用已验收图片及冻结输入，不增加三轮预算。

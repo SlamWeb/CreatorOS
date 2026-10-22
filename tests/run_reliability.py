@@ -28,6 +28,7 @@ CASES = [
     ("selected_skill_run", ["-m", "unittest", "tests.test_selected_skill_run", "-v"]),
     ("skill_iteration_agent", ["-m", "unittest", "tests.test_skill_iteration_agent", "-v"]),
     ("skill_iteration_service", ["-m", "unittest", "tests.test_skill_iteration_service", "-v"]),
+    ("skill_iteration_quality_policy", ["-m", "unittest", "tests.test_skill_iteration_quality_policy", "-v"]),
     ("skill_iteration_recovery", ["-m", "unittest", "tests.test_skill_iteration_judge_recovery",
                                   "tests.test_skill_trial_publication", "-v"]),
     ("rsi_production_guard", ["-m", "unittest", "tests.test_rsi_production_guard", "-v"]),

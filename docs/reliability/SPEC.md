@@ -1,5 +1,10 @@
 # Reliability Baseline
 
+## 新 Judge 只评分作品质量（2026-10-22）
+
+- 显式零付费 allowlist 增加 skill_iteration_quality_policy，共11项新旧策略、角色、追加准则与旧记录/文件/hash不变测试；付费 live_skill_iteration_quality_policy 不加入CI，不自动发现或调用。
+- 最终策略11/11（66.889秒）；原服务/恢复/Agent联合50项是最后追加双域校验之前的结果，分开保留，不宣称本轮全量runner已重跑。真实DeepSeek5份建标证据与用量另记docs/skill-iterations/SPEC.md，不合并成模型任务通过率。
+
 ## RSI 恢复与聊天增量门禁（2026-10-22）
 
 - allowlist补入评分原始响应/用量、严格逐项校验、同阶段恢复、Windows试产目录发布、RSI/普通生产互斥及聊天patch/工具身份/具名链接；真实DeepSeek/Codex仍显式运行隔离前端，不由CI付费调用。
