@@ -6,6 +6,7 @@ sessions/
 tmp/
 outputs/
 data/
+*.maintenance/
 web/node_modules/
 web/dist/
 web/playwright-report/

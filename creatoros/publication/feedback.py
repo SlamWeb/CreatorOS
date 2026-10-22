@@ -41,12 +41,13 @@ def published_time(request, receipt):
 
 
 class FeedbackService:
-    def __init__(self, database, publishing):
+    def __init__(self, database, publishing, *, start_gate=None):
         self.database, self.publishing = database, publishing
         self._loop_task = None
         self._jobs = {}
         self._next_check = None
         self._stopping = False
+        self.start_gate = start_gate
 
     def start(self):
         if self._loop_task is None or self._loop_task.done():
@@ -91,7 +92,8 @@ class FeedbackService:
 
     def _start_job(self, creator_id, *, automatic):
         existing = self._jobs.get(creator_id)
-        if self._stopping or (existing and not existing.done()):
+        if (self._stopping or (existing and not existing.done())
+                or (self.start_gate is not None and not self.start_gate())):
             return
         task = asyncio.create_task(self._collect(creator_id, automatic=automatic))
         self._jobs[creator_id] = task

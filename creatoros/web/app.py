@@ -118,6 +118,7 @@ def create_app(
     eval_root: Path | None = None,
     eval_cases_path: Path | None = None,
     skill_iteration_evaluator=None,
+    defer_background_start: bool = False,
 ) -> FastAPI:
     """Create the local Studio API with a managed, single-writer run executor."""
     owns_database = database is None
@@ -160,29 +161,38 @@ def create_app(
     agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions, iterations=iterations)
     scope_request_lock = asyncio.Lock()
 
+    started_services = []
+
+    def start_background_services():
+        if app.state.background_services_started:
+            return
+        if started_services:
+            raise RuntimeError("Background startup previously failed; inspect before retrying.")
+        for service in (executor, publishing, chat, skill_installs, research, extractions,
+                        calibrations, iterations, discussions, feedback):
+            started_services.append(service)
+            service.start()
+        app.state.background_services_started = True
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
             _app.state.stop_observers = False
-            executor.start()
-            publishing.start()
             try:
-                chat.start()
-                skill_installs.start()
-                research.start()
-                extractions.start()
-                calibrations.start()
-                iterations.start()
-                discussions.start()
-                feedback.start()
+                if not defer_background_start:
+                    start_background_services()
                 yield
             finally:
-                await feedback.shutdown()
-                await publishing.shutdown()
-                # One timed-out service must not skip the remaining cleanup.
+                # A deferred replacement has not acquired execution ownership or
+                # performed recovery. Do not "clean up" old task records there.
                 with ExitStack() as cleanup:
                     for service in (executor, skill_installs, research, extractions, chat, discussions, iterations):
-                        cleanup.callback(service.shutdown)
+                        if service in started_services:
+                            cleanup.callback(service.shutdown)
+                    if feedback in started_services:
+                        await feedback.shutdown()
+                    if publishing in started_services:
+                        await publishing.shutdown()
         finally:
             if owns_database:
                 db.close()
@@ -195,6 +205,8 @@ def create_app(
         responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
     )
     app.state.database = db
+    app.state.background_services_started = False
+    app.state.start_background_services = start_background_services
     app.state.publishing = publishing
     app.state.feedback = feedback
     app.state.queries = queries
@@ -208,6 +220,8 @@ def create_app(
     app.state.skill_iterations = iterations
     app.state.skill_calibrations = calibrations
     app.state.content_discussions = discussions
+    feedback.start_gate = lambda: not (getattr(app.state, "maintenance", None)
+                                      and app.state.maintenance.held)
     app.state.observation = observations
     app.state.evaluation = EvalStore(eval_root, cases_path=eval_cases_path)
     app.include_router(eval_routes(app.state.evaluation))
