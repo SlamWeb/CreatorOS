@@ -1,0 +1,201 @@
+{
+  "dataset_id": "creatoros.judge-semantics.v1",
+  "frozen_on": "2026-10-23",
+  "description": "固定边界题，不是创作质量榜单；参考均为题内文字，没有图片、完整剧本或数据库。",
+  "cases": [
+    {
+      "id": "R01",
+      "name": "整体 Skill：混合操作与作品要求",
+      "kind": "rubric",
+      "payload": {
+        "instructions": "只创建候选，最多3轮，不自动发布，不切换栏目，不覆盖共享Skill。作品固定2×2四格，4个常用英语词；简短情境体现词义差别；文字清楚，不遮住人物的脸。优秀参考文字：look是主动看，see是看见，watch是持续观看，stare是盯着看；每格一句具体日常例句、词和中文释义，统一白底深色字。没有提供任何候选产物。",
+        "topic": "look / see / watch / stare",
+        "topic_brief": "用四种日常情境区分四个词。",
+        "role": "legacy_end_to_end",
+        "judge_policy": {"version": 2, "scope": "overall", "role": "legacy_end_to_end"}
+      },
+      "expected": {
+        "domains": ["content", "presentation"],
+        "required_quality_groups": [
+          {"label": "词义与情境", "any_of": ["词义", "语义", "情境", "例句"]},
+          {"label": "四格版式", "any_of": ["四格", "2×2", "2x2", "2*2"]},
+          {"label": "文字可读", "any_of": ["清楚", "清晰", "可读", "易读"]}
+        ],
+        "required_workflow_groups": [
+          {"label": "轮数", "any_of": ["3轮", "三轮"]},
+          {"label": "发布限制", "any_of": ["不自动发布", "不发布", "不得发布"]},
+          {"label": "栏目保护", "any_of": ["不切换栏目", "不切栏目", "不改变栏目"]},
+          {"label": "共享保护", "any_of": ["不覆盖共享", "不得覆盖共享", "不修改共享"]}
+        ],
+        "forbidden_quality_terms": ["轮数", "3轮", "三轮", "不发布", "自动发布", "发布权限", "是否发布", "发布状态", "发布操作", "切换栏目", "切栏目", "共享Skill", "共享 Skill", "队列", "线程"]
+      }
+    },
+    {
+      "id": "R02",
+      "name": "Mind：只评故事文案，不按画风扣分",
+      "kind": "rubric",
+      "payload": {
+        "instructions": "只校准Mind。优秀参考文字：柯基对失意的朋友说‘一次没成不代表你不行’，深夜却因自己的画只有三个赞认定自己没用。标准是同一个角色的自我矛盾、具体生活细节、前后情节承接和自然白话文案。不要空泛口号，不照搬参考人物。最多2轮，不发布。未提供候选产物。",
+        "topic": "会安慰别人，却不肯原谅自己",
+        "topic_brief": "换一个生活事件，保留自我对照的叙事结构。",
+        "role": "mind",
+        "judge_policy": {"version": 2, "scope": "content", "role": "mind"}
+      },
+      "expected": {
+        "domains": ["content"],
+        "required_quality_groups": [
+          {"label": "自我矛盾", "any_of": ["矛盾", "对照", "反差", "双重标准"]},
+          {"label": "具体细节", "any_of": ["具体", "生活细节", "生活事件"]},
+          {"label": "情节承接", "any_of": ["承接", "因果", "前后", "关联"]}
+        ],
+        "required_workflow_groups": [{"label": "轮数", "any_of": ["2轮", "两轮"]}],
+        "forbidden_quality_terms": ["不发布", "自动发布", "发布权限", "2轮", "两轮", "色温", "字号", "画风", "分辨率", "光比", "版式"]
+      }
+    },
+    {
+      "id": "R03",
+      "name": "Visualize：只评呈现，不评价故事立意",
+      "kind": "rubric",
+      "payload": {
+        "instructions": "只校准Visualize，不改故事。优秀参考文字说明：固定上下两格无白条，人物是统一方块体素，字体克制可读、年龄数字暖色突出，上下格用不同机位和冷暖光形成对照。评价呈现，不评故事立意或教育意义。最多3轮，费用预算由宿主管理，不切栏目。未提供候选图。",
+        "topic": "历史人物前后人生对照",
+        "topic_brief": "故事已定，本次只校准视觉呈现。",
+        "role": "production",
+        "judge_policy": {"version": 2, "scope": "presentation", "role": "production"}
+      },
+      "expected": {
+        "domains": ["presentation"],
+        "required_quality_groups": [
+          {"label": "两格布局", "any_of": ["两格", "上下格", "上下两", "双格"]},
+          {"label": "体素风格", "any_of": ["体素", "方块"]},
+          {"label": "视觉对比", "any_of": ["机位", "视角", "冷暖", "光线", "色温"]}
+        ],
+        "required_workflow_groups": [{"label": "轮数", "any_of": ["3轮", "三轮"]}],
+        "forbidden_quality_terms": ["3轮", "三轮", "预算", "切栏目", "故事立意", "教育意义", "剧情深刻", "情节因果"]
+      }
+    },
+    {
+      "id": "R04",
+      "name": "合法创作禁令：不能把所有‘不’都当操作",
+      "kind": "rubric",
+      "payload": {
+        "instructions": "优秀参考文字：一张简洁的单页词汇漫画，每个词有准确释义和具体短句，视觉留白克制。作品不得添加全图标题，不要密集噪点，不允许图案遮挡文字。这三项是作品质量要求，须进入可检查标准。最多2轮，排队等待由宿主管理，不发布、不切栏目。还没有候选产物。",
+        "topic": "四个日常词汇",
+        "topic_brief": "保持词义准确和阅读清晰。",
+        "role": "legacy_end_to_end",
+        "judge_policy": {"version": 2, "scope": "overall", "role": "legacy_end_to_end"}
+      },
+      "expected": {
+        "domains": ["content", "presentation"],
+        "required_quality_groups": [
+          {"label": "无额外标题", "any_of": ["标题"]},
+          {"label": "无噪点", "any_of": ["噪点", "噪声"]},
+          {"label": "文字不被遮挡", "any_of": ["遮挡", "遮住", "遮蔽", "覆盖文字"]}
+        ],
+        "required_workflow_groups": [{"label": "轮数", "any_of": ["2轮", "两轮"]}],
+        "forbidden_quality_terms": ["2轮", "两轮", "排队", "不发布", "自动发布", "发布权限", "切栏目"]
+      }
+    },
+    {
+      "id": "R05",
+      "name": "建标阶段：不能声称收到产物或完整剧本",
+      "kind": "rubric",
+      "payload": {
+        "instructions": "本次只有优秀参考文字：一则故事先写具体行动，再交代相反结果，结尾留出角色自己的反应；文案用自然白话，事实前后一致。依据这些参考建立Mind标准。没有候选、没有图片、没有发布正文、没有完整剧本。别把未来需要检查的材料说成已经收到。只建候选，不发布。",
+        "topic": "一次没有被看见的努力",
+        "topic_brief": "测试新的生活事件。",
+        "role": "mind",
+        "judge_policy": {"version": 2, "scope": "content", "role": "mind"}
+      },
+      "expected": {
+        "domains": ["content"],
+        "required_quality_groups": [
+          {"label": "行动与结果", "any_of": ["行动", "动作", "结果"]},
+          {"label": "自然文案", "any_of": ["白话", "自然", "口语"]},
+          {"label": "事实一致", "any_of": ["一致", "前后", "矛盾"]}
+        ],
+        "required_workflow_groups": [],
+        "forbidden_quality_terms": ["不发布", "自动发布", "发布权限", "候选版本保存", "线程"],
+        "forbid_received_claims": true
+      }
+    },
+    {
+      "id": "J06",
+      "name": "Mind评分：发布稿不等于完整剧本",
+      "kind": "judge",
+      "payload": {
+        "criteria": [
+          {"id": "c1", "description": "发布文案自然白话，不写空泛口号", "evidence": "优秀参考文字是具体日常表述", "critical": false, "quality_kind": "content"},
+          {"id": "c2", "description": "完整剧本各场景存在行动与结果的因果承接", "evidence": "优秀参考故事行动后出现相反结果", "critical": true, "quality_kind": "content"},
+          {"id": "c3", "description": "人物在前后场景具有同一目标和合理反应", "evidence": "优秀参考的角色行动与反应相接", "critical": false, "quality_kind": "content"}
+        ],
+        "allow_additions": false,
+        "instructions": "只评Mind。优秀参考文字：先写角色具体行动，再出现相反结果，结尾写角色的反应。注意本次production_text只有发布标题和正文，没有完整剧本，没有图片。缺少证据时如实指出，不能声称看过剧本场景。最多3轮，不发布。",
+        "topic": "努力没有被看见",
+        "production_text": "画了一周的画只有三个赞\n我把手机放回桌上，先去给自己煮了一碗面。",
+        "topic_brief": "没有提供场景剧本。",
+        "judge_policy": {"version": 2, "scope": "content", "role": "mind"}
+      },
+      "expected": {
+        "domains": ["content"],
+        "required_quality_groups": [],
+        "required_workflow_groups": [],
+        "forbidden_quality_terms": ["3轮", "三轮", "发布权限", "切栏目"],
+        "required_response_groups": [{"label": "承认缺少完整剧本", "any_of": ["未提供", "未收到", "无法", "不能判断", "证据不足", "缺少", "缺失", "没有完整剧本"]}],
+        "forbid_script_claims": true
+      }
+    },
+    {
+      "id": "J07",
+      "name": "Visualize评分：允许追加但只能追加呈现项",
+      "kind": "judge",
+      "payload": {
+        "criteria": [
+          {"id": "c1", "description": "上下两格相接无白条", "evidence": "优秀参考的固定版式", "critical": true, "quality_kind": "presentation"},
+          {"id": "c2", "description": "方块体素风格统一", "evidence": "优秀参考使用同量级方块", "critical": false, "quality_kind": "presentation"},
+          {"id": "c3", "description": "文字克制清晰且不被画面遮挡", "evidence": "优秀参考字区留白可读", "critical": false, "quality_kind": "presentation"}
+        ],
+        "allow_additions": true,
+        "instructions": "本次仅Visualize。优秀参考文字还明确上下格要用冷暖光与不同机位形成对照，可在有充分依据时追加遗漏的呈现标准，不得追加故事立意、操作轮数或发布要求。本次没有候选图片，只有下列发布稿，因此应承认无法核对实际画面；没有证据不能假称看过图。最多3轮，不发布。",
+        "topic": "历史人物对照",
+        "production_text": "22岁，在街上受辱；27岁，登坛受印。",
+        "topic_brief": "场景正文已定，本次评分范围只有呈现。",
+        "judge_policy": {"version": 2, "scope": "presentation", "role": "production"}
+      },
+      "expected": {
+        "domains": ["presentation"],
+        "required_quality_groups": [],
+        "required_workflow_groups": [],
+        "forbidden_quality_terms": ["3轮", "三轮", "不发布", "自动发布", "发布权限", "切栏目", "故事立意", "教育意义", "情节因果"],
+        "required_response_groups": [{"label": "承认没有候选图", "any_of": ["未提供", "未收到", "无法", "证据不足", "缺少", "缺失", "没有候选图片", "无图"]}],
+        "forbid_image_claims": true
+      }
+    },
+    {
+      "id": "J08",
+      "name": "整体固定重评：覆盖原准则，不擅自追加",
+      "kind": "judge",
+      "payload": {
+        "criteria": [
+          {"id": "c1", "description": "文案包含准确且具体的场景行动", "evidence": "优秀参考文字描述年龄、地点和行动", "critical": true, "quality_kind": "content"},
+          {"id": "c2", "description": "文案自然简洁，不用空泛励志口号", "evidence": "优秀参考用白话讲具体场景", "critical": false, "quality_kind": "content"},
+          {"id": "c3", "description": "画面为上下两格且文字清晰", "evidence": "优秀参考的固定视觉结构", "critical": true, "quality_kind": "presentation"}
+        ],
+        "allow_additions": false,
+        "instructions": "固定重评，只按已有c1/c2/c3评分，不可新增或放宽。当前只收到发布稿，没收到图片。优秀参考文字：25岁，在村口讨饭；40岁，在殿上受百官朝贺。最多3轮，不批准不发布，不切栏目。这些操作不参与分数。",
+        "topic": "韩信人生对照",
+        "production_text": "22岁，在淮阴街市从无赖张开的腿间爬过去；27岁，在汉营高坛受印拜将。",
+        "topic_brief": "只核对当前真正送达的材料。",
+        "judge_policy": {"version": 2, "scope": "overall", "role": "legacy_end_to_end"}
+      },
+      "expected": {
+        "domains": ["content", "presentation"],
+        "required_quality_groups": [],
+        "required_workflow_groups": [],
+        "forbidden_quality_terms": ["3轮", "三轮", "发布权限", "切栏目"],
+        "required_response_groups": [{"label": "承认没有图片", "any_of": ["未提供", "未收到", "无法", "证据不足", "缺少", "缺失", "没有图片", "无图"]}],
+        "forbid_image_claims": true
+      }
+    }
+  ]
+}

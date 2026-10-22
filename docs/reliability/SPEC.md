@@ -1,5 +1,13 @@
 # Reliability Baseline
 
+## 安全维护与冻结 Judge 小考（2026-10-23）
+
+- `tests.run_reliability`显式增加safe_maintenance与judge_semantics，当前42组；维护组含真实临时服务进程/HTTP/SQLite启停，允许300秒供干净CI前端构建及进程交接，其余原预算不变。不自动发现live脚本，不付费调用模型。
+- 最后维护/反馈定向56/56（96.945秒）通过，覆盖原行全值、旧标准/分数、产物/参考图、无授权Run不执行、paused RSI真实试产、busy/在途写拒绝、延迟消费者、实际进程重启、Windows Junction、坏登记、日志再失败仍恢复接单；受控状态/磁盘/响应仅为故障注入。Windows目录链接用例未跳过。原studio_api smoke另通过，未操作正式服务。
+- Judge判分器/冻结题/离线重评边界18/18通过；真实8题另跑原基线7/8、整轮结束后修判分器空白匹配、同回复离线重评8/8，原报告和输入/回答不改。这不是新模型轮次或图片质量提升。用量和逐题证据见docs/judge-regression/SPEC.md。
+- 正式8765未重启，未改正式数据、旧RSI或历史Eval分数；新维护协议需下一次正常加载新版服务。新版本遇到旧版/不明实例将拒绝自动接管，不通过强杀绕过。
+- 完整显式runner本地42/42组通过，失败/超时0：`tmp/reliability-20261022-173959-630336/report.json`。该轮启动后补入3项CLI故障，最初维护组53项，随后以最终代码重跑维护/反馈56/56；不把前一轮说成包含这3项。Judge18项也以最终判分器单独重跑通过。smoke_studio_executor日志中的scheduler异常是其主动关闭线程池的既有故障注入，原断言与结果均通过。此结果不代表全仓所有测试或远端CI完成。
+
 ## 新 Judge 只评分作品质量（2026-10-22）
 
 - 显式零付费 allowlist 增加 skill_iteration_quality_policy，共11项新旧策略、角色、追加准则与旧记录/文件/hash不变测试；付费 live_skill_iteration_quality_policy 不加入CI，不自动发现或调用。

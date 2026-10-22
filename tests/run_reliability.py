@@ -11,6 +11,10 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("safe_maintenance", ["-m", "unittest", "tests.test_maintenance_state",
+                          "tests.test_maintenance_control", "tests.test_maintenance_cli", "tests.test_maintenance_process",
+                          "tests.test_publication_feedback", "-v"]),
+    ("judge_semantics", ["-m", "unittest", "tests.test_judge_regression_suite", "-v"]),
     ("topic_management", ["-m", "unittest", "tests.test_topic_management_http",
                           "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
                           "tests.test_host_tool_contract", "-v"]),
@@ -63,7 +67,7 @@ def main():
             try:
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 300 if name == "skill_calibration" or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 300 if name in {"safe_maintenance", "skill_calibration"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 status = "passed" if process.returncode == 0 else "failed"
