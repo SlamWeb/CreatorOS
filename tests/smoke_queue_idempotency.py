@@ -37,8 +37,8 @@ def counts(db):
 
 
 def call(context, series="series-a", title="常见词义", **kwargs):
-    args = {"series_id": series, "topics": [{"title": title}], **kwargs}
-    return execute_tool_call(ToolCall(uuid4().hex, "queue_topics", json.dumps(args)),
+    args = {"action": "create", "series_id": series, "topics": [{"title": title}], **kwargs}
+    return execute_tool_call(ToolCall(uuid4().hex, "manage_topics", json.dumps(args)),
                              context=context, model_requested=True)
 
 
@@ -50,9 +50,9 @@ class RepeatingProvider:
     def complete(self, context):
         self.calls += 1
         if self.calls == 1:
-            args = json.dumps({"series_id": "series-a", "topics": [{"title": "Runtime 重复动作"}]})
-            return ModelResponse(None, [ToolCall("first", "queue_topics", args),
-                                        ToolCall("second", "queue_topics", args)])
+            args = json.dumps({"action": "create", "series_id": "series-a", "topics": [{"title": "Runtime 重复动作"}]})
+            return ModelResponse(None, [ToolCall("first", "manage_topics", args),
+                                        ToolCall("second", "manage_topics", args)])
         return ModelResponse("已入队。", [])
 
     def stream(self, context):
@@ -90,18 +90,25 @@ def main():
                 context = RuntimeContext(project_root=root, studio_url=base,
                     session_file=chat_root / session_a / "messages.json", agent_session_id=session_a,
                     creator_id="creator-a", user_request_id=str(uuid4()),
-                    archive_only_reads=True, allowed_tools=frozenset({"queue_topics"}))
+                    archive_only_reads=True, allowed_tools=frozenset({"manage_topics"}))
                 first = call(context)
                 assert not first.is_error, first.content
                 initial = json.loads(first.content)
                 assert counts(db) == (1, 1)
-                # Different tool-call IDs, JSON key order, default source and audit text are one action.
-                again = call(context, topics=[{"source": "manual", "title": " 常见词义 ", "brief": None}],
-                             summary="不同审计摘要不代表新动作")
+                # Different tool-call IDs, JSON key order and default source are one action.
+                again = call(context, topics=[{"source": "manual", "title": " 常见词义 ", "brief": None}])
                 replay = json.loads(again.content)
                 assert not again.is_error and replay["deduplicated"] is True, again.content
                 assert replay["request_id"] == initial["request_id"]
                 assert replay["topic_ids"] == initial["topic_ids"]
+                assert counts(db) == (1, 1)
+                # Host/internal legacy replay keeps the same receipt identity;
+                # the hidden name must not be re-exposed just to preserve old callers.
+                legacy = execute_tool_call(ToolCall("legacy-internal", "queue_topics", json.dumps({
+                    "series_id": "series-a", "topics": [{"title": "常见词义"}],
+                    "summary": "审计摘要变化不代表新动作"})), context=context, model_requested=False)
+                assert not legacy.is_error and json.loads(legacy.content)["deduplicated"], legacy.content
+                assert json.loads(legacy.content)["topic_ids"] == initial["topic_ids"]
                 assert counts(db) == (1, 1)
                 current = client.get("/api/series/series-a/topics").json()["items"]
                 assert initial["topic_ids"] == [item["id"] for item in current]

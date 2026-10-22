@@ -112,7 +112,7 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             return [link for item in data.get("items", []) if isinstance(item, dict)
                     and item.get("kind") in {"research", "production", "discussion"}
                     if (link := _receipt(item, item["kind"], name, studio_url))]
-        elif name in {"list_series_topics", "queue_topics", "compose_series", "update_series_composition", "assign_series"}:
+        elif name in {"manage_topics", "list_series_topics", "queue_topics", "compose_series", "update_series_composition", "assign_series"}:
             kind, rows = "series", [data]
         elif name == "prepare_topic_selection":
             kind, rows = "preview", [data]

@@ -40,6 +40,7 @@ from .schemas import (
     SeriesView,
     TopicView,
 )
+from .topic_mutations import block_reasons, topic_view
 
 
 _ACTIONABLE_OPERATION_STATUSES = {
@@ -75,9 +76,10 @@ def _timestamp(value):
 class StudioQueryService:
     """Builds explicit read models; no query can start or recover a run."""
 
-    def __init__(self, database: Database, *, artifacts=None):
+    def __init__(self, database: Database, *, artifacts=None, discussions=None):
         self.database = database
         self.artifacts = artifacts
+        self.discussions = discussions
 
     def health_database(self) -> None:
         with self.database.session() as session:
@@ -191,32 +193,45 @@ class StudioQueryService:
                     .order_by(ContentRun.updated_at.desc())
                 )
             ) if topic_ids else []
-            from creatoros.storage.models import ProductionQueueItem, ContentRevision
-            queue_rows = session.scalars(select(ProductionQueueItem).join(
-                ContentRevision, ProductionQueueItem.revision_id == ContentRevision.id).join(
-                ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
-                ContentRun.id.in_([run.id for run in runs]),
-                ContentRevision.revision_number == ContentRun.active_revision_number)) if runs else []
-            queue_by_run = {item.run_id: item for item in queue_rows}
-            pending_ids = list(session.scalars(select(ProductionQueueItem.id).where(
-                ProductionQueueItem.status == "pending").order_by(
-                ProductionQueueItem.submitted_at, ProductionQueueItem.id))) if queue_by_run else []
-            items = []
-            for topic in topics:
-                view = self._topic_view(topic, runs)
-                queue = queue_by_run.get(view.existing_run_id)
-                if queue is not None:
-                    view.production_queue_status = queue.status
-                    view.production_queue_position = pending_ids.index(queue.id) + 1 if queue.id in pending_ids else None
-                    if queue.status in {"pending", "running"}:
-                        view.available_actions = [action for action in view.available_actions if action != "start"]
-                    elif queue.status == "needs_attention" and view.existing_run_status == "queued":
-                        view.available_actions = ["resume", "view"]
-                items.append(view)
             return PageResponse(
-                items=items,
+                items=self._topic_views(session, topics, runs),
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
+
+    def get_topic(self, topic_id: str) -> TopicView | None:
+        with self.database.session() as session:
+            topic = session.get(Topic, topic_id)
+            if topic is None or session.get(TopicRemoval, topic_id) is not None:
+                return None
+            runs = list(session.scalars(select(ContentRun).where(ContentRun.topic_id == topic_id)))
+            return self._topic_views(session, [topic], runs)[0]
+
+    def _topic_views(self, session, topics, runs):
+        from creatoros.storage.models import ProductionQueueItem, ContentRevision
+        queue_rows = session.scalars(select(ProductionQueueItem).join(
+            ContentRevision, ProductionQueueItem.revision_id == ContentRevision.id).join(
+            ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
+            ContentRun.id.in_([run.id for run in runs]),
+            ContentRevision.revision_number == ContentRun.active_revision_number)) if runs else []
+        queue_by_run = {item.run_id: item for item in queue_rows}
+        pending_ids = list(session.scalars(select(ProductionQueueItem.id).where(
+            ProductionQueueItem.status == "pending").order_by(
+            ProductionQueueItem.submitted_at, ProductionQueueItem.id))) if queue_by_run else []
+        reasons = block_reasons(session, topics, runs, self.discussions)
+        items = []
+        for topic in topics:
+            view = topic_view(topic, runs, management_actions=["get"] if topic.id in reasons
+                              else ["get", "update", "remove"])
+            queue = queue_by_run.get(view.existing_run_id)
+            if queue is not None:
+                view.production_queue_status = queue.status
+                view.production_queue_position = pending_ids.index(queue.id) + 1 if queue.id in pending_ids else None
+                if queue.status in {"pending", "running"}:
+                    view.available_actions = [action for action in view.available_actions if action != "start"]
+                elif queue.status == "needs_attention" and view.existing_run_status == "queued":
+                    view.available_actions = ["resume", "view"]
+            items.append(view)
+        return items
 
     def topic_activity_times(self, series_id: str) -> dict[str, datetime]:
         """Read-only sort keys; latest Run matches the card's Run selection."""
@@ -521,29 +536,7 @@ class StudioQueryService:
 
     @staticmethod
     def _topic_view(topic: Topic, runs: list[ContentRun]) -> TopicView:
-        related = sorted((run for run in runs if run.topic_id == topic.id), key=lambda item: (item.created_at, item.id), reverse=True)
-        run = related[0] if related else None
-        if run is None:
-            actions = ["start"] if topic.status.value == "queued" else ["view"]
-        elif run.status is ContentRunStatus.QUEUED:
-            actions = ["start", "view"]
-        elif run.status in {ContentRunStatus.INTERRUPTED, ContentRunStatus.FAILED} and (run.status is ContentRunStatus.INTERRUPTED or run.retryable):
-            actions = ["resume", "view"]
-        else:
-            actions = ["view"]
-        return TopicView(
-            id=topic.id,
-            series_id=topic.series_id,
-            title=topic.title,
-            brief=topic.brief,
-            source=topic.source.value,
-            status=topic.status.value,
-            position=topic.position,
-            existing_run_id=run.id if run else None,
-            existing_run_status=run.status.value if run else None,
-            existing_run_version=run.version if run else None,
-            available_actions=actions,
-        )
+        return topic_view(topic, runs)
 
     @staticmethod
     def _latest_run_ids(session, topic_id=None):

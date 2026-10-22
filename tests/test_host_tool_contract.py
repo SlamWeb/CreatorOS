@@ -108,12 +108,12 @@ class HostContractTests(unittest.TestCase):
     def test_projection_fault_cannot_claim_successful_tool_failed(self):
         # Pure formatting fault injection, not a substitute for HTTP/model E2E.
         tool = MagicMock()
-        with patch.dict("creatoros.tools.execution.tool_registry", {"queue_topics": tool}), \
+        with patch.dict("creatoros.tools.execution.tool_registry", {"manage_topics": tool}), \
                 patch("creatoros.tools.model_projection.project_model_content", side_effect=ValueError("controlled")):
             tool.expose_to_model = True
             tool.parse_arguments.return_value = {}
             tool.execute.return_value = ToolResult('{"status":"completed"}')
-            result = execute_tool_call(ToolCall("c", "queue_topics", "{}"), model_requested=True)
+            result = execute_tool_call(ToolCall("c", "manage_topics", "{}"), model_requested=True)
             self.assertFalse(result.is_error)
             self.assertEqual(result.details["projection_error"], "ValueError")
 

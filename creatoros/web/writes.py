@@ -149,25 +149,25 @@ class StudioWriteService:
             session.delete(creator)
             session.flush()
 
-    def edit_topic(self, topic_id: str, *, title: str | None = None, brief: str | None = None) -> Topic:
-        """编辑选题标题/简介；生产中禁止编辑。至少提供一个字段。"""
-        if title is None and brief is None:
-            raise StudioWriteError("没有需要修改的内容。")
-        with self.database.session() as session:
-            topic = session.get(Topic, topic_id)
-            if topic is None:
-                raise StudioWriteError("选题不存在。", status_code=404)
-            if topic.status is TopicStatus.PRODUCING:
-                raise StudioWriteError("选题正在生产中，不能编辑。")
-            if title is not None:
-                cleaned = title.strip()
-                if not cleaned:
-                    raise StudioWriteError("标题不能为空。")
-                topic.title = cleaned
-            if brief is not None:
-                topic.brief = brief.strip() or None
-            session.flush()
-            return topic
+    def edit_topic(self, topic_id: str, *, title: str | None = None, brief: str | None = None,
+                   changes: dict | None = None, expected_digest=None, request_id=None,
+                   origin="web", discussions=None) -> dict:
+        from .topic_mutations import TopicMutationError, edit_topic
+        supplied = changes if changes is not None else {
+            key: value for key, value in (("title", title), ("brief", brief)) if value is not None}
+        try:
+            return edit_topic(self.database, topic_id, changes=supplied, expected_digest=expected_digest,
+                              request_id=request_id, origin=origin, discussions=discussions)
+        except TopicMutationError as error:
+            raise StudioWriteError(str(error), status_code=error.status_code) from error
+
+    def topic_edit_receipt(self, topic_id: str, request_id: str):
+        from .topic_mutations import TopicMutationError, read_edit_receipt
+        try:
+            with self.database.session() as session:
+                return read_edit_receipt(session, topic_id, request_id)
+        except TopicMutationError as error:
+            raise StudioWriteError(str(error), status_code=error.status_code) from error
 
     def delete_topic(self, topic_id: str) -> None:
         """删除选题；有生产记录或正在生产的禁止删除（产物链与历史保留）。"""
@@ -191,12 +191,14 @@ class StudioWriteService:
             if replay is not None:
                 if (replay.topic_id, replay.batch_id, replay.candidate_id) != (topic_id, batch_id, candidate_id):
                     raise StudioWriteError("request_id 已用于另一项移除，请使用新的 request_id。")
-                return {"id": topic_id, "status": replay.status, "deduplicated": True}
+                return {"id": topic_id, "series_id": replay.series_id,
+                        "status": replay.status, "deduplicated": True}
             previous = session.get(TopicRemoval, topic_id)
             if previous is not None:
                 if (previous.batch_id, previous.candidate_id) != (batch_id, candidate_id):
                     raise StudioWriteError("该选题的移除来源不一致，请重新读取选题。")
-                return {"id": topic_id, "status": previous.status, "deduplicated": True}
+                return {"id": topic_id, "series_id": previous.series_id,
+                        "status": previous.status, "deduplicated": True}
             topic = session.get(Topic, topic_id)
             if topic is None:
                 if not batch_id or not candidate_id:
@@ -213,24 +215,26 @@ class StudioWriteService:
                 if batch_id is not None or candidate_id is not None:
                     raise StudioWriteError("已入队选题请使用正式选题移除请求。")
                 related = list(session.scalars(select(ContentRun).where(ContentRun.topic_id == topic_id)))
-                if topic.status is TopicStatus.PRODUCING or any(r.status in {
-                        ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING} for r in related):
-                    raise StudioWriteError("生产仍在进行，请先停止或等待完成后再移除。")
-                run_ids = {r.id for r in related}
-                if any(r.get("run_id") in run_ids and r.get("status") in {"queued", "running"}
-                       for r in discussions._records()):
-                    raise StudioWriteError("该内容仍有讨论任务进行中，请等待结束后再移除。")
+                from .topic_mutations import block_reasons
+                reason = block_reasons(session, [topic], related, discussions).get(topic_id)
+                if reason:
+                    raise StudioWriteError(reason)
                 series_id, status = topic.series_id, "archived" if related else "deleted"
                 if not related:
                     session.delete(topic)
             series = session.get(Series, series_id)
             if series is None:
                 raise StudioWriteError("栏目不存在。", status_code=404)
+            if not series.is_active:
+                raise StudioWriteError("栏目已移出工作区，不能移除选题。")
             session.add(TopicRemoval(topic_id=topic_id, series_id=series_id, creator_id=series.creator_id,
                                      request_id=request_id, batch_id=batch_id, candidate_id=candidate_id,
                                      status=status))
             session.flush()
-            return {"id": topic_id, "status": status, "deduplicated": False}
+            result = {"id": topic_id, "series_id": series_id, "status": status, "deduplicated": False}
+            if topic is not None:
+                result["title"] = topic.title
+            return result
 
     def reorder_topics(self, series_id: str, ordered_topic_ids: list[str]) -> None:
         """显性直写调序：完整顺序列表，一次性事务生效。"""

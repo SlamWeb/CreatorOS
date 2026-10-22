@@ -33,6 +33,7 @@ _TOPIC = (
     "research_angle", "stale", "existing_run_id", "existing_run_status",
     "existing_run_version", "available_actions",
     "production_queue_status", "production_queue_position",
+    "edit_digest", "management_actions",
 )
 _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
@@ -131,6 +132,7 @@ PROJECTED_TOOLS = frozenset({
     "prepare_topic_selection", "queue_topics", "install_producer_skill", "get_skill_install",
     "create_skill_draft",
     "manage_skill_iteration",
+    "manage_topics",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS
 
 
@@ -140,6 +142,14 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return deepcopy(data)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "manage_topics":
+        result = _pick(data, ("action", "ok", "id", "status", "deduplicated", "series_id",
+                              "topic_ids", "title", "changed_fields", "effect", "url"))
+        if "topic" in data:
+            result["topic"] = _topic(data["topic"])
+        if "items" in data:
+            result.update(_items(data, _TOPIC, item_projector=_topic))
+        return result
     if tool_name == "manage_skill_iteration":
         result = _pick(data, ("id", "status", "revision", "series_id", "skill_id", "topic_id",
                             "round_count", "max_rounds", "best_candidate_id", "best_score",

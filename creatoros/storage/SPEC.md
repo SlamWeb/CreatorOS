@@ -1,5 +1,11 @@
 # CreatorOS Storage SPEC
 
+## 选题编辑成功回执（2026-10-22，隔离验证）
+
+- `20261022_0017` 只扩展 WriteReceipt.operation CHECK 允许 `edit_topic`，不新增 Topic 版本字段、不回写原业务行。编辑摘要从当前选题身份/正文/来源/状态/位置/更新时间生成，生产输入仍以旧 Run/Revision 冻结快照为准。
+- 回执保存冻结账号、严格请求内容及写后正文，更新与回执同事务完成。精确重放不重写当前 Topic；请求键冲突、旧摘要与跨账号回放拒绝。仅承诺本机 Studio 共用写锁/短事务，不宣称跨进程或分布式 exactly-once。
+- `tests.test_topic_edit_migration` 在含旧账号、栏目、选题、Run/Revision 及回执的 0016 临时库验证升级/降级/再升级全部原行逐值相同、ORM 零漂移、外键/完整性正常。有新编辑回执时拒绝降级，避免静默丢弃编辑证据。没有迁移正式数据库。
+
 ## 调研提交队列（2026-10-20，隔离验证）
 
 - `20261020_0015` 仅新增 `topic_research_queue_items`，批次 ID 唯一、栏目外键、状态与提交/开始/结束时间；原批次 JSON、旧业务行不回填或改写。按 status/submitted_at/id FIFO 串行领取。

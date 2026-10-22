@@ -388,7 +388,7 @@ class WriteReceipt(Base):
     __tablename__ = "write_receipts"
     __table_args__ = (
         CheckConstraint(
-            "operation IN ('create_series', 'update_composition', 'assign_series', 'queue_topics', 'delete_series')",
+            "operation IN ('create_series', 'update_composition', 'assign_series', 'queue_topics', 'delete_series', 'edit_topic')",
             name="write_operation_values",
         ),
     )

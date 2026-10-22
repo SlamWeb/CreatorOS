@@ -11,6 +11,9 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("topic_management", ["-m", "unittest", "tests.test_topic_management_http",
+                          "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
+                          "tests.test_host_tool_contract", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
     ("codex_environment", ["-m", "unittest", "tests.test_codex_shell", "tests.test_composition_environment", "-v"]),

@@ -293,8 +293,10 @@ class ReferenceProductionAPITests(unittest.TestCase):
                         'creator': 'creator', 'series': 'series', 'topics': old_items}
             expected_id = sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True,
                                             separators=(',', ':')).encode()).hexdigest()
+            # Historical queue identity remains compatible for host/internal replay;
+            # new model requests use manage_topics and cannot call this hidden tool.
             result = execute_tool_call(ToolCall('legacy-queue', 'queue_topics', json.dumps({
-                'series_id': 'series', 'topics': [{'title': '旧Agent无图指令'}]})), context, model_requested=True)
+                'series_id': 'series', 'topics': [{'title': '旧Agent无图指令'}]})), context, model_requested=False)
             self.assertFalse(result.is_error, result.content)
             self.assertEqual(json.loads(result.content)['request_id'], expected_id)
 

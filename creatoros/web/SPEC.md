@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 原选题编辑与账号管理能力（2026-10-22，隔离后端验证）
+
+- GET `/api/topics/{id}` 返回正式选题当前正文、`edit_digest` 与独立 `management_actions`；旧 `available_actions` 继续仅表示生产动作。列表和单条读取共用权限投影；待选建议不是正式 Topic，不伪装成可直接修改的选题。
+- 原 PATCH 兼容无身份的旧网页；Agent 来源（包括总览）必须同时提交所读摘要和 request_id。修改与生产共用写锁，并持讨论锁，在事务内再次核实摘要、移除事实、栏目启用、所有关联 Run 的生产/验收状态、pending/running 执行授权及活跃讨论。修改只影响原 Topic，不创建替代选题，不写旧生产快照。
+- 成功写入在同事务保存 `edit_topic` 回执，冻结账号、目标、准确请求内容与写后正文。同键异目标/内容拒绝；精确重放返回首次结果，不覆盖后来修改。GET `edit-receipts/{request_id}` 只查询成功回执或 unknown，no-store，不重新执行。账号同时校验回执原归属与当前资源归属，栏目转移后不能窃读旧回执。
+- 选题移除沿既有 TopicRemoval 语义：无历史删除、有历史归档、旧产物和原记录保留；补齐待消费生产授权及非活动栏目保护，返回权威 series_id/title 供宿主生成入口，重放仍保留权威 series_id。普通服务和正式 SQLite 未由本轮测试操作。
+- 新增真实隔离 loopback HTTP/SQLite 测试覆盖同 ID 修改、CAS、幂等、账号越权、队列/生产/验收/讨论保护和历史全字段/图片 SHA256 不变；原 topic_crud、topic_remove、account_scope smoke 已通过。真实前端 DeepSeek 验收由主流程另记，不用本地受控产物声称已完成真实模型 E2E。
+
 ## 本轮修改正式加载（2026-10-22）
 
 - 用户授权仅空闲时重启。两次检查正式SQLite：无producing/validating Run、running Attempt、pending/running生产队列、在途调研或发布；69份提炼/安装/调研/聊天/讨论元数据均无活动项且全部可读。7条旧queued Run没有待消费执行项，原样保留，不替用户提交生产。

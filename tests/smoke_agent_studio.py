@@ -39,6 +39,9 @@ def main():
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
         db, service, producer, app = make_fixture(root)
+        # This legacy smoke intentionally tests a waiting second job. The product
+        # now defaults to five workers, so pin only this isolated fixture to one.
+        app.state.executor.max_concurrency = 1
         release, started = Event(), Event()
         original = producer.produce_to
 
@@ -56,7 +59,7 @@ def main():
                     assert client.creator_series("review-lab")["items"][0]["id"] == "agent-notes"
                     assert client.topics("agent-notes", 1, 1)["items"][0]["id"] == "review-2"
                     assert not tool("list_creators").is_error
-                    assert tool("list_series_topics", series_id="missing").error_type == "not_found"
+                    assert tool("manage_topics", action="list", series_id="missing").error_type == "not_found"
                     assert tool("list_creators", limit=101).error_type == "invalid_arguments"
                     submitted = json.loads(tool("start_content_run", topic_id="review-1").content)
                     run_id = submitted["run_id"]

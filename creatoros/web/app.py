@@ -153,6 +153,7 @@ def create_app(
     calibrations = SkillCalibrationService(db, extractions, artifacts)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
+    queries.discussions = discussions
     observations = ObservationService(db, chat=chat, research=research,
                                      discussions=discussions, extractions=extractions, runs=runs)
     agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions, iterations=iterations)
@@ -488,13 +489,35 @@ def create_app(
             raise HTTPException(status_code=error.status_code, detail=str(error)) from error
         return {"ok": True}
 
-    @app.patch("/api/topics/{topic_id}")
-    def edit_topic(topic_id: str, payload: TopicEditRequest):
+    @app.get("/api/topics/{topic_id}", response_model=TopicView)
+    def get_topic(topic_id: str, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        result = queries.get_topic(topic_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="选题不存在或已移出内容库。")
+        return result
+
+    @app.get("/api/topics/{topic_id}/edit-receipts/{request_id}")
+    def topic_edit_receipt(topic_id: str, request_id: str, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        if not 8 <= len(request_id) <= 64:
+            raise HTTPException(status_code=422, detail="无效的请求标识。")
         try:
-            writes.edit_topic(topic_id, title=payload.title, brief=payload.brief)
+            return writes.topic_edit_receipt(topic_id, request_id) or {
+                "request_id": request_id, "status": "unknown", "deduplicated": False}
         except StudioWriteError as error:
             raise HTTPException(status_code=error.status_code, detail=str(error)) from error
-        return {"ok": True}
+
+    @app.patch("/api/topics/{topic_id}")
+    def edit_topic(topic_id: str, payload: TopicEditRequest, request: Request):
+        try:
+            with runs._write_lock, discussions.lock:
+                return writes.edit_topic(topic_id,
+                    changes=payload.model_dump(include={"title", "brief"}, exclude_unset=True),
+                    expected_digest=payload.expected_digest, request_id=payload.request_id,
+                    origin=_request_origin(request), discussions=discussions)
+        except StudioWriteError as error:
+            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
 
     @app.post("/api/topics/{topic_id}/delete")
     def delete_topic(topic_id: str):

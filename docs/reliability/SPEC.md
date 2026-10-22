@@ -1,5 +1,12 @@
 # Reliability Baseline
 
+## 选题对象管理门禁（2026-10-22）
+
+- 显式allowlist新增topic_management组：原ID修改、移除/历史保护、生产锁竞态、CAS/回执、迁移、账号权限、有限动作Schema、真实Tool→HTTP→SQLite接线及丢响应重启后只查回执。只运行隔离库，不自动发现live脚本或调用付费模型。
+- 定向联合33项（含既有排序与参考生产）通过；旧入队幂等、组合工具、账号scope、原CRUD/移除/迁移、Studio API/Agent smoke通过。真实前端DeepSeek验收单列tools/Web SPEC，不并入受控通过率，也不改旧Eval报告。
+- 旧smoke_agent_studio测试假设一个生产工位，本轮只将该夹具显式固定单工位以保持原等待/取消断言；产品仍是5工位。旧排队工具名仅保留内部兼容测试，新模型调用统一用manage_topics。
+- 完整显式零付费runner最终36/36组通过，失败0：tmp/reliability-20261022-111329-128494/report.json。真实模型8次请求单独计账，不并入36组，不改旧分数；未据此宣称全仓测试或远端CI已经全过。
+
 ## 指定版本与 RSI 增量（2026-10-22）
 
 - 零付费allowlist增加指定版本Run、RSI工具/权限和RSI阶段服务三组；显式列表不自动发现live脚本。CI浏览器列表补完整Skill版本与RSI页。

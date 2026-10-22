@@ -44,15 +44,17 @@ def _tool(tool_name, **args):
 
 def main() -> None:
     exposed = {item["function"]["name"] for item in tools}
-    for name in ("compose_series", "update_series_composition", "assign_series", "queue_topics"):
+    for name in ("compose_series", "update_series_composition", "assign_series", "manage_topics"):
         assert name in exposed, f"工具未注册：{name}"
+    assert not {"queue_topics", "list_series_topics"}.intersection(exposed)
     descriptions = {item["function"]["name"]: item["function"]["description"] for item in tools}
     install_description = descriptions["install_producer_skill"]
     assert "Git" in install_description and "不调用模型" in install_description
     assert "不安装到 Codex 全局目录" in install_description
     assert "委托 Codex" not in install_description
     assert "compose_series/update_series_composition" in descriptions["get_skill_install"]
-    assert "本地工作副本" in descriptions["list_producer_skills"]
+    assert "本地Skill发布版" in descriptions["list_producer_skills"]
+    assert "include_versions=true" in descriptions["list_producer_skills"]
 
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -99,9 +101,8 @@ def main() -> None:
             assert client.request("GET", f"/api/series/{series_id}")["creator_id"] == creator["id"]
 
             # 直入队：Agent 工具写入，HTTP 读取到相同选题。
-            queued = _tool("queue_topics", series_id=series_id,
-                           topics=[{"title": "跨端选题一", "brief": "b", "source": "research"}],
-                           summary="用户：把选题一入队")
+            queued = _tool("manage_topics", action="create", series_id=series_id,
+                           topics=[{"title": "跨端选题一", "brief": "b", "source": "research"}])
             assert not queued.is_error, queued.content
             topics = client.request("GET", f"/api/series/{series_id}/topics")["items"]
             assert [t["title"] for t in topics] == ["跨端选题一"]

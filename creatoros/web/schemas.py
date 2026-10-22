@@ -57,6 +57,8 @@ class TopicView(ApiModel):
     cover_url: str | None = None
     card_count: int | None = Field(default=None, ge=1)
     available_actions: list[str]
+    edit_digest: str | None = None
+    management_actions: list[str] = Field(default_factory=lambda: ["get"])
 
 
 class PageInfo(ApiModel):
@@ -378,6 +380,14 @@ class SeriesCreateRequest(WriteRequest):
 class TopicEditRequest(WriteRequest):
     title: str | None = Field(default=None, min_length=1, max_length=240)
     brief: str | None = Field(default=None, max_length=10_000)
+    expected_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    request_id: str | None = Field(default=None, min_length=8, max_length=64)
+
+    @model_validator(mode="after")
+    def paired_edit_identity(self):
+        if (self.expected_digest is None) != (self.request_id is None):
+            raise ValueError("修改摘要和请求标识必须同时提供。")
+        return self
 
 
 class TopicReorderRequest(WriteRequest):
@@ -433,6 +443,8 @@ class TopicRemoveRequest(WriteRequest):
 
 class TopicRemoveResponse(ApiModel):
     id: str
+    series_id: str | None = None
+    title: str | None = None
     status: Literal["deleted", "archived", "dismissed"]
     deduplicated: bool
 

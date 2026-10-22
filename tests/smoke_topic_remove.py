@@ -85,7 +85,9 @@ def main():
             request_id = uuid4().hex
             deleted = _remove(client, deleted_id, request_id)
             assert deleted.status_code == 200, deleted.text
-            assert deleted.json() == {"id": deleted_id, "status": "deleted", "deduplicated": False}
+            assert {key: deleted.json()[key] for key in ("id", "status", "deduplicated")} == {
+                "id": deleted_id, "status": "deleted", "deduplicated": False}
+            assert deleted.json()["series_id"] == series_id
             replay = _remove(client, deleted_id, request_id)
             assert replay.status_code == 200 and replay.json()["deduplicated"] is True, replay.text
             assert _remove(client, deleted_id).json()["deduplicated"] is True

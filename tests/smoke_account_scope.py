@@ -71,6 +71,8 @@ with TemporaryDirectory() as temporary:
         assert client.get("/api/creators/creator-b", headers=scoped).status_code == 403
         assert client.get("/api/series/series-a/topics", headers=scoped).status_code == 200
         assert client.get("/api/series/series-b/topic-library", headers=scoped).status_code == 403
+        assert client.get("/api/topics/topic-a", headers=scoped).status_code == 200
+        assert client.get("/api/topics/topic-b", headers=scoped).status_code == 403
 
         context = RuntimeContext(project_root=root, studio_url=studio_url,
                                  allowed_tools=frozenset({"list_creators", "list_creator_series"}),
@@ -94,6 +96,15 @@ with TemporaryDirectory() as temporary:
         install = client.post("/api/producer-skills/install", headers=scoped,
                               json={"github_url": "https://github.com/example/skill"})
         assert [composed.status_code, queued.status_code, research_start.status_code, install.status_code] == [403] * 4
+        assert _counts(database) == before
+        # Topic CRUD uses the real parent ownership check, not a model-supplied account.
+        foreign_edit = client.patch("/api/topics/topic-b", headers=scoped, json={
+            "title": "forged edit", "expected_digest": "0" * 64, "request_id": uuid4().hex,
+        })
+        foreign_remove = client.post("/api/topics/topic-b/remove", headers=scoped,
+                                     json={"request_id": uuid4().hex})
+        assert foreign_edit.status_code == foreign_remove.status_code == 403
+        assert repository.get_topic("topic-b").title == "B topic"
         assert _counts(database) == before
 
         # A research batch is scoped by its persisted series ID for reads and writes.

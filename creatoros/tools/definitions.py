@@ -56,6 +56,7 @@ from .content_discussion import (
     get_creator_tasks, request_content_revision,
 )
 from .skill_iterations import ManageSkillIterationArgs, manage_skill_iteration
+from .topics import ManageTopicsArgs, manage_topics
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -186,7 +187,9 @@ tool_registry = {
         Tool(name="prepare_topic_selection", description="把用户选择的候选及标题/切入点修改、顺序生成待确认 Preview，保留来源；不执行入队、不调用生产。歧义先询问。返回链接交用户人工确认。",
              execute=prepare_topic_selection, args_model=SelectResearchArgs),
         Tool(name="queue_topics", description="用户明确指定栏目和条目时直接入队，不生产。查看/建议/调研不要调用。同一会话同一用户轮次的相同入队动作只写一次，重复只查回执；未知结果不要换参数或另起动作重发。新一轮明确入队属于新指令。",
-             execute=queue_topics, args_model=QueueTopicsArgs),
+             execute=queue_topics, args_model=QueueTopicsArgs, expose_to_model=False),
+        Tool(name="manage_topics", description="管理选题，不生产：list按栏目筛选待选/已入队并翻页；get读取一条已入队选题和edit_digest；create仅用户明确新增时入队；update用原topic_id、changes和刚读取的edit_digest直接修改标题或完整切入点，不新建替代；remove按用户要求移除指定条目，已有产物保留历史，运行中拒绝。待选remove带真实candidate来源；待选入队用create保留reference_id。management_actions是管理权限，available_actions是生产操作。冲突先重读核对，未知结果不另建条目；不能把修改成功说成图片已更新。",
+             execute=manage_topics, args_model=ManageTopicsArgs),
         Tool(name="compose_series", description="用户明确要求创建栏目时使用：一份完整制作 Skill，或直接引用原始 Mind＋Visualize，两者无需先融合、不改写原 Skill。creator_id 可选，未分配栏目生产前必须分配。",
              execute=compose_series, args_model=ComposeSeriesArgs),
         Tool(name="update_series_composition", description="用户明确要求更换栏目直接引用的原始 Mind＋Visualize 时使用，无需融合；必须先查询取得当前 revision。旧单 Skill 栏目不可转换，需新建组合栏目。",
@@ -208,7 +211,7 @@ tool_registry = {
         Tool(name="list_creator_series", description="查询指定运营账号下的所有栏目、受众和 Skill；同名栏目需结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
-             execute=list_series_topics, args_model=TopicsArgs),
+             execute=list_series_topics, args_model=TopicsArgs, expose_to_model=False),
         Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。单条可用skill_overrides指定准确Skill版本（含候选）及expected_digests；先用get_producer_skill(include_versions=true)或文件列表取真实ID/digest，不必切换栏目，只冻结本次选择。批量和参考图入口暂不混用版本覆盖。用户给参考图且已明确制作时直接用series_id/title/完整instructions/attachment_ids，不需先调研；默认只参考内容，可reference_presentation=true。按最新或指定版清空上下文重做用mode=fresh和来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；未知先查同一任务，不盲目重提。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",

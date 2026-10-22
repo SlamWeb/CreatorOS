@@ -1,5 +1,14 @@
 # CreatorOS Tool Exposure SPEC
 
+## 选题对象工具收敛（2026-10-22，隔离真实前端验收通过）
+
+- 本轮仅迁移选题：模型只见 manage_topics（list/get/create/update/remove），旧 list_series_topics、queue_topics 保留内部调用与历史 Trace，不再暴露给模型。栏目、Skill 工具暂不迁移；后续 Skill 权限采用共享可引用、账号候选可编辑、不能跨账号删除模型。
+- update 修改原 Topic，需最新 edit_digest；请求身份由宿主会话/用户轮次/目标/动作生成。CAS、成功回执和同键异请求校验在生产共用写锁内执行；未知结果只读回执，不新建条目绕路。
+- remove 沿原 TopicRemoval：无历史物理删除、有历史归档；排队/生产/核验/讨论期间拒绝。不改旧 Run/Revision/Attempt 快照、图片、审批或任务；管理能力与生产动作分字段返回。
+- 验收先隔离 SQLite/真实 loopback HTTP 的权限、重放、旧请求覆盖和历史保护，再原 SPA→真实 DeepSeek→原 ID 修改/移除→刷新/Trace；不改正式数据、不重启运行中的正式服务。未执行前不标完成。
+- 已在独立8895原前端连续发送4轮真实DeepSeek：create两条→get/update原ID不增条→remove指定旧条目→跨账号请求拒绝；点击权威栏目入口、编辑框全文、刷新与Trace均核对。8次模型请求，输入116381/输出604，无Codex或生产。SQLite每轮前后与原文件一致性均断言，完整证据与边界见docs/agent-studio/web-chat/TOPIC_MANAGEMENT_RESULTS.md；不改旧Eval分数。正式服务未重启，后端待安全重启加载。
+- 定向联合33项及完整零付费门禁36/36组通过，新增topic_management组已接CI显式allowlist；不把受控故障与模型行为混成同一个成功率。独立只读复核与隔离HTTP时序另核验Guard→路由作用域锁，等待生产锁期间不能插入HTTP栏目转移。
+
 ## 指定版本与有界 RSI（2026-10-22）
 
 - 现有 Skill 读取工具以 include_versions 查询准确版本、候选与真实目录摘要；账号目录按已绑定家族过滤，历史接口不泄露其他账号同家族的栏目绑定。

@@ -29,6 +29,8 @@ _RUN_EXECUTE = re.compile(r"^/api/runs/([^/]+)/execute$")
 _RUN_DISCUSSION = re.compile(r"^/api/runs/([^/]+)/discussion$")
 _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
 _TOPIC_REMOVE = re.compile(r"^/api/topics/([^/]+)/remove$")
+_TOPIC = re.compile(r"^/api/topics/([^/]+)$")
+_TOPIC_EDIT_RECEIPT = re.compile(r"^/api/topics/([^/]+)/edit-receipts/([^/]+)$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
 _PRODUCER_SKILL_FILES = re.compile(
@@ -60,6 +62,20 @@ class AgentScopeGuard:
             session = self.chat.get(session_id)
         except Exception:
             return self._denied()
+
+        # Every Agent source, including overview sessions, must edit what it
+        # actually read; the header-free legacy Web editor remains compatible.
+        if request.method.upper() == "PATCH" and _TOPIC.fullmatch(request.url.path):
+            try:
+                edit_payload = await request.json()
+            except Exception:
+                return self._denied()
+            if (not isinstance(edit_payload, dict)
+                    or not isinstance(edit_payload.get("expected_digest"), str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", edit_payload["expected_digest"])
+                    or not isinstance(edit_payload.get("request_id"), str)
+                    or not 8 <= len(edit_payload["request_id"]) <= 64):
+                return self._denied()
 
         if session.get("scope_kind", "overview") != "creator":
             return None
@@ -226,6 +242,20 @@ class AgentScopeGuard:
                 return None
             return None if self._owns_deleted_series(match.group(1), request_id, creator_id) else self._denied()
 
+        match = _TOPIC.fullmatch(path)
+        if match and method in {"GET", "PATCH"}:
+            topic_id = match.group(1)
+            if not self._owns_topic(topic_id, creator_id):
+                return self._denied()
+            if method == "PATCH":
+                payload = await request.json()
+                return None if self._owns_edit_receipt(topic_id, payload.get("request_id"), creator_id) else self._denied()
+            return None
+
+        match = _TOPIC_EDIT_RECEIPT.fullmatch(path)
+        if method == "GET" and match:
+            return None if self._owns_edit_receipt(match.group(1), match.group(2), creator_id) else self._denied()
+
         match = _TOPIC_REMOVE.fullmatch(path)
         if method == "POST" and match:
             topic_id = match.group(1)
@@ -330,6 +360,21 @@ class AgentScopeGuard:
         with self.db.session() as session:
             creator = session.get(Creator, creator_id)
             return bool(creator and creator.is_active)
+
+    def _owns_edit_receipt(self, topic_id: str, request_id, creator_id: str) -> bool:
+        with self.db.session() as session:
+            receipt = session.get(WriteReceipt, request_id) if isinstance(request_id, str) else None
+            if receipt is None:
+                return self._owns_topic(topic_id, creator_id)
+            data = receipt.response_json or {}
+            if (receipt.operation != "edit_topic" or receipt.resource_id != topic_id
+                    or data.get("creator_id") != creator_id):
+                return False
+            series_id = data.get("topic", {}).get("series_id")
+            topic = session.get(Topic, topic_id)
+            if topic is not None and topic.series_id != series_id:
+                return False
+            return isinstance(series_id, str) and self._owns_series(series_id, creator_id)
 
     def _owns_series(self, series_id: str, creator_id: str) -> bool:
         with self.db.session() as session:
