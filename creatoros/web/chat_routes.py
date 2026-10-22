@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .chat_attachments import MAX_IMAGES, MAX_ENCODED
+from .chat_stream import session_patch
 
 
 class ChatTurnRequest(BaseModel):
@@ -100,14 +101,17 @@ def chat_routes(service):
             heartbeat = 0
             while not getattr(request.app.state, "stop_observers", False) and not await request.is_disconnected():
                 view = await run_in_threadpool(service.get, sid)
-                serialized = json.dumps(view, ensure_ascii=False)
-                if serialized != previous:
-                    yield f"event: snapshot\ndata: {serialized}\n\n"
-                    previous = serialized
+                if previous is None:
+                    yield f"event: snapshot\ndata: {json.dumps(view, ensure_ascii=False)}\n\n"
+                    previous = view
+                elif view["stream_revision"] != previous["stream_revision"]:
+                    patch = session_patch(previous, view)
+                    yield f"event: patch\ndata: {json.dumps(patch, ensure_ascii=False)}\n\n"
+                    previous = view
                 heartbeat += 1
-                if heartbeat % 30 == 0:
+                if heartbeat % 125 == 0:
                     yield ": keepalive\n\n"
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.12)
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

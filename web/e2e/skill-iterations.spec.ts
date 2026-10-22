@@ -107,6 +107,46 @@ test("unknown RSI action survives reload and explicitly retries the same identit
   expect(otherWrites).toBe(0);
 });
 
+test("failed Judge resumes the same review without authorizing more rounds or another trial", async ({ page }) => {
+  const initial = { ...baseline(), status: "failed", stage: "judge", error: "评分格式错误；已有图片保留。",
+    can_resume: true, can_continue: false, can_pause: false,
+    rounds: baseline().rounds.map(round => ({ ...round, score: null, passed: false, scores: [], evaluations: [], feedback: "" })) };
+  let doc = initial;
+  const writes: Record<string, unknown>[] = [];
+  const otherWrites: string[] = [];
+  let dialogs = 0;
+  page.on("dialog", async dialog => { dialogs++; await dialog.dismiss(); });
+  page.on("request", request => {
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()) && !request.url().endsWith(`/skill-iterations/${id}/actions`)) otherWrites.push(request.url());
+  });
+  await page.route(`**/api/skill-iterations/${id}`, route => route.fulfill({ json: doc }));
+  await page.route(`**/api/skill-iterations/${id}/actions`, route => {
+    const input = route.request().postDataJSON();
+    writes.push(input);
+    doc = { ...doc, status: "running", revision: 4, error: "", can_resume: false, can_pause: true };
+    return route.fulfill({ json: doc });
+  });
+  await page.goto(`/skills?iteration=${id}`);
+  await expect(page.getByRole("alert")).toContainText("评分格式错误；已有图片保留。");
+  await expect(page.getByRole("button", { name: "再试 3 轮", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("img", { name: "第 2 轮产物", exact: true })).toHaveAttribute("src", image);
+  await page.getByRole("button", { name: "恢复评审", exact: true }).click();
+  await expect(page.getByRole("button", { name: "暂停", exact: true })).toBeVisible();
+  expect(writes).toHaveLength(1);
+  expect(writes[0]).toMatchObject({ action: "resume", expected_revision: 3 });
+  expect(writes[0]).not.toHaveProperty("max_rounds");
+  expect(doc.max_rounds).toBe(initial.max_rounds);
+  expect(doc.round_number).toBe(initial.round_number);
+  expect(doc.rounds).toEqual(initial.rounds);
+  await expect(page.locator(".skill-iteration-toolbar")).toContainText("对照参考作品评审 · 2 / 3 轮");
+  await page.reload();
+  await expect(page.getByRole("button", { name: "暂停", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "第 2 轮产物", exact: true })).toHaveAttribute("src", image);
+  expect(writes).toHaveLength(1);
+  expect(otherWrites).toEqual([]);
+  expect(dialogs).toBe(0);
+});
+
 test("stale action and failed reads remain visible without automatic authorization", async ({ page }) => {
   let readsFail = true;
   const doc = { ...baseline(), status: "exhausted", can_resume: false, can_continue: true };

@@ -87,7 +87,8 @@ class ChatLinksTests(unittest.TestCase):
             self.assertEqual(answer["text"], raw)
             self.assertEqual(len(answer["links"]), 2)
             restarted = AgentChatService(Path(root))
-            self.assertEqual(restarted.get(doc["id"])["entries"][-1], answer)
+            restored = restarted.get(doc["id"])["entries"][-1]
+            self.assertEqual({k: v for k, v in restored.items() if k != "id"}, answer)
             doc["requests"].append({"id": "turn-b", "text": "next"})
             service._emit(doc, AgentEvent("turn_start", {"turn_id": "turn-b"}))
             service._emit(doc, AgentEvent("model_response", {"turn_id": "turn-b", "request_id": "request-b", "complete": True}))
@@ -182,7 +183,7 @@ class ChatLinksTests(unittest.TestCase):
                         self.assertFalse(result.is_error, result.content)
                         self.assertEqual(row["series_id"], SERIES)
                         self.assertEqual(tool_links("queue_topics", result.content, studio_url=base),
-                            [{"url": f"/series/{SERIES}", "label": "查看栏目", "source_tool": "queue_topics"}])
+                            [{"url": f"/series/{SERIES}", "label": "查看栏目", "kind": "series", "source_tool": "queue_topics"}])
                     self.assertTrue(rows[1]["deduplicated"])
                     self.assertEqual(rows[0]["request_id"], rows[1]["request_id"])
                     self.assertEqual(rows[0]["topic_ids"], rows[1]["topic_ids"])

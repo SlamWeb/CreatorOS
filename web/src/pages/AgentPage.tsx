@@ -1,30 +1,25 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy, History, Plus, Repeat2, X } from "lucide-react";
+import { Check, CircleAlert, Copy, History, LoaderCircle, Minus, Plus, Repeat2, X } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
-import { ResearchActivity, type ResearchSnapshot } from "../components/ResearchActivity";
-import { DiscussionActivity, type DiscussionSnapshot } from "../components/DiscussionActivity";
+import { ChatToolDetails } from "../components/ChatToolDetails";
+import { ResearchActivity } from "../components/ResearchActivity";
+import { DiscussionActivity } from "../components/DiscussionActivity";
 import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditHandoff";
-import { chatHref, type ChatLink } from "../components/chatLinks";
+import { chatHref, chatLinkKind, chatLinkLabel, uniqueChatLinks, type ChatLink } from "../components/chatLinks";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 import { useAgentChat } from "../components/AgentChatHost";
 import { AgentComposerControls } from "../components/AgentComposerControls";
 import { initialReasoningEffort, isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
-  type ContextUsage, type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
+  type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
+import { applySessionPatch, newestChatSession, transcriptItems, type ChatEntryData as Entry,
+  type ChatSession as Session, type ChatSessionPatch, type TurnUsage } from "../components/agentTranscript";
+import "../components/chat-transcript.css";
 
-type Entry = { kind: string; text?: string; name?: string; status?: string; run_id?: string;
-  iteration_mode?: boolean;
-  input_tokens?: number; output_tokens?: number; turn_id?: string; complete?: boolean; terminal?: boolean;
-  model_request_id?: string; research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[]; attachments?: ChatAttachment[] };
-type Session = { id: string; title: string; version: number; status: string; error: string | null;
-  scope_kind: "overview" | "creator"; creator_id: string | null;
-  reasoning_effort?: string; reasoning_options?: string[]; context_usage?: ContextUsage | null;
-  reasoning_actual_effort?: string; reasoning_effort_map?: Record<string, string>;
-  entries: Entry[]; updated_at: string; has_older: boolean };
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
   discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
   list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务",
@@ -37,8 +32,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const base = "/api/agent/sessions";
-const newestSession = (old: Session | undefined, next: Session) => old &&
-  (old.version > next.version || (old.version === next.version && old.updated_at > next.updated_at)) ? old : next;
+const newestSession = newestChatSession;
 const draftStorageKey = (scope: string) => `creatoros.agent.draft.v1:${encodeURIComponent(scope)}`;
 const iterationDraftKey = (scope: string) => `creatoros.agent.iteration-draft.v1:${encodeURIComponent(scope)}`;
 const selectedChatStorageKey = (scope: string) => `creatoros.agent.selected-chat.v1:${encodeURIComponent(scope)}`;
@@ -132,6 +126,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     setErrors(previous => ({ ...previous, [scope]: value }));
   }, []);
   const [connected, setConnected] = useState(false);
+  const [streamReconnect, setStreamReconnect] = useState(0);
   const transcript = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const lastSeed = useRef("");
@@ -140,8 +135,10 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     const next = await request<Session>(`${base}/${id}`);
     return newestSession(cache.getQueryData<Session>(["agent-session", scopeKey, id]), next);
   },
-    enabled: active && !!id, refetchInterval: q => active && q.state.data?.status === "running" ? 2000 : false });
+    enabled: active && !!id, refetchInterval: q => active && !connected && q.state.data?.status === "running" ? 2000 : false,
+    refetchOnWindowFocus: !connected });
   const doc = session.data;
+  const renderedEntries = useMemo(() => transcriptItems(doc?.entries ?? []), [doc?.entries]);
   const preferenceKey = id ?? `new:${scopeKey}`;
   const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
   const pendingTurn = id ? (pendingTurns[id] === undefined
@@ -172,7 +169,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     : "scope_kind=overview";
   const sessions = useQuery({ queryKey: ["agent-sessions", dataScopeKey],
     queryFn: () => request<{ items: Session[] }>(`${base}?${scopeQuery}`),
-    enabled: scopeReady, refetchInterval: q => active && q.state.data?.items.some(item => item.status === "running") ? 5000 : false });
+    enabled: scopeReady, refetchInterval: q => active && historyOpen && q.state.data?.items.some(item => item.status === "running") ? 5000 : false });
   const creator = useQuery({ queryKey: ["creator", creatorId], queryFn: () => studioApi.creator(creatorId!), retry: false,
     enabled: active && !!creatorId });
   const docCreatorId = doc?.scope_kind === "creator" ? doc.creator_id : null;
@@ -239,22 +236,50 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     } catch { updateError(scopeKey, "无法读取 Skill 修改草稿，请返回 Skill 卡片重新提交。"); }
   }, [active, params, requestedCreatorId, scopeKey, setParams, updateDraft, updateError]);
   useEffect(() => {
-    setConnected(false); follow.current = true;
+    setConnected(false);
     if (!active || !id || doc?.status !== "running") return;
     let live = true;
+    let recovering = false;
+    let reconnectTimer: number | undefined;
     const source = new EventSource(apiUrl(`${base}/${id}/events`));
-    source.onopen = () => { if (live) setConnected(true); };
+    const resync = () => {
+      if (!live || recovering) return;
+      recovering = true;
+      source.close(); setConnected(false);
+      // A missing base cannot be patched by guessing. Read one authoritative
+      // snapshot, then reconnect; polling remains read-only if this fails.
+      void request<Session>(`${base}/${id}`).then(next => {
+        if (live && next.id === id) cache.setQueryData<Session>(["agent-session", scopeKey, id], old => newestSession(old, next));
+      }).catch(() => { /* The disconnected polling fallback retains the view. */ })
+        .finally(() => { if (live) reconnectTimer = window.setTimeout(() => setStreamReconnect(value => value + 1), 1000); });
+    };
+    source.onopen = () => { if (live && !recovering) setConnected(true); };
     source.onerror = () => { if (live) setConnected(false); };
     source.addEventListener("snapshot", event => {
-      const next = JSON.parse((event as MessageEvent).data) as Session;
-      if (!live || next.id !== id) return;
-      cache.setQueryData<Session>(["agent-session", scopeKey, id], old => newestSession(old, next));
+      if (!live || recovering) return;
+      try {
+        const next = JSON.parse((event as MessageEvent).data) as Session;
+        if (next.id !== id || !Array.isArray(next.entries)) { resync(); return; }
+        cache.setQueryData<Session>(["agent-session", scopeKey, id], old => newestSession(old, next));
+        setConnected(true);
+      } catch { resync(); }
     });
-    return () => { live = false; source.close(); };
-  }, [active, id, scopeKey, doc?.status, cache]);
-  useEffect(() => {
+    source.addEventListener("patch", event => {
+      if (!live || recovering) return;
+      try {
+        const patch = JSON.parse((event as MessageEvent).data) as ChatSessionPatch;
+        const merged = applySessionPatch(cache.getQueryData<Session>(["agent-session", scopeKey, id]), patch);
+        if (merged.status === "resync") { resync(); return; }
+        if (merged.status === "applied") cache.setQueryData(["agent-session", scopeKey, id], merged.session);
+        setConnected(true);
+      } catch { resync(); }
+    });
+    return () => { live = false; source.close(); window.clearTimeout(reconnectTimer); };
+  }, [active, id, scopeKey, doc?.status, streamReconnect, cache]);
+  useEffect(() => { follow.current = true; }, [id, scopeKey]);
+  useLayoutEffect(() => {
     if (follow.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-  }, [doc]);
+  }, [doc?.entries]);
   const ensureSession = async (current: Session | undefined, scopeCreatorId: string | null, submittedScopeKey: string, sourceView: string) => {
     const target = current ?? await request<Session>(base, { method: "POST", body: JSON.stringify({ creator_id: scopeCreatorId }) });
     const targetCreatorId = target.scope_kind === "creator" ? target.creator_id : null;
@@ -439,7 +464,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       {standalone && (!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
         <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
-      {doc?.entries.map((entry, index) => <ChatEntry key={`${doc.id}-${index}`} entry={entry} sessionId={doc.id} sessionStatus={doc.status} />)}
+      {doc && renderedEntries.map(item => <ChatEntry key={`${doc.id}:${item.key}`} entry={item.entry} sessionId={doc.id}
+        sessionStatus={doc.status} usage={item.usage} hiddenLinkUrls={item.hiddenLinkUrls} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
@@ -474,7 +500,11 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   </section>;
 }
 
-function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionId: string; sessionStatus: string }) {
+const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, usage, hiddenLinkUrls }: {
+  entry: Entry; sessionId: string; sessionStatus: string; usage?: TurnUsage; hiddenLinkUrls?: string;
+}) {
+  const hidden = new Set<string>(hiddenLinkUrls ? JSON.parse(hiddenLinkUrls) : []);
+  const links = uniqueChatLinks(entry.links ?? []).filter(link => !hidden.has(link.url));
   if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}
     {entry.iteration_mode && <small className="chat-user-iteration">RSI · 最多 3 轮</small>}</div>;
   if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
@@ -482,13 +512,15 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
     img: ({ alt }) => <span>{alt ?? "图片请在内容页查看"}</span>,
     a: ({ href, children }) => {
       const target = chatHref(href, entry.links ?? [], window.location.origin);
-      return target?.kind === "internal" ? <Link to={target.href}>{children}</Link>
+      // Confirmed task links have one named destination below the reply; keep
+      // repeated model-written links from multiplying indistinguishable CTAs.
+      return target?.kind === "internal" ? <span>{children}</span>
         : target?.kind === "external" ? <a href={target.href} target="_blank" rel="noopener noreferrer">{children}</a>
           : <span title="此地址未由工具确认；请使用回复下方的任务入口">{children}</span>;
     },
   }}>{entry.text}</Markdown></div>
-    {!!entry.links?.length && <nav className="chat-delivery-links" aria-label="本轮任务入口">
-      {entry.links.map(link => <Link key={link.url} to={link.url}>{link.label}</Link>)}
+    {!!links.length && <nav className="chat-delivery-links" aria-label="本轮任务入口">
+      {links.map(link => <NamedChatLink key={link.url} link={link} />)}
     </nav>}
     {(entry.complete || entry.terminal || (entry.complete === undefined && entry.terminal === undefined && sessionStatus !== "running")) && <div className="chat-reply-actions">
       <CopyReply text={entry.text} />
@@ -496,16 +528,64 @@ function ChatEntry({ entry, sessionId, sessionStatus }: { entry: Entry; sessionI
         incomplete={entry.terminal === true && !entry.complete} />
     </div>}
   </div> : null;
-  if (entry.kind === "tool") return <div className="chat-tool" data-status={entry.status}>
-    <span>{entry.status === "running" ? "◌" : entry.status === "done" ? "✓" : "!"} {tools[entry.name ?? ""] ?? entry.name}</span>
-    <small>{entry.status === "running" ? (entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中") : entry.status === "done" ? "已返回" : "结果需检查"}</small>
-    {entry.links?.filter(link => link.label === "查看内容").map(link => <Link key={link.url} to={link.url}>查看内容任务 ↗</Link>)}
-    {entry.research && <ResearchActivity research={entry.research} links={entry.links ?? []} />}
-    {entry.discussion && <DiscussionActivity discussion={entry.discussion} links={entry.links ?? []} />}
-  </div>;
-  if (entry.kind === "usage") return <details className="chat-usage"><summary>本轮用量</summary>
-    输入 {entry.input_tokens?.toLocaleString()} · 输出 {entry.output_tokens?.toLocaleString()} tokens</details>;
+  if (entry.kind === "tool") return <ToolEntry entry={entry} sessionId={sessionId} links={links} />;
+  if (entry.kind === "usage" && usage) return <UsageEntry usage={usage} />;
   return <p className="agent-note">{entry.kind === "guard_stop" ? "已达到本次调用上限，请检查当前结果。" : entry.kind === "context_compacted" ? "较早消息已压缩，完整记录仍在本地。" : "上下文接近预算。"}</p>;
+});
+
+function NamedChatLink({ link }: { link: ChatLink }) {
+  const target = chatHref(link.url, [link], window.location.origin);
+  if (target?.kind !== "internal") return null;
+  const label = chatLinkLabel(link);
+  const at = link.created_at ? Date.parse(link.created_at) : NaN;
+  return <Link to={target.href} title={label} data-link-kind={chatLinkKind(link) ?? undefined}>
+    <span>{label}</span>{Number.isFinite(at) && <small>{new Date(at).toLocaleString("zh-CN", {
+      month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+    })}</small>}
+  </Link>;
+}
+
+function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: string; links: ChatLink[] }) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const running = entry.status === "running";
+  const successful = entry.status === "done";
+  const status = running ? (entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中")
+    : successful ? "已返回" : "结果需检查";
+  const navigation = links.filter(link => !["research", "discussion"].includes(chatLinkKind(link) ?? ""));
+  return <div className="chat-tool chat-tool-expandable" data-status={entry.status} data-entry-id={entry.id}>
+    <button type="button" className="chat-tool-toggle" aria-expanded={open} aria-controls={detailsId}
+      onClick={() => setOpen(value => !value)}>
+      {running ? <LoaderCircle size={14} className="chat-tool-spinner" aria-hidden="true" />
+        : successful ? <Check size={14} aria-hidden="true" /> : <CircleAlert size={14} aria-hidden="true" />}
+      <span className="chat-tool-name">{tools[entry.name ?? ""] ?? entry.name ?? "工具"}</span>
+      <small>{status}</small>
+      {open ? <Minus size={13} className="chat-tool-expand-icon" aria-hidden="true" /> : <Plus size={13} className="chat-tool-expand-icon" aria-hidden="true" />}
+    </button>
+    {!!navigation.length && <nav className="chat-tool-links" aria-label="工具任务入口">
+      {navigation.map(link => <NamedChatLink key={link.url} link={link} />)}
+    </nav>}
+    {open && <div id={detailsId} className="chat-tool-details" role="region" aria-label={`${tools[entry.name ?? ""] ?? entry.name ?? "工具"}详情`}>
+      <ChatToolDetails sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}
+        callId={entry.tool_call_id} running={running} />
+    </div>}
+    {entry.research && <ResearchActivity research={entry.research} links={links} />}
+    {entry.discussion && <DiscussionActivity discussion={entry.discussion} links={links} />}
+  </div>;
+}
+
+function UsageEntry({ usage }: { usage: TurnUsage }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return <div className="chat-usage chat-turn-usage" data-turn-id={usage.turnId}>
+    <button type="button" className="chat-usage-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>
+      <span>{usage.turnId ? "本条请求用量" : "历史调用用量（未关联轮次）"}</span>
+      {usage.requests > 1 && <small>{usage.requests} 次调用</small>}
+      {open ? <Minus size={12} aria-hidden="true" /> : <Plus size={12} aria-hidden="true" />}
+    </button>
+    {open && <p id={id}>输入 {usage.input?.toLocaleString() ?? "未记录"} · 输出 {usage.output?.toLocaleString() ?? "未记录"} tokens
+      {usage.partial && <span> · 部分调用用量未记录</span>}</p>}
+  </div>;
 }
 
 function CopyReply({ text }: { text: string }) {

@@ -103,7 +103,7 @@ export function SkillIterationPanel({ id }: { id: string }) {
         <span className={`skill-iteration-status${running(item) ? " task-running-text" : ""}`} data-status={item.status}>{statuses[item.status] ?? item.status}</span></header>
       <div className="skill-iteration-toolbar"><span role="status">{stages[item.stage] ?? item.stage} · {item.round_number} / {item.max_rounds} 轮</span>
         <div>{item.can_pause && <button type="button" disabled={act.isPending || !!pending} onClick={() => submit("pause")}><Pause size={14} aria-hidden="true" />暂停</button>}
-          {item.can_resume && <button type="button" disabled={act.isPending || !!pending} onClick={() => submit("resume")}><Play size={14} aria-hidden="true" />恢复</button>}
+          {item.can_resume && <button type="button" disabled={act.isPending || !!pending} onClick={() => submit("resume")}><Play size={14} aria-hidden="true" />{item.status === "failed" && item.stage === "judge" ? "恢复评审" : "恢复"}</button>}
           {item.can_continue && <button type="button" className="button-primary" disabled={act.isPending || !!pending} onClick={() => submit("continue")}><Repeat2 size={14} aria-hidden="true" />再试 3 轮</button>}
           <button type="button" aria-label="刷新迭代任务" disabled={detail.isFetching || act.isPending} onClick={refresh}><RefreshCw size={14} aria-hidden="true" /></button></div></div>
       {pending && !act.isPending && <div className="skill-iteration-recovery" role="status"><span>{actionLabels[pending.action]}：上次结果待核对</span>

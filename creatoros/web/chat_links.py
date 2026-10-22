@@ -12,6 +12,18 @@ _ROUTE = re.compile(rf"^/(series|runs)/({_ID})$")
 _LABELS = {"series": "查看栏目", "research": "查看调研", "preview": "查看入队预览", "production": "查看内容", "discussion": "查看讨论"}
 
 
+def _iteration_receipt(data, tool):
+    identity = data.get("iteration_id") or data.get("id")
+    if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{64}", identity):
+        return None
+    path = f"/skills?iteration={identity}"
+    if data.get("url") not in {None, path}:
+        return None
+    title = data.get("title") or data.get("topic_title") or data.get("skill_name")
+    return {"url": path, "label": f"校准 · {title[:70]}" if isinstance(title, str) and title else "查看校准任务",
+            "kind": "iteration", "source_tool": tool}
+
+
 def _path(value, studio_url):
     if not isinstance(value, str) or len(value) > 1000 or re.search(r"[\s\\%]", value):
         return None
@@ -72,7 +84,20 @@ def _receipt(data, kind, tool, studio_url):
             or (data.get("revision_id") and query.get("revision") != data["revision_id"])
             or set(query) - {"discussion", "revision"}):
             return None
-    return {"url": path, "label": _LABELS[kind], "source_tool": tool}
+    link = {"url": path, "label": _LABELS[kind], "kind": kind, "source_tool": tool}
+    if kind == "production":
+        title = data.get("topic_title") or data.get("title")
+        version = data.get("active_revision_number")
+        if isinstance(title, str) and title.strip():
+            title = title.strip()[:70]
+            link.update(title=title, run_id=identity)
+            # Fresh Runs may both be revision 1. A short immutable discriminator
+            # is preferable to inventing a latest-version relationship.
+            suffix = f" · 第{version}版" if type(version) is int and version > 0 else ""
+            link["label"] = f"{title}{suffix} · {identity[:6]}"
+        if type(version) is int and version > 0:
+            link["version"] = version
+    return link
 
 
 def tool_links(name, content, *, is_error=False, error_type=None, studio_url=None):
@@ -83,15 +108,16 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         data = json.loads(content)
         if not isinstance(data, dict):
             return []
+        if is_error and data.get("error") == "skill_iteration_active":
+            link = _iteration_receipt(data, name)
+            return [link] if link else []
         if name == "manage_skill_iteration" and not is_error:
-            identity = data.get("id")
-            if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):
-                return [{"url": f"/skills?iteration={identity}", "label": "查看校准任务", "source_tool": name}]
-            return []
+            link = _iteration_receipt(data, name)
+            return [link] if link else []
         if name in {"create_skill_draft", "extract_skill_from_images", "get_skill_extraction", "save_extracted_skills", "edit_extracted_skills"} and not is_error:
             identity = data.get("id")
             if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):
-                return [{"url": f"/skills?extraction={identity}", "label": "查看 Skill 草稿", "source_tool": name}]
+                return [{"url": f"/skills?extraction={identity}", "label": "查看 Skill 草稿", "kind": "skill", "source_tool": name}]
             return []
         if name in {"research_series_topics", "get_topic_research"}:
             if data.get("status") not in {"ready", "researching", "queued", "failed", "unknown", "interrupted", "stale"}:
@@ -109,9 +135,19 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         elif is_error:
             return []
         elif name == "get_creator_tasks":
-            return [link for item in data.get("items", []) if isinstance(item, dict)
-                    and item.get("kind") in {"research", "production", "discussion"}
-                    if (link := _receipt(item, item["kind"], name, studio_url))]
+            links = []
+            for item in data.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                if item.get("kind") == "skill_iteration":
+                    link = _iteration_receipt(item, name)
+                elif item.get("kind") in {"research", "production", "discussion"}:
+                    link = _receipt(item, item["kind"], name, studio_url)
+                else:
+                    continue
+                if link:
+                    links.append(link)
+            return links
         elif name in {"manage_topics", "list_series_topics", "queue_topics", "compose_series", "update_series_composition", "assign_series"}:
             kind, rows = "series", [data]
         elif name == "prepare_topic_selection":
@@ -120,7 +156,9 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             kind, rows = "production", data.get("items", [data])
         else:
             return []
-        return [link for row in rows if (link := _receipt(row, kind, name, studio_url))]
+        return [link for row in rows if (link :=
+            _iteration_receipt(row, name) if isinstance(row, dict) and row.get("error_code") == "skill_iteration_active"
+            else _receipt(row, kind, name, studio_url))]
     except (ValueError, TypeError, AttributeError):
         # A presentation failure must not invalidate a completed business action.
         return []

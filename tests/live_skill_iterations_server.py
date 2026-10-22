@@ -20,16 +20,23 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8891)
+    parser.add_argument("--resume", action="store_true", help="Reopen only this isolated host, never recreate its data or submit production")
     args = parser.parse_args()
     root = args.root.resolve()
-    if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()) or root.exists():
+    if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()) or (root.exists() and not args.resume):
         raise ValueError("Use a fresh ignored tmp directory, never formal data")
+    if args.resume:
+        setup = json.loads((root / "setup.json").read_text(encoding="utf-8"))
+        if setup.get("creator_id") != "iteration-live-account" or setup.get("url") != f"http://127.0.0.1:{args.port}":
+            raise ValueError("Only reopen the exact previously created isolated host")
+        database = Database(f"sqlite:///{(root / 'studio.db').as_posix()}")
+        serve_existing(root, database, args.port)
+        return
     root.mkdir(parents=True)
     url = f"sqlite:///{(root / 'studio.db').as_posix()}"
     upgrade_database(url)
     database = Database(url)
     catalog = ProducerSkillCatalog(root / "studio-producer-skills")
-    runs = ContentRunService(database, output_root=root / "outputs")
     source = root / "source"
     (source / "assets").mkdir(parents=True)
     reference = args.reference.resolve(strict=True)
@@ -52,16 +59,22 @@ def main():
         title="look / see / watch / stare：看见与观看",
         brief="单张2×2四格图。每格用一个词，英文简释+中文释义，场景体现区别。不要额外全图标题。",
         source=TopicSource.MANUAL)
-    app = create_app(database=database, run_service=runs, chat_root=root / "chats",
-        skill_install_service=SkillInstallService(catalog), skill_extraction_service=SkillExtractionService(catalog),
-        eval_root=root / "eval")
     setup = dict(creator_id="iteration-live-account", series_id="iteration-live-series",
         topic_id="iteration-live-topic", skill_id=skill["id"], digest=skill["digest"],
         url=f"http://127.0.0.1:{args.port}")
     (root / "setup.json").write_text(json.dumps(setup, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(setup, ensure_ascii=False), flush=True)
+    serve_existing(root, database, args.port)
+
+
+def serve_existing(root, database, port):
+    catalog = ProducerSkillCatalog(root / "studio-producer-skills")
+    app = create_app(database=database,
+        run_service=ContentRunService(database, output_root=root / "outputs"), chat_root=root / "chats",
+        skill_install_service=SkillInstallService(catalog), skill_extraction_service=SkillExtractionService(catalog),
+        eval_root=root / "eval")
     try:
-        StudioServer(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning",
+        StudioServer(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
             access_log=False, timeout_graceful_shutdown=3)).run()
     finally:
         database.close()

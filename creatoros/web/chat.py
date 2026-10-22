@@ -136,7 +136,11 @@ ITERATION_POLICY = (
     "任务默认最多3轮含基线，DS评审/改候选，Codex干净线程试产；等待在后台进行，返回真实任务链接后结束本轮，不在聊天里轮询。"
     "普通改Skill只保存候选，不自动调用校准或生产。RSI只授权本次候选试产，不授权发布、切栏目或降低Judge门槛。"
     "基础Judge固定；发现新问题只能追加可核查准则，并以同一版准则重评已有基线和候选，不得为通过而删除或放宽。"
-    "达到3轮、失败或状态未知保留最佳候选和记录，用户明确要求继续才能continue；暂停/恢复先get取得最新revision。"
+    "生产状态以active_round.production_submitted/production_status为准，普通Run列表为空不代表未生产；"
+    "production_status=completed表示生图已结束；stage=judge表示正在评分，不要仍称为正在生图。"
+    "不得用start_content_run手动补交校准生产，它不会归入该循环。get_creator_tasks也会返回校准任务。"
+    "评审失败时can_resume表示恢复同一次评审，只用既有图片，不增加轮数；用户明确要求恢复后先get取得revision再resume。"
+    "只有exhausted后continue才扩充轮次，须用户明确要求。失败或状态未知保留冻结版本、图片和记录，不替换成后来编辑的Skill。"
 )
 WEB_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "你在 CreatorOS Studio 网页中帮助用户运营自有账号。只使用提供的工具，先查真实目录，不猜 ID。"
@@ -278,6 +282,7 @@ class AgentChatService:
 
     def _save(self, doc):
         doc["updated_at"] = _now()
+        doc["stream_revision"] = doc.get("stream_revision", 0) + 1
         _write(self._path(doc["id"]), doc)
         self.last_saved[doc["id"]] = monotonic()
 
@@ -387,14 +392,18 @@ class AgentChatService:
     @staticmethod
     def _view(doc):
         # Full messages/tool results stay local; bounded presentation projection only.
+        start = max(0, len(doc["entries"]) - 200)
+        entries = [{**entry, "id": entry.get("id") or f"legacy-{doc['id']}-{index}"}
+                   for index, entry in enumerate(doc["entries"]) if index >= start]
         return deepcopy({k: v for k, v in doc.items() if k != "requests"} | {
+            "stream_revision": doc.get("stream_revision", 0),
             "scope_kind": doc.get("scope_kind", "overview"), "creator_id": doc.get("creator_id"),
             "context_usage": doc.get("context_usage"),
             "reasoning_effort": doc.get("reasoning_effort", "none"),
             "reasoning_actual_effort": DEEPSEEK_REASONING_EFFORT_MAP.get(doc.get("reasoning_effort", "none")),
             "reasoning_options": list(DEEPSEEK_CHAT_REASONING_EFFORTS),
             "reasoning_effort_map": {key: DEEPSEEK_REASONING_EFFORT_MAP[key] for key in DEEPSEEK_CHAT_REASONING_EFFORTS},
-            "entries": doc["entries"][-200:], "has_older": len(doc["entries"]) > 200})
+            "entries": entries, "has_older": len(doc["entries"]) > 200})
 
     def get(self, session_id):
         with self.lock:
@@ -533,7 +542,7 @@ class AgentChatService:
                 if not entries or entries[-1]["kind"] != "assistant":
                     entries.append({"kind": "assistant", "text": ""})
                 entries[-1]["text"] += event.content
-                if monotonic() - self.last_saved.get(doc["id"], 0) > 0.5:
+                if monotonic() - self.last_saved.get(doc["id"], 0) > 0.1:
                     self._save(doc)
                 return
             kind, data = event.kind, event.data
@@ -548,8 +557,10 @@ class AgentChatService:
                     if data['complete']:
                         answer.update(links=turn_links(entries, data['turn_id']), delivery_version=1)
             elif kind == "tool_call":
-                entries.append({"kind": "tool", "name": data["name"], "status": "running",
-                                "turn_id": doc["requests"][-1]["id"]})
+                entries.append({"kind": "tool", "id": str(uuid4()), "name": data["name"], "status": "running",
+                                "turn_id": data.get("turn_id") or doc["requests"][-1]["id"],
+                                "model_request_id": data.get("model_request_id"),
+                                "tool_call_id": data.get("tool_call_id")})
             elif kind == "research_progress":
                 entry = next((e for e in reversed(entries) if e.get("kind") == "tool"
                               and e.get("name") in {"research_series_topics", "get_topic_research"}
@@ -565,7 +576,13 @@ class AgentChatService:
                     entry["links"] = tool_links(entry["name"], json.dumps(data), studio_url=studio_url)
                     entry["discussion"] = deepcopy(data)
             elif kind == "tool_result":
-                entry = entries[-1]
+                entry = next((e for e in reversed(entries) if e.get("kind") == "tool"
+                              and ((data.get("tool_call_id") and e.get("tool_call_id") == data["tool_call_id"]
+                                    and e.get("model_request_id") == data.get("model_request_id"))
+                                   or (not data.get("tool_call_id") and e.get("status") == "running"
+                                       and e.get("name") == data["name"]))), None)
+                if entry is None:
+                    return  # Never overwrite a different tool or an assistant answer.
                 entry["status"] = "failed" if data.get("is_error") else "done"
                 entry["links"] = tool_links(data["name"], data["content"],
                     is_error=bool(data.get("is_error")), error_type=data.get("error_type"), studio_url=studio_url)
@@ -597,7 +614,10 @@ class AgentChatService:
                     except (ValueError, TypeError, AttributeError):
                         pass
             elif kind == "model_usage":
-                entries.append({"kind": "usage", **data})
+                request_identity = data.get("model_request_id")
+                if not request_identity or not any(e.get("kind") == "usage"
+                        and e.get("model_request_id") == request_identity for e in entries):
+                    entries.append({"kind": "usage", "id": str(uuid4()), **data})
                 provider = self.providers.get(doc["id"])
                 window = getattr(provider, "context_window", None)
                 if isinstance(window, int) and window > 0:
@@ -617,7 +637,11 @@ class AgentChatService:
             instructions = new_messages()[0]["content"] + "\n\n" + self._instructions(doc)
             if iteration_mode:
                 instructions += ("\n宿主确认：本条用户请求开启RSI，仅授权对其明确目标进行最多3轮候选试产；"
-                                 "不继承到后续请求，不授权发布或栏目切版。目标不明确仍应先澄清。")
+                                 "不继承到后续请求，不授权发布或栏目切版。目标不明确仍应先澄清。"
+                                 "目标明确时通过manage_skill_iteration启动持久任务，不以仅编辑Skill代替迭代。"
+                                 "任务自己提交试产并等待结果；以active_round.production_submitted和production_status核对，"
+                                 "不可因普通Run列表为空而另开生产。评审失败只恢复同阶段，不重新生图。"
+                                 "未收到实际创建回执时不能声称已启动或会自动继续。")
             if messages[0].get("content") != instructions:
                 # Host instructions are current configuration, not frozen conversation history.
                 # Existing checkpoints fail their digest check and safely fall back to full history.

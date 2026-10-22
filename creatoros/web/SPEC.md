@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## RSI 与聊天可观测契约修复（2026-10-22，隔离验收完成）
+
+- RSI 进度必须包含当前阶段和真实试产状态；同选题活跃校准不能被误读成尚未生产并另开普通 Run。失败评审恢复复用已验收图片及冻结输入，不增加三轮预算。
+- 聊天条目关联 turn / model request / tool call；历史缺失标识仅提供只读稳定展示 ID，不猜测调用关系。原始工具参数和结果通过已有脱敏 Trace 按需读取。
+- SSE 首次发送 snapshot，之后发送带 base_revision/stream_revision 的 patch，文本只追加增量。业务 version 仍用于用户提交 CAS，流序号每次保存单独增长；失序必须重新取快照。
+- 旧任务、图片与正式数据不修改；隔离回归和真实前端 DeepSeek/Codex 链路分别记录，不以受控故障测试冒充真实模型验证。
+- 实际新稿与精确候选干净重做已通过原前端、真实DeepSeek/Codex；旧25文件/Run全列、原RSI/栏目/共享版保持。真实坏JSON只重评一次后返回评分，见 `docs/agent-studio/web-chat/RSI_RECOVERY_RESULTS.md`。正式服务没有为测试重新启动或写入。
+
 ## 原选题编辑与账号管理能力（2026-10-22，隔离后端验证）
 
 - GET `/api/topics/{id}` 返回正式选题当前正文、`edit_digest` 与独立 `management_actions`；旧 `available_actions` 继续仅表示生产动作。列表和单条读取共用权限投影；待选建议不是正式 Topic，不伪装成可直接修改的选题。

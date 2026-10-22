@@ -313,7 +313,8 @@ def run_agent(
                     else:
                         span.record['stage'] = 'complete'
                 if response.usage is not None:
-                    emit(AgentEvent("model_usage", response.usage.to_dict()))
+                    emit(AgentEvent("model_usage", {**response.usage.to_dict(), "turn_id": turn_id,
+                                                  "model_request_id": span.record['request_id']}))
                     measured_budget = context_budget.with_usage(response.usage)
                     if measured_budget.needs_attention and not context_budget.needs_attention:
                         emit(
@@ -337,7 +338,9 @@ def run_agent(
 
                 images_read = []
                 for tool_call in response.tool_calls:
-                    emit(AgentEvent("tool_call", {"name": tool_call.name}))
+                    identity = {"name": tool_call.name, "turn_id": turn_id,
+                                "model_request_id": span.record['request_id'], "tool_call_id": tool_call.id}
+                    emit(AgentEvent("tool_call", identity))
                     tool_result = execute_tool_call(tool_call, context=runtime_context, model_requested=True)
                     span.capture('tool_result', tool_call, tool_result)
                     if not tool_result.is_error:
@@ -345,13 +348,14 @@ def run_agent(
                     if not tool_result.is_error and tool_call.name in {
                         "compose_series", "update_series_composition", "queue_topics",
                         "start_content_run", "research_series_topics",
+                        "manage_topics",
                     }:
                         context_dirty = True
                     emit(
                         AgentEvent(
                             "tool_result",
                             {
-                                "name": tool_call.name,
+                                **identity,
                                 "content": tool_result.content,
                                 "is_error": tool_result.is_error,
                                 "error_type": tool_result.error_type,

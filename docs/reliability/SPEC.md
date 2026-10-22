@@ -1,5 +1,11 @@
 # Reliability Baseline
 
+## RSI 恢复与聊天增量门禁（2026-10-22）
+
+- allowlist补入评分原始响应/用量、严格逐项校验、同阶段恢复、Windows试产目录发布、RSI/普通生产互斥及聊天patch/工具身份/具名链接；真实DeepSeek/Codex仍显式运行隔离前端，不由CI付费调用。
+- 前端门禁增加agent-transcript浏览器用例；断线恢复仅GET、不重提用户请求；工具展开按实际调用ID，长返回懒加载。旧失败报告与模型Eval分数不覆盖。
+- 完整显式 runner 39/39组通过：tmp/reliability-20261022-125148-882671/report.json。之后原Topic/防重/流/导航联合37/37与paused新任务保护定向3/3另通过；目录publication故障6项与新收尾测试单列，不声称最后全部代码重新跑过一份全量报告。真实模型原网页验收见docs/agent-studio/web-chat/RSI_RECOVERY_RESULTS.md，不并入零付费通过率。
+
 ## 选题对象管理门禁（2026-10-22）
 
 - 显式allowlist新增topic_management组：原ID修改、移除/历史保护、生产锁竞态、CAS/回执、迁移、账号权限、有限动作Schema、真实Tool→HTTP→SQLite接线及丢响应重启后只查回执。只运行隔离库，不自动发现live脚本或调用付费模型。

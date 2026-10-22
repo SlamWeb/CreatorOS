@@ -45,7 +45,8 @@ test("account entry stays lazy and the first turn is bound to that account", asy
   await page.getByRole("button", { name: "打开账号对话" }).click();
   const panel = page.locator(".account-chat-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole("heading", { name: `从「${creator.display_name}」开始` })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: creator.display_name, exact: true })).toBeVisible();
+  await expect(panel.locator(".agent-welcome, .agent-heading")).toHaveCount(0);
   expect(sessionPosts).toBe(0);
   await page.screenshot({ path: info.outputPath("account-chat-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -91,7 +92,7 @@ test("account entry stays lazy and the first turn is bound to that account", asy
   const restoredPanel = page.locator(".account-chat-panel");
   await restoredPanel.getByRole("button", { name: "历史对话", exact: true }).click();
   await expect(restoredPanel.locator('.agent-history-list button[aria-current="page"]')).toBeVisible();
-  await expect(restoredPanel.getByText("记录已保存")).toBeVisible();
+  await expect(restoredPanel.getByRole("heading", { name: creator.display_name, exact: true })).toBeVisible();
   expect(sessionPosts).toBe(1);
 });
 
@@ -159,13 +160,16 @@ test("account conversation stays mounted on task links, back and reload without 
   await expect(panel).toBeHidden();
   await page.getByRole("link", { name: "返回账号工作台" }).click();
   await expect(panel).toBeVisible();
-  await expect(panel.locator(".agent-heading h1")).toHaveText(nextDoc.title);
+  await expect(panel.getByRole("heading", { name: owner.display_name, exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "历史对话", exact: true }).click();
+  await expect(panel.locator('.agent-history-list button[aria-current="page"]')).toContainText(nextDoc.title);
+  await panel.getByRole("button", { name: "历史对话", exact: true }).click();
   await expect(panel.locator(".agent-transcript")).not.toContainText("正在核对任务。");
   expect(await page.evaluate(key => sessionStorage.getItem(key), `creatoros.agent.selected-chat.v1:creator%3A${owner.id}`)).toBe(nextSession.id);
   await panel.getByRole("button", { name: "关闭账号对话" }).click();
   await page.getByRole("button", { name: `查看账号 ${other.display_name}` }).click();
   await page.getByRole("button", { name: "打开账号对话" }).click();
-  await expect(panel.getByRole("heading", { name: `从「${other.display_name}」开始`, exact: true })).toBeVisible();
+  await expect(panel.getByRole("heading", { name: other.display_name, exact: true })).toBeVisible();
   await expect(panel.getByRole("alert")).toHaveCount(0);
   expect(await page.evaluate(key => sessionStorage.getItem(key), `creatoros.agent.selected-chat.v1:creator%3A${other.id}`)).toBeNull();
   expect(posts).toBe(0);
