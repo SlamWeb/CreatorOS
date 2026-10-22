@@ -2,7 +2,7 @@
 
 更新时间：2026-10-23。源码核对基线：`ad9e0c7`。
 
-这是持续维护的口述笔记，不是功能开发计划。每题先讲清楚 30～60 秒短答，再对照代码追问；已有答案不代表已经掌握。当前学习进度：第 1 题，其他题目为待逐题训练的答案草稿。
+这是持续维护的口述笔记，不是功能开发计划。每题先讲清楚 30～60 秒短答，再对照代码追问；已有答案不代表已经掌握。当前学习进度：第 2 题，第 1 题已讲但未验证掌握，后续题目为待逐题训练的答案草稿。
 
 不使用未经同一冻结题集验证的成功率、Token 降幅或收益数字；区分代码实现、自动测试、真实模型验证与用户质量验收。
 
@@ -25,6 +25,16 @@ CreatorOS 是 Python/FastAPI 实现的本地内容运营工作台，架构上是
 **短答：** 网页通过 HTTP 请求 FastAPI，Agent 的运营工具也通过本地 Studio Client 调业务 API。两条入口因此复用归属检查、业务状态检查和数据库写入逻辑，避免各写一套规则。代价是同机工具调用有一层 HTTP 开销，目前优先保留契约一致性。
 
 **代码：** [Studio Client](../../creatoros/integrations/studio.py)、[工具适配](../../creatoros/tools/studio.py)、[API](../../creatoros/web/app.py)。
+
+**添加选题的具体口述：** 网页把输入框里的标题组织成 JSON，Agent 则由 DeepSeek 生成 manage_topics(action="create") 工具调用。工具经过参数校验和宿主作用域处理后，也向 POST /api/series/{series_id}/queue 发送请求。共同接口把请求转成 add_topics 操作计划，复用同一个执行服务和 Repository 写入 SQLite 的 topics 表，再返回选题 ID。因此两条链路前半段不同，后半段共用；只是添加选题，不调用 Codex，也不自动启动生产。
+
+**代码走读（2026-10-23，源码静态核对，未提交实际选题）：**
+
+1. 网页：[WorkspacePage.tsx](../../web/src/pages/WorkspacePage.tsx) 的 addTopic 调 studioApi.queueTopics；[client.ts](../../web/src/api/client.ts) 把 topics 和 request_id 发到上述 POST 接口，成功后刷新查询。
+2. Agent：[topics.py](../../creatoros/tools/topics.py) 的 create 分支复用 queue_topics；[studio.py](../../creatoros/tools/studio.py) 构建 payload，经 StudioClient.request("POST", path, payload=payload) 请求同一接口，不直接写 Topic。
+3. 汇合：[app.py](../../creatoros/web/app.py) 的 queue_topics 路由构建 add_topics 计划，调用 writes.pending_operations.execute_direct；[service.py](../../creatoros/operations/service.py) 在事务中调用 [executor.py](../../creatoros/operations/executor.py)；后者调用 [repository.py](../../creatoros/storage/repository.py) 的 add_topic。Topic 映射到 topics 表，初始 queued；不是 production_queue_items 的生产执行授权。
+
+**防追问：** 共用同一接口不等于两个请求字节完全相同；Agent 请求还携带会话标识，用于检查账号归属，网页手动入口不靠该 Agent 标识作为登录认证。request_id、操作审计和幂等留到后续题目展开，不为本课改造接口。
 
 ## 03. 你自己写的 Agent Loop 做了什么？
 
@@ -138,7 +148,8 @@ CreatorOS 是 Python/FastAPI 实现的本地内容运营工作台，架构上是
 
 | 题号 | 状态 | 下一步 |
 |---|---|---|
-| 01 | 已给出口述稿，尚未验证掌握 | 用户不看稿复述，纠正职责和数据流 |
-| 02～20 | 短答草稿，待训练 | 每次只选一题，沿代码追问，不一次灌完 |
+| 01 | 已讲解，尚未验证掌握 | 用户不看稿复述，纠正职责和数据流 |
+| 02 | 已给出添加选题双入口走读，尚未验证掌握 | 分清共同API、数据库表与生产授权 |
+| 03～20 | 短答草稿，待训练 | 每次只选一题，沿代码追问，不一次灌完 |
 
 维护方式：用户回答后记录误解和修正版，不凭阅读过就标记掌握。以后源码改变时重新核对相应答案，不把本文件当功能权威状态。
