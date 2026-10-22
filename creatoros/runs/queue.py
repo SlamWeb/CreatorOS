@@ -20,6 +20,7 @@ class ProductionQueue:
             run = session.get(ContentRun, run_id)
             if run is None:
                 raise ContentRunError("运行不存在。", code="not_found", status_code=404)
+            self.service._assert_no_active_iteration(session, run.topic_id)
             revision = self.service.get_active_revision(run_id)
             item = session.scalar(select(ProductionQueueItem).where(
                 ProductionQueueItem.run_id == run_id, ProductionQueueItem.revision_id == revision.id))

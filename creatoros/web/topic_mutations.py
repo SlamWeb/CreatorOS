@@ -11,7 +11,7 @@ from datetime import timezone
 
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, ContentRunStatus, Series, Topic, TopicRemoval, WriteReceipt
+from creatoros.storage import ContentRun, ContentRunStatus, Series, SkillIteration, Topic, TopicRemoval, WriteReceipt
 from creatoros.storage.models import ProductionQueueItem, TopicStatus
 from .schemas import TopicView
 
@@ -45,6 +45,15 @@ def block_reasons(session, topics, runs, discussions=None) -> dict[str, str]:
     queued = set(session.scalars(select(ContentRun.topic_id).join(
         ProductionQueueItem, ProductionQueueItem.run_id == ContentRun.id).where(
         ContentRun.topic_id.in_(ids), ProductionQueueItem.status.in_({"pending", "running"}))))
+    iterating = set()
+    for iteration in session.scalars(select(SkillIteration).where(
+            SkillIteration.topic_id.in_(ids),
+            SkillIteration.status.in_({"queued", "running", "waiting_production", "paused"}))):
+        rounds = (iteration.state_json or {}).get("rounds", [])
+        trial = rounds[-1] if rounds else {}
+        if (iteration.status != "paused" or trial.get("trial_job_id") and trial.get("status") not in
+                {"completed", "failed", "interrupted", "cancelled"}):
+            iterating.add(iteration.topic_id)
     active = {run.topic_id for run in runs if run.status in {
         ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING}}
     related_runs = {run.id: run.topic_id for run in runs}
@@ -57,6 +66,8 @@ def block_reasons(session, topics, runs, discussions=None) -> dict[str, str]:
             result[topic.id] = "选题已经移出内容库，不能修改或再次移除。"
         elif topic.series_id not in series or not series[topic.series_id].is_active:
             result[topic.id] = "栏目已移出工作区，不能修改或移除选题。"
+        elif topic.id in iterating:
+            result[topic.id] = "RSI 仍在使用这个选题，暂停也不会取消在途试产；请完成或核对原任务后再修改或移除。"
         elif topic.status is TopicStatus.PRODUCING or topic.id in active:
             result[topic.id] = "生产或文件验收仍在进行，请等待完成后再修改或移除。"
         elif topic.id in queued:

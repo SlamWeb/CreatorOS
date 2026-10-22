@@ -336,6 +336,7 @@ class RunBatchStartRequest(WriteRequest):
 class RunBatchItem(ApiModel):
     topic_id: str
     run_id: str | None = None
+    iteration_id: str | None = None
     status: str
     accepted: bool
     error: str | None = None

@@ -5,6 +5,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
+from time import sleep
 
 from sqlalchemy import select, update
 
@@ -60,6 +61,41 @@ class SkillVersionService:
                         result["bindings"].append(dict(series_id=series.id, series_name=series.name,
                             role=role, skill_id=bound, revision=series.revision))
         return result
+
+    def _publish_trial_directory(self, staging, directory, job_id, inputs):
+        """Publish once; retry only bounded Windows sharing/access failures."""
+        def accept_existing():
+            files = (directory, directory / "job.json", directory / "request.json")
+            if any(self.catalog._is_link_or_reparse(path) for path in files):
+                raise ExtractionError("试用目录不安全，旧文件保留，未覆盖。", 409)
+            try:
+                job = json.loads((directory / "job.json").read_text(encoding="utf-8"))
+                request = json.loads((directory / "request.json").read_text(encoding="utf-8"))
+                matches = (job.get("id") == job_id and job.get("input_digest") == signature(inputs)
+                           and request == inputs)
+            except (OSError, ValueError, TypeError, AttributeError):
+                matches = False
+            if not matches:
+                raise ExtractionError("已有试用目录与本次完整输入不一致，旧文件保留，未覆盖。", 409)
+        delays = (.05, .1, .2)
+        for attempt in range(len(delays) + 1):
+            if directory.exists() or self.catalog._is_link_or_reparse(directory):
+                accept_existing()
+                return
+            try:
+                staging.rename(directory)
+                return
+            except OSError as error:
+                # The rename might have committed before the caller observed
+                # an error. Reconcile exact input on the next loop, never
+                # overwrite an existing directory or resubmit a claimed trial.
+                if directory.exists():
+                    accept_existing()
+                    return
+                if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == len(delays):
+                    raise
+                sleep(delays[attempt])
+        raise ExtractionError("试用目录发布结果待核对，旧文件保留，未提交新生产。", 409)
 
     def trial(self, skill_id, expected_digest, request_id, topic, series_id=None, *, task_references=None):
         service = self.extractions
@@ -130,7 +166,7 @@ class SkillVersionService:
                     _write(staging / "request.json", inputs)
                     _write(staging / "job.json", job)
                     inherit_copy_permissions(staging)
-                    staging.rename(directory)
+                    self._publish_trial_directory(staging, directory, job_id, inputs)
             # Same authorization/request can recover a pre-queue crash, never repeat a claimed trial.
             result = service.trial(job_id, request_id, job["digest"], topic)
             pointer = self.catalog.root / "version-trials"

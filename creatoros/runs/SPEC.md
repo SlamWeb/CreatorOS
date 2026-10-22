@@ -1,5 +1,15 @@
 # ContentRun SPEC
 
+## RSI 与普通生产互斥（2026-10-22，隔离定向验证通过）
+
+- 同一选题的活跃 RSI（queued/running/waiting_production）拥有试产调度权；普通新建、从头重做、执行授权和实际认领必须拒绝重复生图，并返回原 RSI 入口。已失败、结束或耗尽的旧 RSI 不阻塞新制作，不改写旧任务。
+- 暂停不取消在途 Codex：paused 已提交试产通过受管元数据纯只读 hook 确认，queued/running/未知保守阻止，明确终态才放行普通制作；不在生产写锁里获取 RSI 或提炼写锁。普通单项及批量拒绝均保留原 iteration_id/入口，不伪装为新 Run。
+- 账号任务查询直接投影已有 RSI 数据，明确当前阶段、是否已提交试产及图片数；不因普通 Run 列表为空断言“没有生产”。当前归属与冻结归属不一致时不泄露旧任务。
+- 原选题管理的读写共用 block_reasons 检查活跃 RSI 和暂停但未核实完成的试产；旧删除接口同样保护。成功的编辑/移除回执仍先精确重放，不因之后开始 RSI 改写或拒绝已完成请求。
+- 选题已有已结束 RSI 即使没有普通 Run，移除也走原 TopicRemoval 归档，不物理删除其定位行；旧严格删除入口拒绝。原 RSI 所有列、参考图片字节与带账号作用域的详情/图片入口保持不变。
+- 从头重做读取原 Topic 当前 title/brief 并保存新 Run 快照；原 Run/Revision/Attempt 及图片不变。隔离 SQLite 与 loopback HTTP 回归验证业务门禁，真实 DeepSeek/Codex 前端验收由主流程另记。
+- 新 tests.test_rsi_production_guard 最终9/9通过（含已结束RSI归档及原图HTTP读回）；新增前8项与原 Topic 管理 HTTP9项、fresh9项、任务导航2项联合28/28通过；另生产队列10项及 worker_task_projection/content_discussion_tools smoke 通过。首轮两处失败为新增测试的空 tuple/list 比较和旧delete未带JSON请求头，分别修正断言/请求，不修改产品迁就测试。没有正式数据/服务操作、模型调用、图片生成或旧 Eval 改分。
+
 ## 单次显式选定 Skill 版本（2026-10-22）
 
 - `create` / `restart_fresh` 可接 `skill_overrides`：完整 Skill 与内容/呈现二选一，双 Skill 可只替换一边并补栏目默认另一边。明确选择的每个 ID 必须带读取时的完整目录 `expected_digests`；不接受本地路径。不修改 Series 绑定、revision、旧 Run 或在途输入。

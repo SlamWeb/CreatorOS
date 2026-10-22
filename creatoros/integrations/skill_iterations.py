@@ -19,10 +19,11 @@ from uuid import uuid4
 from PIL import Image
 from sqlalchemy import select
 
-from ..storage import Creator, Series, SkillIteration, Topic, TopicRemoval
+from ..storage import ContentRun, ContentRunStatus, Creator, Series, SkillIteration, Topic, TopicRemoval
+from ..storage.models import ProductionQueueItem
 from .producer_skills import _SKILL_EDIT_LOCK, _digest, _write, freeze_skill
 from .skill_extraction import ExtractionError
-from .skill_iteration_judge import REPLIES, default_provider, evaluate, score_result
+from .skill_iteration_judge import ReplyFormatError, default_provider, evaluate, parse_reply, score_result
 
 log = logging.getLogger(__name__)
 ACTIVE = {"queued", "running", "waiting_production"}
@@ -114,6 +115,16 @@ class SkillIterationService:
         if companion and self.catalog.describe(companion["id"])["digest"] != companion["digest"]:
             raise ExtractionError("搭档 Skill 已变化，迭代已停止。", 409)
 
+    @staticmethod
+    def _no_ordinary_production(db, topic_id):
+        producing = db.scalar(select(ContentRun.id).where(ContentRun.topic_id == topic_id,
+            ContentRun.status.in_([ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING])).limit(1))
+        queued = db.scalar(select(ProductionQueueItem.run_id).join(ContentRun,
+            ContentRun.id == ProductionQueueItem.run_id).where(ContentRun.topic_id == topic_id,
+            ProductionQueueItem.status.in_(["pending", "running"])).limit(1))
+        if producing or queued:
+            raise ExtractionError("这条选题已有生产排队或执行中，请等待同一任务结束后再启动或恢复RSI。", 409)
+
     def create(self, *, series_id, skill_id, topic_id, instructions="", attachment_ids=None,
                reference_paths=None, max_rounds=3, request_id, origin_session_id=None):
         if type(max_rounds) is not int or not 1 <= max_rounds <= 3:
@@ -139,6 +150,25 @@ class SkillIterationService:
                 creator = db.get(Creator, series.creator_id)
                 if creator is None or not creator.is_active:
                     raise ExtractionError("账号已停用，不能开始迭代。", 409)
+                for active in db.scalars(select(SkillIteration).where(SkillIteration.topic_id == topic_id,
+                        SkillIteration.status.in_(ACTIVE | {"paused"}))):
+                    if active.status == "paused":
+                        rounds = active.state_json.get("rounds") if isinstance(active.state_json, dict) else None
+                        if not isinstance(rounds, list) or any(not isinstance(r, dict) for r in rounds):
+                            raise ExtractionError("这条选题存在状态待核对的任务，暂不能重复启动。", 409)
+                        submitted = [r for r in rounds if r.get("trial_job_id")]
+                        if not any(self.is_trial_active(r["trial_job_id"], r.get("trial_id")) for r in submitted):
+                            continue
+                    previous = active.config_json if isinstance(active.config_json, dict) else {}
+                    same_scope = (active.creator_id == series.creator_id and active.series_id == series.id
+                        and previous.get("creator_id") == series.creator_id and previous.get("series_id") == series.id
+                        and previous.get("topic_id") == topic.id)
+                    if not same_scope:
+                        raise ExtractionError("这条选题存在尚未结束的任务，暂不能重复启动。", 409)
+                    message = ("这条选题的RSI试产仍在执行或待核对，请查看同一任务：" if active.status == "paused"
+                               else "这条选题已有RSI任务自动推进，请查看同一任务，不要重复生产：")
+                    raise ExtractionError(message + f"/skills?iteration={active.id}", 409)
+                self._no_ordinary_production(db, topic_id)
                 item = self.catalog.describe(skill_id)
                 role, bound_id = self.versions._binding(series, skill_id)
                 companion_id = next((v for k, v in self.versions._bound(series).items() if k != role), None)
@@ -218,6 +248,18 @@ class SkillIterationService:
         for round_ in rounds:
             round_.pop("files", None)
         note = s.get("note", "")
+        active = rounds[-1] if rounds else None
+        active_round = (dict(number=active["number"], production_submitted=bool(active.get("trial_job_id")),
+            production_status=active["status"], trial_job_id=active.get("trial_job_id"), trial_id=active.get("trial_id"),
+            trial_url=active.get("trial_url"), image_count=len(active.get("images", []))) if active else None)
+        retry_model = row.status == "failed" and s["phase"] in {"rubric", "judge", "revise"}
+        retry_submit = row.status == "failed" and s["phase"] == "waiting" and active and not active.get("trial_job_id")
+        retry_stage = retry_model or bool(retry_submit)
+        next_action = ("resume_current_model_stage" if retry_model else "resume_current_submission" if retry_submit else "backend_waits_for_production"
+            if row.status in ACTIVE and s["phase"] == "waiting" and active_round and active_round["production_submitted"]
+            else "backend_submits_production" if row.status in ACTIVE and s["phase"] in {"prepare", "waiting"}
+            else "backend_evaluates" if row.status in ACTIVE and s["phase"] in {"rubric", "judge", "revise"}
+            else "human_review")
         return dict(id=row.id, creator_id=row.creator_id, series_id=row.series_id, series_name=c["series_name"],
             skill_id=row.skill_id, skill_name=c["skill_name"], topic_id=row.topic_id, topic_title=c["topic_title"],
             status=row.status, stage=s["phase"], revision=row.revision, round_number=len(rounds),
@@ -225,11 +267,12 @@ class SkillIterationService:
             judge=s["judge"], rounds=rounds, best_skill_id=s.get("best_skill_id"),
             best_candidate_id=s.get("best_skill_id"), best_round=s.get("best_round"), best_score=s.get("best_score"),
             error=row.last_error, note=note, usage=s["usage"], events=s["events"],
+            active_round=active_round, next_action=next_action, model_calls=s.get("calls", {}),
             references=[{k: v for k, v in p.items() if k != "file"} | {
                 "url": f"/api/skill-iterations/{identifier}/files/{p['key']}"} for p in c["references"]],
-            can_pause=row.status in ACTIVE, can_resume=row.status in {"paused", "interrupted"},
-            can_continue=row.status in {"exhausted", "failed"},
-            allowed_actions=(["pause"] if row.status in ACTIVE else ["resume"] if row.status in {"paused", "interrupted"}
+            can_pause=row.status in ACTIVE, can_resume=row.status in {"paused", "interrupted"} or retry_stage,
+            can_continue=row.status in {"exhausted", "failed"} and not retry_stage,
+            allowed_actions=(["pause"] if row.status in ACTIVE else ["resume"] if row.status in {"paused", "interrupted"} or retry_stage
                              else ["continue"] if row.status in {"exhausted", "failed"} else []),
             url=f"/skills?iteration={identifier}", created_at=row.created_at.isoformat(), updated_at=row.updated_at.isoformat())
 
@@ -244,6 +287,26 @@ class SkillIterationService:
                 statement = statement.where(SkillIteration.series_id == series_id)
             identities = [r.id for r in db.scalars(statement.limit(min(max(limit, 1), 100)))]
         return {"items": [self.get(key) for key in identities]}
+
+    def is_trial_active(self, job_id, trial_id):
+        """Read-only hook; never acquire iteration/extraction write locks.
+
+        Run guards may call this while holding their own write lock. Durable
+        terminal metadata releases a paused RSI's stale running projection;
+        missing or ambiguous metadata must never authorize duplicate work.
+        """
+        try:
+            if not isinstance(trial_id, str) or not re.fullmatch(r"[a-f0-9]{64}", trial_id):
+                return True
+            job = self.extractions._read(job_id)
+            if not isinstance(job, dict) or job.get("id") != job_id or not isinstance(job.get("trials"), list):
+                return True
+            trials = [trial for trial in job["trials"] if isinstance(trial, dict) and trial.get("id") == trial_id]
+            if len(trials) != 1:
+                return True
+            return trials[0].get("status") not in {"completed", "failed", "interrupted", "cancelled"}
+        except (OSError, ValueError, TypeError, KeyError):
+            return True
 
     def file(self, identifier, key):
         row = self._row(identifier)
@@ -279,16 +342,25 @@ class SkillIterationService:
             if action == "pause" and row.status in ACTIVE:
                 row.status = "paused"
                 self._event(state, "paused", "已暂停后续步骤；已提交Codex的任务不取消、不重复提交。")
-            elif action == "resume" and row.status in {"paused", "interrupted"}:
+            elif ((action == "resume" and row.status in {"paused", "interrupted"}) or
+                    action in {"resume", "continue"} and row.status == "failed"
+                    and (state["phase"] in {"rubric", "judge", "revise"} or
+                         state["phase"] == "waiting" and state["rounds"]
+                         and not state["rounds"][-1].get("trial_job_id"))):
                 self._scope(row.config_json)
+                with self.database.session() as db:
+                    self._no_ordinary_production(db, row.topic_id)
                 for call in state["calls"].values():
                     if (call["status"] in {"unknown", "failed"} or
                             call["status"] == "inflight" and call.get("owner") != self.owner):
                         call["status"] = "retry_authorized"
+                        call["format_retries"] = 0
                 row.status, row.last_error = "queued", None
-                self._event(state, "resumed", "人工恢复同一迭代任务；先核对已有试用，再继续。")
+                self._event(state, "resumed", "人工恢复当前阶段；先核对磁盘响应和已有图片，不追加试产轮数，不更换冻结输入。")
             elif action == "continue" and row.status in {"exhausted", "failed"}:
                 self._scope(row.config_json)
+                with self.database.session() as db:
+                    self._no_ordinary_production(db, row.topic_id)
                 if state["max_rounds"] >= 30:
                     raise ExtractionError("本任务已到30轮，请保留证据并新建任务。", 409)
                 state["max_rounds"] = min(30, state["max_rounds"] + 3)
@@ -388,6 +460,53 @@ class SkillIterationService:
             result += [(f"当前试产第{item['order']}页", self.file(row.id, item["key"])) for item in round_["images"]]
         return result
 
+    @staticmethod
+    def _attempt_record(call):
+        history = call.setdefault("attempts", [])
+        item = next((entry for entry in history if entry["attempt"] == call["attempt"]), None)
+        if item is None:
+            item = dict(attempt=call["attempt"], status=call["status"], usage=call.get("usage"),
+                        usage_accounted=call["status"] == "completed")
+            history.append(item)
+        return item
+
+    def _record_model_receipt(self, identifier, key, attempt, raw):
+        """At-most-once accounting, including rejected but billable responses."""
+        def received(record, state):
+            call = state["calls"][key]
+            if call["attempt"] != attempt:
+                return
+            entry = self._attempt_record(call)
+            usage = raw.get("usage")
+            entry.update(response_received=True, usage=usage)
+            call["usage"] = usage
+            if not entry.get("usage_accounted"):
+                for metric in ("input_tokens", "output_tokens"):
+                    state["usage"][metric] += int((usage or {}).get(metric) or 0)
+                if not usage:
+                    state["usage"]["has_unknown_usage"] = True
+                entry["usage_accounted"] = True
+                self._event(state, "model_response_received", "DS公开响应及用量已保存，准备严格校验。",
+                            call=key, attempt=attempt, usage=usage)
+        self._update(identifier, received)
+
+    def _invalid_reply(self, identifier, key, attempt, error):
+        def invalid(record, state):
+            call = state["calls"][key]
+            if call["attempt"] != attempt or call.get("owner") != self.owner:
+                return
+            call.update(status="failed", failure_kind="reply_format", error=str(error)[:4000])
+            self._attempt_record(call).update(status="invalid_response", error=str(error)[:4000])
+            self._event(state, "model_invalid_response", "DS回复未通过格式/逐项准则校验；图片和原始响应保留。",
+                        call=key, attempt=attempt, reason=str(error)[:2000])
+        self._update(identifier, invalid)
+
+    @staticmethod
+    def _validated_result(kind, result, payload):
+        # Route decoded fixtures and legacy on-disk responses through exactly
+        # the same strict validation as the provider's public response.
+        return parse_reply(kind, {"content": json.dumps(result, ensure_ascii=False)}, payload)
+
     def _model(self, row, kind, key, payload, images):
         current = self._row(row.id)
         old = current.state_json["calls"].get(key)
@@ -396,74 +515,129 @@ class SkillIterationService:
         signature = digest(manifest)
         if old and old.get("input_digest") not in {None, signature}:
             raise ExtractionError("同一步评审的输入已变化，旧响应保留，不能复用。", 409)
-        if old and old["status"] == "completed":
-            return old["result"]
-        if old and old["status"] in {"inflight", "unknown"}:
-            raise ExtractionError("这次DS请求结果未知，请人工恢复后核对；不会自动重新生图。", 409)
         if current.status not in ACTIVE or self.stopping.is_set():
             raise ExtractionError("迭代已暂停。", 409)
-        # A reply may have reached disk immediately before a shutdown/SQLite
-        # failure. Only an explicit resume can adopt it, without another bill.
+        if old and old["status"] in {"inflight", "unknown"}:
+            raise ExtractionError("这次DS请求结果未知，请人工恢复后核对；不会自动重新生图。", 409)
+        if old and old["status"] == "failed":
+            raise ExtractionError("本步评审未完成，请恢复当前阶段；不会追加试产或自动重新生图。", 409)
+        if old and old["status"] == "completed":
+            try:
+                return self._validated_result(kind, old["result"], payload)
+            except ReplyFormatError as error:
+                # Pre-fix records may have cached JSON that never covered all
+                # criteria. Preserve it, but do not replay it forever.
+                def authorize_legacy(record, state):
+                    call = state["calls"][key]
+                    self._attempt_record(call).update(status="invalid_response", error=str(error),
+                        rejected_result=deepcopy(call["result"]))
+                    call.update(status="retry_authorized", failure_kind="reply_format", error=str(error), owner=self.owner)
+                    self._event(state, "model_legacy_invalid", "旧评分未覆盖全部准则，原结果保留，仅重新评审现有图片。", call=key)
+                self._update(row.id, authorize_legacy)
+                old = self._row(row.id).state_json["calls"][key]
+        repair = None
         if old and old["status"] == "retry_authorized":
             previous = self._file_path(row.id, "model", key + "-" + str(old["attempt"]))
-            if (previous / "response.json").is_file():
-                saved_request = json.loads((previous / "request.json").read_text(encoding="utf-8"))
-                if saved_request != manifest:
+            response_path = previous / "raw-response.json"
+            legacy_path = previous / "response.json"
+            if response_path.is_file() or legacy_path.is_file():
+                if json.loads((previous / "request.json").read_text(encoding="utf-8")) != manifest:
                     raise ExtractionError("已保存评审响应的输入不一致，未再次调用DS。", 409)
-                saved = json.loads((previous / "response.json").read_text(encoding="utf-8"))
-                result = REPLIES[kind].model_validate(saved["result"]).model_dump()
-                usage = saved.get("usage")
-                def recover(record, state):
-                    call = state["calls"][key]
-                    if record.status not in ACTIVE or call["status"] != "retry_authorized":
-                        raise ExtractionError("迭代状态已变化，未采用旧响应。", 409)
-                    call.update(status="completed", result=result, usage=usage, input_digest=signature)
-                    for metric in ("input_tokens", "output_tokens"):
-                        state["usage"][metric] += int((usage or {}).get(metric) or 0)
-                    if not usage:
-                        state["usage"]["has_unknown_usage"] = True
-                    self._event(state, "model_recovered", "已恢复磁盘上的DS响应，没有重新请求模型。", call=key)
-                self._update(row.id, recover)
-                return result
+                saved = json.loads((response_path if response_path.is_file() else legacy_path).read_text(encoding="utf-8"))
+                raw = saved if response_path.is_file() else {"content": json.dumps(saved["result"], ensure_ascii=False), "usage": saved.get("usage")}
+                self._record_model_receipt(row.id, key, old["attempt"], raw)
+                try:
+                    result = parse_reply(kind, raw, payload)
+                except ReplyFormatError as error:
+                    repair = {"error": str(error), "previous_response": raw.get("content") or ""}
+                else:
+                    def recover(record, state):
+                        call = state["calls"][key]
+                        if record.status not in ACTIVE or call["status"] != "retry_authorized":
+                            raise ExtractionError("迭代状态已变化，未采用旧响应。", 409)
+                        call.update(status="completed", result=result, usage=raw.get("usage"), input_digest=signature)
+                        self._attempt_record(call)["status"] = "completed"
+                        self._event(state, "model_recovered", "已恢复磁盘上的DS响应，没有重新请求模型。", call=key)
+                    self._update(row.id, recover)
+                    return result
+            if repair is None and old.get("failure_kind") == "reply_format":
+                repair = {"error": old.get("error", "旧回复未通过严格校验")}
+        current = self._row(row.id)
         if current.state_json["usage"]["calls"] >= 100 or current.state_json["usage"]["input_tokens"] >= 5_000_000:
             raise ExtractionError("本任务达到模型调用/Token预算，请核对后新建任务。", 409)
         attempt = (old or {}).get("attempt", 0) + 1
         directory = self._file_path(row.id, "model", key + "-" + str(attempt))
         directory.mkdir(parents=True, exist_ok=True)
         _write(directory / "request.json", manifest)
+        if repair:
+            _write(directory / "repair.json", repair)
         def begin(record, state):
             if record.status not in ACTIVE or self.stopping.is_set():
                 raise ExtractionError("迭代已暂停，本步没有再次调用DS。", 409)
-            state["calls"][key] = {"status": "inflight", "kind": kind, "attempt": attempt,
-                                   "owner": self.owner, "input_digest": signature}
+            previous = state["calls"].get(key, {})
+            if previous and previous["status"] != "retry_authorized":
+                raise ExtractionError("本步请求已被其他执行占用，未重复调用DS。", 409)
+            history = deepcopy(previous.get("attempts", []))
+            if previous and not any(item["attempt"] == previous["attempt"] for item in history):
+                history.append({k: v for k, v in previous.items() if k not in {"attempts", "result", "owner"}})
+            call = {"status": "inflight", "kind": kind, "attempt": attempt,
+                    "owner": self.owner, "input_digest": signature, "attempts": history,
+                    "format_retries": previous.get("format_retries", 0)}
+            state["calls"][key] = call
+            self._attempt_record(call)
             state["usage"]["calls"] += 1
             record.status = "running"
             self._event(state, "model_start", {"rubric": "DS正在建立基础Judge", "judge": "DS正在看图评审",
                                                "revise": "DS正在修改独立候选"}[kind], call=key, attempt=attempt)
         self._update(row.id, begin)
+        received = []
+        def sink(raw):
+            _write(directory / "raw-response.json", raw)
+            received.append(raw)
+            self._record_model_receipt(row.id, key, attempt, raw)
         try:
-            result, usage = self.evaluator(kind, payload, images, self.provider_factory)
-            result = REPLIES[kind].model_validate(result).model_dump()
+            if self.evaluator is evaluate:
+                result, usage = self.evaluator(kind, payload, images, self.provider_factory, response_sink=sink, repair=repair)
+            else:
+                result, usage = self.evaluator(kind, payload, images, self.provider_factory)
+                sink({"content": json.dumps(result, ensure_ascii=False), "usage": usage, "source": "decoded_evaluator"})
+            result = self._validated_result(kind, result, payload)
             _write(directory / "response.json", {"result": result, "usage": usage})
         except Exception as error:
-            _write(directory / "error.json", {"error": str(error)[:4000], "time": stamp()})
+            failure_kind = ("reply_format" if isinstance(error, ReplyFormatError) else
+                            "response_processing" if received else "request_unknown")
+            _write(directory / "error.json", {"error": str(error)[:4000], "time": stamp(),
+                "failure_kind": failure_kind})
+            if isinstance(error, ReplyFormatError) and received:
+                self._invalid_reply(row.id, key, attempt, error)
+                retry = []
+                def repair_once(record, state):
+                    call = state["calls"][key]
+                    if (kind == "judge" and record.status in ACTIVE and not self.stopping.is_set()
+                            and call["attempt"] == attempt and call.get("owner") == self.owner
+                            and call["status"] == "failed" and call.get("format_retries", 0) < 1):
+                        call.update(status="retry_authorized", format_retries=1)
+                        self._event(state, "model_format_retry", "仅重试当前Judge一次；沿用现有图片和冻结标准，不重新生图。", call=key)
+                        retry.append(True)
+                self._update(row.id, repair_once)
+                if retry:
+                    return self._model(self._row(row.id), kind, key, payload, images)
+                raise ExtractionError("DS评审回复校验失败，原始响应和用量已保存；可恢复当前评审，不增加试产轮数、不重新生图。", 409) from error
             def failed(record, state):
                 call = state["calls"][key]
                 if call.get("owner") == self.owner and call["status"] == "inflight":
-                    call["status"] = "failed"
+                    call.update(status="failed" if received else "unknown", failure_kind=failure_kind, error=str(error)[:4000])
+                    self._attempt_record(call).update(status=call["status"], error=str(error)[:4000])
+                    if not received:
+                        state["usage"]["has_unknown_usage"] = True
             self._update(row.id, failed)
             raise
         def finish(record, state):
             call = state["calls"][key]
             if call.get("owner") != self.owner or call["status"] != "inflight":
-                # The raw response is kept on disk for explicit recovery; an
-                # obsolete process must not overwrite another host's state.
                 return
-            state["calls"][key].update(status="completed", result=result, usage=usage)
-            for metric in ("input_tokens", "output_tokens"):
-                state["usage"][metric] += int((usage or {}).get(metric) or 0)
-            if not usage:
-                state["usage"]["has_unknown_usage"] = True
+            call.update(status="completed", result=result, usage=usage)
+            self._attempt_record(call)["status"] = "completed"
             self._event(state, "model_completed", "DS本步结果已保存。", call=key, usage=usage)
         self._update(row.id, finish)
         if self._row(row.id).state_json["calls"][key]["status"] != "completed":
@@ -536,6 +710,8 @@ class SkillIterationService:
         c, s = row.config_json, row.state_json
         round_ = s["rounds"][-1]
         if not round_.get("trial_job_id"):
+            with self.database.session() as db:
+                self._no_ordinary_production(db, row.topic_id)
             request_id = f"rsi-{row.id}-{round_['number']}"
             trial_job_id = signature({"kind": "skill-version-trial", "request_id": request_id})
             references = TopicReferenceStore(self.database)

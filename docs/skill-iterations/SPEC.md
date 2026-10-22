@@ -31,3 +31,19 @@
 
 - 用户明确要求空闲后重启：重新检查无在跑任务、执行队列无pending/running，69份辅助任务元数据无活动项；原queued Run不自动执行。备份后重启8765至PID21676、迁移0016，RSI与指定版本接口以及无强制试用的新发布契约已实际加载。
 - 原6张业务表全部列值及3211个旧Skill/产物文件完全一致；完整性/外键通过。只读健康及正式前端构建资源HTTP200，未触发模型任务。证据见tmp/restart-skill-iterations-20261022，详情见creatoros/web/SPEC.md。
+
+## Judge 回复恢复与可信试产状态 · 2026-10-22
+
+- 主流程真实前端验收已完成：原 Topic 修改→同一 RSI 准备失败恢复→一次 Codex 出图→真实 Judge 坏 JSON 自动仅修评分一次。另明确提交普通生产→修改原稿/另存候选→干净重做；旧 Run 全字段、原25文件SHA256、旧RSI和栏目默认均不变。具体失败、用量、评分边界与证据见 `docs/agent-studio/web-chat/RSI_RECOVERY_RESULTS.md`，不把87.5且关键项失败说成内容合格。
+
+- 已确认故障并非3轮耗尽：试产在独立Skill试用队列中实际执行，但聊天的精简结果没有试产提交凭证；DS评分JSON校验失败又在保存响应/用量前抛错。新契约保留既有stage/rounds，并提供active_round的提交标记、试用任务/ID/链接、图片数，以及backend_waits_for_production/backend_evaluates等宿主阶段提示。已接收的试产不能被聊天误报为没有生产。
+- DS默认仍调用支持本次图片输入的Chat Completions；现有complete_structured是仅input_text的Responses入口，本轮不为JSON格式更换Provider或丢失图片。每个模型尝试先保存完整公开content/tool_calls与usage到独立raw-response.json，再严格解析与逐项准则校验。隐藏推理不是前端公开日志。失败原文、error.json、成功response.json及各次尝试均保留；已收到但拒绝的回复也记账，重启离线采用不能重复加Token。
+- 只有确定收到回复、JSON/类型/分值/覆盖或禁止新增不合格的Judge，才自动进行最多1次当前Judge修复；冻结payload/参考图/产物相同，不调用Codex、不增加试产轮次。网络结果未知与本地响应处理失败分开留档；未知请求不自动重试，需显式恢复。格式修复耗尽后状态failed/stage=judge，可恢复当前阶段而不是重新生成。
+- failed的rubric/judge/revise支持resume，旧continue调用兼容为恢复当前阶段，不增加max_rounds；exhausted的人工continue仍最多追加3轮、总上限30。旧任务不自动恢复，不能在恢复时读取当前Topic新文案替代创建时快照，也不能偷偷采用新Skill/新参考作品。已有栏目配置/候选并发修改校验仍保留。
+- 首次真实网页链路另暴露试产前目录rename WinError5：基础Judge已完成input1436/output4583，Codex尚未提交。保留隔离原任务94155fc7...的failed event；针对已授权的局部修复，failed/waiting且无trial_job_id也可resume当前提交，不增长max_rounds，并沿原稳定试用请求核对落盘job/claim后继续。目录有界重试与准确输入接管见docs/skill-versions/SPEC.md；不能把该失败说成模型质量或JSON评分失败。
+- 同Topic已有active RSI时拒绝第二个不同请求，完全相同请求先返回原记录；普通生产已有pending/running执行队列或producing/validating Run时，RSI在冻结新文件前拒绝启动。单独queued Run没有执行授权，不阻止校准历史产物。普通生产的反向防重由同轮Run服务补齐；不是分布式跨进程调度保证。
+- 恢复/追加动作和没有试用凭证的新试产提交前也复查普通生产，补上暂停→普通生产→恢复的窗口；已提交试产只收图/评审，不为对账重画。暂停不取消Codex，Run侧通过is_trial_active只读回调查持久化trial终态；回调不取迭代/提炼写锁，已明确完成可放行，缺失/损坏/未知保守拒绝，避免锁反转或陈旧running永久阻塞。
+- 收尾复查同样补到RSI→RSI创建入口：paused任务若仍有已提交且真实queued/running或元数据未知的试产，拒绝新RSI；明确terminal或尚未提交任何trial的暂停任务可放行。返回原迭代链接前同时验证数据库行与冻结config的creator/series/topic归属；栏目转移后的旧账号任务只给泛化409，不泄露旧iteration ID。新增两个隔离用例涵盖活动/未知/终态/无提交，以及active与paused任务在栏目转移后的不泄露，首轮2/2通过（8.803秒）；补坏state防御及准确暂停文案后，与原active状态用例联合3/3通过（12.125秒）。未调用模型或操作真实服务/数据。
+- 隔离受控验证：原服务16/16通过（73.295秒），初版新增评分恢复7/7通过（38.647秒）；扩展回归另覆盖旧缓存语义坏评分、同Topic排他、已排队生产保护和可信试产状态。扩展首次因ProductionQueueItem未从storage顶层导出而导入失败、未执行业务，修正为直接从storage.models导入后重跑；最终整组结果由收尾补录。
+- 收尾：原服务16+评分恢复11+Agent7联合34/34通过（132.114秒）；追加恢复/首次提交互斥窗口2/2通过（27.483秒），包含无锁trial回调后的新评分恢复完整组14/14通过（71.631秒）。后补单行空代码围栏也归为可修复格式错误，定向严格校验回归另跑。以上分组有重叠，不相加包装成独立任务数量。
+- 以上是实际隔离SQLite/文件与明确故障注入，不是新真实模型质量得分，也不声称真实多轮收敛。正式数据库、旧RSI、旧图片和运行任务均未修改/恢复，未启动或重启正式服务；真实前端DeepSeek/Codex验收由主链路单独记录。

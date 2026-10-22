@@ -5,10 +5,10 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, ContentRunStatus, Creator, Database, Series, Topic, TopicRemoval
+from creatoros.storage import ContentRun, ContentRunStatus, Creator, Database, Series, SkillIteration, Topic, TopicRemoval
 
 
-_ACTIVE = {"researching", "running", "producing", "validating"}
+_ACTIVE = {"researching", "running", "producing", "validating", "waiting_production"}
 _FAILED = {"failed", "interrupted"}
 
 
@@ -26,15 +26,16 @@ def _status(value):
     return value.value if hasattr(value, "value") else str(value)
 
 
-def worker_task_routes(db: Database, research, discussions) -> APIRouter:
+def worker_task_routes(db: Database, research, discussions, *, iterations=None) -> APIRouter:
     router = APIRouter()
 
     @router.get("/api/creators/{creator_id}/tasks")
     def list_creator_tasks(creator_id: str, series_id: str | None = Query(default=None, min_length=1),
                           statuses: list[Literal["queued", "researching", "running", "producing", "validating",
                                                  "ready", "completed", "awaiting_approval", "approved",
-                                                 "interrupted", "failed", "cancelled", "unknown", "stale"]]
-                          | None = Query(default=None, min_length=1, max_length=14)):
+                                                 "interrupted", "failed", "cancelled", "unknown", "stale",
+                                                 "waiting_production", "paused", "exhausted"]]
+                          | None = Query(default=None, min_length=1, max_length=17)):
         with db.session() as session:
             creator = session.get(Creator, creator_id)
             if creator is None or not creator.is_active:
@@ -62,6 +63,15 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
                 run_query = run_query.where(Series.id == series_id)
             run_rows = list(session.execute(run_query))
             removed = set(session.scalars(select(TopicRemoval.topic_id)))
+            iteration_rows = []
+            if iterations is not None:
+                query = (select(SkillIteration).join(Topic, Topic.id == SkillIteration.topic_id)
+                         .join(Series, Series.id == Topic.series_id)
+                         .where(SkillIteration.creator_id == creator_id, Series.creator_id == creator_id,
+                                SkillIteration.series_id == Series.id))
+                if series_id is not None:
+                    query = query.where(SkillIteration.series_id == series_id)
+                iteration_rows = list(session.scalars(query))
 
             # A Series transfer must not expose a Run frozen for its former owner.
         runs = [(run, topic, series) for run, topic, series in run_rows
@@ -119,6 +129,24 @@ def worker_task_routes(db: Database, research, discussions) -> APIRouter:
                 "url": f"/runs/{run.id}?discussion={record.get('id', '')}&revision={record.get('revision_id', '')}",
                 "updated_at": _iso(record.get("updated_at") or record.get("created_at")),
                 "last_activity_at": _iso(record.get("last_activity_at")),
+            })
+
+        for record in iteration_rows:
+            frozen = record.config_json or {}
+            if (record.topic_id in removed or record.series_id in stale_series
+                    or frozen.get("creator_id") != creator_id
+                    or frozen.get("series_id") != record.series_id
+                    or frozen.get("topic_id") != record.topic_id):
+                continue
+            detail = iterations.get(record.id)
+            items.append({
+                "id": record.id, "iteration_id": record.id, "kind": "skill_iteration",
+                "title": f"RSI：{frozen.get('topic_title') or frozen.get('skill_name') or 'Skill 校准'}",
+                "status": detail["status"], "stage": detail["stage"],
+                "topic_id": record.topic_id, "series_id": record.series_id, "run_id": None,
+                "active_round": detail.get("active_round"), "next_action": detail.get("next_action"),
+                "url": f"/skills?iteration={record.id}", "updated_at": _iso(record.updated_at),
+                "last_activity_at": _iso(record.updated_at),
             })
 
         if statuses is not None:

@@ -38,8 +38,9 @@ class CreatorTasksArgs(BaseModel):
                                   description="可选真实栏目 ID，用于缩小任务范围。")
     statuses: list[Literal["queued", "researching", "running", "producing", "validating",
                           "ready", "completed", "awaiting_approval", "approved",
-                          "interrupted", "failed", "cancelled", "unknown", "stale"]] | None = Field(
-        default=None, min_length=1, max_length=14,
+                          "interrupted", "failed", "cancelled", "unknown", "stale",
+                          "waiting_production", "paused", "exhausted"]] | None = Field(
+        default=None, min_length=1, max_length=17,
         description="只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。")
 
 

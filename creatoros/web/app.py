@@ -150,6 +150,7 @@ def create_app(
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
     skill_versions = SkillVersionService(db, extractions)
     iterations = SkillIterationService(db, skill_versions, chat, evaluator=skill_iteration_evaluator)
+    runs.iteration_trial_active = iterations.is_trial_active
     calibrations = SkillCalibrationService(db, extractions, artifacts)
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
@@ -212,7 +213,7 @@ def create_app(
     app.include_router(eval_routes(app.state.evaluation))
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))
-    app.include_router(worker_task_routes(db, research, discussions))
+    app.include_router(worker_task_routes(db, research, discussions, iterations=iterations))
     app.include_router(extraction_routes(extractions))
     app.include_router(calibration_routes(calibrations))
     app.include_router(work_inbox_routes(db, research, extractions))
@@ -250,7 +251,8 @@ def create_app(
 
     @app.exception_handler(ContentRunError)
     async def run_error_handler(_request: Request, error: ContentRunError):
-        return _error_response(error.status_code, error.code, str(error), run_id=error.run_id)
+        return _error_response(error.status_code, error.code, str(error), run_id=error.run_id,
+                               iteration_id=error.iteration_id)
 
     @app.exception_handler(XhsMcpError)
     async def publication_transport_error(_request: Request, error: XhsMcpError):
@@ -522,7 +524,8 @@ def create_app(
     @app.post("/api/topics/{topic_id}/delete")
     def delete_topic(topic_id: str):
         try:
-            writes.delete_topic(topic_id)
+            with runs._write_lock:
+                writes.delete_topic(topic_id)
         except StudioWriteError as error:
             raise HTTPException(status_code=error.status_code, detail=str(error)) from error
         return {"ok": True}
@@ -633,7 +636,9 @@ def create_app(
             except ContentRunError as error:
                 items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
                                           accepted=False, error=str(error), error_code=error.code,
-                                          url=f"/runs/{run_id}" if run_id else None))
+                                          iteration_id=error.iteration_id,
+                                          url=(f"/skills?iteration={error.iteration_id}" if error.iteration_id
+                                               else f"/runs/{run_id}" if run_id else None)))
             except HTTPException as error:
                 items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
                                           accepted=False, error=str(error.detail), error_code="invalid_skill",
@@ -750,13 +755,17 @@ def create_app(
     return app
 
 
-def _error_response(status_code: int, code: str, message: str, *, run_id: str | None = None):
+def _error_response(status_code: int, code: str, message: str, *, run_id: str | None = None,
+                    iteration_id: str | None = None):
     from fastapi.responses import JSONResponse
     from .queries import _error_message
 
     detail = {"code": code, "message": _error_message(message) or "请求失败。"}
     if run_id is not None:
         detail["run_id"] = run_id
+    if iteration_id is not None:
+        detail["iteration_id"] = iteration_id
+        detail["url"] = f"/skills?iteration={iteration_id}"
     return JSONResponse(
         status_code=status_code,
         content={"error": detail},

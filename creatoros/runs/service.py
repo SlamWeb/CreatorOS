@@ -27,6 +27,7 @@ from creatoros.storage import (
     Topic,
     TopicRemoval,
     TopicStatus,
+    SkillIteration,
 )
 
 from .artifacts import validate_artifact
@@ -38,9 +39,11 @@ from .ownership import LocalExecutionGuard
 class ContentRunError(ValueError):
     """A requested ContentRun transition is invalid."""
 
-    def __init__(self, message: str, *, code: str = "conflict", status_code: int = 409, run_id: str | None = None):
+    def __init__(self, message: str, *, code: str = "conflict", status_code: int = 409,
+                 run_id: str | None = None, iteration_id: str | None = None):
         super().__init__(message)
         self.code, self.status_code, self.run_id = code, status_code, run_id
+        self.iteration_id = iteration_id
 
 
 class ContentRunExecutionError(RuntimeError):
@@ -105,6 +108,7 @@ class ContentRunService:
         output_root: Path | None = None,
         lease_seconds: float = 30.0,
         production_protocol: Literal["legacy", "native-v1"] = "native-v1",
+        iteration_trial_active: Callable[[str, str], bool] | None = None,
     ):
         from creatoros.config import PROJECT_ROOT
 
@@ -112,6 +116,7 @@ class ContentRunService:
         self.repository = ContentRunRepository(database)
         self.producer_factory = producer_factory
         self.production_protocol = production_protocol
+        self.iteration_trial_active = iteration_trial_active
         self.output_root = (output_root or PROJECT_ROOT / "outputs").resolve()
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须大于 0。")
@@ -215,6 +220,7 @@ class ContentRunService:
             creator = series.creator
             if not series.is_active or creator is None or not creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
+            self._assert_no_active_iteration(session, topic_id)
             if fresh_source is not None:
                 repository = ContentRunRepository(self.database, session=session)
                 source = self._require(repository, fresh_source[0])
@@ -339,6 +345,41 @@ class ContentRunService:
             if fresh_source is not None:
                 topic.status = TopicStatus.QUEUED
             return content_run
+
+    def _assert_no_active_iteration(self, session, topic_id: str) -> None:
+        """An RSI owns this topic's trial scheduling; it never needs ordinary Runs."""
+        iterations = session.scalars(select(SkillIteration).where(
+            SkillIteration.topic_id == topic_id,
+            SkillIteration.status.in_({"queued", "running", "waiting_production", "paused"}),
+        ).order_by(SkillIteration.created_at, SkillIteration.id))
+        for iteration in iterations:
+            paused = iteration.status == "paused"
+            rounds = (iteration.state_json or {}).get("rounds", [])
+            trial = rounds[-1] if rounds else {}
+            if paused and not trial.get("trial_job_id"):
+                continue
+            topic = session.get(Topic, topic_id)
+            config = iteration.config_json or {}
+            if (topic is None or topic.series_id != iteration.series_id
+                    or topic.series.creator_id != iteration.creator_id
+                    or config.get("creator_id") != iteration.creator_id
+                    or config.get("series_id") != iteration.series_id
+                    or config.get("topic_id") != topic_id):
+                raise ContentRunError("选题仍有关联任务，归属已变化，请先核对后再生产。", code="topic_scope_changed")
+            if paused:
+                # Pausing RSI stops scheduling, not a Codex trial already in flight.
+                # This injected metadata read must never acquire the RSI write lock.
+                try:
+                    active = (self.iteration_trial_active(trial["trial_job_id"], trial.get("trial_id", "")) is not False
+                              if self.iteration_trial_active else trial.get("status") not in
+                              {"completed", "failed", "interrupted", "cancelled"})
+                except (OSError, ValueError, KeyError, TypeError):
+                    active = True
+                if not active:
+                    continue
+            message = ("RSI 已暂停，但之前提交的试产仍在进行或尚未核实；暂停不会取消在途任务，请查看原任务。"
+                       if paused else "这个选题正在由 RSI 自动试产，请查看原校准任务；不会另开重复生产。")
+            raise ContentRunError(message, code="skill_iteration_active", iteration_id=iteration.id)
 
     @staticmethod
     def _assert_current_run(session, content_run: ContentRun) -> None:
@@ -668,6 +709,7 @@ class ContentRunService:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
             self._assert_current_run(session, content_run)
+            self._assert_no_active_iteration(session, content_run.topic_id)
             active_topic_run = session.scalar(select(ContentRun.id).where(
                 ContentRun.topic_id == content_run.topic_id,
                 ContentRun.id != run_id,

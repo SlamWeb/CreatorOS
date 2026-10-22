@@ -22,6 +22,7 @@ from creatoros.storage import (
     Database,
     OperationPolicy,
     Series,
+    SkillIteration,
     Topic,
     TopicRemoval,
     TopicStatus,
@@ -175,11 +176,17 @@ class StudioWriteService:
             topic = session.get(Topic, topic_id)
             if topic is None:
                 raise StudioWriteError("选题不存在。", status_code=404)
+            from .topic_mutations import block_reasons
+            reason = block_reasons(session, [topic], []).get(topic_id)
+            if reason:
+                raise StudioWriteError(reason)
             if topic.status is TopicStatus.PRODUCING:
                 raise StudioWriteError("选题正在生产中，不能删除。")
             has_runs = session.scalar(select(func.count()).select_from(ContentRun).where(ContentRun.topic_id == topic_id))
-            if has_runs:
-                raise StudioWriteError("已有生产记录的选题不能删除。")
+            has_iterations = session.scalar(select(SkillIteration.id).where(
+                SkillIteration.topic_id == topic_id).limit(1)) is not None
+            if has_runs or has_iterations:
+                raise StudioWriteError("已有生产或校准记录的选题不能直接删除，请使用移除归档。")
             session.delete(topic)
             session.flush()
 
@@ -219,8 +226,11 @@ class StudioWriteService:
                 reason = block_reasons(session, [topic], related, discussions).get(topic_id)
                 if reason:
                     raise StudioWriteError(reason)
-                series_id, status = topic.series_id, "archived" if related else "deleted"
-                if not related:
+                has_iterations = session.scalar(select(SkillIteration.id).where(
+                    SkillIteration.topic_id == topic_id).limit(1)) is not None
+                has_history = bool(related) or has_iterations
+                series_id, status = topic.series_id, "archived" if has_history else "deleted"
+                if not has_history:
                     session.delete(topic)
             series = session.get(Series, series_id)
             if series is None:

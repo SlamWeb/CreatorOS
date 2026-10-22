@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## RSI 真实生产状态与恢复语义（2026-10-22）
+
+- 校准模型投影保留stage、active_round实际试产提交/状态/图数/原记录入口、next_action和可恢复动作；完整事件、公开模型响应及失败用量仍按需查看，不灌入每轮账号上下文。
+- get_creator_tasks包含校准任务；同选题普通生产与RSI互斥，拒绝时交付原校准入口而非另建任务。评审恢复只重试当前阶段，不加预算或重画；continue仅耗尽后明确再授权。
+- manage_topics原ID修改后从头重做读取当前Topic正文，旧Run冻结输入不变；本轮不增加替代选题、任意prompt或更多工具。
+
 ## 选题对象工具收敛（2026-10-22，隔离真实前端验收通过）
 
 - 本轮仅迁移选题：模型只见 manage_topics（list/get/create/update/remove），旧 list_series_topics、queue_topics 保留内部调用与历史 Trace，不再暴露给模型。栏目、Skill 工具暂不迁移；后续 Skill 权限采用共享可引用、账号候选可编辑、不能跨账号删除模型。

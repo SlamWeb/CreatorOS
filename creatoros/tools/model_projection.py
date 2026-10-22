@@ -57,6 +57,7 @@ _DISCUSSION = (
 _TASK = (
     "id", "kind", "title", "status", "series_id", "run_id", "url",
     "updated_at", "last_activity_at",
+    "iteration_id", "topic_id", "stage", "active_round", "next_action",
 )
 _ERROR = (
     "code", "error", "message", "error_type", "error_message", "status",
@@ -65,6 +66,7 @@ _ERROR = (
     "revision_id", "skill_id", "url", "current_digest", "expected_digest",
     "current_version", "expected_version", "current_revision", "expected_revision",
     "referencing_files",
+    "iteration_id",
 )
 _PAGE = ("offset", "limit", "total", "total_chars", "has_more", "next_offset")
 
@@ -153,7 +155,12 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name == "manage_skill_iteration":
         result = _pick(data, ("id", "status", "revision", "series_id", "skill_id", "topic_id",
                             "round_count", "max_rounds", "best_candidate_id", "best_score",
-                            "current_round", "score", "passed", "note", "error", "url", "allowed_actions"))
+                            "current_round", "score", "passed", "note", "error", "url", "allowed_actions",
+                            "stage", "next_action", "can_resume", "can_continue"))
+        if "active_round" in data:
+            result["active_round"] = _pick(data["active_round"], (
+                "number", "status", "production_submitted", "production_status", "trial_job_id",
+                "trial_id", "trial_url", "image_count"))
         if "judge" in data:
             result["judge"] = _pick(data["judge"], ("version", "threshold"))
         if "latest_feedback" in data:
@@ -190,7 +197,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name in _RUN_TOOLS:
         if "items" in data:
             return _pick(data, ("accepted_count",)) | {"items": _list(data["items"], lambda item:
-                _pick(item, ("topic_id", "run_id", "status", "accepted", "error", "error_code", "url")))}
+                _pick(item, ("topic_id", "run_id", "status", "accepted", "error", "error_code", "url", "iteration_id")))}
         return _run(data)
     if tool_name in _RESEARCH_TOOLS:
         result = _pick(data, _RESEARCH)
