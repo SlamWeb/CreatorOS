@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 空闲确认后正式加载维护机制（2026-10-23）
+
+- 用户明确授权仅空闲时重启。只读check确认生产、Attempt、执行授权队列、调研、发布、RSI和75份辅助状态均无活动项；8765原本已无监听，因此没有停止或强杀任何旧进程。
+- 使用项目deepcode Python执行维护restart：先保存SQLite备份及原表/字段/值、受管文件摘要，再启动当前分支新版PID15264。新实例暂停接单、消费者延迟；全部核对通过后才release，随后认证status确认held=false、workers_started=true、idle=true。
+- 延迟消费者期间核对21张业务表1291条原记录及5763个Skill/产物/参考图/会话等受管旧文件，原字段值和文件SHA256一致；恢复接单后再次核对21表原记录仍完全一致（含完整旧RSI config/state、标准、分数及所有生产/执行尝试）。没有resume旧RSI、提交生产、重评或新Codex调用。
+- 健康/数据库ok，首页及实际index-BfCpolbP.js均HTTP200，字节与web/dist一致。正式维护协议已加载；Judge固定题是手动/CI测试入口，不会在启动时自动付费运行。
+- 备份、before/verified/result及恢复接单后的live-check证据保存在被Git忽略的data/creatoros.db.maintenance/evidence/20261022-180011-2f4ac19c/；本次是部署和原记录保护验收，不是内容质量或新增模型Eval成绩。
+
 ## 可复用安全维护入口（2026-10-23）
 
 - Studio入口登记本地实例身份并先取得数据库宿主锁，再做迁移；活跃旧执行者持锁时拒绝启动。关机先关闭数据库，再释放宿主锁。
