@@ -70,30 +70,32 @@ test("newer stream state cannot be overwritten by an older polling response", ()
   assert.equal(newestChatSession(current, { ...current, stream_revision: 5 }).stream_revision, 5);
 });
 
-test("one usage summary per explicit turn deduplicates request IDs", () => {
-  const rows = transcriptItems([
+test("usage stays in raw history but never creates transcript rows", () => {
+  const entries = [
     { id: "user", kind: "user", text: "生产", turn_id: "turn-1" },
     { id: "u1", kind: "usage", turn_id: "turn-1", model_request_id: "r1", input_tokens: 100, output_tokens: 10 },
     { id: "tool", kind: "tool", turn_id: "turn-1" },
     { id: "u2", kind: "usage", turn_id: "turn-1", model_request_id: "r2", input_tokens: 120, output_tokens: 20 },
     { id: "u2-again", kind: "usage", turn_id: "turn-1", model_request_id: "r2", input_tokens: 120, output_tokens: 20 },
     { id: "reply", kind: "assistant", turn_id: "turn-1", text: "已完成" },
-  ]);
-  assert.equal(rows.filter(row => row.usage).length, 1);
-  assert.equal(rows.at(-1).key, "usage:turn-1");
-  assert.deepEqual(rows.at(-1).usage, { turnId: "turn-1", input: 220, output: 30, requests: 2, partial: false });
+  ];
+  const before = structuredClone(entries);
+  const rows = transcriptItems(entries);
+  assert.deepEqual(rows.map(row => row.key), ["user", "tool", "reply"]);
+  assert.equal(rows.at(-1).entry, entries.at(-1));
+  assert.deepEqual(entries, before);
 });
 
-test("legacy usage is not assigned to a neighboring turn or turned into zero", () => {
-  const rows = transcriptItems([{ kind: "user", turn_id: "new", text: "新请求" },
+test("legacy and missing usage stay hidden without changing context occupancy", () => {
+  const doc = { ...session(), context_usage: { input_tokens: 38096, context_window: 1000000 },
+    entries: [{ kind: "user", turn_id: "new", text: "新请求" },
     { id: "legacy", kind: "usage", input_tokens: 50 },
     { id: "unknown", kind: "usage", turn_id: "new", model_request_id: "request" },
-    { kind: "assistant", turn_id: "new", text: "回答" }]);
-  const usages = rows.filter(row => row.usage).map(row => row.usage);
-  assert.deepEqual(usages, [
-    { turnId: undefined, input: 50, output: null, requests: 1, partial: true },
-    { turnId: "new", input: null, output: null, requests: 1, partial: true },
-  ]);
+    { kind: "assistant", turn_id: "new", text: "回答" }] };
+  const before = structuredClone(doc);
+  const rows = transcriptItems(doc.entries);
+  assert.deepEqual(rows.map(row => row.entry.kind), ["user", "assistant"]);
+  assert.deepEqual(doc, before);
 });
 
 test("duplicate task receipts display at the last occurrence in the same turn only", () => {

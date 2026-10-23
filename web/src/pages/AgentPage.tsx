@@ -17,7 +17,7 @@ import { AgentComposerControls } from "../components/AgentComposerControls";
 import { initialReasoningEffort, isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
   type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
 import { applySessionPatch, newestChatSession, transcriptItems, type ChatEntryData as Entry,
-  type ChatSession as Session, type ChatSessionPatch, type TurnUsage } from "../components/agentTranscript";
+  type ChatSession as Session, type ChatSessionPatch } from "../components/agentTranscript";
 import "../components/chat-transcript.css";
 
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
@@ -462,10 +462,10 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     }} aria-label="对话记录">
       {id && session.isPending && <p className="agent-note">正在读取对话…</p>}
       {standalone && (!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
-        <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题，先不要生产。` : "看看我有哪些账号和栏目，先不要生产。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
+        <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题。` : "看看我有哪些账号和栏目。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
       {doc && renderedEntries.map(item => <ChatEntry key={`${doc.id}:${item.key}`} entry={item.entry} sessionId={doc.id}
-        sessionStatus={doc.status} usage={item.usage} hiddenLinkUrls={item.hiddenLinkUrls} />)}
+        sessionStatus={doc.status} hiddenLinkUrls={item.hiddenLinkUrls} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
@@ -500,8 +500,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   </section>;
 }
 
-const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, usage, hiddenLinkUrls }: {
-  entry: Entry; sessionId: string; sessionStatus: string; usage?: TurnUsage; hiddenLinkUrls?: string;
+const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hiddenLinkUrls }: {
+  entry: Entry; sessionId: string; sessionStatus: string; hiddenLinkUrls?: string;
 }) {
   const hidden = new Set<string>(hiddenLinkUrls ? JSON.parse(hiddenLinkUrls) : []);
   const links = uniqueChatLinks(entry.links ?? []).filter(link => !hidden.has(link.url));
@@ -529,7 +529,6 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, usa
     </div>}
   </div> : null;
   if (entry.kind === "tool") return <ToolEntry entry={entry} sessionId={sessionId} links={links} />;
-  if (entry.kind === "usage" && usage) return <UsageEntry usage={usage} />;
   return <p className="agent-note">{entry.kind === "guard_stop" ? "已达到本次调用上限，请检查当前结果。" : entry.kind === "context_compacted" ? "较早消息已压缩，完整记录仍在本地。" : "上下文接近预算。"}</p>;
 });
 
@@ -571,20 +570,6 @@ function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: strin
     </div>}
     {entry.research && <ResearchActivity research={entry.research} links={links} />}
     {entry.discussion && <DiscussionActivity discussion={entry.discussion} links={links} />}
-  </div>;
-}
-
-function UsageEntry({ usage }: { usage: TurnUsage }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  return <div className="chat-usage chat-turn-usage" data-turn-id={usage.turnId}>
-    <button type="button" className="chat-usage-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>
-      <span>{usage.turnId ? "本条请求用量" : "历史调用用量（未关联轮次）"}</span>
-      {usage.requests > 1 && <small>{usage.requests} 次调用</small>}
-      {open ? <Minus size={12} aria-hidden="true" /> : <Plus size={12} aria-hidden="true" />}
-    </button>
-    {open && <p id={id}>输入 {usage.input?.toLocaleString() ?? "未记录"} · 输出 {usage.output?.toLocaleString() ?? "未记录"} tokens
-      {usage.partial && <span> · 部分调用用量未记录</span>}</p>}
   </div>;
 }
 

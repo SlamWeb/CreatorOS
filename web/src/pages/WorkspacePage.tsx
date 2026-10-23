@@ -173,7 +173,7 @@ export function WorkspacePage() {
     });
   }
   const discuss = (title: string) => {
-    chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」，先不要生产。` });
+    chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」。` });
   };
 
   return <div className={`workspace${chat.isOpen ? " chat-open" : ""}`}>

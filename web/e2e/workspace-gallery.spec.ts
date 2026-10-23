@@ -105,7 +105,7 @@ test("unproduced detail edits the real topic, discussion only prefills, unreadab
   await expect(dialog.getByRole("heading", { name: "已通过详情修改的草稿" })).toBeVisible();
   await dialog.getByRole("button", { name: "与 Agent 讨论" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("我们讨论一下选题「已通过详情修改的草稿」，先不要生产。");
+  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("我们讨论一下选题「已通过详情修改的草稿」。");
   expect(writes).toEqual([`/api/topics/${data.topicIds[1]}`]);
   await page.keyboard.press("Escape");
   await expect(page.locator(".account-chat-panel")).toBeHidden();

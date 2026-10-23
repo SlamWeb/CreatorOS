@@ -9,7 +9,7 @@ const links = [
   { url: runTwo, label: "查看内容", source_tool: "start_content_run", kind: "production", title: "韩信：街市到高坛", version: 2 },
 ];
 
-test("turn usage, named links and lazy tool details remain readable after reload", async ({ page }, info) => {
+test("usage stays out of chat while named links and lazy tool details survive reload", async ({ page }, info) => {
   const doc = { id: "transcript-tools", title: "工具明细验收", version: 1, status: "idle", error: null,
     scope_kind: "overview", creator_id: null, stream_revision: 8, has_older: false, updated_at: "2026-10-22T08:00:00Z",
     entries: [
@@ -45,10 +45,8 @@ test("turn usage, named links and lazy tool details remain readable after reload
     return route.fulfill({ json: { items: [doc] } });
   });
   await page.goto("/agent?chat=transcript-tools");
-  await expect(page.getByRole("button", { name: /本条请求用量/ })).toHaveCount(1);
-  await expect(page.locator(".chat-turn-usage p")).toHaveCount(0);
-  await page.getByRole("button", { name: /本条请求用量/ }).click();
-  await expect(page.locator(".chat-turn-usage p")).toHaveText("输入 220 · 输出 30 tokens");
+  await expect(page.getByRole("button", { name: /本条请求用量/ })).toHaveCount(0);
+  await expect(page.locator(".chat-turn-usage")).toHaveCount(0);
   const navigation = page.getByRole("navigation", { name: "本轮任务入口" });
   await expect(navigation.getByRole("link")).toHaveCount(2);
   await expect(page.getByRole("link", { name: "朱元璋：村口到宫殿 · 第 3 版", exact: true })).toHaveCount(1);
@@ -82,7 +80,7 @@ test("turn usage, named links and lazy tool details remain readable after reload
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("chat-tools-mobile.png") });
   await page.reload();
-  await expect(page.getByRole("button", { name: /本条请求用量/ })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /本条请求用量/ })).toHaveCount(0);
   await expect(page.locator(".chat-tool-details")).toHaveCount(0);
   await expect(navigation.getByRole("link")).toHaveCount(2);
   expect(writes).toBe(0);
@@ -162,7 +160,7 @@ test("stream patches preserve expanded tools, ignore replay, and recover gaps wi
   expect(writes).toBe(0);
 });
 
-test("unidentified legacy usage and tool details stay honest and do not trigger trace lookup", async ({ page }) => {
+test("legacy usage stays hidden and unlinked tool details do not trigger trace lookup", async ({ page }) => {
   let detailsRead = 0;
   const doc = { id: "legacy-chat", title: "历史记录", version: 1, status: "idle", error: null,
     scope_kind: "overview", creator_id: null, has_older: false, updated_at: "2026-10-22T08:00:00Z",
@@ -174,8 +172,8 @@ test("unidentified legacy usage and tool details stay honest and do not trigger 
     return route.fulfill({ json: url.pathname.endsWith("/legacy-chat") ? doc : { items: [doc] } });
   });
   await page.goto("/agent?chat=legacy-chat");
-  await page.getByRole("button", { name: "历史调用用量（未关联轮次）" }).click();
-  await expect(page.locator(".chat-turn-usage p")).toHaveText("输入 50 · 输出 未记录 tokens · 部分调用用量未记录");
+  await expect(page.getByRole("button", { name: "历史调用用量（未关联轮次）" })).toHaveCount(0);
+  await expect(page.locator(".chat-turn-usage")).toHaveCount(0);
   await page.getByRole("button", { name: /管理选题/ }).click();
   await expect(page.getByText("这条旧记录没有关联工具详情；完整历史可在回复 Trace 中查看。")).toBeVisible();
   expect(detailsRead).toBe(0);

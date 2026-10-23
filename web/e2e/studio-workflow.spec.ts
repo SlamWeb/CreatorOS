@@ -207,7 +207,7 @@ test("workspace first use to revision and approval survives refresh", async ({ p
 
   await page.goto("/agent");
   await page.getByRole("button", { name: "看看我的账号和栏目 ↗" }).click();
-  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("看看我有哪些账号和栏目，先不要生产。");
+  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("看看我有哪些账号和栏目。");
   await page.getByRole("button", { name: /运营指令/ }).click();
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");

@@ -15,8 +15,7 @@ export type ChatSession = { id: string; title: string; version: number; status: 
   reasoning_actual_effort?: string; reasoning_effort_map?: Record<string, string>;
   entries: ChatEntryData[]; updated_at: string; has_older: boolean; stream_revision?: number };
 
-export type TurnUsage = { turnId?: string; input: number | null; output: number | null; requests: number; partial: boolean };
-export type TranscriptItem = { key: string; entry: ChatEntryData; usage?: TurnUsage; hiddenLinkUrls?: string };
+export type TranscriptItem = { key: string; entry: ChatEntryData; hiddenLinkUrls?: string };
 export type ChatSessionPatch = Partial<Omit<ChatSession, "entries" | "id" | "stream_revision">> & {
   id: string; base_revision: number; stream_revision: number;
   entries_upsert: (Partial<ChatEntryData> & { id: string })[];
@@ -69,8 +68,6 @@ export function applySessionPatch(current: ChatSession | undefined, patch: ChatS
   return { status: "applied", session: { ...current, ...metadata, id: current.id, entries: order.map(id => byId.get(id)!) } };
 }
 
-const recordedNumber = (value: number | undefined) => typeof value === "number" && Number.isFinite(value) && value >= 0;
-
 export function entryKey(entry: ChatEntryData, index: number): string {
   // Served entries now have IDs, including projected legacy records. This last
   // fallback only keeps older servers/fixtures readable, not a stream identity.
@@ -78,31 +75,17 @@ export function entryKey(entry: ChatEntryData, index: number): string {
 }
 
 export function transcriptItems(entries: ChatEntryData[]): TranscriptItem[] {
-  const grouped = new Map<string, Map<string, ChatEntryData>>();
-  const lastIndex = new Map<string, number>();
   const lastLink = new Map<string, number>();
   entries.forEach((entry, index) => {
-    if (entry.turn_id) lastIndex.set(entry.turn_id, index);
+    if (entry.kind === "usage") return;
     if (entry.turn_id) for (const link of entry.links ?? []) lastLink.set(`${entry.turn_id}:${link.url}`, index);
-    if (entry.kind !== "usage" || !entry.turn_id) return;
-    const requests = grouped.get(entry.turn_id) ?? new Map<string, ChatEntryData>();
-    requests.set(entry.model_request_id ?? entryKey(entry, index), entry);
-    grouped.set(entry.turn_id, requests);
-  });
-  const sumUsage = (values: ChatEntryData[], turnId?: string): TurnUsage => ({ turnId,
-    input: values.some(value => recordedNumber(value.input_tokens)) ? values.reduce((sum, value) => sum + (recordedNumber(value.input_tokens) ? value.input_tokens! : 0), 0) : null,
-    output: values.some(value => recordedNumber(value.output_tokens)) ? values.reduce((sum, value) => sum + (recordedNumber(value.output_tokens) ? value.output_tokens! : 0), 0) : null,
-    requests: values.length, partial: values.some(value => !recordedNumber(value.input_tokens) || !recordedNumber(value.output_tokens)),
   });
   const result: TranscriptItem[] = [];
   entries.forEach((entry, index) => {
+    // Display-only filtering: keep raw usage in the session and Trace. The
+    // composer's context ring reads context_usage, not accumulated turn usage.
     if (entry.kind !== "usage") result.push({ key: entryKey(entry, index), entry,
       hiddenLinkUrls: JSON.stringify((entry.links ?? []).filter(link => entry.turn_id && lastLink.get(`${entry.turn_id}:${link.url}`) !== index).map(link => link.url)) });
-    else if (!entry.turn_id) result.push({ key: entryKey(entry, index), entry, usage: sumUsage([entry]) });
-    if (entry.turn_id && lastIndex.get(entry.turn_id) === index && grouped.has(entry.turn_id)) {
-      result.push({ key: `usage:${entry.turn_id}`, entry: { kind: "usage", turn_id: entry.turn_id },
-        usage: sumUsage([...grouped.get(entry.turn_id)!.values()], entry.turn_id) });
-    }
   });
   return result;
 }
