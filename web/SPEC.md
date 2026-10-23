@@ -7,6 +7,7 @@
 - 验收：混合产物/文字题都显示；旧题生产不挤走最新选题；跨页顺序、刷新/返回、旧链接一致；桌面/手机顺序及无横溢出。隔离SQLite和本地工件，不用模型验证排序。
 - TypeScript/独立Vite构建通过，后端排序/版本13/13（18.704秒），topic-production/content-navigation/workspace-gallery三份前端10/10（1.5分钟）；覆盖28条跨页、旧筛选链接、产物保留、准确Skill版本、实际点击生产及只读返回。未调用付费模型，生产为受控本地工件；其他脚本仅同步移除失效筛选步骤，未声称全量通过。
 - 桌面1440×900与手机390×844截图一次查看，无横溢出，保持Grid行优先及配色/Logo，无后续视觉补丁；一次Impeccable检测无发现。证据tmp/topic-time-feed-20261023/browser-first，构建同目录dist。
+- 正式空闲后按startup轻量流程部署402247f前后端并重启到PID27724，首页已返回index-BH7DLPQo.js；无历史文件扫描或任务重跑。旧dist保留在tmp/topic-time-feed-20261023/dist.previous，维护证据见data/creatoros.db.maintenance/evidence/20261023-154229-0f7d7923/。
 
 ## 生产进度筛选与 Skill 版本可见（2026-10-23，隔离验收通过）
 

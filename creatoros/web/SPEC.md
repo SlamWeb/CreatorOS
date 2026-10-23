@@ -4,6 +4,7 @@
 
 - topic-library新增只读order=created，批量读取Topic.created_at，与未入库候选的批次创建时间一起排序后分页；同时间按ID稳定打破平局。保持旧queue/recent、筛选、快照和执行行为不变，不修改业务记录。
 - 排序与版本定向13/13通过，含单次批量查询、旧任务不因更新插队、跨页/同时间稳定性、正式记录/候选文件无写入；三份真实HTTP/SQLite网页定向10/10及桌面/手机检查通过，生产使用受控本地工件，不冒称真实Codex评测，详见web/SPEC.md。
+- 正式检查idle=true、busy=[]后以startup模式备份SQLite并正常重启；旧PID44260退出后加载402247f前后端，新PID27724、held=false、workers_started=true、首页返回index-BH7DLPQo.js。证据data/creatoros.db.maintenance/evidence/20261023-154229-0f7d7923/；没有全量历史校验、生产提交、RSI重跑或旧分数改写。
 
 ## 普通部署重启（2026-10-23，已完成）
 
