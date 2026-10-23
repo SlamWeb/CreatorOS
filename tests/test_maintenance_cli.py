@@ -52,11 +52,16 @@ class MaintenanceCliFaultTests(unittest.TestCase):
                  patch.object(cli, "control", side_effect=lambda _receipt, action: actions.append(action)), \
                  patch.object(cli, "inspect_idle", return_value={"idle": True}), \
                  patch.object(cli, "write_new", side_effect=record), \
-                 patch.object(cli, "snapshot", side_effect=OSError("original snapshot failure")), \
+                 patch.object(cli, "migration_pending", return_value=False), \
+                 patch.object(cli, "snapshot") as snapshot, \
+                 patch.object(cli, "verify_snapshot") as verify, \
+                 patch.object(cli, "backup", side_effect=OSError("original backup failure")), \
                  patch.object(cli, "launch") as launch, patch("sys.stderr", new_callable=io.StringIO):
-                with self.assertRaisesRegex(OSError, "original snapshot failure"):
+                with self.assertRaisesRegex(OSError, "original backup failure"):
                     cli._restart(layout, 12345, 1)
                 self.assertEqual(actions, ["begin", "release"])
+                snapshot.assert_not_called()
+                verify.assert_not_called()
                 launch.assert_not_called()
 
 

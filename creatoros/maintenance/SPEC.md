@@ -1,5 +1,14 @@
 # Safe local maintenance
 
+## Routine restart simplification · 2026-10-23 · Implemented and verified
+
+- User authorized a lighter default: check running/authorized queued work, close admission, back up SQLite, gracefully restart and verify the new instance/health before opening consumers. Do not scan/hash historical files or dump/compare all business rows during routine restart.
+- Keep full preservation checks for pending schema migrations (automatically selected) or explicit `restart --full` for recovery work. Full mode takes one snapshot and compares it once after startup; remove the redundant pre-stop full comparison. No new task recovery, RSI replay, production, deletion or data rollback.
+- Preserve existing busy/admission/instance handoff protections, rather than adding more defensive layers. Verify both modes, automatic migration selection and running/queued refusal against temporary SQLite/files and real isolated HTTP/processes; formal service must not be restarted this turn.
+- Implementation: `restart` defaults to `verification=startup`, with no full-row dump or historical file hashing. Pending Alembic upgrades automatically use `full`; explicit `--full` supports recovery verification. Full mode compares the pre-restart snapshot once after startup. Startup-only reports do not claim file/row equality that was not checked. This supersedes the older always-full default below.
+- Verification in separate batches: state/CLI 22/22 (11.920s), admission/controller 16/16 (32.966s); actual isolated process batch initially 3/4 (66.348s), because the new pending-queue fixture queried `ContentRevision.run_id` instead of `content_run_id`. Corrected only that test SQL and reran its original path 1/1 (4.071s). All 42 distinct targeted cases now pass across these batches; no full repository/remote-CI claim.
+- Real isolated processes cover routine backup/startup, explicit full restart, automatic full migration, historical RSI config/score and file preservation, and refusal without stop/start for busy chat or authorized pending production. Mocking is limited to explicit disk/receipt/lifecycle fault injection. Formal8765 remained PID41064, with no production/model calls or formal restart.
+
 ## Draft · 2026-10-23
 
 - User authorized a reusable safe-maintenance command and frozen Judge regression tests. This module replaces untracked, date-specific restart snippets; it does not run maintenance against formal data during development.

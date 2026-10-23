@@ -259,6 +259,15 @@ def _migration_versions(layout):
     return versions
 
 
+def migration_pending(layout):
+    """A schema upgrade needs full verification; routine restarts do not."""
+    from alembic.script import ScriptDirectory
+    from creatoros.config import PROJECT_ROOT
+
+    heads = sorted(ScriptDirectory(str(PROJECT_ROOT / "migrations")).get_heads())
+    return _migration_versions(layout) != heads
+
+
 def _verify_migrations(layout, before):
     from alembic.script import ScriptDirectory
     from creatoros.config import PROJECT_ROOT

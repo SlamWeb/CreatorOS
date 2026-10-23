@@ -20,7 +20,8 @@ from filelock import FileLock, Timeout
 from sqlalchemy.engine import make_url
 
 from creatoros.config import DATABASE_URL, PROJECT_ROOT
-from .state import Layout, MaintenanceError, backup, inspect_idle, read_json, safe_path, snapshot, verify_snapshot
+from .state import (Layout, MaintenanceError, backup, inspect_idle, migration_pending,
+                    read_json, safe_path, snapshot, verify_snapshot)
 
 
 class ControlError(MaintenanceError):
@@ -150,17 +151,17 @@ def launch(layout, port, token, evidence):
                                 stdout=stdout, stderr=stderr, **kwargs)
 
 
-def restart(layout, port, timeout=40):
+def restart(layout, port, timeout=40, *, full=False):
     layout.control_dir.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(safe_path(layout.control_dir / "operation.lock")), timeout=0)
     try:
         with lock:
-            return _restart(layout, port, timeout)
+            return _restart(layout, port, timeout, full=full)
     except Timeout:
         raise MaintenanceError("已有维护命令在执行，请勿并发重启。") from None
 
 
-def _restart(layout, port, timeout):
+def _restart(layout, port, timeout, *, full=False):
     initial = check(layout, port)
     if not initial["idle"]:
         raise MaintenanceError("不能安全重启：" + json.dumps(initial, ensure_ascii=False))
@@ -189,10 +190,11 @@ def _restart(layout, port, timeout):
         status = inspect_idle(layout)
         if not status["idle"]:
             raise MaintenanceError("备份前状态已变化，未停止服务：" + json.dumps(status, ensure_ascii=False))
-        before = snapshot(layout)
-        write_new(evidence / "before.json", before)
+        full = full or migration_pending(layout)
+        verification = "full" if full else "startup"
+        before = snapshot(layout) if full else None
+        write_new(evidence / "before.json", before if full else {"verification": verification})
         backup(layout, evidence / "before.sqlite")
-        verify_snapshot(layout, before)
         if old:
             stopped = True
             control(old, "shutdown")
@@ -225,7 +227,9 @@ def _restart(layout, port, timeout):
         health = json.load(urlopen(f"http://127.0.0.1:{port}/api/health", timeout=10))
         if health.get("status") != "ok" or health.get("database") != "ok":
             raise MaintenanceError("替代服务健康检查未通过，保持维护状态。")
-        preservation = verify_snapshot(layout, before)
+        preservation = {"verification": verification}
+        if full:
+            preservation.update(verify_snapshot(layout, before))
         if not inspect_idle(layout)["idle"]:
             raise MaintenanceError("验证阶段出现新活动，保持维护状态。")
         write_new(evidence / "verified.json", dict(**preservation, health=health,
@@ -263,6 +267,7 @@ def main():
     parser.add_argument("--database-url", default=DATABASE_URL)
     parser.add_argument("--output-root", type=Path, default=PROJECT_ROOT / "outputs")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--full", action="store_true", help="重启时完整核对旧行/文件；有待执行迁移时自动启用")
     args = parser.parse_args()
     try:
         url = make_url(args.database_url)
@@ -271,7 +276,7 @@ def main():
         if not 1 <= args.port <= 65535:
             raise MaintenanceError("无效端口。")
         layout = Layout.from_paths(Path(url.database), args.output_root)
-        report = check(layout, args.port) if args.action == "check" else restart(layout, args.port)
+        report = check(layout, args.port) if args.action == "check" else restart(layout, args.port, full=args.full)
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return 0 if args.action == "restart" or report["idle"] else 2
     except (OSError, ValueError, sqlite3.Error, MaintenanceError) as error:

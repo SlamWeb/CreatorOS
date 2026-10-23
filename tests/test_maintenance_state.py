@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from creatoros.maintenance.state import (DB_BUSY, Layout, MaintenanceError, backup,
-    inspect_idle, safe_path, snapshot, verify_snapshot)
+    inspect_idle, migration_pending, safe_path, snapshot, verify_snapshot)
 from creatoros.storage import Database, ContentRepository, SkillIteration, TopicSource, upgrade_database
 from creatoros.runs import ContentRunService
 
@@ -194,8 +194,11 @@ class MaintenanceStateTests(unittest.TestCase):
         layout = Layout.from_paths(path, self.root / "older-output")
         url = "sqlite:///" + path.as_posix()
         upgrade_database(url, head.down_revision)
+        self.assertTrue(migration_pending(layout))
+        self.assertFalse(migration_pending(self.layout))
         before = snapshot(layout)
         upgrade_database(url)
+        self.assertFalse(migration_pending(layout))
         self.assertTrue(verify_snapshot(layout, before)["original_rows_unchanged"])
         with closing(sqlite3.connect(path)) as db, db:
             db.execute("UPDATE alembic_version SET version_num='unrecognized-version'")

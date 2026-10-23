@@ -1,5 +1,10 @@
 # Reliability Baseline
 
+## 普通/完整重启分流（2026-10-23）
+
+- 同一safe_maintenance组内更新默认startup与显式/迁移自动full的断言，补真实隔离进程的自动迁移和授权pending拒绝；不添加模型调用、前端流程或新的全量门禁。
+- 定向42项分批通过，首次进程3/4的测试SQL字段错误及原路径1/1补验见creatoros/maintenance/SPEC.md。没有重跑45组全量或宣称远端CI通过；正式8765未重启，未操作旧RSI/图片/分数。
+
 ## 选题焦点与渐进资料门禁（2026-10-23，定向验证完成）
 
 - 显式零付费 allowlist 新增 chat_focus、smoke_account_context、smoke_worker_task_projection；CI 浏览器列表补 workspace-gallery，验证准确对象、账号草稿、未知请求恢复及已删除/停用过滤。真实临时 SQLite/HTTP/文件与明确受控 Provider/工件分开标记。
