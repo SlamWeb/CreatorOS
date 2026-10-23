@@ -19,6 +19,7 @@ CASES = [
                           "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
                           "tests.test_host_tool_contract", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
+    ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
     ("codex_environment", ["-m", "unittest", "tests.test_codex_shell", "tests.test_composition_environment", "-v"]),
     ("topic_library_order", ["-m", "unittest", "tests.test_topic_library_order", "-v"]),
@@ -49,6 +50,7 @@ CASES = [
         "smoke_skill_workbench", "smoke_topic_research_sdk", "smoke_content_discussion",
         "smoke_native_production", "smoke_worker_delivery", "smoke_studio_production_progress",
         "smoke_studio_executor", "smoke_topic_remove", "smoke_topic_remove_migration",
+        "smoke_account_context", "smoke_worker_task_projection",
     )],
 ]
 

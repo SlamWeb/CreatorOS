@@ -184,13 +184,16 @@ WEB_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
 ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "你是当前绑定账号的运营助手，根据用户目标和真实账号状态选择行动。"
     "宿主提供账号→栏目→绑定Skill的当前目录数据；有真实ID时直接使用，不必重复查询目录。"
+    "本问若有selected_topic_materials，用户已点中准确选题；直接使用其正文、版本、Skill和实际载入图片，"
+    "不要再查全账号任务或逐栏目列选题。只有明确缺失的必要资料才按给定ID定向读取；"
+    "资料包只覆盖本问，未载入的图片不能说看过，当前库规则与生产冻结规则不能混为一谈。"
     "用户问今天做什么时可主动查询选题和任务，提出有依据的建议；区分事实、判断与建议，缺必要信息再追问。"
     "只使用提供的工具，不猜ID；同名或指代有歧义时澄清。查看/建议不调用写工具。"
     "选题统一使用manage_topics：list查看，get读原条目，create仅用于明确新增，update修改原ID，remove移除原条目。"
     "修改前get取得最新edit_digest并保留未要求修改的字段；不靠create绕路，不因旧对话称无工具就拒绝。明确入队并生产时依次执行。"
     "生产/排队/核验/讨论期间拒绝改删；有产物的移除保留历史，修改不会改变旧Run和图片。冲突重读核对，不强制覆盖。"
     "选题pending是待选，queued是已确认入队，不代表任务正在排队。只有用户明确要求生产才start_content_run。"
-    "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台自动串行执行。"
+    "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台最多五选题并行。"
     "任务接受不等于完成；旧失败/中断不被批量提交自动恢复。人工验收和发布确认仍保留。"
     "research_series_topics由宿主等待同一批次并展示过程，返回候选后继续回复；失败直接解释，不自动重新提交。"
     "调研观察中断或状态未知时先查询同一批次，不重提；生产仍提交后给链接，不轮询等待生图。"
@@ -252,13 +255,14 @@ class WebConsole(Console):
 
 class AgentChatService:
     def __init__(self, root: Path, provider_factory=None, *, creator_lookup=None,
-                 creator_context_factory=None, max_parallel_sessions=4,
+                 creator_context_factory=None, focus_context_builder=None, max_parallel_sessions=4,
                  research_wait_timeout_seconds=None):
         self.root = Path(root)
         self.attachments = ChatAttachments(self.root)
         self.provider_factory = provider_factory or self._provider
         self.creator_lookup = creator_lookup
         self.creator_context_factory = creator_context_factory
+        self.focus_context_builder = focus_context_builder
         self.lock = RLock()
         self.stopping = Event()
         self.threads = {}
@@ -481,7 +485,10 @@ class AgentChatService:
             return self.attachments.put(session_id, name, data_base64)
 
     def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
-               reasoning_effort=None, iteration_mode=False):
+               reasoning_effort=None, iteration_mode=False, context_target=None):
+        if context_target is not None:
+            from .chat_focus import ChatContextTarget
+            context_target = ChatContextTarget.model_validate(context_target).model_dump(exclude_none=True)
         if not isinstance(iteration_mode, bool):
             raise HTTPException(422, "RSI模式必须为布尔值。")
         if reasoning_effort is not None and reasoning_effort not in DEEPSEEK_REASONING_EFFORTS:
@@ -495,6 +502,7 @@ class AgentChatService:
             for item in doc["requests"]:
                 if item["id"] == request_id:
                     if (item["text"] != text or item.get("attachment_ids", []) != attachment_ids
+                            or item.get("context_target") != context_target
                             or item.get("iteration_mode", False) != iteration_mode
                             or (reasoning_effort is not None
                                 and item.get("reasoning_effort", "none") != reasoning_effort)):
@@ -511,6 +519,10 @@ class AgentChatService:
                 raise HTTPException(409, "这条对话正在处理指令；可另开对话，原任务不会重提。")
             if len(self.active) >= self.max_parallel_sessions:
                 raise HTTPException(409, "已达到并行对话上限，请等一条对话完成；不会自动排队或重试。")
+            if context_target:
+                if self.focus_context_builder is None:
+                    raise HTTPException(503, "当前服务尚未加载选题资料入口，请保留草稿并稍后重试。")
+                self.focus_context_builder.validate(doc.get("creator_id"), context_target)
             attachments = [self.attachments.get(session_id, value) for value in attachment_ids]
             provider = self.provider_factory()
             if isinstance(provider, DeepSeekProvider):
@@ -518,9 +530,11 @@ class AgentChatService:
                 provider.set_reasoning_effort(reasoning_effort)
             doc["requests"].append({"id": request_id, "text": text, "status": "running",
                                     "attachment_ids": attachment_ids, "reasoning_effort": reasoning_effort,
+                                    **({"context_target": context_target} if context_target else {}),
                                     "iteration_mode": iteration_mode})
             doc["entries"].append({"kind": "user", "text": text, "turn_id": request_id,
                                    "iteration_mode": iteration_mode,
+                                   **({"context_target": context_target} if context_target else {}),
                                    **({"attachments": attachments} if attachments else {})})
             doc.update(status="running", error=None, version=doc["version"] + 1,
                        reasoning_effort=reasoning_effort)
@@ -528,7 +542,7 @@ class AgentChatService:
                 doc["title"] = text[:36] or attachments[0]["name"][:36]
             self.active[session_id], self.providers[session_id] = doc, provider
             self._save(doc)
-            thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id, attachments, iteration_mode), daemon=True)
+            thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id, attachments, iteration_mode, context_target), daemon=True)
             self.threads[session_id] = thread
             thread.start()
             return self._view(doc)
@@ -629,7 +643,7 @@ class AgentChatService:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
-    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False):
+    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None):
         status, error = "idle", None
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
@@ -647,8 +661,11 @@ class AgentChatService:
                 # Existing checkpoints fail their digest check and safely fall back to full history.
                 messages[0]["content"] = instructions
                 save_messages(messages, session_file)
+            focus = self.focus_context_builder.build(doc.get("creator_id"), doc["id"], context_target,
+                image_budget=max(0, 20 * 1024 * 1024 - sum(item["size"] for item in attachments or []))) if context_target else None
             run_agent(provider, console=WebConsole(text or "（用户发送了图片，请根据上下文判断用途；用途不明时先询问。）"),
                       user_attachments=attachments,
+                      **({"request_context": focus, "user_context_ref": context_target} if focus else {}),
                       session_file=session_file,
                       user_request_id=request_id, capture_request_trace=True,
                       runtime_context=ChatRuntimeContext(project_root=PROJECT_ROOT, studio_url=studio_url,
@@ -667,7 +684,9 @@ class AgentChatService:
         except ChatStopped:
             status, error = "interrupted", "服务关闭，指令已中断；请先查看已有任务。"
         except HTTPException:
-            status, error = "failed", "图片附件不可读取，请重新上传原图后再发送；未自动重试。"
+            status = "failed"
+            error = ("选中的作品资料不可读取或归属已变化，请返回选题重新选择；未自动重试或生产。" if context_target
+                     else "图片附件不可读取，请重新上传原图后再发送；未自动重试。")
         except Exception:
             status, error = "failed", "Agent 请求未完整结束。请先查看已有任务，再决定下一步；未自动重试。"
         finally:

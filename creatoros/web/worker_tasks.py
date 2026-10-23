@@ -40,7 +40,8 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
             creator = session.get(Creator, creator_id)
             if creator is None or not creator.is_active:
                 raise HTTPException(404, "账号不存在或已停用。")
-            series_query = select(Series).where(Series.creator_id == creator_id)
+            series_query = select(Series).where(
+                Series.creator_id == creator_id, Series.is_active.is_(True))
             if series_id is not None:
                 series_query = series_query.where(Series.id == series_id)
             series_rows = list(session.scalars(series_query.order_by(Series.id)))
@@ -58,7 +59,7 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
             run_query = (select(ContentRun, Topic, Series)
                          .join(Topic, ContentRun.topic_id == Topic.id)
                          .join(Series, Topic.series_id == Series.id)
-                         .where(Series.creator_id == creator_id))
+                         .where(Series.creator_id == creator_id, Series.is_active.is_(True)))
             if series_id is not None:
                 run_query = run_query.where(Series.id == series_id)
             run_rows = list(session.execute(run_query))
@@ -68,19 +69,18 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
                 query = (select(SkillIteration).join(Topic, Topic.id == SkillIteration.topic_id)
                          .join(Series, Series.id == Topic.series_id)
                          .where(SkillIteration.creator_id == creator_id, Series.creator_id == creator_id,
-                                SkillIteration.series_id == Series.id))
+                                Series.is_active.is_(True), SkillIteration.series_id == Series.id))
                 if series_id is not None:
                     query = query.where(SkillIteration.series_id == series_id)
                 iteration_rows = list(session.scalars(query))
 
             # A Series transfer must not expose a Run frozen for its former owner.
         runs = [(run, topic, series) for run, topic, series in run_rows
-                if (run.input_snapshot_json or {}).get("creator_id") == creator_id]
+                if topic.id not in removed
+                and (run.input_snapshot_json or {}).get("creator_id") == creator_id]
 
         items = []
         for run, topic, series in runs:
-            if topic.id in removed:
-                continue
             status = _status(run.status)
             items.append({
                 "id": run.id, "kind": "production", "title": topic.title,

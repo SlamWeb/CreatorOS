@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contextUsageView, initialReasoningEffort, parsePendingAgentTurn, isReasoningEffort, REASONING_EFFORTS } from "../src/components/agentComposerState.ts";
+import { contextFocusDraftKey, contextUsageView, initialReasoningEffort, parseContextFocusDraft,
+  parsePendingAgentTurn, isReasoningEffort, REASONING_EFFORTS, sameContextTarget } from "../src/components/agentComposerState.ts";
 
 test("context displays the last request input instead of a running sum", () => {
   const value = contextUsageView({ input_tokens: 15321, context_window: 1000000,
@@ -48,4 +49,30 @@ test("RSI authorization is frozen as a boolean and legacy pending requests remai
   assert.deepEqual(parsePendingAgentTurn(JSON.stringify(pending), "chat-a"), pending);
   assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, iteration_mode: "true" }), "chat-a"), null);
   assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, iteration_mode: 1 }), "chat-a"), null);
+});
+
+test("pending recovery freezes exact topic, Run and revision identities", () => {
+  const pending = { sessionId: "chat-a", text: "讨论这条选题", request_id: "request-a", expected_version: 3,
+    attachment_ids: [], reasoning_effort: "high", context_target: {
+      series_id: "series-a", topic_id: "topic-a", run_id: "run-a", revision_id: "revision-a" } };
+  const restored = parsePendingAgentTurn(JSON.stringify(pending), "chat-a");
+  assert.deepEqual(restored, pending);
+  for (const context_target of [null, {}, { series_id: "series-a", topic_id: "topic-a", creator_id: "other" },
+    { series_id: "series-a", topic_id: "../topic-a" }, { series_id: "series-a", topic_id: "topic-a", run_id: null },
+    { series_id: "series-a", topic_id: "topic-a", revision_id: "revision-a" }]) {
+    assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, context_target }), "chat-a"), null);
+  }
+});
+
+test("focus drafts restore names separately from identity and remain scoped to one account", () => {
+  const focus = { target: { series_id: "series-a", topic_id: "topic-a" }, title: "地球 online：柯基版" };
+  assert.deepEqual(parseContextFocusDraft(JSON.stringify(focus)), focus);
+  assert.notEqual(contextFocusDraftKey("creator:a"), contextFocusDraftKey("creator:b"));
+  assert.notEqual(contextFocusDraftKey("creator:a"), contextFocusDraftKey("overview"));
+  assert.equal(parseContextFocusDraft(JSON.stringify({ ...focus, title: " " })), null);
+  assert.equal(parseContextFocusDraft(JSON.stringify({ ...focus, target: { ...focus.target, path: "D:/x" } })), null);
+  assert.equal(parseContextFocusDraft("null"), null);
+  assert.equal(sameContextTarget(focus.target, { topic_id: "topic-a", series_id: "series-a" }), true);
+  assert.equal(sameContextTarget(focus.target, { ...focus.target, topic_id: "topic-b" }), false);
+  assert.equal(sameContextTarget(focus.target, { ...focus.target, run_id: "run-a" }), false);
 });

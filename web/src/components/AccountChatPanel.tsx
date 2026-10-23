@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
 import { AgentConversation } from "../pages/AgentPage";
+import type { ChatContextTarget } from "./agentComposerState";
 
 export type AccountChatPanelProps = {
   creatorId: string | null;
@@ -10,10 +11,13 @@ export type AccountChatPanelProps = {
   draftSeed?: string | null;
   draftSeedId?: string | number;
   selectedSessionId?: string;
+  contextTarget?: ChatContextTarget;
+  contextTitle?: string;
   openerRef?: RefObject<HTMLElement | null>;
 };
 
-export function AccountChatPanel({ creatorId, accountName, open, onClose, draftSeed, draftSeedId, selectedSessionId, openerRef }: AccountChatPanelProps) {
+export function AccountChatPanel({ creatorId, accountName, open, onClose, draftSeed, draftSeedId, selectedSessionId,
+  contextTarget, contextTitle, openerRef }: AccountChatPanelProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -34,6 +38,7 @@ export function AccountChatPanel({ creatorId, accountName, open, onClose, draftS
 
   return <aside className="account-chat-panel" aria-label={creatorId ? `${accountName}账号对话` : "全部账号对话"} hidden={!open}>
     <AgentConversation mode="embedded" creatorId={creatorId} accountName={accountName} active={open}
-      draftSeed={draftSeed} draftSeedId={draftSeedId} selectedSessionId={selectedSessionId} onClose={close} />
+      draftSeed={draftSeed} draftSeedId={draftSeedId} selectedSessionId={selectedSessionId}
+      contextTarget={contextTarget} contextTitle={contextTitle} onClose={close} />
   </aside>;
 }

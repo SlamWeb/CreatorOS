@@ -6,8 +6,9 @@ async function fixture(request: APIRequestContext) {
     expect(response.ok(), await response.text()).toBeTruthy();
     return response.json();
   };
-  const account = await create("/api/creators", { display_name: "内容流验收甲" });
-  const other = await create("/api/creators", { display_name: "内容流验收乙" });
+  const suffix = crypto.randomUUID().slice(0, 6);
+  const account = await create("/api/creators", { display_name: `内容流验收甲 ${suffix}` });
+  const other = await create("/api/creators", { display_name: `内容流验收乙 ${suffix}` });
   const series = await create(`/api/creators/${account.id}/series`, { name: "有图与草稿" });
   const second = await create(`/api/creators/${account.id}/series`, { name: "同账号第二栏目" });
   const external = await create(`/api/creators/${other.id}/series`, { name: "另一个账号的栏目" });
@@ -117,6 +118,7 @@ test("unproduced detail edits the real topic, discussion only prefills, unreadab
 test("explicit assignment follows the confirmed owner and does not reuse another account chat", async ({ page, request }) => {
   const data = await fixture(request);
   await page.goto(`/?creator=${data.account.id}&series=${data.second.id}`);
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   await page.getByRole("combobox", { name: "归属账号" }).selectOption(data.other.id);
   await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(data.other.id);
   await expect(page.getByRole("heading", { name: "同账号第二栏目", level: 1 })).toBeVisible();
@@ -129,4 +131,129 @@ test("explicit assignment follows the confirmed owner and does not reuse another
   await page.goto(`/?creator=${data.account.id}&series=${data.second.id}`);
   await expect(page.getByRole("alert")).toContainText("不属于当前账号");
   await expect(page.getByRole("heading", { name: "同账号另一个选题" })).toHaveCount(0);
+});
+
+// Controlled chat transport: these checks never send a turn to a model.
+test("topic discussion freezes the exact target through refresh and unknown recovery, then clears it", async ({ page, request }) => {
+  const data = await fixture(request);
+  const writes: string[] = [];
+  const submitted: Record<string, unknown>[] = [];
+  let chat: Record<string, unknown> | undefined;
+  page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
+  await page.route("**/api/agent/sessions/*", route => {
+    const identity = new URL(route.request().url()).pathname.split("/").at(-1);
+    return chat?.id === identity ? route.fulfill({ json: chat }) : route.continue();
+  });
+  await page.route("**/api/agent/sessions/*/turns", async route => {
+    const payload = route.request().postDataJSON();
+    submitted.push(payload);
+    const url = new URL(route.request().url()).pathname.replace(/\/turns$/, "");
+    chat ??= await request.get(url).then(response => response.json());
+    if (submitted.length === 1) { await route.abort("failed"); return; }
+    chat = { ...chat, version: submitted.length * 2, status: "idle", entries: [
+      { kind: "user", text: payload.text, turn_id: payload.request_id },
+    ] };
+    await route.fulfill({ json: chat });
+  });
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  const card = page.getByTestId(`library-${data.topicIds[0]}`);
+  await card.locator("summary").click();
+  await card.getByRole("button", { name: "与 Agent 讨论" }).click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel.getByRole("group", { name: "本次选题" })).toContainText("已经完成的真实文件卡片");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("我们讨论一下选题「已经完成的真实文件卡片」。");
+  expect(writes).toEqual([]); // Opening the discussion neither creates a session nor submits a turn.
+  await page.reload();
+  await expect(panel.getByRole("group", { name: "本次选题" })).toContainText("已经完成的真实文件卡片");
+  expect(writes).toEqual([]);
+  await panel.getByRole("button", { name: "发送 ↑" }).click();
+  await expect(panel.getByRole("button", { name: "核对并恢复上次提交" })).toBeVisible();
+  const target = { series_id: data.series.id, topic_id: data.topicIds[0], run_id: data.run.id };
+  expect(submitted[0].context_target).toEqual(target);
+  await page.reload();
+  await expect(panel.getByRole("button", { name: "移除选题焦点" })).toBeDisabled();
+  expect(submitted).toHaveLength(1);
+  await panel.getByRole("button", { name: "核对并恢复上次提交" }).click();
+  await expect(panel.getByRole("button", { name: "核对并恢复上次提交" })).toHaveCount(0);
+  expect(submitted).toHaveLength(2);
+  expect(submitted[1]).toEqual(submitted[0]);
+  await expect(panel.getByRole("group", { name: "本次选题" })).toHaveCount(0);
+  await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("接下来只讨论栏目安排");
+  await panel.getByRole("button", { name: "发送 ↑" }).click();
+  await expect.poll(() => submitted.length).toBe(3);
+  expect(submitted[2]).not.toHaveProperty("context_target");
+});
+
+test("topic focus stays with its account and rejected draft, and can be removed or reset", async ({ page, request }, info) => {
+  const data = await fixture(request);
+  const writes: string[] = [];
+  page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
+  await page.route("**/api/agent/sessions/*/turns", route => route.abort("blockedbyclient"));
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  const produced = page.getByTestId(`library-${data.topicIds[0]}`);
+  await produced.locator("summary").click();
+  await produced.getByRole("button", { name: "与 Agent 讨论" }).click();
+  const panel = page.locator(".account-chat-panel");
+  const focus = panel.getByRole("group", { name: "本次选题" });
+  await expect(focus).toContainText("已经完成的真实文件卡片");
+  await panel.getByRole("button", { name: "关闭账号对话" }).click();
+  const draft = page.getByTestId(`library-${data.topicIds[1]}`);
+  await draft.locator("summary").click();
+  page.once("dialog", dialog => dialog.dismiss());
+  await draft.getByRole("button", { name: "与 Agent 讨论" }).click();
+  await expect(focus).toContainText("已经完成的真实文件卡片");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("我们讨论一下选题「已经完成的真实文件卡片」。");
+  await page.getByRole("button", { name: `查看账号 ${data.other.display_name}` }).click();
+  await expect(panel.getByRole("heading", { name: data.other.display_name, exact: true })).toBeVisible();
+  await expect(focus).toHaveCount(0);
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
+  await page.getByRole("button", { name: `查看账号 ${data.account.display_name}` }).click();
+  await expect(focus).toContainText("已经完成的真实文件卡片");
+  await page.screenshot({ path: info.outputPath("topic-focus-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(panel.getByRole("button", { name: "移除选题焦点" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("topic-focus-mobile.png"), fullPage: true });
+  await panel.getByRole("button", { name: "移除选题焦点" }).click();
+  await expect(focus).toHaveCount(0);
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue(/已经完成/);
+  await page.reload();
+  await expect(focus).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await panel.getByRole("button", { name: "关闭账号对话" }).click();
+  await produced.locator("summary").click();
+  await produced.getByRole("button", { name: "与 Agent 讨论" }).click();
+  await expect(focus).toBeVisible();
+  await panel.getByRole("button", { name: "新对话", exact: true }).click();
+  await expect(focus).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
+test("a pending suggestion discusses its title without claiming a formal topic identity", async ({ page, request }) => {
+  const data = await fixture(request);
+  const title = "尚未入队的柯基候选";
+  const writes: string[] = [];
+  let payload: Record<string, unknown> | undefined;
+  page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
+  await page.route(`**/api/series/${data.series.id}/topic-library**`, route => route.fulfill({ json: {
+    items: [{ id: "candidate-preview-only", title, selection_state: "pending", batch_id: "batch-a", candidate_id: "candidate-a",
+      angle: "待用户选择", rationale: "受控展示候选", stale: false, sources: [], available_actions: ["prepare_topic_selection"] }],
+    page: { offset: 0, limit: 20, total: 1, has_more: false, next_offset: null },
+  } }));
+  await page.route("**/api/agent/sessions/*/turns", route => {
+    payload = route.request().postDataJSON();
+    return route.fulfill({ status: 503, json: { error: { message: "受控传输：不调用模型" } } });
+  });
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  const card = page.getByTestId("library-candidate-preview-only");
+  await card.locator("summary").click();
+  await card.getByRole("button", { name: "与 Agent 讨论" }).click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue(`我们讨论一下选题「${title}」。`);
+  await expect(panel.getByRole("group", { name: "本次选题" })).toHaveCount(0);
+  expect(writes).toEqual([]);
+  await panel.getByRole("button", { name: "发送 ↑" }).click();
+  await expect.poll(() => payload).toBeTruthy();
+  expect(payload).not.toHaveProperty("context_target");
+  expect(writes).toHaveLength(2); // One explicitly requested session creation and one intercepted turn.
 });

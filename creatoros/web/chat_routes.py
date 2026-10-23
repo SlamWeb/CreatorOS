@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .chat_attachments import MAX_IMAGES, MAX_ENCODED
 from .chat_stream import session_patch
+from .chat_focus import ChatContextTarget
 
 
 class ChatTurnRequest(BaseModel):
@@ -19,6 +20,7 @@ class ChatTurnRequest(BaseModel):
     expected_version: int = Field(ge=0)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "ultra", "none", "max"] = "high"
     iteration_mode: bool = False
+    context_target: ChatContextTarget | None = None
 
 
 class ChatCreateRequest(BaseModel):
@@ -88,6 +90,7 @@ def chat_routes(service):
         base = f"http://{'[' + host + ']' if ':' in host else host}:{port}"
         return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
                               attachment_ids=payload.attachment_ids,
+                              context_target=payload.context_target.model_dump(exclude_none=True) if payload.context_target else None,
                               iteration_mode=payload.iteration_mode,
                               reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)
 

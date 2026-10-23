@@ -16,7 +16,7 @@ type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false,
   heading, headerActions, headerPanels, onViewAll }: {
   seriesId: string; startButton: (topic: TopicView) => ReactNode; compact?: boolean;
-  onDiscuss?: (topic: string) => void; productionEnabled?: boolean;
+  onDiscuss?: (title: string, topic?: TopicView) => void; productionEnabled?: boolean;
   heading?: ReactNode; headerActions?: ReactNode; headerPanels?: ReactNode;
   onViewAll?: () => void;
 }) {
@@ -262,7 +262,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
             <summary aria-label={`选题操作 ${topic.title}`}><MoreHorizontal size={18} /></summary>
             <div><button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id); }}>详情与编辑</button>
               <button type="button" className="action-danger" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id, true); }}>移除</button>
-              {onDiscuss && <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); onDiscuss(topic.title); }}>与 Agent 讨论</button>}</div>
+              {onDiscuss && <button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); onDiscuss(topic.title, topic.selection_state === "queued" ? topic : undefined); }}>与 Agent 讨论</button>}</div>
           </details>
         </footer>
       </article>;
@@ -339,7 +339,7 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
   topic: LibraryTopic; onClose: () => void; onChoose: (topic: PendingTopic) => void;
   onRemoved: () => void; requestId: () => string; startRemoving: boolean;
   returnUrl: string; onOpenRun: () => void;
-  startButton: (topic: TopicView) => ReactNode; onDiscuss?: (title: string) => void;
+  startButton: (topic: TopicView) => ReactNode; onDiscuss?: (title: string, topic?: TopicView) => void;
   onChanged: () => Promise<void>; onRemovedChanged: () => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -373,7 +373,7 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
           <button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => setEditing(true)}>编辑</button>
         </>}
       <button type="button" className="button button-danger" disabled={remove.isPending || save.isPending} onClick={() => setConfirmRemove(true)}>移除</button>
-      {onDiscuss && <button type="button" className="button button-quiet" disabled={remove.isPending} onClick={() => {onClose();onDiscuss(topic.title);}}>与 Agent 讨论</button>}
+      {onDiscuss && <button type="button" className="button button-quiet" disabled={remove.isPending} onClick={() => {onClose();onDiscuss(topic.title, topic.selection_state === "queued" ? topic : undefined);}}>与 Agent 讨论</button>}
     </div>
     {confirmRemove && <div className="topic-remove-confirm" role="group" aria-label="确认移除选题">
       <p>{pending ? "移除这条待选建议？移除后会从候选列表隐藏。" : topic.existing_run_id

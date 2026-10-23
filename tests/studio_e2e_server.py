@@ -58,7 +58,7 @@ upgrade_database(database_url)
 database = Database(database_url)
 runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs",
                          production_protocol="legacy")
-app = create_app(database=database, run_service=runs, eval_root=root / "eval-runs")
+app = create_app(database=database, run_service=runs, eval_root=root / "eval-runs", studio_dist=os.environ.get("CREATOROS_E2E_DIST"))
 # Browser tests exercise real uploads/snapshots without accidentally starting paid Codex extraction.
 from tests.smoke_skill_extraction import controlled as controlled_extraction
 def counted_extraction(*args, **kwargs):

@@ -1,5 +1,12 @@
 # Reliability Baseline
 
+## 选题焦点与渐进资料门禁（2026-10-23，定向验证完成）
+
+- 显式零付费 allowlist 新增 chat_focus、smoke_account_context、smoke_worker_task_projection；CI 浏览器列表补 workspace-gallery，验证准确对象、账号草稿、未知请求恢复及已删除/停用过滤。真实临时 SQLite/HTTP/文件与明确受控 Provider/工件分开标记。
+- 新增 opt-in playwright.context-focus.config.ts 与 live-context-focus 目录，只在显式准备独立原作品副本后才运行真实 DeepSeek；普通 e2e/CI 不发现、不启动、不付费。不能把本地协议测试称作模型成功率。
+- 本轮具体结果与原失败证据见 docs/agent-studio/web-chat/SPEC.md。不修改旧 Eval 标准、任务、分数或正式数据；未全量执行前不宣称新增门禁全通过。
+- 显式allowlist现45组，live_discovered=false；本轮实际执行最终后端联合57/57、5个相邻smoke、Node18/18、受控浏览器17/17。没有重跑45组全量或宣称远端CI已通过。真实DeepSeek1/1单独记录，不加入本地模型成功率统计。
+
 ## 安全维护与冻结 Judge 小考（2026-10-23）
 
 - `tests.run_reliability`显式增加safe_maintenance与judge_semantics，当前42组；维护组含真实临时服务进程/HTTP/SQLite启停，允许300秒供干净CI前端构建及进程交接，其余原预算不变。不自动发现live脚本，不付费调用模型。

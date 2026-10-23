@@ -140,6 +140,25 @@ test("RSI unknown response survives reload without losing or broadening authoriz
   await expect(rsi).toHaveAttribute("aria-pressed", "false");
 });
 
+test("Skill handoff clears the old topic focus without submitting a turn", async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("creatoros.agent.context-focus.v1:overview", JSON.stringify({
+      target: { series_id: "series-old", topic_id: "topic-old" }, title: "旧选题",
+    }));
+    sessionStorage.setItem("creatoros.skill-edit-handoff:focus-reset", JSON.stringify({
+      skillId: "skill-a", skillName: "写作规则", path: "SKILL.md", request: "修改开场句",
+    }));
+  });
+  let posts = 0;
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: session() }));
+  await page.route(`**/api/agent/sessions/${chatId}/turns`, route => { posts++; return route.abort(); });
+  await page.goto(`/agent?chat=${chatId}&skill_edit=focus-reset`);
+  await expect(page.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue(/修改开场句/);
+  await expect(page.getByRole("group", { name: "本次选题" })).toHaveCount(0);
+  expect(await page.evaluate(() => sessionStorage.getItem("creatoros.agent.context-focus.v1:overview"))).toBeNull();
+  expect(posts).toBe(0);
+});
+
 test("unknown reasoning setting requires an explicit valid choice", async ({ page }) => {
   await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: session({ reasoning_effort: "future" }) }));
   await page.goto(`/agent?chat=${chatId}`);

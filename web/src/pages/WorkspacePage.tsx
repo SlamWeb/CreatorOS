@@ -172,8 +172,10 @@ export function WorkspacePage() {
       return next;
     });
   }
-  const discuss = (title: string) => {
-    chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」。` });
+  const discuss = (title: string, topic?: TopicView) => {
+    chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」。`,
+      ...(topic ? { contextTarget: { series_id: topic.series_id, topic_id: topic.id,
+        ...(topic.existing_run_id ? { run_id: topic.existing_run_id } : {}) }, contextTitle: title } : {}) });
   };
 
   return <div className={`workspace${chat.isOpen ? " chat-open" : ""}`}>
@@ -298,7 +300,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   skills: ProducerSkillItem[];
   onInspectSkill: (skill: ProducerSkillItem) => void;
   onAssign: (creatorId: string | null) => void;
-  overview?: boolean; onSelect?: () => void; onDiscuss?: (topic: string) => void;
+  overview?: boolean; onSelect?: () => void; onDiscuss?: (title: string, topic?: TopicView) => void;
   onDelete?: () => void; deletePending?: boolean; deleteError?: string | null;
 }) {
   const client = useQueryClient();

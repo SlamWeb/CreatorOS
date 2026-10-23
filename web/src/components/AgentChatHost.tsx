@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { studioApi } from "../api/client";
 import { AccountChatPanel } from "./AccountChatPanel";
 import { BrandMark } from "./BrandMark";
+import type { ChatContextTarget } from "./agentComposerState";
 
-type ChatTarget = { creatorId: string | null; accountName?: string; draftSeed?: string; sessionId?: string };
+type ChatTarget = { creatorId: string | null; accountName?: string; draftSeed?: string; sessionId?: string;
+  contextTarget?: ChatContextTarget; contextTitle?: string };
 type ChatState = ChatTarget & { isOpen: boolean; seedId?: number; defaultPath?: string };
 type ChatControls = { isOpen: boolean; creatorId: string | null; open: (target: ChatTarget) => void;
   close: () => void; setDefault: (target: ChatTarget) => void };
@@ -43,7 +45,10 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
         if (existing?.trim() && existing !== draftSeed && !window.confirm("输入框已有未发送的文字。替换为本次请求？取消会保留原草稿。")) draftSeed = undefined;
       } catch { /* A blocked storage/confirmation must not clear an existing draft. */ draftSeed = undefined; }
     }
-    setState(previous => ({ ...target, draftSeed, isOpen: true, seedId: Date.now(), defaultPath: previous.defaultPath }));
+    setState(previous => ({ ...target, draftSeed,
+      contextTarget: draftSeed ? target.contextTarget : undefined,
+      contextTitle: draftSeed ? target.contextTitle : undefined,
+      isOpen: true, seedId: Date.now(), defaultPath: previous.defaultPath }));
   }, []);
   const close = useCallback(() => {
     restoreFocus.current = true;
@@ -72,7 +77,8 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
       aria-expanded={visible} title={state.creatorId ? `与 ${accountName} 对话` : "与 Agent 对话"}
       onClick={() => visible ? close() : open({ creatorId: state.creatorId, accountName: state.accountName })}><BrandMark /></button>}
     {hasOpened && <AccountChatPanel creatorId={state.creatorId} accountName={accountName} open={visible}
-      onClose={close} openerRef={opener} draftSeed={state.draftSeed} draftSeedId={state.seedId} selectedSessionId={state.sessionId} />}
+      onClose={close} openerRef={opener} draftSeed={state.draftSeed} draftSeedId={state.seedId} selectedSessionId={state.sessionId}
+      contextTarget={state.contextTarget} contextTitle={state.contextTitle} />}
   </ChatContext.Provider>;
 }
 export function useAgentChat() {

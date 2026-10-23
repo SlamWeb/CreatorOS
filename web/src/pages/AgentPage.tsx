@@ -14,8 +14,9 @@ import { chatHref, chatLinkKind, chatLinkLabel, uniqueChatLinks, type ChatLink }
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 import { useAgentChat } from "../components/AgentChatHost";
 import { AgentComposerControls } from "../components/AgentComposerControls";
-import { initialReasoningEffort, isReasoningEffort, parsePendingAgentTurn, pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey,
-  type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
+import { contextFocusDraftKey, initialReasoningEffort, isReasoningEffort, parseContextFocusDraft, parsePendingAgentTurn,
+  pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey, sameContextTarget,
+  type ChatContextFocus, type ChatContextTarget, type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
 import { applySessionPatch, newestChatSession, transcriptItems, type ChatEntryData as Entry,
   type ChatSession as Session, type ChatSessionPatch } from "../components/agentTranscript";
 import "../components/chat-transcript.css";
@@ -58,17 +59,20 @@ export type AgentConversationProps = {
   draftSeed?: string | null;
   draftSeedId?: string | number;
   selectedSessionId?: string;
+  contextTarget?: ChatContextTarget;
+  contextTitle?: string;
   onClose?: () => void;
 };
 
 export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, accountName,
-  active = true, draftSeed, draftSeedId, selectedSessionId, onClose }: AgentConversationProps) {
+  active = true, draftSeed, draftSeedId, selectedSessionId, contextTarget, contextTitle, onClose }: AgentConversationProps) {
   const [params, setParams] = useSearchParams();
   const chatPanel = useAgentChat();
   const cache = useQueryClient();
   const standalone = mode === "standalone";
   const requestedCreatorId = standalone ? params.get("creator") : embeddedCreatorId;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [contextFocusDrafts, setContextFocusDrafts] = useState<Record<string, ChatContextFocus | null>>({});
   const [selectedChats, setSelectedChats] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [reasoningPreferences, setReasoningPreferences] = useState<Record<string, string>>({});
@@ -87,6 +91,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const scopeKey = creatorScopeId ? `creator:${creatorScopeId}` : "overview";
   scopeKeyRef.current = scopeKey;
   const draft = drafts[scopeKey] ?? readSessionValue(draftStorageKey(scopeKey));
+  const contextFocus = contextFocusDrafts[scopeKey] === undefined
+    ? parseContextFocusDraft(readSessionValue(contextFocusDraftKey(scopeKey))) : contextFocusDrafts[scopeKey];
   const composerInput = useRef<HTMLTextAreaElement>(null);
   const fitComposer = useCallback(() => {
     const input = composerInput.current;
@@ -125,6 +131,20 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const updateError = useCallback((scope: string, value: string) => {
     setErrors(previous => ({ ...previous, [scope]: value }));
   }, []);
+  const updateContextFocus = useCallback((scope: string, value: ChatContextFocus | null) => {
+    writeSessionValue(contextFocusDraftKey(scope), value ? JSON.stringify(value) : "");
+    setContextFocusDrafts(previous => ({ ...previous, [scope]: value }));
+  }, []);
+  const clearSubmittedFocus = (scope: string, target?: ChatContextTarget) => {
+    if (!target) return;
+    setContextFocusDrafts(previous => {
+      const current = previous[scope] === undefined
+        ? parseContextFocusDraft(readSessionValue(contextFocusDraftKey(scope))) : previous[scope];
+      if (!sameContextTarget(current?.target, target)) return previous;
+      writeSessionValue(contextFocusDraftKey(scope), "");
+      return { ...previous, [scope]: null };
+    });
+  };
   const [connected, setConnected] = useState(false);
   const [streamReconnect, setStreamReconnect] = useState(0);
   const transcript = useRef<HTMLDivElement>(null);
@@ -143,6 +163,10 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
   const pendingTurn = id ? (pendingTurns[id] === undefined
     ? parsePendingAgentTurn(readSessionValue(pendingAgentTurnKey(id)), id) : pendingTurns[id]) : null;
+  const shownContextFocus = pendingTurn ? (pendingTurn.context_target ? {
+    target: pendingTurn.context_target,
+    title: sameContextTarget(contextFocus?.target, pendingTurn.context_target) ? contextFocus!.title : "已绑定选题",
+  } : null) : contextFocus;
   const iterationMode = pendingTurn ? pendingTurn.iteration_mode === true
     : iterationDrafts[scopeKey] ?? readSessionValue(iterationDraftKey(scopeKey)) === "true";
   const chooseIterationMode = (value: boolean) => {
@@ -204,6 +228,15 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   }, [standalone, id, requestedCreatorId, doc, setParams]);
   useEffect(() => { updateError(scopeKey, ""); setHistoryOpen(false); }, [id, scopeKey, updateError]);
   useEffect(() => {
+    if (!active) return;
+    try {
+      // The standalone view and the hidden shared panel can alternate. Reload
+      // this scope's focus so an accepted turn in the other view cannot revive it.
+      const value = parseContextFocusDraft(window.sessionStorage.getItem(contextFocusDraftKey(scopeKey)) ?? "");
+      setContextFocusDrafts(previous => ({ ...previous, [scopeKey]: value }));
+    } catch { /* A blocked store keeps this view's in-memory draft focus. */ }
+  }, [active, scopeKey]);
+  useEffect(() => {
     if (!active || standalone || !selectedSessionId) return;
     writeSessionValue(selectedChatStorageKey(scopeKey), selectedSessionId);
     setSelectedChats(previous => ({ ...previous, [scopeKey]: selectedSessionId }));
@@ -215,7 +248,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     if (lastSeed.current === seedKey) return;
     lastSeed.current = seedKey;
     updateDraft(scopeKey, draftSeed);
-  }, [active, draftSeed, draftSeedId, scopeKey, updateDraft]);
+    updateContextFocus(scopeKey, contextTarget ? { target: { ...contextTarget }, title: contextTitle || "已绑定选题" } : null);
+  }, [active, draftSeed, draftSeedId, scopeKey, contextTarget, contextTitle, updateDraft, updateContextFocus]);
   useEffect(() => {
     const nonce = params.get("skill_edit");
     if (!active || !nonce || consumedSkillHandoff.current === nonce) return;
@@ -231,10 +265,11 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         return;
       }
       updateDraft(scopeKey, skillEditPrompt(value));
+      updateContextFocus(scopeKey, null);
       window.sessionStorage.removeItem(key);
       setParams(previous => { const next = new URLSearchParams(previous); next.delete("skill_edit"); return next; }, { replace: true });
     } catch { updateError(scopeKey, "无法读取 Skill 修改草稿，请返回 Skill 卡片重新提交。"); }
-  }, [active, params, requestedCreatorId, scopeKey, setParams, updateDraft, updateError]);
+  }, [active, params, requestedCreatorId, scopeKey, setParams, updateDraft, updateError, updateContextFocus]);
   useEffect(() => {
     setConnected(false);
     if (!active || !id || doc?.status !== "running") return;
@@ -327,14 +362,16 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   };
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, iterationMode, pending }: {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, iterationMode, contextTarget, pending }: {
       text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
-      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean; pending?: PendingAgentTurn;
+      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean;
+      contextTarget?: ChatContextTarget; pending?: PendingAgentTurn;
     }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
-      const snapshot = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
-        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort, iteration_mode: iterationMode };
+      const snapshot: PendingAgentTurn = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
+        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort, iteration_mode: iterationMode,
+        ...(contextTarget ? { context_target: { ...contextTarget } } : {}) };
       savePendingTurn(target.id, snapshot);
       writeSessionValue(reasoningPreferenceKey(target.id), snapshot.reasoning_effort);
       setReasoningPreferences(previous => ({ ...previous, [target.id]: snapshot.reasoning_effort }));
@@ -342,6 +379,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         text: snapshot.text, request_id: snapshot.request_id, expected_version: snapshot.expected_version,
         attachment_ids: snapshot.attachment_ids, reasoning_effort: snapshot.reasoning_effort,
         ...(snapshot.iteration_mode === undefined ? {} : { iteration_mode: snapshot.iteration_mode }),
+        ...(snapshot.context_target === undefined ? {} : { context_target: snapshot.context_target }),
       }) });
     },
     onSuccess: (next, variables) => {
@@ -349,6 +387,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
       saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
       savePendingTurn(next.id, null);
+      clearSubmittedFocus(variables.submittedScopeKey, variables.pending?.context_target ?? variables.contextTarget);
       writeSessionValue(iterationDraftKey(variables.submittedScopeKey), "");
       setIterationDrafts(previous => ({ ...previous, [variables.submittedScopeKey]: false }));
       updateError(variables.submittedScopeKey, "");
@@ -375,6 +414,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       cache.setQueryData<Session>(["agent-session", submittedScopeKey, original.sessionId], old => newestSession(old, latest));
       if (latest.entries.some(entry => entry.kind === "user" && entry.turn_id === original.request_id)) {
         savePendingTurn(original.sessionId, null);
+        clearSubmittedFocus(submittedScopeKey, original.context_target);
         writeSessionValue(iterationDraftKey(submittedScopeKey), "");
         setIterationDrafts(previous => ({ ...previous, [submittedScopeKey]: false }));
         if (readSessionValue(draftStorageKey(submittedScopeKey)).trim() === original.text) updateDraft(submittedScopeKey, "");
@@ -394,10 +434,13 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const submit = () => {
     if ((!draft.trim() && !attachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
-    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey, sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort, iterationMode });
+    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey,
+      sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort, iterationMode,
+      ...(contextFocus ? { contextTarget: { ...contextFocus.target } } : {}) });
   };
   const chooseSession = (next: string | null) => {
     updateError(scopeKey, ""); setHistoryOpen(false);
+    updateContextFocus(scopeKey, null);
     if (standalone) {
       setParams(previous => {
         const nextParams = new URLSearchParams(previous);
@@ -469,6 +512,12 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
+      {shownContextFocus && <div className="agent-context-focus" role="group" aria-label="本次选题">
+        <span>本次选题：{shownContextFocus.title}</span>
+        <button type="button" aria-label="移除选题焦点" title="移除选题焦点"
+          disabled={!!pendingTurn || checkingPending || send.isPending || doc?.status === "running"}
+          onClick={() => updateContextFocus(scopeKey, null)}><X size={14} aria-hidden="true" /></button>
+      </div>}
       {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending || !!pendingTurn || doc?.status === "running"}
         remove={imageId => { if (id) saveAttachments(id, attachments.filter(image => image.id !== imageId)); }} />}
       <textarea ref={composerInput} aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={1}

@@ -5,11 +5,36 @@ export type ContextUsage = {
   input_tokens: number; context_window: number; measurement: "actual" | "estimate";
   source: "last_model_request"; observed_at: string; turn_id: string | null;
 };
+export type ChatContextTarget = {
+  series_id: string; topic_id: string; run_id?: string; revision_id?: string;
+};
+export type ChatContextFocus = { target: ChatContextTarget; title: string };
 export type PendingAgentTurn = {
   sessionId: string; text: string; request_id: string; expected_version: number;
   attachment_ids: string[]; reasoning_effort: ReplayReasoningEffort;
   iteration_mode?: boolean;
+  context_target?: ChatContextTarget;
 };
+export function isChatContextTarget(value: unknown): value is ChatContextTarget {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const target = value as Record<string, unknown>;
+  const fields = ["series_id", "topic_id", "run_id", "revision_id"];
+  return Object.keys(target).every(key => fields.includes(key)) &&
+    ["series_id", "topic_id"].every(key => typeof target[key] === "string") &&
+    (target.revision_id === undefined || typeof target.run_id === "string") &&
+    Object.values(target).every(item => typeof item === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(item));
+}
+export const contextFocusDraftKey = (scope: string) => `creatoros.agent.context-focus.v1:${encodeURIComponent(scope)}`;
+export function parseContextFocusDraft(raw: string): ChatContextFocus | null {
+  try {
+    const value = JSON.parse(raw) as ChatContextFocus;
+    return value && isChatContextTarget(value.target) && typeof value.title === "string" &&
+      !!value.title.trim() && value.title.length <= 240 ? value : null;
+  } catch { return null; }
+}
+export const sameContextTarget = (first: ChatContextTarget | undefined, second: ChatContextTarget | undefined) =>
+  first?.series_id === second?.series_id && first?.topic_id === second?.topic_id &&
+  first?.run_id === second?.run_id && first?.revision_id === second?.revision_id;
 export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
   REASONING_EFFORTS.some(option => option === value);
 export const isReplayReasoningEffort = (value: unknown): value is ReplayReasoningEffort =>
@@ -26,6 +51,7 @@ export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAg
       Number.isInteger(value.expected_version) && value.expected_version >= 0 &&
       Array.isArray(value.attachment_ids) && value.attachment_ids.every(id => typeof id === "string") &&
       isReplayReasoningEffort(value.reasoning_effort) &&
+      (value.context_target === undefined || isChatContextTarget(value.context_target)) &&
       (value.iteration_mode === undefined || typeof value.iteration_mode === "boolean") ? value : null;
   } catch { return null; }
 }

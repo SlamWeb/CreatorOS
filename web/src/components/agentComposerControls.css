@@ -17,6 +17,12 @@
 .agent-composer .agent-iteration-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .agent-composer .agent-iteration-toggle:disabled { opacity:.55; cursor:default; }
 .agent-composer .agent-iteration-hint { margin:5px 0 0; color:var(--muted); font-size:11px; line-height:1.5; }
+.agent-composer .agent-context-focus { justify-content:flex-start; gap:6px; margin-bottom:8px; min-width:0; }
+.agent-context-focus > span { min-width:0; overflow-wrap:anywhere; }
+.agent-context-focus > button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; min-width:30px; min-height:30px; padding:4px; border:0; border-radius:6px; color:var(--muted); background:transparent; cursor:pointer; }
+.agent-context-focus > button:hover:not(:disabled) { color:var(--ink); background:var(--surface); }
+.agent-context-focus > button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.agent-context-focus > button:disabled { opacity:.55; cursor:default; }
 .chat-user .chat-user-iteration { display:block; margin-top:8px; font-size:11px; color:var(--accent-strong); }
 .agent-context-tooltip { position: fixed; z-index: 100; display: grid; gap: 5px; width: 240px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--canvas); color: var(--ink); font-size: 12px; line-height: 1.5; box-shadow: 0 8px 24px rgb(0 0 0 / 12%); pointer-events: none; }
 .agent-context-tooltip strong { font-size: 12px; font-weight: 600; }

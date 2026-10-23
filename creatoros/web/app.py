@@ -76,6 +76,7 @@ from .chat_image_actions import chat_image_action_routes
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
 from .account_context import CreatorContextBuilder
+from .chat_focus import ChatFocusBuilder
 from .skill_routes import skill_routes
 from .skill_version_routes import skill_version_routes
 from .extraction_routes import extraction_routes
@@ -146,6 +147,7 @@ def create_app(
     chat = AgentChatService(chat_root or session_root, chat_provider_factory,
                             creator_lookup=ContentRepository(db).get_creator,
                             creator_context_factory=account_context.build)
+    chat.focus_context_builder = ChatFocusBuilder(db, skill_installs.catalog, queries, artifacts, chat.attachments)
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
     composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)

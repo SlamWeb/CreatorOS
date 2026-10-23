@@ -1,5 +1,4 @@
 """Read-only account capability tree; never a second source of business state."""
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -9,7 +8,7 @@ from creatoros.skills.loader import SkillLoader
 from creatoros.storage import Creator, Series
 
 
-TEXT_LIMIT = 1000
+SKILL_DESCRIPTION_LIMIT = 160
 
 
 class CreatorContextBuilder:
@@ -19,10 +18,10 @@ class CreatorContextBuilder:
     @staticmethod
     def _text(value, resource, field, omissions):
         text = value or ""
-        if len(text) > TEXT_LIMIT:
+        if len(text) > SKILL_DESCRIPTION_LIMIT:
             omissions.append({"resource": resource, "field": field,
-                              "original_chars": len(text), "shown_chars": TEXT_LIMIT})
-            return text[:TEXT_LIMIT] + "\n[未完整展示；需要时按需查询]"
+                              "original_chars": len(text), "shown_chars": SKILL_DESCRIPTION_LIMIT})
+            return text[:SKILL_DESCRIPTION_LIMIT] + "\n[未完整展示；需要时按需查询]"
         return text
 
     def _skill(self, reference, omissions):
@@ -69,12 +68,11 @@ class CreatorContextBuilder:
             if not creator.is_active:
                 raise HTTPException(409, "绑定账号已停用。")
             account = {"id": creator.id, "display_name": creator.display_name,
-                       "platform": creator.platform.value, "account_handle": creator.account_handle,
-                       "timezone": creator.timezone, "daily_content_limit": creator.daily_content_limit,
-                       "is_active": creator.is_active}
-            # All columns for now, per user decision; no ranking or silent directory cap.
-            columns = session.scalars(select(Series).where(Series.creator_id == creator_id)
-                                      .order_by(Series.created_at, Series.id))
+                       "platform": creator.platform.value}
+            # Every active column remains visible; archived history is read on demand.
+            columns = session.scalars(
+                select(Series).where(Series.creator_id == creator_id, Series.is_active.is_(True))
+                .order_by(Series.created_at, Series.id))
             for column in columns:
                 bindings = ({"single": column.skill_name} if column.skill_name else
                             {"mind": column.mind_skill_id, "production": column.production_skill_id})
@@ -85,12 +83,10 @@ class CreatorContextBuilder:
                         skills.setdefault(item["id"], item)
                     bindings[role] = resolved[reference]
                 series.append({"id": column.id, "name": column.name,
-                               "description": self._text(column.description, column.id, "description", omissions),
-                               "audience": self._text(column.audience, column.id, "audience", omissions),
-                               "revision": column.revision, "is_active": column.is_active,
+                               "revision": column.revision,
                                "skill_bindings": bindings})
-        return {"kind": "creator_context", "as_of": datetime.now(timezone.utc).isoformat(),
-                "creator": account, "series": series, "skills": list(skills.values()),
+        return {"kind": "creator_context", "creator": account,
+                "series": series, "skills": list(skills.values()),
                 "omissions": omissions}
 
     def require_series_skills(self, series_id):

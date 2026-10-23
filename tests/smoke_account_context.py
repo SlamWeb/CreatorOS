@@ -20,7 +20,7 @@ from creatoros.session.snapshot import load_messages, save_messages
 from creatoros.storage import (ContentRepository, ContentRun, CreatorPlatform,
                                Database, Series, TopicSource, upgrade_database)
 from creatoros.tools.results import ToolResult
-from creatoros.web.account_context import CreatorContextBuilder
+from creatoros.web.account_context import CreatorContextBuilder, SKILL_DESCRIPTION_LIMIT
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
 from creatoros.terminal import Console
@@ -57,7 +57,9 @@ def _builder_checks(root: Path):
     mind = catalog.register_local(
         _skill(root / "source-mind", "study-mind", "初始 Mind 说明"), role="mind")
     production = catalog.register_local(
-        _skill(root / "source-production", "study-production", "Production 说明"), role="production")
+        _skill(root / "source-production", "study-production", "Production 说明" + "L" * 200), role="production")
+    archived = catalog.register_local(
+        _skill(root / "source-archived", "archived-only", "停用栏目专属 Skill"), role="production")
     with database.session() as session:
         ContentRepository(database, session=session).create_creator(
             creator_id="creator-a", display_name="账号 A", platform=CreatorPlatform.XIAOHONGSHU,
@@ -72,7 +74,7 @@ def _builder_checks(root: Path):
     _series(database, series_id="broken", creator_id="creator-a", name="坏绑定",
             skill_name="missing-skill-reference")
     _series(database, series_id="inactive", creator_id="creator-a", name="停用栏目",
-            skill_name="knowledge-to-carousel", active=False)
+            skill_name=archived["id"], active=False)
     # More than the old directory page size: every account column must remain visible.
     for number in range(105):
         _series(database, series_id=f"many-{number:03d}", creator_id="creator-a",
@@ -84,31 +86,47 @@ def _builder_checks(root: Path):
 
     builder = CreatorContextBuilder(database, catalog)
     tree = builder.build("creator-a")
-    assert tree["kind"] == "creator_context" and tree["as_of"].endswith("+00:00")
-    assert tree["creator"]["id"] == "creator-a"
-    assert tree["creator"]["display_name"] == "账号 A"
-    assert tree["creator"]["platform"] == "xiaohongshu"
-    assert tree["creator"]["account_handle"] == "@a"
-    assert len(tree["series"]) == 109
-    assert {row["id"] for row in tree["series"]}.isdisjoint({"other-account", "unassigned"})
-    assert next(row for row in tree["series"] if row["id"] == "inactive")["is_active"] is False
+    assert tree["kind"] == "creator_context" and "as_of" not in tree
+    assert tree["creator"] == {"id": "creator-a", "display_name": "账号 A", "platform": "xiaohongshu"}
+    assert len(tree["series"]) == 108
+    assert {row["id"] for row in tree["series"]}.isdisjoint({"inactive", "other-account", "unassigned"})
+    assert all(set(row) == {"id", "name", "revision", "skill_bindings"} for row in tree["series"])
+    assert all(row["revision"] >= 1 for row in tree["series"])
     assert next(row for row in tree["series"] if row["id"] == "pair")["skill_bindings"] == {
         "mind": mind["id"], "production": production["id"]}
     assert next(row for row in tree["series"] if row["id"] == "single")["skill_bindings"] == {
         "single": mind["id"]}
     assert len(tree["skills"]) == 4  # mind, production, missing and shared built-in
     assert len({item["id"] for item in tree["skills"]}) == len(tree["skills"])
+    assert archived["id"] not in {item["id"] for item in tree["skills"]}
     broken = next(item for item in tree["skills"] if item["id"] == "missing-skill-reference")
     assert broken["available"] is False and "PRIVATE" not in json.dumps(broken)
     available = next(item for item in tree["skills"] if item["id"] == mind["id"])
     assert available["available"] is True and available["description"] == "初始 Mind 说明"
     assert "PRIVATE_SKILL_BODY_SENTINEL" not in json.dumps(tree, ensure_ascii=False)
     assert "PRIVATE_ASSET_SENTINEL" not in json.dumps(tree, ensure_ascii=False)
-    assert len(next(row for row in tree["series"] if row["id"] == "single")["description"]) <= 1030
-    assert any(item["resource"] == "single" and item["field"] == "description"
-               for item in tree["omissions"])
-    assert any(item["resource"] == "single" and item["field"] == "audience"
-               for item in tree["omissions"])
+    production_summary = next(item for item in tree["skills"] if item["id"] == production["id"])
+    assert production_summary["description"].endswith("[未完整展示；需要时按需查询]")
+    assert production_summary["description"].split("\n", 1)[0] == ("Production 说明" + "L" * 200)[:SKILL_DESCRIPTION_LIMIT]
+    assert any(item["resource"] == production["id"] and item["field"] == "description"
+               and item["shown_chars"] == SKILL_DESCRIPTION_LIMIT for item in tree["omissions"])
+    assert builder.build("creator-a") == tree  # unchanged business state keeps the same request data
+
+    with database.session() as session:
+        inactive = session.get(Series, "inactive")
+        assert inactive is not None and inactive.is_active is False
+        assert session.get(Series, "single").description == "D" * 1100
+        assert session.get(Series, "single").audience == "A" * 1101
+
+    # Toggling a column affects the next projection without deleting history or stale cache reuse.
+    with database.session() as session:
+        session.get(Series, "inactive").is_active = True
+    active_tree = builder.build("creator-a")
+    assert "inactive" in {row["id"] for row in active_tree["series"]}
+    assert archived["id"] in {item["id"] for item in active_tree["skills"]}
+    with database.session() as session:
+        session.get(Series, "inactive").is_active = False
+    assert builder.build("creator-a") == tree
 
     # A changed local metadata file is read on each build; the Skill body stays private.
     working_skill = Path(catalog.describe(mind["id"])["local_path"]) / "SKILL.md"
