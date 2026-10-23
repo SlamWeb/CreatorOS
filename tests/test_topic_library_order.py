@@ -103,8 +103,16 @@ class TopicLibraryOrderTests(unittest.TestCase):
         self.assertEqual(pending["page"]["total"], 2)
         self.assertEqual(self.get(order="recent", offset=100)["items"], [])
 
+    def test_created_sort_keeps_old_produced_topic_in_place_across_pages(self):
+        first, second = self.get(order="created"), self.get(order="created", offset=20)
+        self.assertEqual([row["id"] for row in first["items"] + second["items"]],
+                         [*self.pending_ids, *[f"t{i:02}" for i in range(26, -1, -1)]])
+        self.assertEqual(first["page"]["total"], 29)
+        self.assertEqual(len(second["items"]), 9)
+        self.assertEqual(first, self.get(order="created"))
+
     def test_read_sort_does_not_mutate_any_database_record_or_candidate_file(self):
-        for order in ("queue", "recent"):
+        for order in ("queue", "recent", "created"):
             for state in ("all", "pending", "queued"):
                 self.get(order=order, state=state)
         self.assertEqual(self.database_rows(), self.before)
@@ -123,6 +131,20 @@ class TopicLibraryOrderTests(unittest.TestCase):
             event.remove(self.db.engine, "before_cursor_execute", observe)
         self.assertEqual(len(values), 27)
         self.assertEqual(len(statements), 2)
+
+    def test_creation_projection_is_one_batched_read(self):
+        statements = []
+        def observe(_connection, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                statements.append(statement)
+        event.listen(self.db.engine, "before_cursor_execute", observe)
+        try:
+            values = StudioQueryService(self.db).topic_creation_times("s")
+        finally:
+            event.remove(self.db.engine, "before_cursor_execute", observe)
+        self.assertEqual(len(values), 27)
+        self.assertLess(values["t00"], values["t26"])
+        self.assertEqual(len(statements), 1)
 
 
 if __name__ == "__main__":

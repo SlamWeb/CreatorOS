@@ -69,8 +69,9 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
     for row in rows:
         row["production_state"] = runs.get(row.get("existing_run_id"), {}).get("production_state", "unproduced")
     rows = [r for r in rows if state == "all" or r["selection_state"] == state or r["production_state"] == state]
-    if order == "recent":
-        activity = queries.topic_activity_times(series_id)
+    if order in {"recent", "created"}:
+        activity = (queries.topic_creation_times(series_id) if order == "created"
+                    else queries.topic_activity_times(series_id))
         rows.sort(key=lambda row: (
             -_timestamp(activity.get(row["id"], row.get("research_created_at"))),
             row["id"],

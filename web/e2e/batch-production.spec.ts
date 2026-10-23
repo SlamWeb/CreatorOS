@@ -80,11 +80,8 @@ test("partial rejection preserves only rejected selections and HTTP failure does
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("batch-partial-error-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "待选", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: /选择生产/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "全部", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "选择生产 第二条自动接着生产", exact: true })).not.toBeChecked();
   await page.reload();
+  await expect(page.getByRole("checkbox", { name: "选择生产 第二条自动接着生产", exact: true })).not.toBeChecked();
   await expect(page.getByRole("heading", { name: "批量生产测试栏目", exact: true })).toBeVisible();
   expect(posts).toBe(2);
 });

@@ -21,15 +21,16 @@ async function fixture(request: APIRequestContext) {
   return { account, series, topics, newest, run };
 }
 
-test("recent content is globally first; account previews and top pagination avoid a long scroll", async ({ page, request }, info) => {
+test("new topics are globally first; account previews and top pagination avoid a long scroll", async ({ page, request }, info) => {
   const data = await fixture(request);
   const original = await request.get(`/api/series/${data.series.id}/topics?limit=100`).then(r => r.json());
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET") writes.push(req.url()); });
   await page.goto(`/?creator=${data.account.id}&topics=queued`);
   await expect(page.locator(".content-card")).toHaveCount(6);
-  await expect(page.locator(".content-card").first()).toContainText("故事选题 1");
-  await expect(page.locator(".content-card").nth(1)).toContainText("刚添加的新选题");
+  await expect(page.locator(".content-card").first()).toContainText("刚添加的新选题");
+  await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
+  await expect(page.getByLabel("内容排序")).toHaveCount(0);
   const cards = await page.locator(".content-card").evaluateAll(items => items.slice(0, 2).map(item => {
     const rect = item.getBoundingClientRect(); return { x: rect.x, y: rect.y };
   }));
@@ -48,16 +49,11 @@ test("recent content is globally first; account previews and top pagination avoi
   await page.reload();
   await expect(page.getByLabel("选题页码 · 顶部")).toHaveValue("1");
   await expect(page.locator(".content-card")).toHaveCount(8);
-  await page.getByLabel("内容排序").selectOption("queue");
-  await expect(page).not.toHaveURL(/offset=/);
-  await expect(page.locator(".content-card").first()).toContainText("故事选题 1");
-  await page.getByLabel("选题页码 · 顶部").selectOption("1");
-  await expect(page.locator(".content-card").last()).toContainText("刚添加的新选题");
+  await expect(page.getByTestId(`library-${data.topics.topic_ids[0]}`)).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.getByRole("navigation", { name: "选题分页 · 底部" }).getByRole("button", { name: "上一页" }).click();
   await expect(top).toBeInViewport();
-  await page.getByLabel("内容排序").selectOption("recent");
-  await expect(page.locator(".content-card").nth(1)).toContainText("刚添加的新选题");
+  await expect(page.locator(".content-card").first()).toContainText("刚添加的新选题");
   await page.screenshot({ path: info.outputPath("series-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(top).toBeInViewport();
@@ -70,7 +66,7 @@ test("recent content is globally first; account previews and top pagination avoi
   expect(await request.get(`/api/series/${data.series.id}/topics?limit=100`).then(r => r.json())).toEqual(original);
 });
 
-test("failed page stays explicit; retry does not write or confuse recent and queue order", async ({ page, request }) => {
+test("failed page stays explicit; retry preserves chronological order without writes", async ({ page, request }) => {
   const data = await fixture(request);
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=all`);
   await expect(page.locator(".content-card")).toHaveCount(20);
@@ -85,10 +81,7 @@ test("failed page stays explicit; retry does not write or confuse recent and que
   await page.unroute("**/topic-library?**");
   await page.getByRole("button", { name: "重新读取选题库" }).click();
   await expect(page.locator(".content-card")).toHaveCount(8);
-  await page.getByRole("button", { name: "已生产", exact: true }).click();
-  await expect(page).not.toHaveURL(/offset=/);
-  await expect(page.locator(".content-card")).toHaveCount(1);
-  await expect(page.locator(".content-card")).toContainText("故事选题 1");
-  await page.getByRole("button", { name: "全部", exact: true }).click();
-  await expect(page.locator(".content-card").nth(1)).toContainText("刚添加的新选题");
+  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "上一页" }).click();
+  await expect(page.locator(".content-card")).toHaveCount(20);
+  await expect(page.locator(".content-card").first()).toContainText("刚添加的新选题");
 });

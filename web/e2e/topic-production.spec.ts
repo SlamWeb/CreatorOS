@@ -6,47 +6,50 @@ async function post(request: APIRequestContext, url: string, data: object) {
   return response.json();
 }
 
-test("default unproduced filter separates delivered images before pagination and keeps return state", async ({ page, request }, info) => {
-  const account = await post(request, "/api/creators", { display_name: `生产分组-${crypto.randomUUID().slice(0, 6)}` });
-  const series = await post(request, `/api/creators/${account.id}/series`, { name: "待制作与已交付" });
+test("one chronological feed ignores old filters, includes output and keeps page and return state", async ({ page, request }, info) => {
+  const account = await post(request, "/api/creators", { display_name: `时间流-${crypto.randomUUID().slice(0, 6)}` });
+  const series = await post(request, `/api/creators/${account.id}/series`, { name: "按时间排列" });
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
     topics: Array.from({ length: 27 }, (_, i) => ({ title: `分组选题 ${i + 1}`, brief: "固定场景与内容，不启动真实模型。" })) });
   const run = await post(request, "/api/runs", { topic_id: queued.topic_ids[0] });
+  const newest = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
+    topics: [{ title: "最新添加的选题" }] });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
   const writes: string[] = [];
   page.on("request", r => { if (r.method() !== "GET") writes.push(new URL(r.url()).pathname); });
-  await page.goto(`/?creator=${account.id}&series=${series.id}`);
-  await expect(page.getByRole("button", { name: "未生产", exact: true })).toHaveAttribute("aria-pressed", "true");
+  const expected = await request.get(`/api/series/${series.id}/topic-library?order=created&limit=100`).then(r => r.json());
+  await page.goto(`/?creator=${account.id}&series=${series.id}&topics=produced&order=queue`);
+  await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
+  await expect(page.getByLabel("内容排序")).toHaveCount(0);
   await expect(page.locator(".content-card")).toHaveCount(20);
-  await expect(page.locator(".library-count")).toHaveText("26 项");
-  await expect(page.locator(".content-card img")).toHaveCount(0);
-  await expect(page.getByTestId(`library-${queued.topic_ids[0]}`)).toHaveCount(0);
+  await expect(page.locator(".library-count")).toHaveText("28 项");
+  await expect(page.locator(".content-card").first()).toHaveAttribute("data-testid", `library-${newest.topic_ids[0]}`);
+  expect(await page.locator(".content-card").evaluateAll(items => items.map(item => item.getAttribute("data-testid"))))
+    .toEqual(expected.items.slice(0, 20).map((item: { id: string }) => `library-${item.id}`));
   await page.locator(".content-card-select").first().check();
   await expect(page.getByRole("group", { name: "批量生产" })).toBeVisible();
-  await page.screenshot({ path: info.outputPath("unproduced-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: "已生产", exact: true }).click();
+  await page.screenshot({ path: info.outputPath("chronological-desktop.png"), fullPage: false });
+  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "下一页" }).click();
   await expect(page.getByRole("group", { name: "批量生产" })).toHaveCount(0);
-  await expect(page.locator(".content-card")).toHaveCount(1);
+  await expect(page.locator(".content-card")).toHaveCount(8);
+  expect(await page.locator(".content-card").evaluateAll(items => items.map(item => item.getAttribute("data-testid"))))
+    .toEqual(expected.items.slice(20).map((item: { id: string }) => `library-${item.id}`));
   const produced = page.getByTestId(`library-${queued.topic_ids[0]}`);
   await expect(produced.getByRole("img")).toBeVisible();
   await expect(produced.getByLabel("生产使用的 Skill")).toContainText("已用");
   await expect(produced.getByLabel("生产使用的 Skill")).toContainText("内置");
   await page.reload();
-  await expect(page.getByRole("button", { name: "已生产", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".content-card")).toHaveCount(8);
   await produced.getByRole("link", { name: "查看内容 分组选题 1", exact: true }).click();
   await page.getByRole("link", { name: "返回栏目", exact: true }).click();
-  await expect(page).toHaveURL(/topics=produced/);
+  await expect(page).toHaveURL(/offset=20/);
   await expect(page.locator(`#topic-card-${queued.topic_ids[0]}`)).toBeFocused();
-  await page.getByRole("button", { name: "全部", exact: true }).click();
-  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "下一页" }).click();
-  await expect(page.locator(".content-card")).toHaveCount(7);
-  await page.getByRole("button", { name: "未生产", exact: true }).click();
-  await expect(page).not.toHaveURL(/offset=/);
-  await expect(page.locator(".library-count")).toHaveText("26 项");
+  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "上一页" }).click();
+  await expect(page.locator(".content-card").first()).toHaveAttribute("data-testid", `library-${newest.topic_ids[0]}`);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("unproduced-mobile.png"), fullPage: false });
+  await page.screenshot({ path: info.outputPath("chronological-mobile.png"), fullPage: false });
   expect(writes).toEqual([]);
 });
 
@@ -89,7 +92,7 @@ test("cards name exact task v1 and default v2; producing follows that default wi
   const run = await (await started).json();
   expect(run.input_snapshot.skill_name).toBe(second.id);
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
-  await page.getByRole("button", { name: "已生产", exact: true }).click();
+  await page.goto(`/?creator=${account.id}&series=${sid}`);
   const output = page.getByTestId(`library-${queued.topic_ids[1]}`);
   await expect(output.getByLabel("生产使用的 Skill")).toContainText("已用");
   await expect(output.getByLabel("生产使用的 Skill")).toContainText("v2");

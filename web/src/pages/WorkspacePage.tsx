@@ -6,7 +6,7 @@ import { useCreators } from "../api/hooks";
 import { studioApi } from "../api/client";
 import type { ProducerSkillItem, SeriesView, TopicView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
-import { LibraryFilters, TopicLibrary } from "../components/TopicLibrary";
+import { TopicLibrary } from "../components/TopicLibrary";
 import { useAgentChat } from "../components/AgentChatHost";
 import { SkillInspector } from "../components/SkillInspector";
 import { SkillReferenceButton } from "../components/SkillReferenceButton";
@@ -266,7 +266,7 @@ export function WorkspacePage() {
       {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"}].map(tab => <button key={tab.value} type="button" aria-pressed={(params.get("view") === "data" ? "data" : "content") === tab.value}
         onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value === "data") next.set("view","data"); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
       {account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
-      {!!accountSeries.some(item => item.topic_count > 0) && <><LibraryFilters />{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
+      {!!accountSeries.some(item => item.topic_count > 0) && <>{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
         accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}
       {!accountSeries.some(item => item.topic_count > 0) && <div className="workspace-empty">

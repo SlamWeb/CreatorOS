@@ -19,14 +19,11 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   expect(new URL(page.url()).searchParams.has("research")).toBe(false);
   await page.goto(`/series/${series.id}`);
   await expect(page.getByRole("heading", { name: "内容" })).toBeVisible();
-  await page.getByRole("button", { name: "已入队", exact: true }).click();
-  await expect(page.getByText("还没有已入队选题。")).toBeVisible();
-  await page.getByRole("button", { name: "待选", exact: true }).click();
+  await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("button", { name: "待选", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "开始生产" })).toHaveCount(0);
   await expect(page.locator(".content-card")).toHaveCount(2);
-  await expect(page.locator(".library-pending")).toHaveText(["待选", "待选"]);
+  await expect(page.locator(".library-pending")).toHaveText(["待确认", "待确认"]);
   await expect(page.getByText("已过期", { exact: false })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("library-desktop.png"), fullPage: true });
   const firstPending = page.getByTestId(`library-research-${batch.id}-c1`);
@@ -71,7 +68,6 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await expect(page.getByText(/已入队，来源与切入点已保留/)).toBeVisible();
   await expect.poll(async () => (await page.request.get(`/api/series/${series.id}/topics`).then(r => r.json())).page.total).toBe(2);
   await page.getByRole("button", { name: "← 返回选题库" }).click();
-  await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(page.locator(".content-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "改过的候选一" })).toBeVisible();
   await expect(page.getByTestId(`library-research-${batch.id}-c1`)).toBeVisible();
@@ -81,11 +77,11 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await page.screenshot({ path: testInfo.outputPath("library-mobile.png"), fullPage: true });
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390);
   await page.route("**/topic-library?**", r => r.fulfill({ status: 503, json: { error: { message: "测试读取失败" } } }));
-  await page.getByRole("button", { name: "待选", exact: true }).click();
+  await page.getByRole("button", { name: "刷新选题库", exact: true }).click();
   await expect(page.getByRole("button", { name: "重新读取选题库" })).toBeVisible();
   await page.unroute("**/topic-library?**");
   await page.getByRole("button", { name: "重新读取选题库" }).click();
-  await expect(page.getByText("暂无待选建议。")).toBeVisible();
+  await expect(page.locator(".content-card")).toHaveCount(2);
   // Deterministic pagination fixture; all writes/confirmation above used real isolated API.
   await page.route("**/topic-library?**", r => {
     const offset = Number(new URL(r.request().url()).searchParams.get("offset") || 0);
@@ -94,8 +90,6 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
       batch_id: batch.id, candidate_id: "c1", angle: "测试", rationale: "测试", stale: true, sources: [], available_actions: [],
     })), page: { total: 21, limit: 20, offset } } });
   });
-  await page.getByRole("button", { name: "全部", exact: true }).click();
-  // A just-visited filter can still be fresh in QueryClient's five-second cache.
   await page.getByRole("button", { name: "刷新选题库", exact: true }).click();
   await expect(page.locator(".content-card")).toHaveCount(20);
   await page.locator(".content-card").first().getByRole("button", { name: /查看选题/ }).click();

@@ -84,14 +84,13 @@ test("pending suggestion is dismissed with batch identity and stays hidden after
   });
   expect(queued.operation_id).toBeTruthy();
   const formalId = `research-${batch.id}-${second.id}`;
-  await page.getByRole("button", { name: "已入队", exact: true }).click();
+  await page.getByRole("button", { name: "刷新选题库", exact: true }).click();
   await expect(page.getByTestId(`library-${formalId}`)).toBeVisible();
   await page.getByTestId(`library-${formalId}`).getByRole("button", { name: /查看选题/ }).click();
   const formalDetail = page.getByRole("dialog", { name: "选题详情" });
   await formalDetail.getByRole("button", { name: "移除", exact: true }).click();
   await formalDetail.getByRole("button", { name: "确认移除" }).click();
   await expect(page.getByTestId(`library-${formalId}`)).toHaveCount(0);
-  await page.getByRole("button", { name: "全部", exact: true }).click();
   await page.reload();
   await expect(page.getByTestId(`library-${formalId}`)).toHaveCount(0);
   await expect(page.getByTestId(`library-${id}`)).toHaveCount(0);

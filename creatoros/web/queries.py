@@ -233,6 +233,11 @@ class StudioQueryService:
             items.append(view)
         return items
 
+    def topic_creation_times(self, series_id: str) -> dict[str, datetime]:
+        with self.database.session() as session:
+            return dict(session.execute(select(Topic.id, Topic.created_at).where(
+                Topic.series_id == series_id, _visible_topic())).all())
+
     def topic_activity_times(self, series_id: str) -> dict[str, datetime]:
         """Read-only sort keys; latest Run matches the card's Run selection."""
         with self.database.session() as session:

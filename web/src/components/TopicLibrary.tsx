@@ -14,11 +14,6 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
   production_state?: "unproduced" | "produced"; skill_usage?: TopicSkillUsage };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
-function productionFilter(value: string | null) {
-  if (value === "all" || value === "queued") return "all";
-  return value === "produced" ? "produced" : "unproduced";
-}
-
 function TopicSkills({ topic }: { topic: LibraryTopic }) {
   const usage = topic.skill_usage;
   if (!usage) return null;
@@ -57,8 +52,8 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
   const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
   const removeRequestIds = useRef(new Map<string, string>());
-  const state = productionFilter(params.get("topics"));
-  const order = params.get("order") === "queue" ? "queue" : "recent";
+  const state = "all";
+  const order = "created";
   const limit = compact ? 6 : 20;
   const offsetKey = compact ? `offset-${seriesId}` : "offset";
   const rawOffset = Number(params.get(offsetKey) ?? 0);
@@ -215,7 +210,6 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </header>}
     {headerPanels}
     <div className="library-browse-toolbar">
-      {!compact && <LibraryFilters />}
       <div className="library-browse-actions">
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
@@ -252,7 +246,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </section>}
     {query.isPending && <p role="status">正在读取内容…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
-    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "produced" ? "还没有已生产内容。" : state === "unproduced" ? "暂无未生产选题。" : "还没有选题。"}</p>}
+    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : "还没有选题。"}</p>}
     {!query.error && <div className="content-feed">{query.data?.items.map(topic => {
       const pending = topic.selection_state === "pending";
       const content = <>{!pending && topic.cover_url && <CardCover key={topic.cover_url} url={topic.cover_url} title={topic.title} />}
@@ -330,26 +324,6 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           ["research-history", seriesId], ["research"]].map(queryKey => client.invalidateQueries({ queryKey })));
       }} />}
   </section>;
-}
-
-export function LibraryFilters() {
-  const [params, setParams] = useSearchParams();
-  const state = productionFilter(params.get("topics"));
-  return <div className="library-browse-settings"><div className="library-filters" role="group" aria-label="生产进度">{[["unproduced", "未生产"], ["produced", "已生产"], ["all", "全部"]].map(([value, label]) =>
-    <button key={value} aria-pressed={state === value} onClick={() => setParams(p => {
-      const next = new URLSearchParams(p); next.set("topics", value); next.delete("topic");
-      for (const key of [...next.keys()]) if (key === "offset" || key.startsWith("offset-")) next.delete(key);
-      return next;
-    })}>{label}</button>)}</div>
-    <select className="library-order" aria-label="内容排序" value={params.get("order") === "queue" ? "queue" : "recent"}
-      onChange={event => setParams(p => {
-        const next = new URLSearchParams(p); next.set("order", event.target.value); next.delete("topic");
-        for (const key of [...next.keys()]) if (key === "offset" || key.startsWith("offset-")) next.delete(key);
-        return next;
-      })}>
-      <option value="recent">最近动态</option><option value="queue">队列顺序</option>
-    </select>
-  </div>;
 }
 
 function CardCover({ url, title }: {url: string; title: string}) {
