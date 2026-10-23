@@ -283,6 +283,26 @@ class StudioQueryService:
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 
+    def topic_production_projection(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Current task input and recorded final delivery, one bulk read, no file I/O."""
+        if not run_ids:
+            return {}
+        with self.database.session() as session:
+            rows = session.execute(select(ContentRun, ContentRevision).outerjoin(ContentRevision,
+                (ContentRevision.content_run_id == ContentRun.id)
+                & (ContentRevision.revision_number == ContentRun.active_revision_number))
+                .where(ContentRun.id.in_(set(run_ids)))).all()
+            result = {}
+            for run, revision in rows:
+                validation = revision.validation_json if revision else None
+                delivered = bool(revision and revision.artifact_directory and revision.artifact_digest
+                                 and isinstance(validation, dict) and validation.get("images")
+                                 and validation.get("card_count", 0) > 0)
+                result[run.id] = {"production_state": "produced" if delivered else "unproduced",
+                    "input": (revision.production_input_json if revision and revision.production_input_json
+                              else run.input_snapshot_json)}
+            return result
+
     def topic_cover_projection(self, run_ids: list[str]) -> dict[str, dict[str, Any]]:
         """Project validated covers for a library page with one bulk DB read."""
         if self.artifacts is None or not run_ids:

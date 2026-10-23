@@ -241,6 +241,25 @@ class ProducerSkillCatalog:
         return bool(data["carousel_compatible"]) and cls._role(data) in cls.PRODUCIBLE_ROLES
 
     @_skill_io_locked
+    def reference_metadata(self, reference: str) -> dict:
+        """Small version label for exact IDs, without hashing assets/scripts."""
+        from .skill_versions import version_metadata
+
+        if reference == self.BUILTIN_ID:
+            return {"id": reference, "name": "知识点轮播", "version_number": None, "version_status": None}
+        data = self._record(reference)
+        version = version_metadata(data)
+        directory = self.root / "working" / data["id"]
+        if directory.is_symlink() or not directory.resolve().is_relative_to(self.root):
+            raise ValueError("本地 Skill 路径越界。")
+        path = directory / "SKILL.md"
+        if path.is_symlink():
+            raise ValueError("本地 Skill 文件不可为符号链接。")
+        frontmatter = parse_skill_frontmatter(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        return {"id": reference, "name": frontmatter.get("creatoros-display-name") or frontmatter.get("name") or data.get("name", reference),
+                "version_number": version["version_number"], "version_status": version["version_status"]}
+
+    @_skill_io_locked
     def describe(self, reference: str) -> dict:
         """An ID names one exact released version or an editable candidate."""
         from .skill_versions import version_metadata

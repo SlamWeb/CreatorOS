@@ -54,7 +54,7 @@ jobs:
         run: |
           npx playwright install chrome
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npx playwright test skill-calibration.spec.ts task-inbox.spec.ts skill-extraction.spec.ts content-navigation.spec.ts workspace-gallery.spec.ts agent-composer-controls.spec.ts agent-transcript.spec.ts chat-images.spec.ts chat-links.spec.ts skill-inspector.spec.ts skill-iterations.spec.ts
+          npx playwright test skill-calibration.spec.ts task-inbox.spec.ts skill-extraction.spec.ts content-navigation.spec.ts workspace-gallery.spec.ts topic-production.spec.ts agent-composer-controls.spec.ts agent-transcript.spec.ts chat-images.spec.ts chat-links.spec.ts skill-inspector.spec.ts skill-iterations.spec.ts
       - name: Preserve pass and failure evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

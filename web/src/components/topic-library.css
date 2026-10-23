@@ -34,6 +34,15 @@
 .content-card-copy { padding:17px 17px 12px; }
 .content-card-copy h3 { margin:0; font-size:15px; font-weight:600; line-height:1.55; overflow-wrap:anywhere; }
 .content-card-copy p { margin:8px 0 0; color:var(--muted); font-size:12px; line-height:1.7; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.topic-skill-usage { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin:0 17px 12px; font-size:11px; line-height:1.5; }
+.topic-skill-usage > span { color:var(--muted); }
+.topic-skill-usage a { display:inline-flex; align-items:baseline; gap:5px; max-width:100%; color:var(--ink); text-decoration:none; }
+.topic-skill-usage a > span { overflow-wrap:anywhere; }
+.topic-skill-usage a:hover { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
+.topic-skill-usage a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:3px; }
+.topic-skill-usage small, .skill-reference-version { color:var(--muted); font-size:11px; white-space:nowrap; }
+.skill-reference-version { margin-left:6px; }
+.topic-detail-dialog > .topic-skill-usage { margin:0 0 16px; font-size:13px; }
 .content-card-footer { display:flex; align-items:center; gap:8px; padding:0 17px 14px; min-height:34px; }
 .content-card-footer .status-pill { background:transparent; padding:0; font-size:11px; white-space:normal; }
 .content-card-footer small { color:var(--muted); font-size:11px; }
@@ -80,5 +89,5 @@
 .topic-remove-confirm { margin-top:16px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 .topic-remove-confirm p { margin:0 0 12px; }
 .topic-remove-confirm > div { display:flex; gap:8px; flex-wrap:wrap; }
-@media(max-width:760px) { .content-feed { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .content-card { border-radius:13px; } .content-card-main { border-radius:12px 12px 0 0; } .content-card-copy { padding:12px 12px 8px; } .content-card-footer { padding:0 12px 12px; flex-wrap:wrap; } .content-card-copy h3 { font-size:14px; } }
+@media(max-width:760px) { .content-feed { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } .content-card { border-radius:13px; } .content-card-main { border-radius:12px 12px 0 0; } .content-card-copy { padding:12px 12px 8px; } .content-card > .topic-skill-usage { margin:0 12px 10px; } .content-card-footer { padding:0 12px 12px; flex-wrap:wrap; } .content-card-copy h3 { font-size:14px; } }
 @media(max-width:360px) { .content-feed { grid-template-columns:minmax(0,1fr); } }

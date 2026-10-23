@@ -3,8 +3,9 @@ import { studioApi } from "../api/client";
 import type { ProducerSkillItem } from "../api/types";
 
 /** Bindings and old Runs refer to exact versions, not the library's family representative. */
-export function SkillReferenceButton({ id, known, fallback, className, onInspect }: {
+export function SkillReferenceButton({ id, known, fallback, className, onInspect, showVersion = false }: {
   id: string; known?: ProducerSkillItem; fallback?: string; className?: string;
+  showVersion?: boolean;
   onInspect: (skill: ProducerSkillItem) => void;
 }) {
   const history = useQuery({ queryKey: ["producer-skill-versions", id],
@@ -13,5 +14,7 @@ export function SkillReferenceButton({ id, known, fallback, className, onInspect
   return <button type="button" className={className} disabled={!skill && history.isPending}
     title={history.error?.message ?? "查看 Skill 版本"} onClick={() => skill ? onInspect(skill) : void history.refetch()}>
     {skill?.display_name ?? skill?.name ?? (history.isPending ? "正在读取 Skill…" : fallback ?? "Skill 读取失败，重试")}
+    {showVersion && skill && <small className="skill-reference-version">{skill.id === "knowledge-to-carousel" ? "内置"
+      : `v${skill.version_number ?? 1}${skill.version_status === "candidate" ? " · 候选" : ""}`}</small>}
   </button>;
 }

@@ -3,15 +3,37 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ListChecks, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
-import type { PageResponse, TopicView } from "../api/types";
+import type { PageResponse, TopicSkillUsage, TopicView } from "../api/types";
 import { StatusPill } from "./StatusPill";
 import { TopicResearchPanel } from "./TopicResearchPanel";
 import "./topic-library.css";
 
 type PendingTopic = { id: string; title: string; selection_state: "pending"; batch_id: string;
   candidate_id: string; angle: string; rationale: string; stale: boolean;
-  sources: { title: string; url: string }[]; available_actions: string[] };
+  sources: { title: string; url: string }[]; available_actions: string[];
+  production_state?: "unproduced" | "produced"; skill_usage?: TopicSkillUsage };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
+
+function productionFilter(value: string | null) {
+  if (value === "all" || value === "queued") return "all";
+  return value === "produced" ? "produced" : "unproduced";
+}
+
+function TopicSkills({ topic }: { topic: LibraryTopic }) {
+  const usage = topic.skill_usage;
+  if (!usage) return null;
+  const label = usage.source === "external" ? "外部导入" : usage.source === "series" ? "将用"
+    : topic.production_state === "produced" ? "已用" : "任务用";
+  return <div className="topic-skill-usage" aria-label="生产使用的 Skill"
+    title={usage.source === "series" ? "栏目当前绑定版本，提交生产时确定" : "本次任务的版本，继续生产不会换成栏目新版"}>
+    <span>{label}</span>
+    {usage.items.map(skill => <Link key={skill.id} to={`/skills?skill=${encodeURIComponent(skill.id)}`}>
+      <span>{skill.name}</span><small>{skill.version_number ? `v${skill.version_number}${skill.version_status === "candidate" ? " · 候选" : ""}`
+        : skill.id === "knowledge-to-carousel" ? "内置" : "版本未知"}</small>
+    </Link>)}
+    {!usage.items.length && usage.source !== "external" && <span>未记录 Skill</span>}
+  </div>;
+}
 
 export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false,
   heading, headerActions, headerPanels, onViewAll }: {
@@ -35,7 +57,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const [removePromptId, setRemovePromptId] = useState<string | null>(null);
   const [focusAfterClose, setFocusAfterClose] = useState<{ id: string; removed: boolean } | null>(null);
   const removeRequestIds = useRef(new Map<string, string>());
-  const state = ["pending", "queued"].includes(params.get("topics") ?? "") ? params.get("topics")! : "all";
+  const state = productionFilter(params.get("topics"));
   const order = params.get("order") === "queue" ? "queue" : "recent";
   const limit = compact ? 6 : 20;
   const offsetKey = compact ? `offset-${seriesId}` : "offset";
@@ -230,7 +252,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </section>}
     {query.isPending && <p role="status">正在读取内容…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
-    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "queued" ? "还没有已入队选题。" : state === "pending" ? "暂无待选建议。" : "还没有选题。"}</p>}
+    {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : state === "produced" ? "还没有已生产内容。" : state === "unproduced" ? "暂无未生产选题。" : "还没有选题。"}</p>}
     {!query.error && <div className="content-feed">{query.data?.items.map(topic => {
       const pending = topic.selection_state === "pending";
       const content = <>{!pending && topic.cover_url && <CardCover key={topic.cover_url} url={topic.cover_url} title={topic.title} />}
@@ -244,6 +266,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
               onClick={() => rememberReturn(topic.id)}>{content}</Link>
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
+        <TopicSkills topic={topic} />
         <footer className="content-card-footer">
           {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
             aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending || batch.isPending}
@@ -251,7 +274,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           {productionEnabled && !pending && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
             aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending || pendingQueue.isPending}
             onChange={event => { if (event.target.checked) setPendingSelection([]); setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
-            {pending ? <span className="library-pending">待选</span>
+            {pending ? <span className="library-pending">待确认</span>
             : <StatusPill status={topic.production_queue_status === "pending" ? "production_pending"
               : topic.production_queue_status === "needs_attention" ? "needs_attention" : topic.existing_run_status ?? topic.status} />}
           {!pending && topic.production_queue_status === "pending" && topic.production_queue_position
@@ -311,8 +334,8 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
 
 export function LibraryFilters() {
   const [params, setParams] = useSearchParams();
-  const state = ["pending", "queued"].includes(params.get("topics") ?? "") ? params.get("topics") : "all";
-  return <div className="library-browse-settings"><div className="library-filters" role="group" aria-label="选题状态">{[["all", "全部"], ["pending", "待选"], ["queued", "已入队"]].map(([value, label]) =>
+  const state = productionFilter(params.get("topics"));
+  return <div className="library-browse-settings"><div className="library-filters" role="group" aria-label="生产进度">{[["unproduced", "未生产"], ["produced", "已生产"], ["all", "全部"]].map(([value, label]) =>
     <button key={value} aria-pressed={state === value} onClick={() => setParams(p => {
       const next = new URLSearchParams(p); next.set("topics", value); next.delete("topic");
       for (const key of [...next.keys()]) if (key === "offset" || key.startsWith("offset-")) next.delete(key);
@@ -359,6 +382,7 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
   return <dialog ref={dialog} className="topic-detail-dialog" aria-label="选题详情" onCancel={e => {e.preventDefault();onClose();}}>
     <header><span>{pending ? "待选建议" : "选题详情"}</span><button type="button" aria-label="关闭选题详情" onClick={onClose}><X size={18} /></button></header>
     <h2>{topic.title}</h2>
+    <TopicSkills topic={topic} />
     {editing ? <form className="candidate-editor" onSubmit={e => {e.preventDefault();if(title.trim() && !remove.isPending) save.mutate();}}>
       <label>标题<input required maxLength={240} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>切入点<textarea aria-label="切入点" rows={5} maxLength={10000} value={brief} onChange={e => setBrief(e.target.value)} /></label>

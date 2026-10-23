@@ -11,6 +11,27 @@ def _timestamp(value):
     return value.replace(tzinfo=timezone.utc).timestamp() if value.tzinfo is None else value.timestamp()
 
 
+def _skill_usage(snapshot, catalog, metadata, *, source):
+    if snapshot.get("production_protocol") == "external-import":
+        return {"source": "external", "items": []}
+    composition = snapshot.get("composition") or {}
+    references = ([{"id": snapshot["skill_name"]}] if snapshot.get("skill_name") else
+                  [composition[role] for role in ("mind", "production") if composition.get(role)])
+    items = []
+    for reference in references:
+        skill_id = reference.get("id")
+        if not skill_id:
+            continue
+        if skill_id not in metadata:
+            try:
+                metadata[skill_id] = catalog.reference_metadata(skill_id)
+            except (OSError, ValueError):
+                metadata[skill_id] = {"id": skill_id, "name": reference.get("name") or "历史 Skill",
+                                      "version_number": None, "version_status": None}
+        items.append(metadata[skill_id])
+    return {"source": source, "items": items}
+
+
 def topic_library(service, queries, series_id, state="all", offset=0, limit=20, *, order="queue"):
     page = queries.list_topics(series_id, offset=0, limit=100)
     if page is None:
@@ -43,7 +64,11 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
                 "stale": record["stale"], "source": "research", **provenance,
                 "available_actions": [] if record["stale"] else ["prepare_topic_selection"],
             }
-    rows = [r for r in items.values() if state == "all" or r["selection_state"] == state]
+    rows = list(items.values())
+    runs = queries.topic_production_projection([row["existing_run_id"] for row in rows if row.get("existing_run_id")])
+    for row in rows:
+        row["production_state"] = runs.get(row.get("existing_run_id"), {}).get("production_state", "unproduced")
+    rows = [r for r in rows if state == "all" or r["selection_state"] == state or r["production_state"] == state]
     if order == "recent":
         activity = queries.topic_activity_times(series_id)
         rows.sort(key=lambda row: (
@@ -53,10 +78,18 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
     page_rows = rows[offset:offset + limit]
     run_ids = [row["existing_run_id"] for row in page_rows if row.get("existing_run_id")]
     covers = queries.topic_cover_projection(run_ids)
+    series = queries.get_series(series_id)
+    default = {"skill_name": series.skill_name, "composition": {
+        "mind": {"id": series.mind_skill_id} if series.mind_skill_id else None,
+        "production": {"id": series.production_skill_id} if series.production_skill_id else None}}
+    metadata = {}
     for row in page_rows:
         cover = covers.get(row.get("existing_run_id"), {})
         row["cover_url"] = cover.get("cover_url")
         row["card_count"] = cover.get("card_count")
+        run = runs.get(row.get("existing_run_id"))
+        row["skill_usage"] = _skill_usage(run["input"] if run else default, service.catalog,
+                                          metadata, source="run" if run else "series")
     return {"items": page_rows,
             "page": {"offset": offset, "limit": limit, "total": len(rows)},
             "message": "pending=待选，不可生产；queued=已入队，执行状态及允许动作看每项字段。"

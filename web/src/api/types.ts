@@ -89,6 +89,13 @@ export interface TopicView {
   available_actions: string[];
   cover_url?: string | null;
   card_count?: number | null;
+  production_state?: "unproduced" | "produced";
+  skill_usage?: TopicSkillUsage;
+}
+
+export interface TopicSkillUsage {
+  source: "series" | "run" | "external";
+  items: { id: string; name: string; version_number: number | null; version_status: string | null }[];
 }
 
 export interface BatchProductionResult {

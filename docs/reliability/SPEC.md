@@ -1,5 +1,10 @@
 # Reliability Baseline
 
+## 选题生产分组/版本展示门禁（2026-10-23）
+
+- 既有topic_library_order组补入test_topic_library_production，不扩展组数；CI显式浏览器列表加入topic-production.spec.ts。定向11项API和20项指定版本/宿主检查通过；首批浏览器9/10、修fixture响应字段后原路径1/1，原失败保留，详见web/API SPEC。
+- 30工位的15项并发/HTTP与16项队列/宿主定向另见runs/SPEC，不与前端用例或内容质量成绩混计。本轮未全量重跑45组、未修改旧Eval分数或调用真实模型，远端CI结果未知。
+
 ## 普通/完整重启分流（2026-10-23）
 
 - 同一safe_maintenance组内更新默认startup与显式/迁移自动full的断言，补真实隔离进程的自动迁移和授权pending拒绝；不添加模型调用、前端流程或新的全量门禁。

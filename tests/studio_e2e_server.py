@@ -41,7 +41,7 @@ class E2EProducer:
             cards.append(CarouselCard(order=order, kind="cover" if order == 1 else "content", headline=f"E2E 卡片 {order}", image_path=relative))
         pack = SocialContentPack(
             pack_id=request["pack_id"], creator_id=request["creator_id"], series_id=request["series_id"],
-            topic_id=request["topic_id"], topic_title=request["topic_title"], skill_name="knowledge-to-carousel",
+            topic_id=request["topic_id"], topic_title=request["topic_title"], skill_name=request.get("skill_name") or "knowledge-to-carousel",
             generated_at="2026-09-05T12:00:00+08:00", content_summary="[隔离 E2E] 验证生产、返工和批准流程。",
             cards=cards, publish_copy=PublicationCopy(title="Agent 状态怎么理解", body="浏览器 E2E 测试内容。", hashtags=["#Agent"]),
         )

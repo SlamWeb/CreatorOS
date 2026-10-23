@@ -345,7 +345,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
               const label = bound?.display_name ?? bound?.name ?? "Skill 信息不可读取";
               return <span key={`${id}-${index}`}>
                 {index > 0 && <span aria-hidden="true"> × </span>}
-                <SkillReferenceButton id={id} known={bound} fallback={label} onInspect={onInspectSkill} />
+                <SkillReferenceButton id={id} known={bound} fallback={label} onInspect={onInspectSkill} showVersion />
               </span>;
             })}
         </div>

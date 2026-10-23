@@ -67,7 +67,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued`));
   await expect(page.locator(`#topic-card-${data.topicIds[0]}`)).toBeFocused();
   await page.reload();
-  await expect(page.getByRole("button", { name: "已入队", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "全部", exact: true })).toHaveAttribute("aria-pressed", "true");
   await produced.locator("summary").click();
   await produced.getByRole("button", {name:"详情与编辑"}).click();
   await page.getByRole("link", {name:"查看内容与生产记录"}).click();
@@ -78,6 +78,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   expect(writes).toEqual([]);
 
   await page.locator(".rail-series").filter({ hasText: "有图与草稿" }).click();
+  await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(page.locator(".content-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "同账号另一个选题" })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -93,7 +94,7 @@ test("unproduced detail edits the real topic, discussion only prefills, unreadab
   const writes: string[] = [];
   page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
   await page.route("**/cards/1?**", route => route.fulfill({ status: 404, body: "fixture: missing image" }));
-  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=all`);
   await expect(page.getByText("封面暂不可读取")).toBeVisible();
   await page.getByRole("button", { name: "查看选题 还没有生产的文字草稿" }).click();
   const dialog = page.getByRole("dialog", { name: "选题详情" });
@@ -155,7 +156,7 @@ test("topic discussion freezes the exact target through refresh and unknown reco
     ] };
     await route.fulfill({ json: chat });
   });
-  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=all`);
   const card = page.getByTestId(`library-${data.topicIds[0]}`);
   await card.locator("summary").click();
   await card.getByRole("button", { name: "与 Agent 讨论" }).click();
@@ -189,7 +190,7 @@ test("topic focus stays with its account and rejected draft, and can be removed 
   const writes: string[] = [];
   page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
   await page.route("**/api/agent/sessions/*/turns", route => route.abort("blockedbyclient"));
-  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=all`);
   const produced = page.getByTestId(`library-${data.topicIds[0]}`);
   await produced.locator("summary").click();
   await produced.getByRole("button", { name: "与 Agent 讨论" }).click();
@@ -221,6 +222,7 @@ test("topic focus stays with its account and rejected draft, and can be removed 
   await expect(focus).toHaveCount(0);
   await page.setViewportSize({ width: 1440, height: 900 });
   await panel.getByRole("button", { name: "关闭账号对话" }).click();
+  await page.getByRole("button", { name: "全部", exact: true }).click();
   await produced.locator("summary").click();
   await produced.getByRole("button", { name: "与 Agent 讨论" }).click();
   await expect(focus).toBeVisible();

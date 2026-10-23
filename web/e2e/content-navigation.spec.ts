@@ -72,7 +72,7 @@ test("recent content is globally first; account previews and top pagination avoi
 
 test("failed page stays explicit; retry does not write or confuse recent and queue order", async ({ page, request }) => {
   const data = await fixture(request);
-  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=all`);
   await expect(page.locator(".content-card")).toHaveCount(20);
   await page.route("**/topic-library?**", async route => {
     if (new URL(route.request().url()).searchParams.get("offset") === "20") {
@@ -85,9 +85,10 @@ test("failed page stays explicit; retry does not write or confuse recent and que
   await page.unroute("**/topic-library?**");
   await page.getByRole("button", { name: "重新读取选题库" }).click();
   await expect(page.locator(".content-card")).toHaveCount(8);
-  await page.getByRole("button", { name: "待选", exact: true }).click();
+  await page.getByRole("button", { name: "已生产", exact: true }).click();
   await expect(page).not.toHaveURL(/offset=/);
-  await expect(page.getByText("暂无待选建议。", { exact: true })).toBeVisible();
+  await expect(page.locator(".content-card")).toHaveCount(1);
+  await expect(page.locator(".content-card")).toContainText("故事选题 1");
   await page.getByRole("button", { name: "全部", exact: true }).click();
   await expect(page.locator(".content-card").nth(1)).toContainText("刚添加的新选题");
 });
