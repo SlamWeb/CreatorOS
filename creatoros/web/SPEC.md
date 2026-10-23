@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 普通部署重启（2026-10-23，已完成）
+
+- 按用户要求不重跑测试、不做历史文件扫描；只读空闲检查通过，现有维护流程使用startup模式备份SQLite、退出旧PID41064，退出后复制已验收前端并启动PID44260，健康/数据库启动检查通过后释放消费者，held=false、workers_started=true。
+- 已载入4f86c38的生产筛选/准确版本展示及e70a208的30路默认并发；首页返回index-Cwu8nWDw.js。旧静态资源保留，旧dist备份在tmp/topic-production-ui-20261023/dist.previous。证据data/creatoros.db.maintenance/evidence/20261023-151008-2da8a059/，包含SQLite备份、result及deployment记录。
+- 未提交生产、自动重跑RSI、改写旧图片或旧标准/分数；未做整库逐行/逐文件一致性核验，不将此次启动验收计为Eval或内容质量提升。
+
 ## 选题库生产进度与版本只读投影（2026-10-23，隔离验收通过）
 
 - topic-library增加unproduced/produced筛选，保留all/pending/queued；在全部可见选题上批量读取当前Run/当前Revision交付记录及输入，再筛选/排序/分页，不以是否建过Run或封面请求成功代替生产完成。
