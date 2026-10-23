@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 选题焦点正式部署（2026-10-23，已完成）
+
+- 用户授权仅空闲时更新前后端。多次只读检查无运行中/已授权排队任务，83份辅助状态无忙碌；维护命令重新核对后才暂停接单。没有强杀进程或打断任务。
+- 从213e7eb源码独立构建前端，复用维护锁、SQLite备份、正常退出、延迟消费者与原行/文件校验流程；旧PID15264确认完全退出后才切换dist，随后启动新版PID41064。旧dist保存在tmp/context-focus-deploy-20261023/dist.previous，并保留旧哈希静态资源，避免缓存页404或新前端连接旧后端。
+- 消费者关闭期间核对21表1426条原记录、6352个受管文件及SQLite完整性/外键全部通过，含旧RSI的完整config/state、标准、分数、图片、旧失败与模型回执。未resume、重评、提交生产或调用模型，恢复接单后另做同样的行/文件复核。
+- 实际HTTP首页、index-BsNV0Jmg.js与index-CqSPqu4M.css字节匹配独立构建；OpenAPI确认聊天turn使用包含context_target的严格ChatTurnRequest/ChatContextTarget。该检查在新实例release之前执行，失败则不开放接单；健康及数据库ok，新实例身份不同于旧实例。
+- 备份、before/verified/result、frontend-deployment及deployment-live-check证据位于忽略目录data/creatoros.db.maintenance/evidence/20261023-130027-f43a3785/。本轮只部署和验证保护边界，没有重做真实模型Eval或将健康检查算作生产成功；此前隔离前端DeepSeek验证记录保留。
+
 ## 选题焦点上下文（2026-10-23，隔离验证完成，未正式加载）
 
 - 聊天请求新增可选严格对象引用 context_target，不改变固定工具 Schema、业务 API、数据表或生产状态。请求身份覆盖对象引用，旧请求按无引用兼容；同键换对象返回409，身份校验失败不调用模型。
