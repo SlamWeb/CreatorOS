@@ -43,7 +43,7 @@ class BlockingProducer:
         self.lock = Lock()
         self.calls, self.active, self.cancelled = [], set(), set()
         self.max_active, self.active_by_topic, self.max_by_topic = 0, {}, {}
-        self.gates = {f"topic-{index}": Event() for index in range(8)}
+        self.gates = {f"topic-{index}": Event() for index in range(31)}
 
     def snapshot(self):
         with self.lock:
@@ -77,7 +77,7 @@ class BlockingProducer:
             directory.mkdir(parents=True)
             (directory / "images").mkdir()
             index = int(topic_id.rsplit("-", 1)[1])
-            Image.new("RGB", (32, 48), (index * 25, 100, 200)).save(directory / "images/01.png")
+            Image.new("RGB", (32, 48), ((index * 25) % 256, 100, 200)).save(directory / "images/01.png")
             pack = SocialContentPack(pack_id=request["pack_id"], creator_id=request["creator_id"],
                 series_id=request["series_id"], topic_id=topic_id, topic_title=request["topic_title"],
                 skill_name="knowledge-to-carousel", generated_at="2026-10-19T00:00:00+00:00",
@@ -163,12 +163,12 @@ class ParallelProductionTests(unittest.TestCase):
             self.database.close()
             self.tmp.cleanup()
 
-    def make(self, **producer_options):
+    def make(self, *, max_concurrency=5, **producer_options):
         producer = BlockingProducer(**producer_options)
         self.producers.append(producer)
         service = ContentRunService(self.database, producer_factory=lambda: producer,
             output_root=self.root / "outputs", production_protocol="legacy")
-        executor = ManagedRunExecutor(service, shutdown_timeout=3)
+        executor = ManagedRunExecutor(service, max_concurrency=max_concurrency, shutdown_timeout=3)
         self.executors.append(executor)
         return producer, service, executor
 
@@ -178,7 +178,7 @@ class ParallelProductionTests(unittest.TestCase):
             executor.submit(run.id, expected_version=run.version)
         return runs
 
-    def test_default_five_real_overlap_then_refill_and_distinct_artifacts(self):
+    def test_explicit_five_real_overlap_then_refill_and_distinct_artifacts(self):
         producer, service, executor = self.make()
         runs = self.submit(service, executor, 7)
         wait(lambda: len(producer.snapshot()[1]) == 5)
@@ -443,12 +443,55 @@ class ParallelProductionTests(unittest.TestCase):
         self.assertEqual(len({call["thread_id"] for call in topic_calls}), 2)
         self.assertIsNone(topic_calls[1]["input_thread"])
 
+    def test_default_thirty_real_overlap_then_thirty_first_waits_and_refills(self):
+        repository = ContentRepository(self.database)
+        for index in range(8, 31):
+            repository.add_topic(topic_id=f"topic-{index}", series_id="series",
+                title=f"Topic {index}", source=TopicSource.MANUAL)
+        with patch.dict(os.environ):
+            os.environ.pop("CREATOROS_PRODUCTION_CONCURRENCY", None)
+            producer, service, executor = self.make(max_concurrency=None)
+        self.assertEqual(executor.max_concurrency, 30)
+        runs = self.submit(service, executor, 31)
+        wait(lambda: len(producer.snapshot()[1]) == 30, timeout=20)
+        self.assertEqual(len(producer.snapshot()[0]), 30)
+        self.assertEqual(executor.queue_snapshot(runs[30].id)["status"], "pending")
+        self.assertEqual(service.get(runs[30].id).status.value, "queued")
+        first_topic = producer.snapshot()[0][0]["topic_id"]
+        producer.gates[first_topic].set()
+        wait(lambda: len(producer.snapshot()[0]) == 31, timeout=20)
+        self.assertEqual(len(producer.snapshot()[1]), 30)
+        self.assertEqual(producer.max_active, 30)
+        producer.release_all()
+        wait(lambda: all(not executor.is_submitted(run.id) for run in runs), timeout=30)
+        self.assertEqual([service.get(run.id).status.value for run in runs], ["awaiting_approval"] * 31)
+        calls = producer.snapshot()[0]
+        self.assertEqual(len({call["directory"] for call in calls}), 31)
+        self.assertEqual(len({call["thread_id"] for call in calls}), 31)
+        self.assertTrue(all(call["input_thread"] is None for call in calls))
+        self.assertEqual(set(producer.max_by_topic.values()), {1})
+        for run in runs:
+            self.assertEqual(len(service.repository.list_attempts(service.get_active_revision(run.id).id)), 1)
+
+    def test_environment_and_explicit_capacity_bounds(self):
+        producer, service, unused = self.make()
+        for capacity in (1, 5, 30):
+            with self.subTest(capacity=capacity):
+                self.assertEqual(ManagedRunExecutor(service, max_concurrency=capacity).max_concurrency, capacity)
+            with self.subTest(environment=capacity), patch.dict(os.environ,
+                    {"CREATOROS_PRODUCTION_CONCURRENCY": str(capacity)}):
+                self.assertEqual(ManagedRunExecutor(service).max_concurrency, capacity)
+        with patch.dict(os.environ, {"CREATOROS_PRODUCTION_CONCURRENCY": "invalid"}):
+            self.assertEqual(ManagedRunExecutor(service, max_concurrency=30).max_concurrency, 30)
+        self.assertEqual(producer.snapshot()[0], [])
+        self.assertFalse(service.guard.lock.is_locked)
+
     def test_invalid_capacity_is_rejected_before_starting_executor(self):
         producer, service, unused = self.make()
-        for value in (0, 6, -1, True, False, 2.5, "2"):
+        for value in (0, 31, -1, True, False, 2.5, "2"):
             with self.subTest(capacity=value), self.assertRaises(ValueError):
                 ManagedRunExecutor(service, max_concurrency=value)
-        for value in ("not-a-number", "", "0", "6"):
+        for value in ("not-a-number", "", "0", "31", "2.5"):
             with self.subTest(environment=value), patch.dict(os.environ, {"CREATOROS_PRODUCTION_CONCURRENCY": value}):
                 with self.assertRaises(ValueError):
                     ManagedRunExecutor(service)

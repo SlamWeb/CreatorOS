@@ -39,11 +39,11 @@ class ManagedRunExecutor:
         self.shutdown_timeout = shutdown_timeout
         if max_concurrency is None:
             try:
-                max_concurrency = int(os.getenv("CREATOROS_PRODUCTION_CONCURRENCY", "5"))
+                max_concurrency = int(os.getenv("CREATOROS_PRODUCTION_CONCURRENCY", "30"))
             except ValueError as error:
-                raise ValueError("CREATOROS_PRODUCTION_CONCURRENCY 必须为1–5的整数。") from error
-        if type(max_concurrency) is not int or not 1 <= max_concurrency <= 5:
-            raise ValueError("生产并发数必须为1–5的整数。")
+                raise ValueError("CREATOROS_PRODUCTION_CONCURRENCY 必须为1–30的整数。") from error
+        if type(max_concurrency) is not int or not 1 <= max_concurrency <= 30:
+            raise ValueError("生产并发数必须为1–30的整数。")
         self.max_concurrency = max_concurrency
         self.instance_id = f"studio-{uuid4().hex[:12]}"
         self._pool: ThreadPoolExecutor | None = None

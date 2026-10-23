@@ -79,7 +79,7 @@ class StartRunArgs(BaseModel):
     topic_id: str | None = Field(default=None, min_length=1, max_length=80,
         description="单个真实选题 ID；与 topic_ids 二选一。")
     topic_ids: list[str] | None = Field(default=None, min_length=1, max_length=100,
-        description="用户明确要求批量生产的真实选题 ID 列表；后台排队、最多5个选题并行，不批准或发布。")
+        description="用户明确要求批量生产的真实选题 ID 列表；后台排队、最多30个选题并行，不批准或发布。")
     mode: Literal["start", "fresh"] = Field(default="start",
         description="start 普通提交；用户明确要求清空旧上下文、按最新 Skill 从头重做时用 fresh，仅支持单选题。")
     source_run_id: str | None = Field(default=None, min_length=1, max_length=80,

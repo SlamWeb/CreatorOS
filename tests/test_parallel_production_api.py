@@ -19,7 +19,7 @@ class ParallelProductionApiTests(unittest.TestCase):
     make = fixture.ParallelProductionTests.make
 
     def test_web_and_agent_share_five_slots_and_durable_results(self):
-        producer, service, executor = self.make()
+        producer, service, executor = self.make(max_concurrency=5)
         app = create_app(database=self.database, run_service=service, run_executor=executor)
         with serve(app) as base, httpx.Client(base_url=base, trust_env=False, timeout=15) as client:
             web = client.post('/api/runs/batch', json={'topic_ids': [f'topic-{i}' for i in range(4)]})
