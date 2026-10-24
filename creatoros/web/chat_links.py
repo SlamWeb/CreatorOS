@@ -138,7 +138,8 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         if name == "manage_skill_iteration" and not is_error:
             link = _iteration_receipt(data, name)
             return [link] if link else []
-        if name in {"create_skill_draft", "extract_skill_from_images", "get_skill_extraction", "save_extracted_skills", "edit_extracted_skills"} and not is_error:
+        if name in {"create_skill_draft", "extract_skill_from_images", "extract_skills_from_artifact", "revise_extracted_skills", "get_skill_extraction", "save_extracted_skills", "edit_extracted_skills"} and (
+                not is_error or data.get("status") == "unknown" and data.get("last_known_status") in {"queued", "running"}):
             identity = data.get("id")
             if isinstance(identity, str) and re.fullmatch(r"[a-f0-9]{64}", identity):
                 return [{"url": f"/skills?extraction={identity}", "label": "查看 Skill 草稿", "kind": "skill", "source_tool": name}]

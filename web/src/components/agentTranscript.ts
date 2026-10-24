@@ -7,7 +7,9 @@ import type { DiscussionSnapshot } from "./DiscussionActivity";
 export type ChatEntryData = { id?: string; kind: string; text?: string; name?: string; status?: string; run_id?: string;
   iteration_mode?: boolean; input_tokens?: number; output_tokens?: number; turn_id?: string;
   complete?: boolean; terminal?: boolean; model_request_id?: string; tool_call_id?: string;
-  research?: ResearchSnapshot; discussion?: DiscussionSnapshot; links?: ChatLink[]; attachments?: ChatAttachment[] };
+  research?: ResearchSnapshot; discussion?: DiscussionSnapshot;
+  background?: { kind?: string; id?: string; status?: string; operation?: string; note?: string };
+  links?: ChatLink[]; attachments?: ChatAttachment[] };
 
 export type ChatSession = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;

@@ -1,10 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
-## 后台等待与栏目名称（2026-10-24，Draft）
+## 后台等待与栏目名称（2026-10-24，已验证）
 
 - 提炼提交/改稿Web宿主最多观察60秒，每2秒读取同任务；进度不送回模型。CLI保留异步；等待中断/超时为unknown，不改后台任务。每问同一提炼/RSI最多一次真实状态GET，再次查询返回既有凭证并结束聊天轮，完整工具批次必须配对落盘。
 - 拟题默认DS；联网工具仅限确实需要最新信息/外部证据。复用update_series_composition的name-only分支改名，不增加CRUD工具，保留原组合接口；宿主身份生成幂等键，归属和revision由API校验。
 - 验证入口：tests.test_background_agent/test_pending_tasks/test_background_wait，以及隔离前端真实DeepSeek拟题和改名。正式任务、图片与旧评分不修改。
+- 联合72/72、改稿状态补充后定向52/52；同一真实提炼的旧27次GET证据保留，不重跑。运行中草稿可能status=ready且operation=revise，同样按待完成限查，不误当终态。真实DeepSeek普通拟题零工具/零Codex，改名只调一次现有编辑工具；完整用量与正式载入边界见web-chat/BACKGROUND_WAIT_RESULTS文档。
 
 ## 账号素材集对象工具（2026-10-24，隔离验收）
 

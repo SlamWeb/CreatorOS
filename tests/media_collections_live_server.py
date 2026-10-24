@@ -42,6 +42,8 @@ def main():
     parser.add_argument("--port", type=int, default=8894)
     parser.add_argument("--agent-probe", action="store_true",
                         help="Explicit paid DeepSeek browser probe; still forbids production.")
+    parser.add_argument("--series-probe", action="store_true",
+                        help="Also allow renaming one newly seeded isolated column, never originals.")
     args = parser.parse_args()
     if args.agent_probe and not os.environ.get("DEEPSEEK_API_KEY", "").strip():
         raise RuntimeError("DEEPSEEK_API_KEY missing; use local .env or environment")
@@ -103,17 +105,27 @@ def main():
         seeded = app.state.media_collections.create(args.creator, name="英语视频素材",
             run_ids=run_ids, request_id="isolated-media-agent-fixture")
         from creatoros.integrations.atomic_file import atomic_write_text
-        atomic_write_text(root / "setup.json", json.dumps({"creator_id": args.creator,
+        setup = {"creator_id": args.creator,
             "collection_id": seeded["id"], "name": seeded["name"], "image_count": len(seeded["items"]),
-            "checksums": [item["checksum"] for item in seeded["items"]]}, ensure_ascii=False, indent=2))
+            "checksums": [item["checksum"] for item in seeded["items"]]}
+        if args.series_probe:
+            from creatoros.storage import Series
+            with database.session() as session:
+                session.add(Series(id="series-isolated-rename", creator_id=args.creator,
+                    name="栏目改名测试", description="", audience="", skill_name="knowledge-to-carousel",
+                    replenish_threshold=5))
+            setup.update(test_series_id="series-isolated-rename", test_series_name="栏目改名测试")
+        atomic_write_text(root / "setup.json", json.dumps(setup, ensure_ascii=False, indent=2))
 
     @app.middleware("http")
     async def collection_writes_only(request, call_next):
         agent_turn = args.agent_probe and request.method == "POST" and (
             request.url.path == "/api/agent/sessions"
             or re.fullmatch(r"/api/agent/sessions/[a-f0-9-]{36}/turns", request.url.path))
+        rename = args.agent_probe and args.series_probe and request.method == "PATCH" and (
+            request.url.path == "/api/series/series-isolated-rename")
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not request.url.path.startswith(
-                f"/api/creators/{args.creator}/collections") and not agent_turn:
+                f"/api/creators/{args.creator}/collections") and not agent_turn and not rename:
             return JSONResponse({"error": {"message": "This probe permits collection metadata writes only"}}, status_code=403)
         return await call_next(request)
 

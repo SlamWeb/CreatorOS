@@ -25,7 +25,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
   list_series_topics: "查看选题", start_content_run: "提交生产", get_content_run: "查询任务",
   research_series_topics: "调研选题", get_topic_research: "查看调研候选", prepare_topic_selection: "准备选题预览",
-  queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "修改组合", assign_series: "分配账号",
+  queue_topics: "选题入队", compose_series: "创建栏目", update_series_composition: "编辑栏目", assign_series: "分配账号",
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   manage_skill_iteration: "校准 Skill",
@@ -609,18 +609,22 @@ function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: strin
   const detailsId = useId();
   const running = entry.status === "running";
   const successful = entry.status === "done";
-  const status = running ? (entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中")
+  const backgroundStatus = entry.background?.status;
+  const status = entry.status === "waiting" ? (backgroundStatus === "unknown" ? "后台状态待确认" : "后台进行中")
+    : running ? (entry.background ? (backgroundStatus === "queued" ? "等待执行" : "正在提炼")
+      : entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中")
     : successful ? "已返回" : "结果需检查";
   const navigation = links.filter(link => !["research", "discussion"].includes(chatLinkKind(link) ?? ""));
   return <div className="chat-tool chat-tool-expandable" data-status={entry.status} data-entry-id={entry.id}>
     <button type="button" className="chat-tool-toggle" aria-expanded={open} aria-controls={detailsId}
       onClick={() => setOpen(value => !value)}>
-      {running ? <LoaderCircle size={14} className="chat-tool-spinner" aria-hidden="true" />
+      {running || entry.status === "waiting" ? <LoaderCircle size={14} className={running ? "chat-tool-spinner" : undefined} aria-hidden="true" />
         : successful ? <Check size={14} aria-hidden="true" /> : <CircleAlert size={14} aria-hidden="true" />}
       <span className="chat-tool-name">{tools[entry.name ?? ""] ?? entry.name ?? "工具"}</span>
       <small>{status}</small>
       {open ? <Minus size={13} className="chat-tool-expand-icon" aria-hidden="true" /> : <Plus size={13} className="chat-tool-expand-icon" aria-hidden="true" />}
     </button>
+    {running && entry.background?.note && <small role="status">{entry.background.note}</small>}
     {!!navigation.length && <nav className="chat-tool-links" aria-label="工具任务入口">
       {navigation.map(link => <NamedChatLink key={link.url} link={link} />)}
     </nav>}

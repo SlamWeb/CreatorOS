@@ -33,7 +33,11 @@ class SkillIterationAgentTests(unittest.TestCase):
             request_id = str(uuid4())
             with patch("creatoros.web.chat.Thread") as thread:
                 host.submit(session["id"], request_id, "优化这个Skill", 0, "http://127.0.0.1:1", iteration_mode=True)
-                self.assertTrue(thread.call_args.kwargs["args"][-1])
+                # The target also follows iteration_mode; assert by signature,
+                # not by its historical last positional index.
+                from inspect import signature
+                call = signature(host._run).bind(*thread.call_args.kwargs["args"])
+                self.assertTrue(call.arguments["iteration_mode"])
                 host.submit(session["id"], request_id, "优化这个Skill", 0, "http://127.0.0.1:1", iteration_mode=True)
                 self.assertEqual(thread.call_count, 1)
                 with self.assertRaises(HTTPException) as conflict:
