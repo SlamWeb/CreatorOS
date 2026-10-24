@@ -247,9 +247,16 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     const seedKey = `${scopeKey}\u001f${draftSeedId ?? draftSeed}`;
     if (lastSeed.current === seedKey) return;
     lastSeed.current = seedKey;
-    updateDraft(scopeKey, draftSeed);
+    updateDraft(scopeKey, contextTarget ? "" : draftSeed);
     updateContextFocus(scopeKey, contextTarget ? { target: { ...contextTarget }, title: contextTitle || "已绑定选题" } : null);
   }, [active, draftSeed, draftSeedId, scopeKey, contextTarget, contextTitle, updateDraft, updateContextFocus]);
+  useEffect(() => {
+    // Remove only the exact old auto-prefill, never a user's edited draft or
+    // the immutable payload of a submission whose result is still unknown.
+    if (active && !pendingTurn && contextFocus && draft === `我们讨论一下选题「${contextFocus.title}」。`) {
+      updateDraft(scopeKey, "");
+    }
+  }, [active, pendingTurn, contextFocus, draft, scopeKey, updateDraft]);
   useEffect(() => {
     const nonce = params.get("skill_edit");
     if (!active || !nonce || consumedSkillHandoff.current === nonce) return;

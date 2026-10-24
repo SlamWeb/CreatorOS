@@ -106,13 +106,15 @@ test("unproduced detail edits the real topic, discussion only prefills, unreadab
   await expect(dialog.getByRole("heading", { name: "已通过详情修改的草稿" })).toBeVisible();
   await dialog.getByRole("button", { name: "与 Agent 讨论" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("我们讨论一下选题「已通过详情修改的草稿」。");
+  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("");
+  await expect(page.getByRole("group", { name: "本次选题" })).toContainText("已通过详情修改的草稿");
+  await page.getByLabel("给 Agent 的消息").fill("讨论这篇草稿的改进方向");
   expect(writes).toEqual([`/api/topics/${data.topicIds[1]}`]);
   await page.keyboard.press("Escape");
   await expect(page.locator(".account-chat-panel")).toBeHidden();
   await expect(page.getByRole("button", { name: "打开账号对话" })).toBeFocused();
   await page.getByRole("button", { name: "打开账号对话" }).click();
-  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue(/已通过详情修改的草稿/);
+  await expect(page.getByLabel("给 Agent 的消息")).toHaveValue("讨论这篇草稿的改进方向");
 });
 
 test("explicit assignment follows the confirmed owner and does not reuse another account chat", async ({ page, request }) => {
@@ -161,7 +163,8 @@ test("topic discussion freezes the exact target through refresh and unknown reco
   await card.getByRole("button", { name: "与 Agent 讨论" }).click();
   const panel = page.locator(".account-chat-panel");
   await expect(panel.getByRole("group", { name: "本次选题" })).toContainText("已经完成的真实文件卡片");
-  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("我们讨论一下选题「已经完成的真实文件卡片」。");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
+  await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("看看这篇画面的改进空间");
   expect(writes).toEqual([]); // Opening the discussion neither creates a session nor submits a turn.
   await page.reload();
   await expect(panel.getByRole("group", { name: "本次选题" })).toContainText("已经完成的真实文件卡片");
@@ -196,13 +199,15 @@ test("topic focus stays with its account and rejected draft, and can be removed 
   const panel = page.locator(".account-chat-panel");
   const focus = panel.getByRole("group", { name: "本次选题" });
   await expect(focus).toContainText("已经完成的真实文件卡片");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
+  await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("已经完成的图需要简化背景");
   await panel.getByRole("button", { name: "关闭账号对话" }).click();
   const draft = page.getByTestId(`library-${data.topicIds[1]}`);
   await draft.locator("summary").click();
   page.once("dialog", dialog => dialog.dismiss());
   await draft.getByRole("button", { name: "与 Agent 讨论" }).click();
   await expect(focus).toContainText("已经完成的真实文件卡片");
-  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("我们讨论一下选题「已经完成的真实文件卡片」。");
+  await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("已经完成的图需要简化背景");
   await page.getByRole("button", { name: `查看账号 ${data.other.display_name}` }).click();
   await expect(panel.getByRole("heading", { name: data.other.display_name, exact: true })).toBeVisible();
   await expect(focus).toHaveCount(0);
