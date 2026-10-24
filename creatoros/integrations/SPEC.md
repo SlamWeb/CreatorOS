@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 冻结 Skill 路径误抄诊断（2026-10-24，未修复）
+
+- 正式失败Run8f81a2db对应important词群；程序的composition_request/冻结目录和SDK初始cwd都包含b09c，但模型第一次读取把Run ID抄成b09b，第二次又把不存在的b09b/work显式设为cwd。原始SDK会话两次工具回执分别为文件不存在和CreateProcessAsUserW 267，不是Skill冲突、商店版Shell或冻结文件丢失。
+- 本机只读复现错误绝对路径读取失败、错误cwd报267；在真实b09c/work用同一便携PowerShell、login=false读取../skills/mind/SKILL.md及../skills/production/SKILL.md成功（246/2099字符）。原任务Checkpoint无交付页、已接收图片列表为空；未恢复或重新提交生产。
+- 用户贴出的因为/由于选题当时无Run，不能把important错误直接归到该题；前端另有栏目级启动提示缺少选题身份的歧义，但异步失败不等于启动mutation失败，未据此声称已复现卡片错配。另有正式生产仍运行，未启停服务或改写旧记录/文件。
+- 后续最小候选修复：将Skill读取交接固定为短相对路径，避免模型重抄长Run ID；仅对未生图的读取故障做有界只读纠正。当前仅诊断，未修改Prompt、Runtime、前端或补称回归已通过。
+
 ## 精确版本的轻量名称投影（2026-10-23）
 
 - 新增reference_metadata，只读准确ID的版本登记和当前SKILL.md名称/显示名，不以家族最新版本替代、不计算素材摘要、不扫描scripts/assets，也不调用会自动恢复working目录的路径。缺失元数据由选题库显式显示未知；不改候选/发布/冻结/生产逻辑。
