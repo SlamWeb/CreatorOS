@@ -308,11 +308,24 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   const [topicTitle, setTopicTitle] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
   const addId = useId();
   const settingsId = useId();
   const titleInput = useRef<HTMLInputElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (addOpen) titleInput.current?.focus(); }, [addOpen]);
+  const rename = useMutation({
+    retry: false,
+    mutationFn: (input: { id: string; name: string; expected_revision: number }) => studioApi.renameSeries(input.id, {
+      name: input.name, expected_revision: input.expected_revision, request_id: crypto.randomUUID().replaceAll("-", ""),
+    }),
+    onSuccess: async () => {
+      setNameDraft(null);
+      await Promise.all(["series-all", "series", "creators", "overview"].map(key => client.invalidateQueries({ queryKey: [key] })));
+    },
+    onError: () => client.invalidateQueries({ queryKey: ["series-all"] }),
+  });
+  useEffect(() => { setNameDraft(null); rename.reset(); }, [series.id]);
   const runMutation = useMutation({
     retry: false,
     mutationFn: async (topic: TopicView) => {
@@ -360,6 +373,18 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   </>;
   const headerPanels = <>
     {!overview && <div id={settingsId} className="workspace-series-settings" hidden={!settingsOpen}>
+      <form className="workspace-rename" onSubmit={event => {
+        event.preventDefault();
+        const name = nameDraft?.trim();
+        if (name && name !== series.name) rename.mutate({ id: series.id, name, expected_revision: series.revision });
+      }}>
+        <label>栏目名称<input aria-label="栏目名称" maxLength={120} value={nameDraft ?? series.name}
+          disabled={rename.isPending} onChange={event => setNameDraft(event.target.value)} /></label>
+        <button className="button button-secondary" disabled={rename.isPending || !nameDraft?.trim() || nameDraft.trim() === series.name}>
+          {rename.isPending ? "保存中…" : "保存名称"}</button>
+        {rename.isError && <p className="form-error" role="alert">{rename.error.message}</p>}
+        {rename.isSuccess && <small role="status">名称已保存</small>}
+      </form>
       {series.description && <p className="workspace-meta">{series.description}</p>}
       <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
         onChange={event => onAssign(event.target.value || null)}>

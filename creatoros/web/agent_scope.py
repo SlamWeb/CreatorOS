@@ -244,6 +244,8 @@ class AgentScopeGuard:
                            and self._owns_queue_receipt(match.group(1), match.group(2), creator_id)) else self._denied()
 
         match = _SERIES_DELETE.fullmatch(path)
+        if method == "PATCH" and match:
+            return None if self._owns_series(match.group(1), creator_id) else self._denied()
         if method == "DELETE" and match:
             try:
                 payload = await request.json()

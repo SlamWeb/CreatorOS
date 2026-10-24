@@ -109,3 +109,7 @@
   .workspace-rail .rail-series { width:100%; }
   .workspace-chat-launcher { right:16px; bottom:max(16px,env(safe-area-inset-bottom)); width:50px; height:50px; }
 }
+.workspace-rename { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin-bottom: 1rem; }
+.workspace-rename label { flex: 1 1 16rem; display: grid; gap: .4rem; }
+.workspace-rename input { width: 100%; min-width: 0; }
+.workspace-rename .form-error { flex-basis: 100%; }

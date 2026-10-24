@@ -141,11 +141,21 @@ class ComposeSeriesArgs(BaseModel):
 
 
 class UpdateCompositionArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
     series_id: str = Field(min_length=1, description="目标栏目 ID。")
-    mind_skill_id: str = Field(min_length=1, description="list_producer_skills 返回的内容 Skill ID。")
-    production_skill_id: str = Field(min_length=1, description="list_producer_skills 返回的呈现 Skill ID。")
+    name: str | None = Field(default=None, min_length=1, max_length=120, description="仅改栏目名称时填写新名称，省略Skill字段；不改ID、选题或产物。")
+    mind_skill_id: str | None = Field(default=None, min_length=1, description="更换组合时填写内容 Skill ID，与production_skill_id同时提供。")
+    production_skill_id: str | None = Field(default=None, min_length=1, description="更换组合时填写呈现 Skill ID，与mind_skill_id同时提供。")
     expected_revision: int = Field(ge=1, description="当前栏目的 revision；先从 list_creator_series 查询取得，过期会被拒绝。")
+
+    @model_validator(mode="after")
+    def edit_one_property_group(self):
+        if self.name is not None:
+            if self.mind_skill_id is not None or self.production_skill_id is not None:
+                raise ValueError("改名只传name，不同时更换Skill组合。")
+        elif self.mind_skill_id is None or self.production_skill_id is None:
+            raise ValueError("请提供新名称，或完整Mind＋Visualize组合。")
+        return self
 
 
 class AssignSeriesArgs(BaseModel):
@@ -178,7 +188,13 @@ def compose_series(name, description="", audience="", creator_id=None, skill_nam
     return _call(lambda c: _series_receipt(c.request("POST", "/api/series", payload=payload)), context)
 
 
-def update_series_composition(series_id, mind_skill_id, production_skill_id, expected_revision, context=None):
+def update_series_composition(series_id, mind_skill_id=None, production_skill_id=None, expected_revision=None, context=None, name=None):
+    if name is not None:
+        sid, turn = getattr(context, "agent_session_id", None), getattr(context, "user_request_id", None)
+        identity = json.dumps([sid, turn, series_id, name, expected_revision], ensure_ascii=False)
+        request_id = sha256(identity.encode()).hexdigest() if sid and turn else uuid4().hex
+        payload = {"name": name, "expected_revision": expected_revision, "request_id": request_id}
+        return _call(lambda c: _series_receipt(c.request("PATCH", f"/api/series/{quote(series_id, safe='')}", payload=payload)), context)
     payload = {"mind_skill_id": mind_skill_id, "production_skill_id": production_skill_id,
                "expected_revision": expected_revision, "request_id": uuid4().hex}
     return _call(lambda c: _series_receipt(c.request("POST", f"/api/series/{quote(series_id, safe='')}/composition", payload=payload)), context)

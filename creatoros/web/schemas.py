@@ -436,6 +436,17 @@ class SeriesDeleteRequest(WriteRequest):
     request_id: str = Field(min_length=8, max_length=64)
 
 
+class SeriesRenameRequest(SeriesDeleteRequest):
+    name: str = Field(min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def nonempty_name(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("栏目名称不能为空。")
+        return self
+
+
 class TopicRemoveRequest(WriteRequest):
     request_id: str = Field(min_length=8, max_length=64)
     batch_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")

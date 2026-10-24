@@ -49,6 +49,7 @@ from .schemas import (
     SeriesComposeRequest,
     SeriesDeleteRequest,
     SeriesDeleteResponse,
+    SeriesRenameRequest,
     SeriesView,
     SeriesCreateRequest,
     SeriesWriteResponse,
@@ -389,6 +390,12 @@ def create_app(
                 research=research,
             )
         return SeriesDeleteResponse(id=result_id, status=status, deduplicated=deduplicated)
+
+    @app.patch("/api/series/{series_id}", response_model=SeriesWriteResponse)
+    def rename_series(series_id: str, payload: SeriesRenameRequest, request: Request) -> SeriesWriteResponse:
+        return SeriesWriteResponse.model_validate(composition.rename_series(series_id,
+            name=payload.name, expected_revision=payload.expected_revision,
+            request_id=payload.request_id, origin=_request_origin(request)))
 
     @app.post("/api/creators/{creator_id}/series", response_model=SeriesView, status_code=201)
     def create_series(creator_id: str, payload: SeriesCreateRequest) -> SeriesView:
