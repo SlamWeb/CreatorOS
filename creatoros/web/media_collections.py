@@ -43,6 +43,17 @@ class MediaCollectionService:
         self.database = database
         self.artifacts = artifacts
         self.lock = RLock()
+        from .media_exports import MediaExportStore
+        self.exports = MediaExportStore(self)
+
+    def export(self, creator_id, identifier, *, expected_version, snapshot_digest):
+        return self.exports.create(creator_id, identifier, expected_version, snapshot_digest)
+
+    def get_export(self, creator_id, identifier, export_id):
+        return self.exports.get(creator_id, identifier, export_id)
+
+    def download_export(self, creator_id, identifier, export_id):
+        return self.exports.download(creator_id, identifier, export_id)
 
     @staticmethod
     def _creator(session, creator_id):

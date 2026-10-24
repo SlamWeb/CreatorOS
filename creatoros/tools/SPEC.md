@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## 账号素材集对象工具（2026-10-24，隔离验收）
+
+- 新增manage_media_collection(list/get/create/update/remove/export)，复用Web集合服务，不改生产参数或任务包；账号由宿主绑定，名称查找不猜ID，动态图片索引分页而非塞入固定上下文。创建宿主身份幂等、更新CAS、未知不自动重发；删除只移除集合关系。
+- ZIP持久冻结且可作为未来剪辑材料引用，原始导出ID/校验和/URL留ToolResult和Trace，模型只读业务摘要；宿主从真实回执提供准确下载链接。后续剪辑Skill本轮未连接。
+- 新10项真实loopback工具/HTTP/SQLite测试及既有17项集合/宿主测试通过；真实原前端DeepSeek最终两次工具调用(list→export)、实际ZIP下载/刷新/原数据保护通过，失败探针保留，详情见docs/media-collections/SPEC.md。正式服务未重启，CRUD私有候选权限仍为下一步设计，不冒称当前全账号操作已补齐。
+
 ## 批量生产共用三十工位（2026-10-23）
 
 - `start_content_run(topic_ids)` 与Web宿主说明同步为后台最多30选题并行；参数、接受回执和任务链接契约不变，仍共用单个ManagedRunExecutor。每题独立会话，不把同篇拆成多个thread。

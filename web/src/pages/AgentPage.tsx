@@ -30,6 +30,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   manage_skill_iteration: "校准 Skill",
   manage_topics: "管理选题",
+  manage_media_collection: "管理素材集",
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const base = "/api/agent/sessions";
@@ -592,6 +593,9 @@ function NamedChatLink({ link }: { link: ChatLink }) {
   const target = chatHref(link.url, [link], window.location.origin);
   if (target?.kind !== "internal") return null;
   const label = chatLinkLabel(link);
+  if (link.kind === "download" && /^\/api\/creators\/[A-Za-z0-9_-]+\/collections\/[A-Za-z0-9_-]+\/exports\/[a-f0-9]{64}\/download$/.test(target.href)) {
+    return <a href={target.href} download title={label} data-link-kind="download"><span>{label}</span></a>;
+  }
   const at = link.created_at ? Date.parse(link.created_at) : NaN;
   return <Link to={target.href} title={label} data-link-kind={chatLinkKind(link) ?? undefined}>
     <span>{label}</span>{Number.isFinite(at) && <small>{new Date(at).toLocaleString("zh-CN", {

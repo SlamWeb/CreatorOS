@@ -85,6 +85,18 @@ class AgentScopeGuard:
 
         method, path = request.method.upper(), request.url.path
 
+        collection = re.fullmatch(r"/api/creators/([^/]+)/collections(?P<tail>/.*)?", path)
+        if collection:
+            tail = collection.group("tail") or ""
+            single = re.fullmatch(r"/[^/]+", tail) and tail != "/sources"
+            allowed = ((method == "GET" and (tail in {"", "/sources"} or single
+                        or re.fullmatch(r"/[^/]+/(?:download|items/[^/]+/[^/]+/[0-9]+|exports/[a-f0-9]{64}(?:/download)?)", tail)))
+                       or (method == "POST" and (not tail or re.fullmatch(r"/[^/]+/(?:sort|exports)", tail)))
+                       or (method in {"PATCH", "DELETE"} and single))
+            # The collection service also verifies collection ownership, current
+            # source membership and each source's frozen account identity.
+            return None if collection.group(1) == creator_id and allowed else self._denied()
+
         if path == "/api/skill-iterations" and method == "GET":
             requested = request.query_params.get("creator_id")
             selected = request.query_params.get("series_id")

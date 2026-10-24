@@ -30,7 +30,7 @@ from creatoros.events import AgentEvent
 from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.web.chat_attachments import ChatAttachments, MAX_IMAGES
 
-STUDIO_TOOLS = frozenset({"query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "manage_topics",
+STUDIO_TOOLS = frozenset({"manage_media_collection", "query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "manage_topics",
                           "start_content_run", "get_content_run", "install_producer_skill",
                           "get_skill_install", "list_producer_skills", "research_series_topics",
                           "get_producer_skill",
@@ -45,6 +45,7 @@ STUDIO_TOOLS = frozenset({"query_feedback", "prepare_publication", "get_publicat
                           "read_image", "extract_skill_from_images", "create_skill_draft", "import_content_images",
                           "get_creator_tasks", "read_tool_result", "read_file"})
 ACCOUNT_TOOLS = frozenset({
+    "manage_media_collection",
     "query_feedback", "prepare_publication", "get_publication",
     "list_creators", "list_creator_series", "manage_topics",
     "start_content_run", "get_content_run", "list_producer_skills",
@@ -66,6 +67,8 @@ LANGUAGE_POLICY = (
     "不要因历史英文回复或工具中的英文内容改变回复语言。"
 )
 REPLY_POLICY = (
+    "素材整理和ZIP导出使用manage_media_collection，不委托Codex，也不视为生产、审批或发布；"
+    "先按当前账号素材目录定位目标，导出用真实回执下载入口，不输出本机路径。"
     "回复规范（适用于本轮全部可见输出）：默认简体中文，包括工具调用前的说明；必要时只用一句，不需要英文开场或解释打算调用什么。"
     "最终回复先说业务结论，只交付用户所问的结果和必要链接；答完即止，不加‘需要的话我可以…’、‘接下来你可以…’或未请求的建议。"
     "例如用户只要求入队：‘已将这两条加入「四格词汇」，未生产。’，不列审计字段或下一步选项。"

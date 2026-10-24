@@ -12,6 +12,28 @@ _ROUTE = re.compile(rf"^/(series|runs)/({_ID})$")
 _LABELS = {"series": "查看栏目", "research": "查看调研", "preview": "查看入队预览", "production": "查看内容", "discussion": "查看讨论"}
 
 
+def _media_receipts(data, tool):
+    creator, collection = data.get("creator_id"), data.get("collection_id")
+    if not all(isinstance(value, str) and re.fullmatch(_ID, value) for value in (creator, collection)):
+        return []
+    if data.get("deleted"):
+        return []
+    name = data.get("name")
+    name = name.strip()[:70] if isinstance(name, str) and name.strip() else "素材集"
+    export_id = data.get("export_id")
+    if export_id is not None:
+        if not isinstance(export_id, str) or not re.fullmatch(r"[a-f0-9]{64}", export_id):
+            return []
+        url = f"/api/creators/{creator}/collections/{collection}/exports/{export_id}/download"
+        if data.get("url") != url:
+            return []
+        count = data.get("selected_count")
+        suffix = f"（{count} 张）" if type(count) is int and count > 0 else ""
+        return [{"url": url, "label": f"下载「{name}」ZIP{suffix}", "kind": "download", "source_tool": tool}]
+    return [{"url": f"/?creator={creator}&view=materials&collection={collection}",
+             "label": f"素材 · {name}", "kind": "collection", "source_tool": tool}]
+
+
 def _iteration_receipt(data, tool):
     identity = data.get("iteration_id") or data.get("id")
     if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{64}", identity):
@@ -108,6 +130,8 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
         data = json.loads(content)
         if not isinstance(data, dict):
             return []
+        if name == "manage_media_collection":
+            return [] if is_error else _media_receipts(data, name)
         if is_error and data.get("error") == "skill_iteration_active":
             link = _iteration_receipt(data, name)
             return [link] if link else []

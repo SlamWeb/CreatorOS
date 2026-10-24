@@ -62,6 +62,29 @@ def media_collection_routes(service):
     def sort(creator_id: str, identifier: str, body: SortCollection):
         return response(service.sort(creator_id, identifier, **body.model_dump()))
 
+    @router.post("/{identifier}/exports", status_code=201)
+    def export(creator_id: str, identifier: str, body: SortCollection):
+        return response(service.export(creator_id, identifier, **body.model_dump()), 201)
+
+    @router.get("/{identifier}/exports/{export_id}")
+    def get_export(creator_id: str, identifier: str, export_id: str):
+        return response(service.get_export(creator_id, identifier, export_id))
+
+    @router.get("/{identifier}/exports/{export_id}/download")
+    def download_export(creator_id: str, identifier: str, export_id: str):
+        archive = service.download_export(creator_id, identifier, export_id)
+
+        def chunks():
+            try:
+                while chunk := archive.read(64 * 1024):
+                    yield chunk
+            finally:
+                archive.close()
+
+        return StreamingResponse(chunks(), media_type="application/zip", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": f'attachment; filename="collection-{export_id}.zip"'})
+
     @router.get("/{identifier}/items/{run_id}/{revision_id}/{order}")
     def image(creator_id: str, identifier: str, run_id: str, revision_id: str, order: int,
               checksum: str = Query(pattern=r"^[a-f0-9]{64}$")):

@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## Agent 素材 ZIP 固定导出（2026-10-24，隔离验收）
+
+- 集合API增加POST `/{id}/exports`及GET准确导出回执/ZIP。复用现有收图、选片和ZIP逻辑，受管目录原子保存完整包，当前成员/冻结身份与ZIP摘要校验；相同快照复用，后续集合改名/重排不改原导出。
+- AgentScopeGuard显式允许当前账号集合域，服务再次校验集合与全部来源，不接受任意路径。宿主下载回执与模型业务投影分离；不改生产、旧任务、正式库或Skill。
+- 10项新真实loopback工具/安全/文件保护、17项既有集合/宿主回归通过。原前端真实DeepSeek调用list/export，ZIP实际下载且原页/聊天保留，源图和两条原Run不变。完整失败/用量与边界见docs/media-collections/SPEC.md；未重启正式8765。
+
 ## 素材文件夹 API（2026-10-24，隔离验收，未正式加载）
 
 - 新增账号级 `/api/creators/{creator_id}/collections`，提供文件夹、来源索引、选片/调序、准确图片代理、相近排序与有序 ZIP；仅读取原 Run/Revision 工件，不启动生产、不修改旧产物。来源目录批量查 SQLite，不扫描全账号图片；详情才验证选中的来源。

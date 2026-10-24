@@ -135,6 +135,7 @@ PROJECTED_TOOLS = frozenset({
     "create_skill_draft",
     "manage_skill_iteration",
     "manage_topics",
+    "manage_media_collection",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS
 
 
@@ -144,6 +145,32 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return deepcopy(data)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "manage_media_collection":
+        if data.get("export_id"):
+            # The host retains the complete receipt for Trace and downstream
+            # artifact handoff; chat only needs the successful business result.
+            return _pick(data, ("action", "name", "selected_count")) | {
+                "message": "ZIP 已保存，下载按钮由界面在回复下方提供；无需写地址、导出编号或占位符。"}
+        result = _pick(data, ("action", "id", "collection_id", "creator_id", "name", "version", "topic_id", "run_ids",
+                              "snapshot_digest", "export_id", "selected_count", "size_bytes", "checksum", "deleted"))
+        paging = data.get("requested_page") or {}
+        offset, limit = paging.get("offset", 0), paging.get("limit", 20)
+        items = data.get("items", [])
+        if "items" in data and isinstance(items, list):
+            result["items"] = [_pick(item, ("id", "name", "version", "topic_id", "run_id", "run_title",
+                "revision_id", "revision_number", "order", "included", "checksum", "width", "height"))
+                for item in items[offset:offset + limit]]
+            result["page"] = {"offset": offset, "limit": limit, "total": len(items),
+                              "next_offset": offset + limit if offset + limit < len(items) else None}
+            if "snapshot_digest" in data:
+                result["selected_count"] = sum(item.get("included", False) for item in items)
+        if "sources" in data:
+            sources = data["sources"]
+            result["sources"] = [_pick(source, ("run_id", "run_title", "topic_id", "topic_title", "revision_id",
+                "revision_number", "status", "image_count", "error")) for source in sources[offset:offset + limit]]
+            result["source_page"] = {"offset": offset, "limit": limit, "total": len(sources),
+                                     "next_offset": offset + limit if offset + limit < len(sources) else None}
+        return result
     if tool_name == "manage_topics":
         result = _pick(data, ("action", "ok", "id", "status", "deduplicated", "series_id",
                               "topic_ids", "title", "changed_fields", "effect", "url"))

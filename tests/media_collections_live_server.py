@@ -1,15 +1,18 @@
 """Isolated collection UI probe using existing real production artifacts, read-only.
 
 The formal SQLite is opened read-only and backed up to a new tmp database. The
-application never starts workers and only collection writes are allowed. No
-production/model calls, task recovery, approval or publication are permitted.
+application never starts production workers and only collection writes are
+allowed by default. --agent-probe explicitly enables real DeepSeek conversation
+writes; production, task recovery, approval and publication remain forbidden.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
 import sqlite3
 
 import uvicorn
@@ -37,7 +40,11 @@ def main():
     parser.add_argument("--source-db", type=Path, default=PROJECT_ROOT / "data/creatoros.db")
     parser.add_argument("--creator", default="creator-e765be5862d3476cbdd7")
     parser.add_argument("--port", type=int, default=8894)
+    parser.add_argument("--agent-probe", action="store_true",
+                        help="Explicit paid DeepSeek browser probe; still forbids production.")
     args = parser.parse_args()
+    if args.agent_probe and not os.environ.get("DEEPSEEK_API_KEY", "").strip():
+        raise RuntimeError("DEEPSEEK_API_KEY missing; use local .env or environment")
     root = args.root.resolve()
     if root.exists() or not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()):
         raise ValueError("Use a fresh directory below project tmp")
@@ -91,11 +98,22 @@ def main():
     runs = ContentRunService(database, output_root=PROJECT_ROOT / "outputs")
     app = create_app(database=database, run_service=runs, studio_dist=args.dist,
                      chat_root=root / "chats", eval_root=root / "eval", defer_background_start=True)
+    seeded = None
+    if args.agent_probe:
+        seeded = app.state.media_collections.create(args.creator, name="英语视频素材",
+            run_ids=run_ids, request_id="isolated-media-agent-fixture")
+        from creatoros.integrations.atomic_file import atomic_write_text
+        atomic_write_text(root / "setup.json", json.dumps({"creator_id": args.creator,
+            "collection_id": seeded["id"], "name": seeded["name"], "image_count": len(seeded["items"]),
+            "checksums": [item["checksum"] for item in seeded["items"]]}, ensure_ascii=False, indent=2))
 
     @app.middleware("http")
     async def collection_writes_only(request, call_next):
+        agent_turn = args.agent_probe and request.method == "POST" and (
+            request.url.path == "/api/agent/sessions"
+            or re.fullmatch(r"/api/agent/sessions/[a-f0-9-]{36}/turns", request.url.path))
         if request.method not in {"GET", "HEAD", "OPTIONS"} and not request.url.path.startswith(
-                f"/api/creators/{args.creator}/collections"):
+                f"/api/creators/{args.creator}/collections") and not agent_turn:
             return JSONResponse({"error": {"message": "This probe permits collection metadata writes only"}}, status_code=403)
         return await call_next(request)
 
@@ -104,6 +122,7 @@ def main():
         return {"creator_id": args.creator, "run_ids": run_ids,
                 "topics": [{"id": row["topic_id"], "title": row["title"]} for row in chosen],
                 "uses_real_artifacts": True, "workers_started": app.state.background_services_started,
+                "collection": {"id": seeded["id"], "name": seeded["name"]} if seeded else None,
                 "source_run_rows_unchanged": digest_rows(original, run_ids) == before,
                 "source_images_unchanged": all(Path(path).is_file() and
                     hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest
@@ -114,12 +133,14 @@ def main():
     try:
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
+        if args.agent_probe:
+            app.state.chat.shutdown()
         database.close()
         report = {"source_run_rows_unchanged": digest_rows(original, run_ids) == before,
                   "source_images_unchanged": all(Path(path).is_file() and
                       hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest for path, digest in originals.items()),
                   "source_run_row_sha256": before, "source_run_ids": run_ids,
-                  "new_database": str(target), "model_calls": 0, "workers_started": False}
+                  "new_database": str(target), "real_model_probe": args.agent_probe, "workers_started": False}
         # Diagnostic report belongs only to this isolated probe.
         from creatoros.integrations.atomic_file import atomic_write_text
         atomic_write_text(root / "preservation.json", json.dumps(report, ensure_ascii=False, indent=2))

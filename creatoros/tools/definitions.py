@@ -57,6 +57,7 @@ from .content_discussion import (
 )
 from .skill_iterations import ManageSkillIterationArgs, manage_skill_iteration
 from .topics import ManageTopicsArgs, manage_topics
+from .media_collections import ManageMediaCollectionArgs, manage_media_collection
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -111,6 +112,8 @@ class Tool:
 tool_registry = {
     tool.name: tool
     for tool in [
+        Tool(name="manage_media_collection", description="管理当前账号素材集：list可按name筛选文件夹，可include_sources取任务索引；get读取选片/版本或已导出ZIP；create关联选题及额外Run；update用所见expected_version改名/来源/顺序/排除项；remove只删集合不删原图；export把当前保留图片按序保存为ZIP，返回准确下载入口和export_id，供后续剪辑取用，不调用Codex、不生产、不改Skill、不发布。仅导出时，定位collection_id后可直接export，无需先get全部图片；可省略version与snapshot由宿主读取当前选片，指定旧快照会拒绝。未知结果先查询，不换集合或另起生产。",
+             execute=manage_media_collection, args_model=ManageMediaCollectionArgs),
         Tool(name="query_feedback", description="只读本地已采集的账号反馈，比较最近 7 天已发布笔记的点赞、收藏等累计指标。支持分页，返回各笔记采样时间和栏目；不刷新平台、不发布、不新增选题。",
              execute=query_feedback, args_model=QueryFeedbackArgs),
         Tool(name="prepare_publication", description="准备已有图文的发布预览，不发布。返回内容页供用户确认；重复请求复用发布单。",
