@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .results import ToolResult
 from .studio import _call
+from .background_wait import background_receipt
 
 
 class ManageSkillIterationArgs(BaseModel):
@@ -55,7 +56,8 @@ def manage_skill_iteration(action, iteration_id=None, series_id=None, skill_id=N
         max_rounds=max_rounds, expected_revision=expected_revision)
     path = "/api/skill-iterations"
     if action == "get":
-        return _call(lambda client: client.request("GET", path + "/" + quote(iteration_id, safe="")), context)
+        result = _call(lambda client: client.request("GET", path + "/" + quote(iteration_id, safe="")), context)
+        return background_receipt(result, "skill_iteration")
     sid, turn = getattr(context, "agent_session_id", None), getattr(context, "user_request_id", None)
     if not sid or not turn:
         return ToolResult("校准操作需要当前网页对话和用户请求。", True, "session_required")
@@ -72,4 +74,4 @@ def manage_skill_iteration(action, iteration_id=None, series_id=None, skill_id=N
         path += "/" + quote(iteration_id, safe="") + "/actions"
         payload = {"action": action, "expected_revision": expected_revision}
     payload["request_id"] = request_id
-    return _call(lambda client: client.request("POST", path, payload=payload), context)
+    return background_receipt(_call(lambda client: client.request("POST", path, payload=payload), context), "skill_iteration")

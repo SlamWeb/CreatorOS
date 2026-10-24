@@ -128,6 +128,8 @@ _RESEARCH_TOOLS = {"research_series_topics", "get_topic_research"}
 _RUN_TOOLS = {"start_content_run", "get_content_run", "request_content_revision"}
 _DISCUSSION_TOOLS = {"discuss_content_run", "get_content_discussion"}
 _SERIES_WRITE_TOOLS = {"compose_series", "update_series_composition", "assign_series"}
+_EXTRACTION_TOOLS = {"extract_skill_from_images", "extract_skills_from_artifact",
+                     "revise_extracted_skills", "get_skill_extraction"}
 PROJECTED_TOOLS = frozenset({
     "list_creators", "list_creator_series", "list_series_topics", "list_producer_skills",
     "get_producer_skill", "update_producer_skill_file", "get_creator_tasks",
@@ -136,13 +138,20 @@ PROJECTED_TOOLS = frozenset({
     "manage_skill_iteration",
     "manage_topics",
     "manage_media_collection",
-}) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS
+}) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS
 
 
 def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> Any:
     """Copy the next-step facts, never overwrite or reinterpret the source DTO."""
     if tool_name not in PROJECTED_TOOLS or not isinstance(data, dict):
         return deepcopy(data)
+    if tool_name in _EXTRACTION_TOOLS:
+        # Public activity is streamed to the UI, not repeated in every model
+        # request. Preserve the actual draft/files/digests and business status.
+        result = {key: deepcopy(value) for key, value in data.items() if key != "progress"}
+        if data.get("status") in {"queued", "running", "unknown"} or data.get("operation"):
+            result["next_action"] = "wait_background"
+        return result
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
     if tool_name == "manage_media_collection":

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .results import ToolResult
 from .studio import _call
+from .background_wait import observe_skill_extraction
 
 
 class ReadImageArgs(BaseModel):
@@ -67,8 +68,10 @@ def _action(operation, payload, context):
             return ToolResult("缺少当前用户请求标识。", True, "request_required")
         raw = json.dumps([sid, turn, operation, payload], sort_keys=True, ensure_ascii=False)
         payload = {**payload, "request_id": hashlib.sha256(raw.encode()).hexdigest()}
-    result = _call(lambda client: client.request(
-        "POST", f"/api/agent/sessions/{quote(sid, safe='')}/image-actions/{operation}", payload=payload), context)
+    def execute(client):
+        data = client.request("POST", f"/api/agent/sessions/{quote(sid, safe='')}/image-actions/{operation}", payload=payload)
+        return observe_skill_extraction(client, data, context) if operation == "extract" else data
+    result = _call(execute, context)
     if operation == "read" and not result.is_error:
         result.details["image_attachments"] = [json.loads(result.content)["attachment"]]
     return result

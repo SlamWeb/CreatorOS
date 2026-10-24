@@ -9,6 +9,7 @@ from creatoros.integrations.skill_extraction import DraftSkill, MAX_IMAGE, MAX_R
 from .builtins import _is_sensitive_path, _project_root
 from .results import ToolResult
 from .studio import _call
+from .background_wait import background_receipt, observe_skill_extraction
 
 MAX_IMAGE_BYTES = MAX_IMAGE
 MAX_IMAGE_COUNT = MAX_REFERENCE_IMAGES
@@ -141,13 +142,14 @@ def extract_skills_from_artifact(image_paths=None, request_id=None, mode="single
                 "data_base64": base64.b64encode(data).decode("ascii"),
             })
             resolved_upload_ids.append(uploaded["id"])
-        return client.request("POST", "/api/skill-extractions", payload={
+        job = client.request("POST", "/api/skill-extractions", payload={
             "request_id": request_id,
             "upload_ids": resolved_upload_ids,
             "mode": mode,
             "instruction": instruction,
             "source_text": source_text,
         })
+        return observe_skill_extraction(client, job, context)
 
     return _call(submit, context)
 
@@ -157,7 +159,7 @@ def get_skill_extraction(job_id=None, context=None):
         path = f"/api/skill-extractions/{quote(job_id, safe='')}"
     else:
         path = "/api/skill-extractions"
-    return _call(lambda client: client.request("GET", path), context)
+    return background_receipt(_call(lambda client: client.request("GET", path), context), "skill_extraction")
 
 
 def save_extracted_skills(job_id, expected_digest, context=None):
@@ -176,8 +178,11 @@ def edit_extracted_skills(job_id, expected_digest, skills, context=None):
 
 
 def revise_extracted_skills(job_id, expected_digest, request_id, instruction, context=None):
-    return _call(lambda client: client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/revise",
-        payload={"expected_digest": expected_digest, "request_id": request_id, "instruction": instruction}), context)
+    def revise(client):
+        job = client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/revise",
+            payload={"expected_digest": expected_digest, "request_id": request_id, "instruction": instruction})
+        return observe_skill_extraction(client, job, context)
+    return _call(revise, context)
 
 
 def trial_extracted_skills(job_id, expected_digest, request_id, topic, context=None):
