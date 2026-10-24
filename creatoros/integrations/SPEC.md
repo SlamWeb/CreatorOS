@@ -1,6 +1,19 @@
 # External Integrations SPEC
 
-## 冻结 Skill 路径误抄诊断（2026-10-24，未修复）
+## 输入材料与结构化交付（2026-10-24，隔离真实验证通过）
+
+- 用户授权：本机Python适配层读取选中Skill的冻结正文，打包制作要求/附属资源短引用和实际参考图片；新生产由SDK结构化最终响应交付图片编号/文案，宿主写正文和索引，复用ImageAssetStore，不让模型搬图或重抄长任务路径。不改编剧分工、不融合Skill、不修改共享版本或正式旧记录。
+- 兼容边界：新Checkpoint显式标记structured-v1；无该标记的历史Checkpoint仍走原文件协议，同Revision恢复不能隐式切协议。请求原文/旧摘要保持不变；新协议忽略模型自写的delivery.json，只有completed最终响应和SDK当前thread/turn收图凭证可交付。
+- 恢复：中断有图无选图进入只修交付、不重画；成功响应先持久保存，再由程序写内容和索引。宿主写文件故障后可从已完成回执离线收尾，不消耗生图或重置修复额度。拒绝未知图片/资源、跨任务和interrupted假成功。
+- 验证入口为生产produce_to、同Revision下一Attempt恢复及HTTP产物读回；先隔离单元/故障注入覆盖新旧协议，再以原失败冻结Skill的副本调用真实Codex生成一图。真实测试隔离SQLite/output、独立thread，旧失败原件不动；正式服务有任务不重启。
+
+- 响应凭证：SDK最终响应的原始字节摘要由宿主写入Checkpoint，再校验同一thread/turn的completed回执；模型预写工作文件不能充当SDK成功响应。已完成任务的离线恢复也校验摘要，证据改变即停止，不回退成新一轮生图。图片编号仍由现有ImageAssetStore接收事件、核验哈希后发放，模型只能选择编号。
+- 本地验证：新协议10/10通过，收图/交付恢复/旧会话连续性/环境分类65/65通过；native production、native run wiring、completed turn三个smoke通过，编译与diff-check通过。故障注入覆盖模型自写索引不生效、未知图片/资源最多一次只修交付、宿主写失败的离线收尾、中断后复用原图、伪造/篡改回执拒绝和旧Checkpoint保持file-v1。旧传输夹具显式固定历史协议，新测试直接走默认新协议；它们不是模型质量评测。
+- 开发中保留的失败事实：新测试发现dict误用只接受Pydantic的原子JSON写入函数，已改为正确序列化；交叉审查复现模型预写伪回执+宿主保存失败后的误信任，增加宿主摘要及回归。测试迁移曾误用固定旧协议的辅助函数、篡改恢复用例曾断言错误的异常类型，均修正夹具/预期而非放宽结果。真实Codex验证只提交一次，没有靠反复生成挑成功结果。
+- 真实链路：`tmp/structured-handoff-real-20261024-a/report.json`，使用原important失败任务的两份冻结Skill完整副本、3张实际参考图片和原选题（额外明确只交付1图）；独立SQLite/Run/新thread `01a16cd5-9ce3-7f00-94ba-3de163452d4a`。2026-10-24 15:34–15:40完成，接收1图/选用1图/未使用repair；SDK结构化回执无图片路径和内容文件路径，宿主组装后HTTP详情/图片均200、状态awaiting_approval。input 200638（cached 137216）/ output 8776（其中reasoning 6043）；不据此声称Token降低或美学质量合格。最新代码离线读回亦通过响应摘要检查。
+- 原Run `8f81a2db-ccf7-4973-b09c-ad873b79dbf8`的失败行与原Attempt逐文件哈希前后相同；旧RSI、图片与分数无写入。正式服务仍PID27724，检查时有7条queued，未重启、未重放、未领取正式任务；正式进程尚未加载本次代码。
+
+## 冻结 Skill 路径误抄诊断（2026-10-24，原失败保留；新任务修复见上）
 
 - 正式失败Run8f81a2db对应important词群；程序的composition_request/冻结目录和SDK初始cwd都包含b09c，但模型第一次读取把Run ID抄成b09b，第二次又把不存在的b09b/work显式设为cwd。原始SDK会话两次工具回执分别为文件不存在和CreateProcessAsUserW 267，不是Skill冲突、商店版Shell或冻结文件丢失。
 - 本机只读复现错误绝对路径读取失败、错误cwd报267；在真实b09c/work用同一便携PowerShell、login=false读取../skills/mind/SKILL.md及../skills/production/SKILL.md成功（246/2099字符）。原任务Checkpoint无交付页、已接收图片列表为空；未恢复或重新提交生产。

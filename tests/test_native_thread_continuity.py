@@ -14,6 +14,10 @@ from tests.smoke_native_production import NativeTransport, Turn, create_pair, im
 
 class NativeThreadContinuityTests(unittest.TestCase):
     def setUp(self):
+        # Preserve coverage of existing file-v1 Revision/Attempt recovery.
+        legacy = patch("creatoros.integrations.native_production.DEFAULT_HANDOFF", "file-v1")
+        legacy.start()
+        self.addCleanup(legacy.stop)
         self.temp = TemporaryDirectory(prefix="native-thread-continuity-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

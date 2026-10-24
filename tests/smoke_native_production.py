@@ -214,12 +214,15 @@ class Turn:
 
 
 def producer_request(producer, directory, pair, skills_root, *, cancel_event=None):
-    return producer.produce_to(
-        directory=directory, pack_id="run-r001", creator_id="creator-test", series_id="series-test",
-        topic_id="topic-test", topic_title="Native production", topic_brief="A scoped smoke test",
-        series_description="", audience="", composition=pair, skills_root=skills_root,
-        production_protocol="native-v1", cancel_event=cancel_event,
-    )
+    # These fixtures deliberately exercise the historical file-index contract.
+    # New default structured handoff has its own full producer tests.
+    with patch("creatoros.integrations.native_production.DEFAULT_HANDOFF", "file-v1"):
+        return producer.produce_to(
+            directory=directory, pack_id="run-r001", creator_id="creator-test", series_id="series-test",
+            topic_id="topic-test", topic_title="Native production", topic_brief="A scoped smoke test",
+            series_description="", audience="", composition=pair, skills_root=skills_root,
+            production_protocol="native-v1", cancel_event=cancel_event,
+        )
 
 
 def create_pair(root):
@@ -569,7 +572,8 @@ def main():
         # A single mature Skill retains its one-turn path without a composition review.
         NativeTransport.reset(generated_root, "success")
         maker = catalog.locate(pair.production.id)
-        with patch("openai_codex.AsyncCodex", NativeTransport):
+        with patch("openai_codex.AsyncCodex", NativeTransport), patch(
+                "creatoros.integrations.native_production.DEFAULT_HANDOFF", "file-v1"):
             single = producer.produce_to(
                 directory=root / "single" / "revision-001" / "attempt-001", pack_id="single-r001",
                 creator_id="creator-test", series_id="series-test", topic_id="topic-test",
