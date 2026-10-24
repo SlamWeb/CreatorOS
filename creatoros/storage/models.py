@@ -296,6 +296,30 @@ class TopicRemoval(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
+class MediaCollection(TimestampMixin, Base):
+    """Account-owned references to verified historical images, never image copies."""
+    __tablename__ = "media_collections"
+    __table_args__ = (
+        UniqueConstraint("creator_id", "request_id"),
+        CheckConstraint("version > 0", name="version_positive"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    creator_id: Mapped[str] = mapped_column(
+        ForeignKey("creators.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    topic_id: Mapped[str | None] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    create_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_ids_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    order_ids_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    excluded_ids_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
+
+
 class PendingOperation(TimestampMixin, Base):
     __tablename__ = "pending_operations"
     __table_args__ = (

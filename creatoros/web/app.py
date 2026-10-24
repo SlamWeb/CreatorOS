@@ -70,6 +70,8 @@ from .reference_routes import reference_routes
 from .run_routes import review_routes
 from .publication_routes import publication_routes
 from .analytics_routes import analytics_routes
+from .media_collections import MediaCollectionService
+from .media_collection_routes import media_collection_routes
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_image_actions import chat_image_action_routes
@@ -212,6 +214,7 @@ def create_app(
     app.state.publishing = publishing
     app.state.feedback = feedback
     app.state.queries = queries
+    app.state.media_collections = MediaCollectionService(db, artifacts)
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
@@ -243,6 +246,7 @@ def create_app(
     app.include_router(review_routes(runs, queries, artifacts, publications))
     app.include_router(publication_routes(publishing))
     app.include_router(analytics_routes(feedback))
+    app.include_router(media_collection_routes(app.state.media_collections))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):

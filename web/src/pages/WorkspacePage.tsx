@@ -12,6 +12,7 @@ import { SkillInspector } from "../components/SkillInspector";
 import { SkillReferenceButton } from "../components/SkillReferenceButton";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
+import { MediaCollections } from "../components/MediaCollections";
 import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./workspace.css";
 
@@ -156,7 +157,7 @@ export function WorkspacePage() {
       const creatorId = owner === undefined ? selected?.creator_id : owner;
       if (creatorId) next.set("creator", creatorId);
       else next.delete("creator");
-      for (const key of ["offset", "select", "research", "operation", "topic", "view"]) next.delete(key);
+      for (const key of ["offset", "select", "research", "operation", "topic", "view", "collection", "collection_topic"]) next.delete(key);
       if (!keepFilter) next.delete("topics");
       return next;
     });
@@ -168,7 +169,7 @@ export function WorkspacePage() {
     if (chat.isOpen && selected) chat.open({ creatorId: selected.id, accountName: selected.display_name });
     setParams(previous => {
       const next = new URLSearchParams(previous); next.set("creator", id);
-      for (const key of ["series", "topics", "offset", "select", "research", "operation", "topic", "chat"]) next.delete(key);
+      for (const key of ["series", "topics", "offset", "select", "research", "operation", "topic", "chat", "collection", "collection_topic"]) next.delete(key);
       return next;
     });
   }
@@ -258,14 +259,14 @@ export function WorkspacePage() {
       {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {params.has("creator") && !account && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && (series || params.get("view") !== "data") && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
+      {account && (series || !["data", "materials"].includes(params.get("view") ?? "")) && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={() => setSeriesDraft({name:"",creatorId:scopedCreatorId})}>新建栏目</button>}
       </header>
-      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"}].map(tab => <button key={tab.value} type="button" aria-pressed={(params.get("view") === "data" ? "data" : "content") === tab.value}
-        onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value === "data") next.set("view","data"); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
-      {account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
+      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials"].includes(params.get("view") ?? "") ? params.get("view") : "content") === tab.value}
+        onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value !== "content") next.set("view",tab.value); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
+      {account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
       {!!accountSeries.some(item => item.topic_count > 0) && <>{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
         accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}

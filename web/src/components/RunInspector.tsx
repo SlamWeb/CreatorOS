@@ -53,6 +53,8 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills, retry: false,
     enabled: runSkills(run).length > 0 });
   const usedSkills = runSkills(run);
+  const frozenCreatorId = typeof run.input_snapshot.creator_id === "string" ? run.input_snapshot.creator_id : null;
+  const collectionLink = frozenCreatorId ? `/?${new URLSearchParams({ creator: frozenCreatorId, view: "materials", collection_topic: run.topic_id })}` : null;
   const observationNode = btoa(JSON.stringify(["run", run.id])).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
   const { events, connection } = useRunEvents(run.id, ["queued", "producing", "validating", "running"].includes(run.status));
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);
@@ -81,6 +83,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
     <div className="inspector-grid">
       <section className="inspector-visual" aria-label="产物图片">
         <div className="run-visual-toolbar">
+          {collectionLink && <Link className="button button-secondary" to={collectionLink}>素材文件夹</Link>}
           <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)} disabled={!run.revisions.length}>{missingRevision ? <option value="" disabled>版本不存在</option> : null}{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select>
         {revision?.cards.length && revision.review_digest ? <ArtifactDownload key={`${run.id}-${revision.id}-${revision.review_digest}`} runId={run.id} title={run.topic_title} revision={revision} /> : null}
         {revision?.cards.length && revision.review_digest ? <Link className="button button-secondary" to={`/calibrate?run=${encodeURIComponent(run.id)}&revision=${encodeURIComponent(revision.id)}`}>改进 Skill</Link> : null}
