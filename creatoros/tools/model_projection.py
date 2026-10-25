@@ -7,6 +7,7 @@ in the next model request. Explicit Skill reads retain the complete requested
 text, file tree and edit digest. Unknown tools/text keep their existing contract.
 """
 from copy import deepcopy
+from collections import Counter
 import json
 from typing import Any
 
@@ -130,6 +131,54 @@ _DISCUSSION_TOOLS = {"discuss_content_run", "get_content_discussion"}
 _SERIES_WRITE_TOOLS = {"compose_series", "update_series_composition", "assign_series"}
 _EXTRACTION_TOOLS = {"extract_skill_from_images", "extract_skills_from_artifact",
                      "revise_extracted_skills", "get_skill_extraction"}
+_EXTRACTION_WRITES = {"edit_extracted_skills", "save_extracted_skills", "cancel_skill_extraction"}
+_JOB_RECEIPT = ("id", "status", "name", "description", "display_name", "task_kind", "mode",
+                "digest", "revision", "operation", "queue_state", "note", "error", "error_type",
+                "error_message", "last_known_status", "next_action", "url", "allowed_actions", "cancel_requested")
+_SKILL_BATCH = ("status", "partial", "completed", "applied_count", "total_count",
+                "outcome_unknown", "failed_index", "applied", "failed")
+
+
+def _skill_job(data: dict, *, receipt_only: bool = False, explicit_read: bool = False) -> dict:
+    """Submit/write/list receipts are slim; explicit reads keep unique inputs and drafts."""
+    if "items" in data:
+        result = _pick(data, ("page",))
+        result["items"] = _list(data["items"], lambda item:
+            _skill_job(item, receipt_only=True) if isinstance(item, dict) else deepcopy(item))
+        return result
+    pending = data.get("status") in {"queued", "running", "unknown"} or bool(data.get("operation"))
+    if receipt_only or (pending and not explicit_read):
+        result = _pick(data, _JOB_RECEIPT)
+        if "skills" in data:
+            result["skills"] = _list(data["skills"], lambda skill:
+                _pick(skill, ("name", "description", "display_name", "role", "output_kind")))
+        if "saved_skills" in data:
+            result["saved_skills"] = _list(data["saved_skills"], lambda skill: _pick(skill, _SKILL + ("digest",)))
+        if pending:
+            result["next_action"] = "wait_background"
+        return result
+
+    # Keep distinct reference text and all draft files; only remove transport
+    # bookkeeping and literal duplicate text, never summarise/rewrite the body.
+    result = {key: deepcopy(value) for key, value in data.items() if key not in {
+        "progress", "progress_directory", "draft_directory", "thread_id", "request_id",
+        "created_at", "updated_at", "queue", "actions"}}
+    bodies = [skill["skill_md"] for skill in data.get("skills", [])
+              if isinstance(skill, dict) and isinstance(skill.get("skill_md"), str)]
+    content, source = data.get("content"), data.get("source_text")
+    if data.get("task_kind") == "author":
+        for key, value in (("content", content), ("source_text", source)):
+            if isinstance(value, str) and value and any(value in body for body in bodies):
+                result.pop(key, None)
+    if isinstance(content, str) and content and content == source:
+        result.pop("content", None)  # source_text names the original, not the current draft
+    if "saved_skills" in result:
+        result["saved_skills"] = _list(result["saved_skills"], lambda skill: _pick(skill, _SKILL + ("digest",)))
+    if pending:
+        result["next_action"] = "wait_background"
+    return result
+
+
 PROJECTED_TOOLS = frozenset({
     "list_creators", "list_creator_series", "list_series_topics", "list_producer_skills",
     "get_producer_skill", "update_producer_skill_file", "get_creator_tasks",
@@ -138,20 +187,23 @@ PROJECTED_TOOLS = frozenset({
     "manage_skill_iteration",
     "manage_topics",
     "manage_media_collection",
-}) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS
+}) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS | _EXTRACTION_WRITES
 
 
 def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> Any:
     """Copy the next-step facts, never overwrite or reinterpret the source DTO."""
     if tool_name not in PROJECTED_TOOLS or not isinstance(data, dict):
         return deepcopy(data)
-    if tool_name in _EXTRACTION_TOOLS:
-        # Public activity is streamed to the UI, not repeated in every model
-        # request. Preserve the actual draft/files/digests and business status.
-        result = {key: deepcopy(value) for key, value in data.items() if key != "progress"}
-        if data.get("status") in {"queued", "running", "unknown"} or data.get("operation"):
-            result["next_action"] = "wait_background"
-        return result
+    if tool_name in _EXTRACTION_TOOLS | _EXTRACTION_WRITES:
+        if is_error:
+            result = _pick(data, _JOB_RECEIPT) | _error(data)
+            if "saved_skills" in data:
+                result["saved_skills"] = _list(data["saved_skills"], lambda skill: _pick(skill, _SKILL + ("digest",)))
+            return result
+        return _skill_job(data, receipt_only=tool_name in _EXTRACTION_WRITES,
+                          explicit_read=tool_name == "get_skill_extraction")
+    if is_error and tool_name == "update_producer_skill_file":
+        return _error(data) | _pick(data, _SKILL + ("digest",) + _SKILL_BATCH)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
     if tool_name == "manage_media_collection":
@@ -219,7 +271,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return _items(data, _SKILL + (("digest",) if data.get("include_versions") else ()))
     if tool_name in {"get_producer_skill", "update_producer_skill_file"}:
         # A requested file's contents are data: do not sanitize/truncate its body.
-        result = _pick(data, _SKILL + ("path", "kind", "content", "digest", "operation"))
+        result = _pick(data, _SKILL + ("path", "kind", "content", "content_ref", "digest", "operation"))
         if "page" in data:
             result["page"] = _pick(data["page"], _PAGE)
         if "files" in data:
@@ -229,6 +281,11 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         if "bindings" in data:
             result["bindings"] = _list(data["bindings"], lambda row:
                 _pick(row, ("series_id", "series_name", "role", "skill_id", "revision")))
+        if tool_name == "update_producer_skill_file":
+            # The caller just supplied the exact text. Keep the authoritative
+            # saved identity/digest, not a second copy of the write arguments.
+            result.pop("content", None)
+            result.update(_pick(data, _SKILL_BATCH))
         return result
     if tool_name in _RUN_TOOLS:
         if "items" in data:
@@ -301,11 +358,20 @@ def project_model_content(tool_name: str, content: str, *, is_error: bool = Fals
 def project_tool_messages(messages: list[dict]) -> list[dict]:
     """Keep the ledger/archive original; project only the outbound model view."""
     names = {}
+    arguments = {}
+    visible_skill_text = {}
     projected = deepcopy(messages)
+    call_ids = Counter(call["id"] for message in projected for call in message.get("tool_calls", [])
+                       if isinstance(call, dict) and isinstance(call.get("id"), str))
     for message in projected:
         for call in message.get("tool_calls", []):
             if isinstance(call, dict) and "id" in call:
                 names[call["id"]] = (call.get("function") or {}).get("name", call.get("name"))
+                raw = (call.get("function") or {}).get("arguments", call.get("arguments", {}))
+                try:
+                    arguments[call["id"]] = json.loads(raw) if isinstance(raw, str) else raw
+                except (TypeError, ValueError):
+                    arguments[call["id"]] = {}
         if message.get("role") != "tool":
             continue
         name = names.get(message.get("tool_call_id"))
@@ -317,4 +383,39 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
             prefix, body = content.split("\n", 1)
             prefix += "\n"
         message["content"] = prefix + project_model_content(name, body, is_error=bool(prefix))
+        if name in {"get_producer_skill", "get_skill_extraction"} and not prefix:
+            try:
+                if call_ids[message.get("tool_call_id")] != 1:
+                    continue  # Legacy reused IDs cannot identify a unique earlier result.
+                view = json.loads(message["content"])
+                args = arguments.get(message.get("tool_call_id")) or {}
+                identity = view.get("skill_id") or view.get("id") or args.get("skill_id")
+                digest = view.get("digest")
+                if not isinstance(identity, str) or not identity:
+                    continue
+                if name == "get_producer_skill" and (not isinstance(digest, str) or not digest):
+                    continue
+                changed = False
+                fields = ("content",) if name == "get_producer_skill" else ("content", "source_text", "instruction")
+                targets = [(view, field, field) for field in fields]
+                if name == "get_skill_extraction" and isinstance(view.get("skills"), list):
+                    targets.extend((skill, "skill_md", f"skills[{index}].skill_md")
+                                   for index, skill in enumerate(view["skills"]) if isinstance(skill, dict))
+                for container, field, location in targets:
+                    text = container.get(field)
+                    if not isinstance(text, str) or not text:
+                        continue
+                    key = (name, identity, view.get("path", args.get("path", "SKILL.md")), digest,
+                           json.dumps([view.get("page"), view.get("revision"), view.get("operation")], sort_keys=True), location, text)
+                    # References never outlive their full text in this request.
+                    if key in visible_skill_text:
+                        container.pop(field)
+                        container[field + "_ref"] = {"tool_call_id": visible_skill_text[key], "field": location}
+                        changed = True
+                    else:
+                        visible_skill_text[key] = message["tool_call_id"]
+                if changed:
+                    message["content"] = project_model_content(name, json.dumps(view, ensure_ascii=False))
+            except (ValueError, TypeError, AttributeError):
+                pass  # Unexpected shapes retain the ordinary projected result.
     return projected

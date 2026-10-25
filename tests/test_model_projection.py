@@ -123,14 +123,14 @@ class ModelProjectionTests(unittest.TestCase):
         self.assertNotIn("input_snapshot", result)
         self.assertNotIn("message", result)
 
-    def test_skill_read_and_edit_keep_full_text_digest_and_paging(self):
+    def test_explicit_skill_read_keeps_full_text_digest_and_paging(self):
         body = "说明 local_path/thread_id 都是本文示例，不应修改\n" * 3000
         data = {"id": "skill-a", "name": "words", "description": "教学", "role": "mind",
                 "path": "SKILL.md", "kind": "markdown", "content": body,
                 "digest": "c" * 64, "editable": True, "local_path": "D:/private/working",
                 "source_digest": "d" * 64,
                 "page": {"offset": 0, "limit": 2000, "total_chars": 20000, "has_more": True, "next_offset": 2000}}
-        for tool in ("get_producer_skill", "update_producer_skill_file"):
+        for tool in ("get_producer_skill",):
             with self.subTest(tool=tool):
                 result = project_model_data(tool, data)
                 self.assertEqual(result["content"], body)

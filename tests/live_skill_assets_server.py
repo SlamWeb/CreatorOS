@@ -35,6 +35,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8896)
     parser.add_argument("--original-png", type=Path, required=True)
     parser.add_argument("--replacement-png", type=Path, required=True)
+    parser.add_argument("--old-reference-count", type=int, choices=range(1, 7), default=None,
+                        help="Optional numbered old references for a real frontend batch replacement probe")
     args = parser.parse_args()
     root = args.root.resolve()
     if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()):
@@ -85,9 +87,15 @@ def main() -> None:
                 f"# {name}\n\n")
         if with_assets:
             (source / "assets").mkdir()
-            shutil.copy2(images[0], source / "assets" / "reference.png")
-            shutil.copy2(images[1], source / "assets" / "unused.png")
-            body += "保留这张原始参考图：![原始参考图](assets/reference.png)\n"
+            if args.old_reference_count:
+                for index in range(1, args.old_reference_count + 1):
+                    filename = f"reference-{index:02d}.png"
+                    shutil.copy2(images[(index - 1) % 2], source / "assets" / filename)
+                    body += f"参考{index}：![参考{index}](assets/{filename})\n"
+            else:
+                shutil.copy2(images[0], source / "assets" / "reference.png")
+                shutil.copy2(images[1], source / "assets" / "unused.png")
+                body += "保留这张原始参考图：![原始参考图](assets/reference.png)\n"
         else:
             body += "独立验证用，勿生产。\n"
         (source / "SKILL.md").write_text(body, encoding="utf-8", newline="")
@@ -109,6 +117,7 @@ def main() -> None:
              "creator_a": "skill-assets-a", "creator_b": "skill-assets-b",
              "series_a": "skill-assets-series-a", "series_b": "skill-assets-series-b",
              "skill_ids": {name: item["id"] for name, item in records.items()},
+             "old_reference_count": args.old_reference_count,
              "input_pngs": [{"path": str(path), "sha256": digest} for path, digest in zip(images, image_hashes)]}
     (root / "setup.json").write_text(json.dumps(setup, ensure_ascii=False, indent=2), encoding="utf-8")
 

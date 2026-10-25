@@ -12,6 +12,7 @@ from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
 from .research_wait import observe_research
 from ..runs.models import SkillOverrides
+from .skill_edit_batch import SkillEditChangeArgs, apply_skill_edit_batch
 
 
 class ResearchTopicsArgs(BaseModel):
@@ -274,10 +275,16 @@ class ProducerSkillArgs(BaseModel):
     offset: int = Field(default=0, ge=0, description="正文字符分页起点；有更多内容时按 page.has_more 继续。")
     limit: int = Field(default=2000, ge=1, le=4000, description="本页最多字符数，最大 4000。")
     path: str | None = Field(default=None, max_length=512,
-                             description="只读取指定 Markdown/UTF-8 文本；路径须先从 list_files=true 的结果取得。"
-                                         "图片路径返回能力错误，文件列表不代表实际看图。")
-    list_files: bool = Field(default=False, description="true 时列出受管工作副本文件；不读取正文。")
-    include_versions: bool = Field(default=False, description="true 时读取该Skill家族所有版本、候选和digest，不读取正文。")
+                             description="只读取指定 Markdown/UTF-8 文本；已知根 SKILL.md 可直接读取，无需先列文件。"
+                                         "可与 list_files=true 一次返回文件树和该正文。图片路径仍不返回图像字节。")
+    list_files: bool = Field(default=False, description="true 时列出受管工作副本文件；与 path 同传可同时读取指定正文。")
+    include_versions: bool = Field(default=False, description="true 时只读取该 Skill 家族历史版本、候选和 digest；与 path/list_files 互斥。")
+
+    @model_validator(mode="after")
+    def exclusive_version_listing(self):
+        if self.include_versions and (self.path is not None or self.list_files):
+            raise ValueError("版本列表不能与正文或文件树读取组合。")
+        return self
 
 
 class ListProducerSkillsArgs(BaseModel):
@@ -291,20 +298,28 @@ class UpdateProducerSkillFileArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     skill_id: str = Field(pattern=r"^[a-z0-9-]+--[a-f0-9]{16}$",
                           description="从 list_producer_skills 取得的已安装 Skill ID。")
-    path: str = Field(min_length=1, max_length=512,
-        description="文字/替换/删除使用文件列表中的相对路径；新增图片使用 assets/ 下的新相对文件名。")
+    path: str | None = Field(default=None, min_length=1, max_length=512,
+        description="单项文字/图片操作的相对路径；批量编辑时每个 changes 项各自提供 path。")
     content: str | None = Field(default=None, max_length=512 * 1024,
                                description="write_text 时提供完整的新 UTF-8 文本；图片操作不传此字段。")
-    operation: Literal["write_text", "add_image", "replace_image", "delete_image"] = Field(
-        default="write_text", description="默认改文字；新增/替换/删除 assets 内的参考图分别用 add_image/replace_image/delete_image。")
+    operation: Literal["write_text", "add_image", "replace_image", "delete_image", "batch"] = Field(
+        default="write_text", description="默认单项改文字；图片使用 add_image/replace_image/delete_image；多项使用 batch。")
     attachment_id: str | None = Field(default=None, min_length=1, max_length=128,
         description="新增或替换图片时提供当前会话真实附件ID，不传任意图片路径或base64。")
     expected_digest: str = Field(pattern=r"^[a-f0-9]{64}$",
                                  description="get_producer_skill(list_files=true) 或 path 读取返回的当前工作副本 digest。"
                                              "分页正文不提供该值；禁止猜测或使用 source_digest。")
+    changes: list[SkillEditChangeArgs] | None = Field(default=None, min_length=1, max_length=20,
+        description="operation=batch 时按顺序执行 1–20 项；使用每项真实回执更新候选 ID 与 digest，失败即停，不回滚。")
 
     @model_validator(mode="after")
     def matching_content(self):
+        if self.operation == "batch":
+            if self.changes is None or self.path is not None or self.content is not None or self.attachment_id is not None:
+                raise ValueError("批量编辑需要 changes，不能混用顶层 path/content/attachment_id。")
+            return self
+        if self.changes is not None or self.path is None:
+            raise ValueError("单项编辑需要 path，且不能同时传 changes。")
         if self.operation == "write_text":
             if self.content is None or self.attachment_id is not None:
                 raise ValueError("改文字需要完整 content，不能同时传图片附件。")
@@ -339,8 +354,23 @@ def list_producer_skills(context=None, include_versions=False, family_skill_id=N
 
 
 def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=False, context=None, include_versions=False):
+    args = ProducerSkillArgs(skill_id=skill_id, offset=offset, limit=limit, path=path,
+                             list_files=list_files, include_versions=include_versions)
     if include_versions:
         return _call(lambda c: c.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/versions"), context)
+    if list_files and path is not None:
+        def query(client):
+            files = client.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files")
+            text = client.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files/text",
+                                  params={"path": path})
+            if files.get("digest") != text.get("digest"):
+                raise StudioClientError(
+                    "Skill 文件树与正文读取期间版本已变化；本次未合并不同版本。",
+                    "skill_digest_conflict", details={"current_digest": text.get("digest")},
+                )
+            return {**files, "path": text["path"], "kind": text["kind"],
+                    "content": text["content"]}
+        return _call(query, context)
     if list_files:
         return _call(lambda c: c.request(
             "GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files"), context)
@@ -352,10 +382,13 @@ def get_producer_skill(skill_id, offset=0, limit=2000, path=None, list_files=Fal
                                      params={"offset": offset, "limit": limit}), context)
 
 
-def update_producer_skill_file(skill_id, path, content=None, expected_digest=None, context=None,
-                               operation="write_text", attachment_id=None):
+def update_producer_skill_file(skill_id, path=None, content=None, expected_digest=None, context=None,
+                               operation="write_text", attachment_id=None, changes=None):
     values = UpdateProducerSkillFileArgs(skill_id=skill_id, path=path, content=content,
-        expected_digest=expected_digest, operation=operation, attachment_id=attachment_id)
+        expected_digest=expected_digest, operation=operation, attachment_id=attachment_id,
+        changes=changes)
+    if operation == "batch":
+        return apply_skill_edit_batch(skill_id, expected_digest, values.changes, context)
     if operation != "write_text":
         from .chat_images import _action
         return _action("skill-asset", values.model_dump(exclude_none=True), context)

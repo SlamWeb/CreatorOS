@@ -1,0 +1,61 @@
+import { expect, test } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+test("real DS replaces six references and Markdown in one Skill edit batch", async ({ page, request }) => {
+  const root = path.resolve(process.env.CREATOROS_MEDIA_AGENT_ROOT!);
+  const before = await request.get("/api/skill-assets-probe/evidence").then(r => r.json());
+  expect(before.setup.old_reference_count).toBe(6);
+  const originalId = before.setup.skill_ids["asset-live-main"];
+  const filesUrl = (id: string) => `/api/producer-skills/${id}/files`;
+  const original = await request.get(filesUrl(originalId)).then(r => r.json());
+  const images = before.setup.input_pngs.map((item: { path: string }) => item.path);
+  await page.goto("/?creator=skill-assets-a&series=skill-assets-series-a");
+  await page.getByRole("button", { name: "打开账号对话", exact: true }).click();
+  const panel = page.locator(".account-chat-panel");
+  await panel.locator('input[type=file][aria-label="选择图片文件"]').setInputFiles(images);
+  await expect(panel.locator('.chat-images[aria-label="待发送图片"] img')).toHaveCount(2);
+  const query = "把这两张作为「参考图栏目」的 asset-live-main Skill 新参考图，分别存成assets/new-one.png和assets/new-two.png。删掉原来的六张reference-01.png到reference-06.png，SKILL.md里的旧引用一起换成这两张，其他规则原样保留。保存候选即可，不切栏目、不入新选题、不生产。";
+  await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill(query);
+  const pending = page.waitForResponse(r => r.request().method() === "POST" && /\/turns$/.test(new URL(r.url()).pathname));
+  await panel.getByRole("button", { name: "发送 ↑", exact: true }).click();
+  const response = await pending;
+  expect(response.status(), await response.text()).toBe(202);
+  const accepted = await response.json();
+  await expect.poll(async () => (await request.get(`/api/agent/sessions/${accepted.id}`).then(r => r.json())).status,
+    { timeout: 180_000 }).toBe("idle");
+  const view = await request.get(`/api/agent/sessions/${accepted.id}`).then(r => r.json());
+  writeFileSync(path.join(root, "frontend-batch-result.json"), JSON.stringify({ query, ...view }, null, 2));
+  expect(view.error).toBeNull();
+  const calls = view.entries.filter((item: { kind: string }) => item.kind === "tool");
+  expect(calls.every((item: { status: string }) => item.status === "done")).toBe(true);
+  expect(calls.filter((item: { name: string }) => item.name === "update_producer_skill_file")).toHaveLength(1);
+  expect(calls.filter((item: { name: string }) => ["manage_topics", "list_creator_series", "list_producer_skills", "edit_extracted_skills"].includes(item.name))).toHaveLength(0);
+  const versions = await request.get(`/api/producer-skills/${originalId}/versions`).then(r => r.json());
+  const candidates = versions.items.filter((item: { version_status: string }) => item.version_status === "candidate");
+  expect(candidates).toHaveLength(1);
+  const candidate = candidates[0];
+  const afterFiles = await request.get(filesUrl(candidate.id)).then(r => r.json());
+  const candidateImages = afterFiles.files.filter((item: { kind: string }) => item.kind === "image");
+  expect(candidateImages.map((item: { path: string }) => item.path).sort()).toEqual(["assets/new-one.png", "assets/new-two.png"]);
+  const text = await request.get(`/api/producer-skills/${candidate.id}/files/text?path=SKILL.md`).then(r => r.json());
+  expect(text.content).toContain("assets/new-one.png");
+  expect(text.content).toContain("assets/new-two.png");
+  expect(text.content).not.toMatch(/reference-0[1-6]\.png/);
+  for (const [index, name] of ["new-one.png", "new-two.png"].entries()) {
+    const image = await request.get(`/api/producer-skills/${candidate.id}/files/content?path=assets/${name}`);
+    expect(image.ok()).toBe(true);
+    expect(createHash("sha256").update(await image.body()).digest("hex")).toBe(createHash("sha256").update(readFileSync(images[index])).digest("hex"));
+  }
+  expect((await request.get(filesUrl(originalId)).then(r => r.json())).digest).toBe(original.digest);
+  const after = await request.get("/api/skill-assets-probe/evidence").then(r => r.json());
+  expect(after.series).toEqual(before.series);
+  expect(after.runs_count).toBe(0);
+  expect(after.forbidden_calls).toEqual([]);
+  for (const file of before.files) expect(after.files).toContainEqual(file);
+  writeFileSync(path.join(root, "frontend-batch-evidence.json"), JSON.stringify({ original, candidate, afterFiles, before, after }, null, 2));
+  await expect(panel.locator(".chat-reply-actions")).toHaveCount(1);
+  await page.reload();
+  await expect(page.locator(".account-chat-panel .chat-reply-actions")).toHaveCount(1);
+});

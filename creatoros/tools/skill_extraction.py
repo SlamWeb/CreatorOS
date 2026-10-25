@@ -1,10 +1,12 @@
 """Agent adapters for the Studio artifact-to-Skill workflow."""
 import base64
+import json
 from pathlib import Path
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from creatoros.integrations.skill_extraction import DraftSkill, MAX_IMAGE, MAX_REFERENCE_IMAGES
+from creatoros.integrations.studio import StudioClientError
 
 from .builtins import _is_sensitive_path, _project_root
 from .results import ToolResult
@@ -173,8 +175,30 @@ def cancel_skill_extraction(job_id, context=None):
 
 
 def edit_extracted_skills(job_id, expected_digest, skills, context=None):
-    return _call(lambda client: client.request("POST", f"/api/skill-extractions/{quote(job_id, safe='')}/draft",
-        payload={"expected_digest": expected_digest, "skills": skills}), context)
+    path = f"/api/skill-extractions/{quote(job_id, safe='')}"
+    def edit(client):
+        try:
+            return client.request("POST", path + "/draft",
+                payload={"expected_digest": expected_digest, "skills": skills})
+        except StudioClientError as error:
+            if error.code != "conflict":
+                raise
+            # A user can save through the Web between chat turns. Resolve this
+            # specific stale lifecycle reference without retrying any write.
+            try:
+                current = client.request("GET", path)
+            except StudioClientError:
+                raise error
+            if current.get("status") != "saved":
+                raise error
+            return ToolResult(json.dumps({
+                "id": current["id"], "status": "saved",
+                "saved_skills": current.get("saved_skills", []),
+                "next_action": "edit_installed_skill",
+                "error_type": "skill_draft_already_saved",
+                "message": "草稿已入库，本次未修改。请用saved_skills的准确ID读取并编辑已安装Skill。",
+            }, ensure_ascii=False), True, "skill_draft_already_saved")
+    return _call(edit, context)
 
 
 def revise_extracted_skills(job_id, expected_digest, request_id, instruction, context=None):

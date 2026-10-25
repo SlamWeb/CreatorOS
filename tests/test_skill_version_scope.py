@@ -229,7 +229,11 @@ class SkillVersionScopeTests(unittest.TestCase):
                 "version_number": 2, "version_status": "candidate", "digest": "a" * 64,
                 "path": "SKILL.md", "content": "full body", "local_path": "D:/private"}
         projected = project_model_data("update_producer_skill_file", data)
-        self.assertEqual(projected, {key: value for key, value in data.items() if key != "local_path"})
+        # A write receipt keeps the actual candidate identity/digest. Its body
+        # is already present in the assistant's unchanged write arguments.
+        self.assertEqual(projected, {key: value for key, value in data.items() if key not in {"local_path", "content"}})
+        read = project_model_data("get_producer_skill", data)
+        self.assertEqual(read["content"], data["content"])
 
 
 if __name__ == "__main__":
