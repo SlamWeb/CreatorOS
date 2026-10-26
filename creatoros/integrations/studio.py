@@ -94,7 +94,7 @@ class StudioClient:
         return self.request("GET", f"/api/runs/{quote(run_id, safe='')}")
 
     def run_summary(self, run: dict, *, accepted: bool = False) -> dict:
-        fields = ("id", "creator_id", "creator_name", "series_id", "series_name", "topic_id",
+        fields = ("id", "creator_id", "creator_name", "series_id", "series_name", "topic_id", "task_id", "production_collection_id",
                   "topic_title", "status", "version", "active_revision_number", "allowed_actions",
                   "error_type", "error_message", "card_count", "production_queue", "latest_run_id")
         result = {key: run.get(key) for key in fields}

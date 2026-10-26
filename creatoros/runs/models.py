@@ -49,6 +49,8 @@ class ContentRunInput(RunModel):
     series_revision: int | None = None
     topic_source: str | None = None
     topic_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
+    task_id: str | None = None
+    task_skill_summary: str | None = None
     topic_title: str = Field(min_length=1)
     topic_brief: str | None = None
     task_references: TaskReferences | None = None

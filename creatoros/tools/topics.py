@@ -8,7 +8,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .results import ToolResult
-from .studio import QueueTopicItem, _call, list_series_topics, queue_topics
+from .studio import QueueTopicItem, _call, list_series_topics, queue_topics, production_tasks_receipt
 
 
 class TopicQuery(BaseModel):
@@ -104,7 +104,14 @@ def manage_topics(action, series_id=None, topic_id=None, query=None, topics=None
         return _decorate(queue_topics(series_id, topics, context=context), action)
     path = f"/api/topics/{quote(topic_id, safe='')}"
     if action == "get":
-        return _decorate(_call(lambda client: _topic_read(client.request("GET", path)), context), action)
+        def read(client):
+            data = client.request("GET", path)
+            result = _topic_read(data)
+            if data.get("production_task_count", 0) > 0:
+                result["production_tasks"] = production_tasks_receipt(
+                    client.request("GET", f"{path}/production-tasks"), context)
+            return result
+        return _decorate(_call(read, context), action)
     if action == "update":
         patch = TopicChanges.model_validate(changes).model_dump(exclude_none=True)
         payload = {**patch, "expected_digest": expected_digest}

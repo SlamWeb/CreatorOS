@@ -215,7 +215,7 @@ tool_registry = {
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs, expose_to_model=False),
-        Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。单条可用skill_overrides指定准确Skill版本（含候选）及expected_digests；先用get_producer_skill(include_versions=true)或文件列表取真实ID/digest，不必切换栏目，只冻结本次选择。批量和参考图入口暂不混用版本覆盖。用户给参考图且已明确制作时直接用series_id/title/完整instructions/attachment_ids，不需先调研；默认只参考内容，可reference_presentation=true。按最新或指定版清空上下文重做用mode=fresh和来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；未知先查同一任务，不盲目重提。",
+        Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。一个选题需多组独立Skill/几十张素材时用topic_id+tasks，每项title/完整brief/可选skill_overrides，后台并行后汇总一个素材集；不复制父Topic，不能混用fresh、批量选题或顶层版本覆盖。后续manage_topics(get)查该选题任务，失败沿原Run恢复/重做，不再创建任务。单条可用skill_overrides指定准确Skill版本（含候选）及expected_digests；先用get_producer_skill(include_versions=true)或文件列表取真实ID/digest，不必切换栏目，只冻结本次选择。批量和参考图入口暂不混用版本覆盖。用户给参考图且已明确制作时直接用series_id/title/完整instructions/attachment_ids，不需先调研；默认只参考内容，可reference_presentation=true。按最新或指定版清空上下文重做用mode=fresh和来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；未知先查同一任务，不盲目重提。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),

@@ -211,7 +211,8 @@ def adopt_completed_replay(service, run_id, source, *, expected_version, expecte
             run.status, run.producer_thread_id = ContentRunStatus.AWAITING_APPROVAL, verified["thread_id"]
             run.failure_stage = run.error_type = run.error_message = run.completed_at = None
             run.retryable = False
-            topic.status = TopicStatus.READY
+            if run.task_id is None:
+                topic.status = TopicStatus.READY
             item = session.scalar(select(ProductionQueueItem).where(
                 ProductionQueueItem.run_id == run_id, ProductionQueueItem.revision_id == revision.id))
             if item:

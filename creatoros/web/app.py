@@ -73,6 +73,8 @@ from .publication_routes import publication_routes
 from .analytics_routes import analytics_routes
 from .media_collections import MediaCollectionService
 from .media_collection_routes import media_collection_routes
+from .production_task_routes import production_task_routes
+from creatoros.runs.production_tasks import ProductionTaskService
 from .static import mount_studio
 from .chat import AgentChatService
 from .chat_image_actions import chat_image_action_routes
@@ -216,6 +218,7 @@ def create_app(
     app.state.feedback = feedback
     app.state.queries = queries
     app.state.media_collections = MediaCollectionService(db, artifacts)
+    app.state.production_tasks = ProductionTaskService(db, runs, executor)
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
@@ -248,6 +251,7 @@ def create_app(
     app.include_router(publication_routes(publishing))
     app.include_router(analytics_routes(feedback))
     app.include_router(media_collection_routes(app.state.media_collections))
+    app.include_router(production_task_routes(app.state.production_tasks))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):

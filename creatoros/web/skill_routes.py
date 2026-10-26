@@ -93,7 +93,9 @@ def skill_routes(database, service):
             for representative in service.catalog.list():
                 identity = representative["id"]
                 if identity == service.catalog.BUILTIN_ID:
-                    items[identity] = representative
+                    items[identity] = {**representative, "family_id": identity,
+                        "version_number": 1, "version_status": "released",
+                        "digest": service.catalog.list_skill_files(identity)["digest"]}
                     continue
                 for item in service.catalog.list_skill_versions(identity)["items"]:
                     items[item["id"]] = item

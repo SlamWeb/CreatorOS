@@ -54,7 +54,8 @@ export function RunInspector({ run }: { run: RunDetail }) {
     enabled: runSkills(run).length > 0 });
   const usedSkills = runSkills(run);
   const frozenCreatorId = typeof run.input_snapshot.creator_id === "string" ? run.input_snapshot.creator_id : null;
-  const collectionLink = frozenCreatorId ? `/?${new URLSearchParams({ creator: frozenCreatorId, view: "materials", collection_topic: run.topic_id })}` : null;
+  const collectionLink = frozenCreatorId ? `/?${new URLSearchParams({ creator: frozenCreatorId, view: "materials",
+    ...(run.production_collection_id ? { collection: run.production_collection_id } : { collection_topic: run.topic_id }) })}` : null;
   const observationNode = btoa(JSON.stringify(["run", run.id])).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
   const { events, connection } = useRunEvents(run.id, ["queued", "producing", "validating", "running"].includes(run.status));
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);

@@ -78,11 +78,24 @@ def block_reasons(session, topics, runs, discussions=None) -> dict[str, str]:
 
 
 def topic_view(topic: Topic, runs, *, management_actions=None) -> TopicView:
-    related = sorted((run for run in runs if run.topic_id == topic.id),
+    all_related = sorted((run for run in runs if run.topic_id == topic.id),
                      key=lambda item: (item.created_at, item.id), reverse=True)
+    related = [run for run in all_related if run.task_id is None]
+    task_runs = {}
+    for child in all_related:
+        if child.task_id:
+            task_runs.setdefault(child.task_id, child)
+    collection_id = None
+    if task_runs:
+        from sqlalchemy.orm import object_session
+        from creatoros.storage import ProductionTask
+        session = object_session(topic)
+        if session is not None:
+            task = session.get(ProductionTask, next(iter(task_runs)))
+            collection_id = task.collection_id if task else None
     run = related[0] if related else None
     if run is None:
-        actions = ["start"] if topic.status.value == "queued" else ["view"]
+        actions = ["start"] if topic.status.value == "queued" and not task_runs else ["view"]
     elif run.status is ContentRunStatus.QUEUED:
         actions = ["start", "view"]
     elif run.status in {ContentRunStatus.INTERRUPTED, ContentRunStatus.FAILED} and (
@@ -94,7 +107,11 @@ def topic_view(topic: Topic, runs, *, management_actions=None) -> TopicView:
         source=topic.source.value, status=topic.status.value, position=topic.position,
         existing_run_id=run.id if run else None, existing_run_status=run.status.value if run else None,
         existing_run_version=run.version if run else None, available_actions=actions,
-        edit_digest=edit_digest(topic), management_actions=management_actions or ["get"])
+        edit_digest=edit_digest(topic), management_actions=management_actions or ["get"],
+        production_task_count=len(task_runs), production_collection_id=collection_id,
+        production_task_active_count=sum(child.status in {
+            ContentRunStatus.QUEUED, ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING
+        } for child in task_runs.values()))
 
 
 def read_edit_receipt(session, topic_id: str, request_id: str):

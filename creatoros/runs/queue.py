@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 
 from creatoros.storage.models import ContentRun, ContentRunStatus, ProductionQueueItem, TopicRemoval
 from .service import ContentRunError
@@ -51,14 +51,18 @@ class ProductionQueue:
             session.flush()
             return item
 
-    def next_pending(self, *, excluded_topics: set[str] | None = None) -> ProductionQueueItem | None:
+    def next_pending(self, *, excluded_topics: set[str] | None = None,
+                     excluded_tasks: set[str] | None = None) -> ProductionQueueItem | None:
         with self.database.session() as session:
-            query = select(ProductionQueueItem).where(ProductionQueueItem.status == "pending")
+            query = select(ProductionQueueItem).join(ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
+                ProductionQueueItem.status == "pending")
+            legacy = [ContentRun.task_id.is_(None)]
+            tasks = [ContentRun.task_id.is_not(None)]
             if excluded_topics:
-                # A business interrupt can precede actual subprocess cleanup.
-                # Do not overlap another Run of that topic until its Future exits.
-                query = query.join(ContentRun, ProductionQueueItem.run_id == ContentRun.id).where(
-                    ContentRun.topic_id.not_in(excluded_topics))
+                legacy.append(ContentRun.topic_id.not_in(excluded_topics))
+            if excluded_tasks:
+                tasks.append(ContentRun.task_id.not_in(excluded_tasks))
+            query = query.where(or_(and_(*legacy), and_(*tasks)))
             return session.scalar(query.order_by(ProductionQueueItem.submitted_at, ProductionQueueItem.id).limit(1))
 
     def transition(self, item_id: int, status: str, error: str | None = None):

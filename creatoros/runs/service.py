@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from functools import wraps
@@ -28,6 +29,8 @@ from creatoros.storage import (
     TopicRemoval,
     TopicStatus,
     SkillIteration,
+    ProductionTask,
+    MediaCollection,
 )
 
 from .artifacts import validate_artifact
@@ -162,8 +165,18 @@ class ContentRunService:
         if not token or len(token) > 128:
             raise ContentRunError("重做请求标识必须为 1～128 个字符。", code="invalid_request", status_code=422)
         source = self.get(source_run_id)
+        if source.task_id is not None and skill_overrides is None:
+            frozen = ContentRunInput.model_validate(source.input_snapshot_json)
+            if frozen.composition is not None:
+                skill_overrides = SkillOverrides(mind_skill_id=frozen.composition.mind.id,
+                    production_skill_id=frozen.composition.production.id,
+                    expected_digests={frozen.composition.mind.id: frozen.composition.mind.digest,
+                                      frozen.composition.production.id: frozen.composition.production.digest})
+            else:
+                skill_overrides = SkillOverrides(skill_id=frozen.skill_name,
+                    expected_digests={frozen.skill_name: frozen.skill_digest})
         return self._create(
-            source.topic_id, idempotency_key=f"fresh:{token}",
+            source.topic_id, idempotency_key=f"fresh:{token}", task_id=source.task_id,
             origin_session_id=origin_session_id, context_snapshot_ref=context_snapshot_ref,
             fresh_source=(source_run_id, expected_version),
             skill_overrides=skill_overrides,
@@ -178,22 +191,28 @@ class ContentRunService:
         context_snapshot_ref: str | None = None,
         fresh_source: tuple[str, int] | None = None,
         skill_overrides: SkillOverrides | dict | None = None,
+        task_id: str | None = None,
+        bound_session=None,
     ) -> ContentRun:
         try:
             selected = SkillOverrides.model_validate(skill_overrides) if skill_overrides is not None else None
         except ValueError as error:
             raise ContentRunError(str(error), code="invalid_skill_selection", status_code=422) from error
         selection_json = selected.model_dump(mode="json", exclude_none=True) if selected else None
-        key = (idempotency_key or f"content:{topic_id}").strip()
+        key = (idempotency_key or (f"task:{task_id}" if task_id else f"content:{topic_id}")).strip()
         if not key:
             raise ContentRunError("idempotency_key 不能为空。")
-        with self.database.session() as session:
+        with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
             if session.get(TopicRemoval, topic_id) is not None:
                 raise ContentRunError("选题已移除，不能开始生产。", code="topic_removed")
-        existing = (self.get_latest_for_topic(topic_id) if idempotency_key is None
-                    else self.repository.get_by_idempotency_key(key))
+        with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
+            repository = ContentRunRepository(self.database, session=session)
+            existing = (session.scalar(select(ContentRun).where(
+                ContentRun.task_id == task_id if task_id else ContentRun.task_id.is_(None),
+                ContentRun.topic_id == topic_id).order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
+                if idempotency_key is None else repository.get_by_idempotency_key(key))
         if existing is not None:
-            if existing.topic_id != topic_id:
+            if existing.topic_id != topic_id or existing.task_id != task_id:
                 raise ContentRunError("请求标识已用于另一个选题。", code="idempotency_conflict")
             previous_selection = existing.input_snapshot_json.get("skill_overrides")
             if isinstance(previous_selection, dict):
@@ -201,7 +220,7 @@ class ContentRunService:
             if idempotency_key is not None and previous_selection != selection_json:
                 raise ContentRunError("请求标识已用于不同的 Skill 版本或摘要。", code="idempotency_conflict")
             if fresh_source is not None:
-                event = next((item for item in self.repository.list_events(existing.id)
+                event = next((item for item in (repository if bound_session is not None else self.repository).list_events(existing.id)
                               if item.event_type is ContentRunEventType.CREATED), None)
                 payload = event.payload_json if event is not None else {}
                 if (payload or {}).get("fresh_source") != {
@@ -210,10 +229,13 @@ class ContentRunService:
                     raise ContentRunError("重做请求标识已用于不同的要求。", code="idempotency_conflict")
             return existing
 
-        with self.database.session() as session:
+        with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
             topic = session.get(Topic, topic_id)
             if topic is None:
                 raise ContentRunError(f"Topic 不存在：{topic_id}", status_code=404, code="not_found")
+            task = session.get(ProductionTask, task_id) if task_id else None
+            if task_id and (task is None or task.topic_id != topic_id):
+                raise ContentRunError("制作任务不属于该选题。", code="invalid_task")
             series = topic.series
             if series.creator_id is None:
                 raise ContentRunError("栏目尚未分配账号，先把栏目归属到一个账号再生产。")
@@ -221,6 +243,14 @@ class ContentRunService:
             if not series.is_active or creator is None or not creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
             self._assert_no_active_iteration(session, topic_id)
+            if task_id is None and fresh_source is None and session.scalar(select(ProductionTask.id).where(
+                    ProductionTask.topic_id == topic_id).limit(1)):
+                raise ContentRunError("这个选题已拆分制作，请查看并操作具体制作任务，或添加新的制作任务。",
+                                      code="production_tasks_exist")
+            if task is not None and task.collection_id is not None:
+                collection = session.get(MediaCollection, task.collection_id)
+                if collection is None or collection.creator_id != series.creator_id or collection.topic_id != topic_id:
+                    raise ContentRunError("制作素材集的归属与当前选题不一致。", code="scope_conflict", status_code=403)
             if fresh_source is not None:
                 repository = ContentRunRepository(self.database, session=session)
                 source = self._require(repository, fresh_source[0])
@@ -234,9 +264,9 @@ class ContentRunService:
                     ContentRunStatus.INTERRUPTED, ContentRunStatus.APPROVED, ContentRunStatus.CANCELLED,
                 }:
                     raise ContentRunError("请等待当前生产结束后再从头重做。", code="run_active")
-            elif topic.status is not TopicStatus.QUEUED:
+            elif task_id is None and topic.status is not TopicStatus.QUEUED:
                 raise ContentRunError("仅待生产选题可以创建 Run。")
-            elif selected is not None:
+            elif selected is not None and task_id is None:
                 latest = self.get_latest_for_topic(topic_id)
                 if latest is not None:
                     raise ContentRunError("该选题已有生产记录；请查看原任务，结束后用从头重做选择新版。",
@@ -277,6 +307,17 @@ class ContentRunService:
                     pair_fields["task_references"] = TopicReferenceStore(self.database).load(series.id, topic.reference_id)
                 except (ValueError, OSError) as error:
                     raise ContentRunError("选题参考图片缺失或已变化，请检查后再生产。", code="invalid_references") from error
+            task_metadata = {}
+            if task_id is not None:
+                skill_ids = [single_id] if single_id else [pair_fields["composition"].mind.id, pair_fields["composition"].production.id]
+                labels = []
+                for reference in skill_ids:
+                    metadata = catalog.reference_metadata(reference)
+                    label = metadata["name"]
+                    if metadata.get("version_number") is not None:
+                        label += f" v{metadata['version_number']}"
+                    labels.append(label)
+                task_metadata = {"task_id": task_id, "task_skill_summary": " + ".join(labels)}
             snapshot = ContentRunInput(
                 **pair_fields,
                 production_protocol=self.production_protocol,
@@ -287,13 +328,18 @@ class ContentRunService:
                 audience=series.audience,
                 skill_name=single_id,
                 topic_id=topic.id,
-                topic_title=topic.title,
-                topic_brief=topic.brief,
+                topic_title=task.title if task else topic.title,
+                topic_brief=(
+                    f"父选题背景（仅用于理解整体目标，不代表本任务要完成全部内容）：\n{topic.title}\n{topic.brief or ''}"
+                    f"\n\n本次独立制作任务：{task.title}\n本任务要求：{task.brief or '按本任务标题制作。'}"
+                    "\n本任务仅交付本任务明确要求的部分；不要补做父选题中的其他场景或其他制作任务。"
+                    if task else topic.brief),
+                **task_metadata,
                 **({"skill_overrides": selected} if selected else {}),
             )
             run_id = str(uuid4())
             revision_id = str(uuid4())
-            if selected is not None:
+            if selected is not None or task_id is not None:
                 # A selected candidate remains editable. Freeze its exact complete
                 # directory before accepting the request, not when the queue runs.
                 run_root = self.output_root / snapshot.creator_id / snapshot.series_id / run_id
@@ -304,7 +350,7 @@ class ContentRunService:
                             staging = Path(temporary) / "snapshot"
                             staging.mkdir()
                             freeze_pair(catalog, snapshot.composition, staging,
-                                        selected_digests=selected.expected_digests)
+                                        selected_digests=selected.expected_digests if selected else None)
                             (staging / "pair.json").write_text(snapshot.composition.model_dump_json(indent=2), encoding="utf-8")
                             staging.rename(run_root / "skill-snapshot")
                             inherit_copy_permissions(run_root / "skill-snapshot")
@@ -318,6 +364,7 @@ class ContentRunService:
             content_run = ContentRun(
                 id=run_id,
                 topic_id=topic.id,
+                task_id=task_id,
                 idempotency_key=key,
                 status=ContentRunStatus.QUEUED,
                 input_snapshot_json=snapshot.model_dump(mode="json", exclude_unset=True),
@@ -342,7 +389,7 @@ class ContentRunService:
                     "run_id": fresh_source[0], "version": fresh_source[1],
                 }} if fresh_source is not None else {})},
             )
-            if fresh_source is not None:
+            if fresh_source is not None and task_id is None:
                 topic.status = TopicStatus.QUEUED
             return content_run
 
@@ -383,7 +430,8 @@ class ContentRunService:
 
     @staticmethod
     def _assert_current_run(session, content_run: ContentRun) -> None:
-        latest = session.scalar(select(ContentRun.id).where(ContentRun.topic_id == content_run.topic_id)
+        latest = session.scalar(select(ContentRun.id).where(ContentRun.topic_id == content_run.topic_id,
+            ContentRun.task_id == content_run.task_id if content_run.task_id else ContentRun.task_id.is_(None))
                                 .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
         if latest != content_run.id:
             raise ContentRunError("该选题已有新的生产记录，请打开最新记录操作。",
@@ -391,7 +439,12 @@ class ContentRunService:
 
     def get_latest_for_topic(self, topic_id: str) -> ContentRun | None:
         with self.database.session() as session:
-            return session.scalar(select(ContentRun).where(ContentRun.topic_id == topic_id)
+            return session.scalar(select(ContentRun).where(ContentRun.topic_id == topic_id, ContentRun.task_id.is_(None))
+                                  .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
+
+    def get_latest_for_task(self, task_id: str) -> ContentRun | None:
+        with self.database.session() as session:
+            return session.scalar(select(ContentRun).where(ContentRun.task_id == task_id)
                                   .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
 
     def execute(self, run_id: str, *, owner_id: str | None = None) -> RunExecutionResult:
@@ -643,7 +696,7 @@ class ContentRunService:
             content_run.lease_owner = None
             content_run.lease_expires_at = None
             topic = session.get(Topic, content_run.topic_id)
-            if topic is not None:
+            if topic is not None and content_run.task_id is None:
                 topic.status = TopicStatus.SKIPPED
             repository.add_event(
                 run_id,
@@ -712,6 +765,7 @@ class ContentRunService:
             self._assert_no_active_iteration(session, content_run.topic_id)
             active_topic_run = session.scalar(select(ContentRun.id).where(
                 ContentRun.topic_id == content_run.topic_id,
+                ContentRun.task_id == content_run.task_id if content_run.task_id else ContentRun.task_id.is_(None),
                 ContentRun.id != run_id,
                 ContentRun.status.in_([ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING]),
             ).limit(1))
@@ -889,18 +943,18 @@ class ContentRunService:
                             break
             try:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
-                if input_data.skill_overrides and not (run_root / "skill-snapshot").is_dir():
+                if (input_data.skill_overrides or input_data.task_id) and not (run_root / "skill-snapshot").is_dir():
                     raise ValueError("本次指定版本的冻结文件缺失，不能改用当前 Skill 重新生产。")
                 if input_data.composition is not None:
                     pair = prepare_run_pair(catalog, input_data.composition, run_root,
-                                            previous_directories, first_start=not previous_directories and not input_data.skill_overrides)
+                                            previous_directories, first_start=not previous_directories and not input_data.skill_overrides and not input_data.task_id)
                     updates = {"composition": pair}
                 else:
                     target = run_root / "skill-snapshot" / "skills" / "single"
-                    if input_data.skill_overrides and not target.is_dir():
+                    if (input_data.skill_overrides or input_data.task_id) and not target.is_dir():
                         raise ValueError("本次指定版本的冻结 Skill 缺失，不能用当前文件替代。")
                     if target.is_dir():
-                        digest = input_data.skill_digest if previous_directories or input_data.skill_overrides else _digest(target)
+                        digest = input_data.skill_digest if previous_directories or input_data.skill_overrides or input_data.task_id else _digest(target)
                         if not digest or target.is_symlink() or _digest(target) != digest:
                             raise ValueError("Run 的冻结 Skill 文件已变化。")
                         source = input_data.skill_path
@@ -937,7 +991,7 @@ class ContentRunService:
             content_run.lease_expires_at = now + timedelta(seconds=self.lease_seconds)
             content_run.heartbeat_at = now
             topic = session.get(Topic, content_run.topic_id)
-            if topic is not None:
+            if topic is not None and content_run.task_id is None:
                 topic.status = TopicStatus.PRODUCING
             repository.add_attempt(
                 ContentAttempt(
@@ -1062,7 +1116,7 @@ class ContentRunService:
             content_run.lease_owner = None
             content_run.lease_expires_at = None
             topic = session.get(Topic, content_run.topic_id)
-            if topic is not None:
+            if topic is not None and content_run.task_id is None:
                 topic.status = TopicStatus.READY
             repository.add_event(
                 run_id,
@@ -1182,7 +1236,7 @@ class ContentRunService:
                 if costs:
                     attempt.usage_json = {key: sum(getattr(cost, key) for cost in costs) for key in CodexUsage.model_fields}
             topic = session.get(Topic, content_run.topic_id)
-            if topic is not None:
+            if topic is not None and content_run.task_id is None:
                 topic.status = (
                     TopicStatus.QUEUED
                     if status is ContentRunStatus.INTERRUPTED
@@ -1268,7 +1322,7 @@ class ContentRunService:
             content_run.lease_owner = None
             content_run.lease_expires_at = None
             topic = session.get(Topic, content_run.topic_id)
-            if topic is not None:
+            if topic is not None and content_run.task_id is None:
                 topic.status = TopicStatus.QUEUED
             repository.add_event(
                 run_id,

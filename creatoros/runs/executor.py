@@ -28,6 +28,7 @@ class ActiveRun:
     cancel: Event
     future: Future
     topic_id: str
+    task_id: str | None = None
 
 
 class ManagedRunExecutor:
@@ -201,7 +202,9 @@ class ManagedRunExecutor:
                             del self._active[run_id]
                     # Never start another writer if the previous process is unaccounted for.
                     self.service.guard.assert_dispatchable()
-                    item = (self.queue.next_pending(excluded_topics={task.topic_id for task in self._active.values()})
+                    item = (self.queue.next_pending(
+                        excluded_topics={task.topic_id for task in self._active.values() if task.task_id is None},
+                        excluded_tasks={task.task_id for task in self._active.values() if task.task_id is not None})
                             if len(self._active) < self.max_concurrency else None)
                     if item is not None:
                         self.queue.transition(item.id, "running")
@@ -220,7 +223,7 @@ class ManagedRunExecutor:
                                 message="提交执行器失败，生产未启动，可显式恢复。")
                             self.service.guard.finish(owner)
                             raise
-                        self._active[item.run_id] = ActiveRun(owner, cancel, future, prepared["input"].topic_id)
+                        self._active[item.run_id] = ActiveRun(owner, cancel, future, prepared["input"].topic_id, prepared["input"].task_id)
                         future.add_done_callback(lambda _future: self._wake.set())
                 if item is None:
                     self._wake.wait(timeout=1)

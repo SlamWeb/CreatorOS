@@ -91,6 +91,9 @@ export interface TopicView {
   card_count?: number | null;
   production_state?: "unproduced" | "produced";
   skill_usage?: TopicSkillUsage;
+  production_task_count?: number;
+  production_task_active_count?: number;
+  production_collection_id?: string | null;
 }
 
 export interface TopicSkillUsage {
@@ -125,6 +128,8 @@ export interface PageResponse<T> {
 
 export interface RunSummary {  id: string;
   latest_run_id?: string | null;
+  task_id?: string | null;
+  production_collection_id?: string | null;
   creator_id: string;
   creator_name: string;
   series_id: string;
@@ -148,6 +153,12 @@ export interface RunSummary {  id: string;
 }
 
 export type SkillOverrides = { skill_id?: string; mind_skill_id?: string; production_skill_id?: string; expected_digests: Record<string, string> };
+export interface ProductionTaskInput { title: string; brief: string; skill_overrides?: SkillOverrides }
+export interface ProductionTaskView extends ProductionTaskInput {
+  id: string; topic_id: string; position: number; run_id: string; run_version: number;
+  status: string; skill_summary: string;
+}
+export interface ProductionTaskList { topic_id: string; collection_id: string | null; items: ProductionTaskView[] }
 export type RunStartInput = ({ topic_id: string; mode?: "start"; request_id?: string } | {
   topic_id: string; mode: "fresh"; source_run_id: string; expected_version: number; request_id: string;
 }) & { skill_overrides?: SkillOverrides };

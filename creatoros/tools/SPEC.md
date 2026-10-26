@@ -1,5 +1,13 @@
 # CreatorOS Tool Exposure SPEC
 
+## 同一选题的独立制作任务（2026-10-27，隔离工具验收）
+
+- 不增加工具：`start_content_run(topic_id, tasks)` 接受1～100项名称、完整brief与可选独立SkillOverrides，提交原选题下的独立Run并汇总同一制作素材集。与topic_ids、fresh、参考图制作和顶层skill_overrides互斥；模型不能自传request_id或task_id。
+- 宿主使用会话、用户轮次、账号和父Topic派生稳定request_id；同轮重放不重复创建，变更要求复用同键由服务拒绝。未知结果交回原Topic/Run读取，不换身份另建。`manage_topics(get)`仅对production_task_count>0追加一次GET任务列表，后续进展不轮询。
+- Guard在写入前检查父Topic当前账号、未移除状态和整批每项explicit Skill归属，候选仍按该账号已绑定家族过滤；旧冻结Run属于别的账号时拒绝。制作任务不增加审批、发布或切换栏目版本权限。
+- 原始DTO保留完整brief与准确覆盖版本；模型投影仅返回任务名称、顺序、Run状态/版本、Skill摘要、具名Run入口和素材集入口，不回显长brief。
+- 新增`tests.test_production_task_tools` 8/8通过（补充跨账号私有候选后27.851秒）：真实loopback FastAPI/隔离SQLite验证任务创建、原Topic不增条、宿主幂等与同键异文、读取任务、账号父Topic与整批版本/私有候选拒绝、账号候选试用不改绑定、移除/冻结归属拒绝；丢响应是实际POST成功后注入的传输故障。原host_tool_contract/topic_tool_contract/model_projection/skill_version_scope联合45/45通过（54.168秒），diff检查通过。生产者为受控本地夹具，此结果不证明真实Codex图像质量；正式服务和正式数据未写入或重启。
+
 ## Skill 上下文精确去重与批量编辑（2026-10-26，隔离验证通过，未正式加载）
 
 - 用户先授权减少重复/低信噪比内容，随后要求核查Chinese History Story的工具设计并修改。不改压缩阈值、摘要、历史推理或等待续接；不增加模型工具，只扩展现有Skill编辑工具的batch参数。显式读文件仍返回完整所需正文，不用增加模型往返换取节省。

@@ -75,6 +75,14 @@ class TopicsArgs(PageArgs):
     state: Literal["all", "pending", "queued"] = Field(default="all", description="all 全部；pending 调研待选；queued 已确认入队。待选不可直接生产。")
 
 
+class ProductionTaskArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=240, description="同一选题内该制作任务的简短名称。")
+    brief: str = Field(min_length=1, max_length=10_000, description="该任务的完整制作要求、图片数量和分工；各任务独立生产。")
+    skill_overrides: SkillOverrides | None = Field(default=None,
+        description="本任务选择的完整Skill或Mind/Visualize版本及真实expected_digests；省略使用提交时栏目默认。")
+
+
 class StartRunArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     topic_id: str | None = Field(default=None, min_length=1, max_length=80,
@@ -93,9 +101,18 @@ class StartRunArgs(BaseModel):
     reference_presentation: bool = Field(default=False, description="默认只借鉴内容，用户明确要求同时参考呈现才为true。")
     skill_overrides: SkillOverrides | None = Field(default=None,
         description="仅本次单选题选择完整 Skill 或内容/呈现版本，允许候选；每个指定ID须提供读取时expected_digests。可只换双Skill一边，不改栏目默认。")
+    tasks: list[ProductionTaskArgs] | None = Field(default=None, min_length=1, max_length=100,
+        description="同一topic_id拆成多个制作任务并行生图、汇总一个素材集；几十张属于一个选题时用此字段，不复制Topic。每项可独立选Skill，不混用批量选题、fresh、参考图或顶层skill_overrides。")
 
     @model_validator(mode="after")
     def exactly_one(self):
+        if self.tasks is not None:
+            if (not self.topic_id or self.topic_ids is not None or self.mode != "start"
+                    or self.source_run_id is not None or self.expected_version is not None
+                    or self.series_id is not None or self.title is not None or self.instructions
+                    or self.attachment_ids or self.reference_presentation or self.skill_overrides is not None):
+                raise ValueError("制作任务仅接受一个topic_id和tasks，各任务内指定Skill；不能混用其他生产模式。")
+            return self
         if self.attachment_ids:
             if self.skill_overrides is not None:
                 raise ValueError("指定版本目前使用已有单选题；参考图直接制作不能混用版本覆盖。")
@@ -454,7 +471,23 @@ def _prepare_task_reference(client, context, series_id, attachment_ids, instruct
 
 def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None,
                       series_id=None, title=None, instructions="", attachment_ids=None, reference_presentation=False,
-                      skill_overrides=None):
+                      skill_overrides=None, tasks=None):
+    if tasks is not None:
+        selected = [ProductionTaskArgs.model_validate(task).model_dump(mode="json", exclude_none=True)
+                    for task in tasks]
+        turn = getattr(context, "user_request_id", None)
+        session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
+        identity = ["production-tasks-v1", session, turn, getattr(context, "creator_id", None), topic_id]
+        request_id = sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest() if turn else uuid4().hex
+        path = f"/api/topics/{quote(topic_id, safe='')}/production-tasks"
+        def submit_tasks(client):
+            try:
+                data = client.request("POST", path, payload={"request_id": request_id, "tasks": selected})
+            except StudioClientError as error:
+                error.details.update(topic_id=topic_id, request_id=request_id, receipt_url=path)
+                raise
+            return production_tasks_receipt(data, context)
+        return _call(submit_tasks, context)
     if skill_overrides is not None:
         selected = SkillOverrides.model_validate(skill_overrides).model_dump(mode="json", exclude_none=True)
         turn = getattr(context, "user_request_id", None)
@@ -500,3 +533,14 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
 
 def get_content_run(run_id, context=None):
     return _call(lambda client: client.run_summary(client.get_run(run_id)), context)
+
+
+def production_tasks_receipt(data, context=None):
+    """Keep original DTO evidence; navigation uses only guarded response identities."""
+    result = {**data, "items": [dict(item, url=f"/runs/{quote(item['run_id'], safe='')}")
+              for item in data.get("items", [])]}
+    creator_id = data.get("creator_id") or getattr(context, "creator_id", None)
+    if creator_id and data.get("collection_id"):
+        result["collection_url"] = (f"/?creator={quote(creator_id, safe='')}&view=materials"
+                                    f"&collection={quote(data['collection_id'], safe='')}")
+    return result

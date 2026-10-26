@@ -437,14 +437,25 @@ class MediaCollectionMigrationTests(unittest.TestCase):
                 repo.create_series(series_id="old-series", creator_id="old-owner", name="Original",
                                    description="unchanged", audience="unchanged", skill_name="knowledge-to-carousel")
                 repo.add_topic(topic_id="old-topic", series_id="old-series", title="Original", source=TopicSource.MANUAL)
-                ContentRunService(database, output_root=root / "outputs").create("old-topic")
+                # Seed the historical schema directly; current ORM contains
+                # columns introduced by later migrations and cannot query v17.
+                with database.engine.begin() as connection:
+                    connection.execute(text("""INSERT INTO content_runs
+                        (id,topic_id,idempotency_key,status,active_revision_number,input_snapshot_json,
+                         retryable,version,created_at,updated_at)
+                        VALUES ('old-run','old-topic','content:old-topic','queued',1,'{}',0,1,
+                                '2026-10-01 00:00:00','2026-10-01 00:00:00')"""))
                 before = business_snapshot(database)
             finally:
                 database.close()
             upgrade_database(url)
             database = Database(url)
             try:
-                self.assertEqual(business_snapshot(database), before)
+                after = business_snapshot(database)
+                self.assertEqual(after.pop("production_tasks"), [])
+                for row in after["content_runs"]:
+                    self.assertIsNone(row.pop("task_id"))
+                self.assertEqual(after, before)
                 with database.engine.connect() as connection:
                     self.assertIn("media_collections", inspect(connection).get_table_names())
                     self.assertEqual(connection.execute(text("SELECT count(*) FROM media_collections")).scalar_one(), 0)

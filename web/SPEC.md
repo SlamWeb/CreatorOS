@@ -1,5 +1,21 @@
 # CreatorOS Studio Web SPEC
 
+## 选题内拆分制作（2026-10-27，隔离前端通过）
+
+- 用户目标：一个选题拆成多项独立制作，逐项指定 Skill 或沿用栏目默认，图片进入同一素材集；一题仍只有一张内容卡。配色、Logo、旧无子任务的生产/内容入口保持。
+- 入口：选题卡菜单「拆分制作」或选题详情「拆分制作」→同详情内列出名称/制作要求/Skill→「提交并开始制作」。默认两行，可增删至1–100项；名称240字、要求10000字且均必填。每项可选完整 Skill 或内容/制图组合，候选版本明确标记；选择只作用于新任务，不修改栏目。
+- URL 仍用 topic 参数定位详情，production=split展开草稿。有子任务卡主点击打开同详情，按任务position列出状态、准确Skill摘要及Run入口；素材集链接带服务端collection_id，子Run产物页同样直达专用素材集。旧Run继续原素材入口。
+- 服务端持有任务、Run、冻结Skill和集合；当前标签页sessionStorage保存未提交草稿、request_id和结果未知时的准确payload。请求不自动重试，未知结果锁住编辑；刷新仅GET，用户显式「核对同一提交」重用原批次身份。读取失败不允许盲提交；关闭详情不取消后台制作。
+- Given 同一选题 When 默认/指定Skill两项提交 Then 只新增两个制作任务、仍一Topic一卡、同一素材集；Given 持久化后响应丢失 When 刷新并显式核对 Then 不自动重发且同request_id/payload无重复；Given 任务列表 When 查看Run再返回 Then 回到同题；Given 旧无子任务 When 打开/生产 Then 原路径保持；Given 手机表单 When 切Skill/滚动/提交 Then 字段与动作可达、无横溢出。
+- Direction contract：THESIS 为同一选题内安排各项制作；OWN-WORLD 继承现有灰白、石墨正文、蓝色动作与原生控件；STORY 为拆分→逐项填写→明确开始→任务进度/素材；FIRST VIEWPORT 为选题和任务列表，展开后先看到任务名称、要求与默认Skill；FORM 为现有详情内的Operate窄扩展，不新建视觉体系；FINISH 为隔离操作断言、桌面/手机截图与独立finish review/document handoff。
+- 验证计划：8789端口/独立SQLite/输出目录/临时dist复用tests.studio_e2e_server的确定性E2EProducer，只验证管理接线、故障与布局；不将其当真实Codex生图证明。真实DeepSeek/Codex链路由主任务另行记录，正式8765、数据库与dist不改。TypeScript目前通过，最终隔离build与操作结果待下方补充。
+- 实际结果：应用TypeScript/隔离Vite构建通过，最终产物`tmp/production-tasks-20261027/dist/assets/index-BFk7e4__.js`；既有主包>500kB提醒保留。一次Impeccable检测`[]`。最终8789真实HTTP/SQLite的受控UI 3/3（27.3秒）：同family默认v1/显式v2候选、准确digest、一题一卡、共享素材集、草稿刷新/成功刷新、Escape/卡片重开、Run往返；显式内置Skill及保存后503→刷新零重提→相同payload/request_id核对；受支持内容/制图组合→真实POST/Run快照双ID/digest，栏目默认不变。
+- 发现与修复：成功后清除production=split，避免刷新展开空表单。独立review发现目录只有latest released以及producible代表可绑定单体而非本次显式选择，现仅任务表单读取include_versions=true，按角色/产物契约列出完整、候选、内容与制图版本；后端目录为内置版本补digest。选择时保存所见digest，目录重读不静默换版；指定Skill时等目录就绪再允许提交，故障/过期不自动重试。
+- 证据保留：首轮2/2（31.8秒）及URL修复复核2/2（22.9秒）另列；版本修复首批1/2暴露candidate过滤，下一批1/3暴露目录加载竞争和generic pair被既有legacy adapter拒绝（夹具不匹配）。最终`tests.production_tasks_ui_server`只用已有本地known pair夹具与E2EProducer，不修改真实生产适配边界。报告`tmp/production-tasks-20261027/frontend-verification.json`，所有失败trace/截图分目录保留；未把分批结果相加成同一轮通过。
+- 最终桌面1440×900/手机390×844的表单顶部、提交区、任务列表和组合选择共8图逐张查看；界面和按钮可达，无横向溢出或遮挡。独立finish reviewer对已有Skill选择finding及本次窄扩展给出`ship`，两条finding均resolved；不是全站审计、真实Codex效果或截图替代功能验收。审阅图`.impeccable/review/production-tasks/`，无新上线位图，独立documenter handoff已完成。
+
+- 独立documenter（ordinary extension）：比对 ProductionTasksPanel/production-tasks.css 与 theme.css、styles.css、topic-library.css，核对 TopicLibrary、RunInspector、WorkspacePage 接线及最终验证 JSON；直接查看 pair-mobile/tasks-desktop 两张终版图，其余六图仅依据本轮已逐张有效性检查的记录。新面板沿用白/灰/石墨/蓝色 tokens、既有 button/status-pill/text-link、原生表单及蓝色焦点；8px字段/6px图标按钮为局部控件尺寸，未新增全局视觉规则。未发现本次扩展引入主题或Logo漂移；手机组合选择堆叠及提交区纵排只服务本表单。无新视觉世界或持久系统变更，保留既有系统文件，不因缺 PRODUCT.md/DESIGN.md 新建体系；未重跑操作测试，不扩大 ship 的范围，不代证主任务真实 DeepSeek/Codex、ZIP或生成质量。
+
 ## 提炼进度与栏目改名（2026-10-24，已验证）
 
 - 提炼宿主进度合并到同一工具行，等待交后台不标成生产失败；正文不新增用量或反复查询行。工具详情仍按需展开，配色/Logo不变。

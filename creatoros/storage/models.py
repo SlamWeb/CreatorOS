@@ -427,6 +427,19 @@ class WriteReceipt(Base):
     )
 
 
+class ProductionTask(TimestampMixin, Base):
+    """One independently produced piece of a real parent Topic."""
+    __tablename__ = "production_tasks"
+    __table_args__ = (CheckConstraint("position >= 0", name="position_nonnegative"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id", ondelete="RESTRICT"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    brief: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    collection_id: Mapped[str | None] = mapped_column(ForeignKey("media_collections.id", ondelete="RESTRICT"))
+    create_request_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
 class ContentRun(TimestampMixin, Base):
     __tablename__ = "content_runs"
     __table_args__ = (
@@ -443,6 +456,7 @@ class ContentRun(TimestampMixin, Base):
     topic_id: Mapped[str] = mapped_column(
         ForeignKey("topics.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("production_tasks.id"), index=True)
     idempotency_key: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
     status: Mapped[ContentRunStatus] = mapped_column(
         SAEnum(

@@ -34,13 +34,13 @@ _TOPIC = (
     "research_angle", "stale", "existing_run_id", "existing_run_status",
     "existing_run_version", "available_actions",
     "production_queue_status", "production_queue_position",
-    "edit_digest", "management_actions",
+    "edit_digest", "management_actions", "production_task_count",
 )
 _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
     "topic_id", "topic_title", "status", "version", "active_revision_number",
     "allowed_actions", "error_type", "error_message", "accepted", "card_count", "url",
-    "production_queue", "latest_run_id",
+    "production_queue", "latest_run_id", "task_id", "production_collection_id",
 )
 _REVISION = (
     "id", "revision_id", "revision_number", "instruction", "artifact_digest",
@@ -103,6 +103,13 @@ def _topic(data: Any) -> Any:
     if isinstance(data, dict) and "sources" in data:
         result["sources"] = _list(data["sources"], lambda source: _pick(source, ("title", "url")))
     return result
+
+
+def _production_tasks(data: dict) -> dict:
+    return _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated")) | {
+        "items": _list(data.get("items", []), lambda item: _pick(item, (
+            "id", "topic_id", "title", "position", "run_id", "run_version", "status", "skill_summary", "url")))
+    }
 
 
 def _run(data: dict) -> dict:
@@ -239,6 +246,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["topic"] = _topic(data["topic"])
         if "items" in data:
             result.update(_items(data, _TOPIC, item_projector=_topic))
+        if "production_tasks" in data:
+            result["production_tasks"] = _production_tasks(data["production_tasks"])
         return result
     if tool_name == "manage_skill_iteration":
         result = _pick(data, ("id", "status", "revision", "series_id", "skill_id", "topic_id",
@@ -288,6 +297,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result.update(_pick(data, _SKILL_BATCH))
         return result
     if tool_name in _RUN_TOOLS:
+        if "collection_id" in data and "items" in data:
+            return _production_tasks(data)
         if "items" in data:
             return _pick(data, ("accepted_count",)) | {"items": _list(data["items"], lambda item:
                 _pick(item, ("topic_id", "run_id", "status", "accepted", "error", "error_code", "url", "iteration_id")))}

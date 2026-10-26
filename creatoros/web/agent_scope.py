@@ -30,6 +30,7 @@ _RUN_DISCUSSION = re.compile(r"^/api/runs/([^/]+)/discussion$")
 _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
 _TOPIC_REMOVE = re.compile(r"^/api/topics/([^/]+)/remove$")
 _TOPIC = re.compile(r"^/api/topics/([^/]+)$")
+_TOPIC_PRODUCTION_TASKS = re.compile(r"^/api/topics/([^/]+)/production-tasks$")
 _TOPIC_EDIT_RECEIPT = re.compile(r"^/api/topics/([^/]+)/edit-receipts/([^/]+)$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
@@ -255,6 +256,26 @@ class AgentScopeGuard:
             if self._owns_series(match.group(1), creator_id):
                 return None
             return None if self._owns_deleted_series(match.group(1), request_id, creator_id) else self._denied()
+
+        match = _TOPIC_PRODUCTION_TASKS.fullmatch(path)
+        if match and method in {"GET", "POST"}:
+            if not self._owns_topic(match.group(1), creator_id):
+                return self._denied()
+            with self.db.session() as transaction:
+                topic = transaction.get(Topic, match.group(1))
+                if topic is None or transaction.get(TopicRemoval, topic.id) is not None:
+                    return self._denied()
+            if method == "POST":
+                try:
+                    payload = await request.json()
+                except Exception:
+                    return self._denied()
+                tasks = payload.get("tasks") if isinstance(payload, dict) else None
+                if (not isinstance(tasks, list) or not tasks
+                        or not all(isinstance(task, dict) and self._owns_overrides(task, creator_id)
+                                   for task in tasks)):
+                    return self._denied()
+            return None
 
         match = _TOPIC.fullmatch(path)
         if match and method in {"GET", "PATCH"}:

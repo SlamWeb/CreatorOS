@@ -17,6 +17,16 @@ RUN = "12345678-1234-1234-1234-123456789012"
 
 
 class ChatLinksTests(unittest.TestCase):
+    def test_production_tasks_link_to_named_runs_and_shared_collection(self):
+        payload = {"creator_id": "creator-a", "collection_id": "collection-a",
+                   "items": [{"run_id": RUN, "title": "清晨世界", "url": f"/runs/{RUN}"}]}
+        links = tool_links("start_content_run", json.dumps(payload), studio_url=ORIGIN)
+        self.assertEqual([link["kind"] for link in links], ["production", "collection"])
+        self.assertIn("清晨世界", links[0]["label"])
+        self.assertEqual(links[1]["url"], "/?creator=creator-a&view=materials&collection=collection-a")
+        self.assertEqual(tool_links("start_content_run", json.dumps(payload),
+                                    error_type="agent_scope_rejected"), [])
+
     def links(self, tool="get_topic_research", **changes):
         data = {"id": BATCH, "series_id": SERIES, "status": "ready",
                 "url": f"/series/{SERIES}?research={BATCH}"} | changes

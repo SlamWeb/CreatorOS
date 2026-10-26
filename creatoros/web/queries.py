@@ -284,7 +284,7 @@ class StudioQueryService:
             latest = self._latest_run_ids(session)
             return PageResponse(
                 items=[self._run_summary(run, creator_by_id, series_by_id, topics_by_id,
-                                         removed=run.topic_id in removed, latest_run_id=latest.get(run.topic_id)) for run in rows],
+                                         removed=run.topic_id in removed, latest_run_id=latest.get((run.topic_id, run.task_id))) for run in rows],
                 page=PageInfo(offset=offset, limit=limit, total=total),
             )
 
@@ -349,7 +349,7 @@ class StudioQueryService:
                 {series.id: series} if series else {},
                 {topic.id: topic} if topic else {},
                 removed=session.get(TopicRemoval, run.topic_id) is not None,
-                latest_run_id=self._latest_run_ids(session, run.topic_id).get(run.topic_id),
+                latest_run_id=self._latest_run_ids(session, run.topic_id).get((run.topic_id, run.task_id)),
             )
             revisions = list(
                 session.scalars(
@@ -492,7 +492,7 @@ class StudioQueryService:
             runs = [run for run in runs if run.topic_id not in removed]
             latest = self._latest_run_ids(session)
             run_views = [self._run_summary(run, creator_by_id, series_by_id, topics_by_id,
-                latest_run_id=latest.get(run.topic_id)) for run in runs]
+                latest_run_id=latest.get((run.topic_id, run.task_id))) for run in runs]
             counts = OverviewCounts(
                 creator_count=len(creators),
                 active_creator_count=sum(item.is_active for item in creators),
@@ -565,16 +565,23 @@ class StudioQueryService:
 
     @staticmethod
     def _latest_run_ids(session, topic_id=None):
-        statement = select(ContentRun.topic_id, ContentRun.id).order_by(ContentRun.created_at.desc(), ContentRun.id.desc())
+        statement = select(ContentRun.topic_id, ContentRun.task_id, ContentRun.id).order_by(ContentRun.created_at.desc(), ContentRun.id.desc())
         if topic_id is not None:
             statement = statement.where(ContentRun.topic_id == topic_id)
         latest = {}
-        for topic, run_id in session.execute(statement):
-            latest.setdefault(topic, run_id)
+        for topic, task_id, run_id in session.execute(statement):
+            latest.setdefault((topic, task_id), run_id)
         return latest
 
     def _run_summary(self, run, creators, series_by_id, topics_by_id, *, removed: bool = False, latest_run_id=None) -> RunSummary:
         snapshot = run.input_snapshot_json or {}
+        collection_id = None
+        if run.task_id:
+            from sqlalchemy.orm import object_session
+            from creatoros.storage import ProductionTask
+            session = object_session(run)
+            task = session.get(ProductionTask, run.task_id) if session else None
+            collection_id = task.collection_id if task else None
         creator = creators.get(snapshot.get("creator_id"))
         series = series_by_id.get(snapshot.get("series_id"))
         topic = topics_by_id.get(run.topic_id)
@@ -589,6 +596,8 @@ class StudioQueryService:
                     cover_url = f"/api/runs/{run.id}/revisions/{revision.id}/cards/{info['order']}?digest={revision.artifact_digest}&checksum={info['sha256']}"
         return RunSummary(
             id=run.id,
+            task_id=run.task_id,
+            production_collection_id=collection_id,
             latest_run_id=latest_run_id or run.id,
             creator_id=snapshot.get("creator_id", series.creator_id if series else ""),
             creator_name=creator.display_name if creator else snapshot.get("creator_id", "unknown"),

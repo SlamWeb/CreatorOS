@@ -34,6 +34,8 @@ import type {
   SeriesView,
   SeriesWriteResult,
   TopicView,
+  ProductionTaskList,
+  ProductionTaskInput,
 } from "./types";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "").replace(/\/$/, "");
@@ -89,6 +91,9 @@ export const studioApi = {
   createSeries: (id: string, input: SeriesCreateInput) => request<SeriesView>(`/api/creators/${encodeURIComponent(id)}/series`, { method: "POST", body: JSON.stringify(input) }),
   series: (id: string) => request<SeriesView>(`/api/series/${encodeURIComponent(id)}`),
   topics: (id: string) => request<PageResponse<TopicView>>(`/api/series/${encodeURIComponent(id)}/topics?limit=100`),
+  productionTasks: (topicId: string) => request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks`),
+  createProductionTasks: (topicId: string, input: { request_id: string; tasks: ProductionTaskInput[] }) =>
+    request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks`, { method: "POST", body: JSON.stringify(input) }),
   previewOperation: (input: OperationPreviewInput) => request<PendingOperationView>("/api/operations/preview", { method: "POST", body: JSON.stringify(input) }),
   proposeOperation: (input: OperationProposeInput) => request<PendingOperationView>("/api/operations/propose", { method: "POST", body: JSON.stringify(input) }),
   operation: (id: string) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}`),
@@ -113,6 +118,7 @@ export const studioApi = {
   events: (id: string, after = 0) => request<{ items: RunEventView[]; next_after_id: number }>(`/api/runs/${encodeURIComponent(id)}/events?after_id=${after}`),
   seriesAll: () => request<SeriesView[]>("/api/series"),
   producerSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills"),
+  productionTaskSkills: () => request<{ items: ProducerSkillItem[] }>("/api/producer-skills?include_versions=true"),
   producerSkillVersions: (id: string, signal?: AbortSignal) => request<SkillVersionHistory>(
     `/api/producer-skills/${encodeURIComponent(id)}/versions`, { signal }),
   createSkillVersion: (id: string, input: { expected_digest: string; request_id: string }) =>

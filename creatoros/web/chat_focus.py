@@ -89,7 +89,8 @@ class ChatFocusBuilder:
                         {"mind": series.mind_skill_id, "production": series.production_skill_id})
             series_name = series.name
             if not target.get("run_id"):
-                latest = session.scalar(select(ContentRun).where(ContentRun.topic_id == target["topic_id"])
+                latest = session.scalar(select(ContentRun).where(ContentRun.topic_id == target["topic_id"],
+                                                               ContentRun.task_id.is_(None))
                     .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
                 if latest:
                     target["run_id"] = latest.id

@@ -1,5 +1,11 @@
 # ContentRun SPEC
 
+## 选题内独立制作任务（2026-10-27）
+
+- [制作任务契约](../../docs/production-tasks/SPEC.md)：新增 ProductionTask 与 nullable ContentRun.task_id；旧 Run 保持 null，互斥/最新运行/父状态写入按新旧作用域区分。复用原队列与30工位限制，不创建第二生产器。
+- Task、Run、Revision、队列与素材集/回执同事务；默认或指定 Skill 都在提交时冻结正文及附件。task fresh 默认保留自己的选用，不退回栏目；候选 digest 改变需明确重选。旧 fresh 不变。
+- 新增核心 11 项通过；联合任务/素材集 34 项通过。真实两线程生图及前端收图、ZIP 另记 [验证](../../docs/production-tasks/VALIDATION.md)。正式环境未迁移或重启。
+
 ## 选题级三十工位并发（2026-10-23）
 
 - 用户明确要求将普通生产默认并发由5提升为30；`CREATOROS_PRODUCTION_CONCURRENCY` 与显式参数均允许1–30。每个选题仍独立生产会话，不拆分单篇；持久队列、同题互斥、恢复与关闭语义保持原实现。

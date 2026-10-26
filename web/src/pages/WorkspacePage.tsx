@@ -412,6 +412,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   return <section className={overview ? "account-series-section" : "series-content-section"}>
     {overview && <header className="account-series-head">{heading}</header>}
     <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss} onViewAll={overview ? onSelect : undefined}
+      series={series} skills={skills}
       heading={!overview ? heading : undefined} headerActions={!overview ? headerActions : undefined} headerPanels={headerPanels}
       productionEnabled={series.is_active && !!series.creator_id} />
   </section>;

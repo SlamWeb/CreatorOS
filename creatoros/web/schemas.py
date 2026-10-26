@@ -59,6 +59,9 @@ class TopicView(ApiModel):
     available_actions: list[str]
     edit_digest: str | None = None
     management_actions: list[str] = Field(default_factory=lambda: ["get"])
+    production_task_count: int = 0
+    production_task_active_count: int = 0
+    production_collection_id: str | None = None
 
 
 class PageInfo(ApiModel):
@@ -148,6 +151,8 @@ class RevisionView(ApiModel):
 
 class RunSummary(ApiModel):
     id: str
+    task_id: str | None = None
+    production_collection_id: str | None = None
     latest_run_id: str | None = None
     creator_id: str
     creator_name: str

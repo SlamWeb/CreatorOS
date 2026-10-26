@@ -132,6 +132,10 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             return []
         if name == "manage_media_collection":
             return [] if is_error else _media_receipts(data, name)
+        if name == "start_content_run" and not is_error and data.get("collection_id"):
+            links = [_receipt(row, "production", name, studio_url) for row in data.get("items", [])
+                     if isinstance(row, dict)]
+            return [link for link in links if link] + _media_receipts(data, name)
         if is_error and data.get("error") == "skill_iteration_active":
             link = _iteration_receipt(data, name)
             return [link] if link else []

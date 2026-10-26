@@ -17,7 +17,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from creatoros.runs import ContentRunError
 from creatoros.storage import (
-    ContentRevision, ContentRun, Creator, MediaCollection, Series, Topic, TopicRemoval,
+    ContentRevision, ContentRun, Creator, MediaCollection, ProductionTask, Series, Topic, TopicRemoval,
 )
 
 
@@ -198,14 +198,14 @@ class MediaCollectionService:
             summary = self._summary(row)
             order_ids, excluded_ids = list(row.order_ids_json), set(row.excluded_ids_json)
             run_ids = list(row.run_ids_json)
+            task_run_ids = set()
             if row.topic_id:
                 self._topic(session, creator_id, row.topic_id)
-                automatic = list(session.scalars(select(ContentRun.id).where(
-                    ContentRun.topic_id == row.topic_id).order_by(ContentRun.created_at, ContentRun.id)))
+                automatic, task_run_ids = self._automatic_runs(session, row)
                 run_ids = list(dict.fromkeys(automatic + run_ids))
         items, sources = [], []
         for run_id in run_ids:
-            source_items, source_rows = self._source(creator_id, run_id)
+            source_items, source_rows = self._source(creator_id, run_id, active_only=run_id in task_run_ids)
             items.extend(source_items)
             sources.extend(source_rows)
         ranks = {item_id: index for index, item_id in enumerate(order_ids)}
@@ -220,14 +220,33 @@ class MediaCollectionService:
                            f"?checksum={item['checksum']}")
         return dict(**summary, items=items, sources=sources, snapshot_digest=snapshot)
 
-    def _source(self, creator_id, run_id):
+    @staticmethod
+    def _automatic_runs(session, row):
+        """Task collections select current task outputs, in task order, not arrival order."""
+        tasks = list(session.scalars(select(ProductionTask).where(
+            ProductionTask.collection_id == row.id).order_by(ProductionTask.position, ProductionTask.id)))
+        if not tasks:
+            automatic = list(session.scalars(select(ContentRun.id).where(
+                ContentRun.topic_id == row.topic_id).order_by(ContentRun.created_at, ContentRun.id)))
+            return automatic, set()
+        latest = {}
+        for run in session.scalars(select(ContentRun).where(
+                ContentRun.task_id.in_([task.id for task in tasks])).order_by(
+                ContentRun.created_at.desc(), ContentRun.id.desc())):
+            latest.setdefault(run.task_id, run.id)
+        automatic = [latest[task.id] for task in tasks if task.id in latest]
+        return automatic, set(automatic)
+
+    def _source(self, creator_id, run_id, *, active_only=False):
         try:
             with self.database.session() as session:
                 run, topic = self._run(session, creator_id, run_id)
                 title = run.input_snapshot_json.get("topic_title") or topic.title
                 topic_title, status, topic_id = topic.title, run.status.value, topic.id
-                revisions = list(session.scalars(select(ContentRevision).where(
-                    ContentRevision.content_run_id == run_id).order_by(ContentRevision.revision_number)))
+                statement = select(ContentRevision).where(ContentRevision.content_run_id == run_id)
+                if active_only:
+                    statement = statement.where(ContentRevision.revision_number == run.active_revision_number)
+                revisions = list(session.scalars(statement.order_by(ContentRevision.revision_number)))
                 records = [(revision.id, revision.revision_number, revision.artifact_digest,
                             revision.artifact_directory, revision.production_input_json) for revision in revisions]
         except ContentRunError:
@@ -292,7 +311,9 @@ class MediaCollectionService:
                 resolved_runs = list(run_ids)
                 if topic_id:
                     with self.database.session() as session:
-                        resolved_runs += list(session.scalars(select(ContentRun.id).where(ContentRun.topic_id == topic_id)))
+                        row = self._row(session, creator_id, identifier)
+                        automatic, _ = self._automatic_runs(session, row)
+                        resolved_runs += automatic
                 for run_id in dict.fromkeys(resolved_runs):
                     source_items, _ = self._source(creator_id, run_id)
                     available.update(item["id"] for item in source_items)
@@ -337,6 +358,10 @@ class MediaCollectionService:
                     self._creator(session, creator_id)
                     row = self._row(session, creator_id, identifier)
                     self._version(dict(version=row.version), expected_version)
+                    if session.scalar(select(ProductionTask.id).where(
+                            ProductionTask.collection_id == identifier).limit(1)):
+                        raise _error("这是选题制作任务的收图文件夹，请保留它；可以调整选片，不会删除原图。",
+                                     "production_collection_in_use")
                     session.delete(row)
             except StaleDataError as error:
                 raise _error("文件夹已更新，请刷新。", "version_conflict") from error
@@ -363,6 +388,11 @@ class MediaCollectionService:
                 self._topic(session, creator_id, collection.topic_id)
             if run_id not in collection.run_ids_json and run.topic_id != collection.topic_id:
                 raise _error("图片不属于此素材文件夹。", "not_found", 404)
+            if run_id not in collection.run_ids_json and session.scalar(select(ProductionTask.id).where(
+                    ProductionTask.collection_id == identifier).limit(1)):
+                task = session.get(ProductionTask, run.task_id) if run.task_id else None
+                if task is None or task.collection_id != identifier:
+                    raise _error("图片不属于此制作素材集。", "not_found", 404)
             revision = session.get(ContentRevision, revision_id)
             if revision is None or revision.content_run_id != run_id or not revision.artifact_digest:
                 raise _error("图片版本不存在。", "not_found", 404)
