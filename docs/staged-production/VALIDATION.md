@@ -41,4 +41,14 @@
 
 定向测试覆盖：库/池范围、同轮分阶段幂等、版本冻结、等待/失败/取消/重试、固定 ZIP 必含依赖版本、真实音视频解码、MP4 Range206、离线重验与旧图片协议；昂贵生产故障用受控 Producer 测试，不能替代上面的真实模型证据。
 
-UI 已通过桌面/窄屏、阶段默认、独立制作、视频准备/验收与旧单图返工路径；检测器无问题。全量旧可靠性组与最终部署记录在收尾时补充。
+UI 已通过桌面/窄屏、阶段默认、独立制作、视频准备/验收与旧单图返工路径；检测器无问题。Node 前端测试 36/36，TypeScript 与正式构建通过。
+
+## 最终回归与正式启用（2026-10-27）
+
+全量零付费可靠性首次运行49组，45通过、4失败，原始报告保留在 `tmp/reliability-20261027-092233-576441/report.json`，不改写为全绿。四组均为旧测试契约/夹具不适配：旧迁移夹具使用新ORM、工具数量断言未包含两项新工具、提示词同义改写、已移除选题的讨论仍被旧smoke要求出现在默认任务列表。相关断言按实际新旧边界更新，未放宽账号隔离或历史记录保护；三组完整重跑通过（`tmp/reliability-20261027-followup/report.json`），移除smoke及任务投影smoke另行重跑通过。不是49组重新完整跑过一次的结果，也不是模型任务成功率。
+
+迁移前确认无授权执行中/排队任务。维护目录 `data/creatoros.db.maintenance/evidence/20261027-095300-884eb93a` 保留数据库备份、迁移前快照与原失败报告。旧表原字段/记录保持一致，SQLite完整性和外键检查通过；15,181份旧文件SHA256全部一致，无删除。
+
+完整文件集合检查第一次拦截到3份新增快照，复核来源为既有 `smoke_studio_executor` 的 schedule-failure 夹具漏传临时 output_root；没有相应正式 Run，原文件无变化。新增文件保留供诊断，已修复该smoke三处默认路径并加入隔离断言。核对证据写入 `file-difference.json` / `reviewed-preservation.json` 后显式恢复接单，未再次重启或恢复历史生产。最终状态记录 `reviewed-result.json`。
+
+正式8765服务已使用新版，health/database/Codex均就绪，页面实际加载 `index-CeI5mC4u.js`。Chinese History Story 账号已有 Skill 库入口；添加了已安装 image-beat-story 家族引用，并创建只补充 `creatoros-outputs: [video]` 的 v2 候选（`image-beat-story--fd30f5894a103897`）。原v1正文/摘要未改、栏目默认未切换；剪辑时显式选择v2。正式API已确认版本列表中v2的视频能力。

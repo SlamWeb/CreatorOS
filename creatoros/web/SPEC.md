@@ -289,6 +289,8 @@
 - 栏目删除将移除记录计入历史，不能因删空栏目级联清掉回执。精确 request_id 重试按首次冻结账号核验，栏目转移后的新请求按当前归属核验；候选来源异文 409，缺失批次 404。本地 Studio 共享锁与事务控制，不宣称跨进程/分布式幂等。
 - 隔离真实 loopback `smoke_topic_remove` 与迁移 smoke 通过；审查捕获的栏目级联、隐藏项调序、总览动作和转移后回放边界均补回归并通过。首版历史 Topic 测试把生产后的状态误设为 queued，修正为移除前后状态比较，不改业务迁就夹具。
 - 相关操作计划/解析、PendingOperation、栏目删除、账号作用域、封面查询、Observation 与调研 8 个 smoke 通过；前端真实交互与故障注入分别列在 `web/SPEC.md`。正式服务未重启，日常启动自动应用 0009 迁移后才加载新接口。
+- 2026-10-27 reliability 核对：`213e7eb`（10-23）已将移除/停用对象的历史讨论排除出默认账号任务摘要，`smoke_topic_remove` 仍沿用 10-09 的旧列表断言，造成两条 smoke 契约冲突。仅更新旧测试：默认不列历史讨论，直接讨论接口仍逐字段返回原记录；不修改生产过滤或归属规则。原始失败日志保留在 `tmp/reliability-20261027-092233-576441/smoke_topic_remove.log`。
+- `smoke_topic_remove` 与 `smoke_worker_task_projection` 已用真实隔离 SQLite/loopback HTTP 重跑通过。旧 smoke 的数据库改由 ExitStack 保证异常时先关闭；故意触发断言的清理探针通过，仅保留原 AssertionError、无 WinError 32/267。本轮不改正式数据/服务。
 
 ## Agent Skill 文本 JSON 路由（2026-10-09）
 

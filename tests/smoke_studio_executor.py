@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, gettempdir
 from threading import Event
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -27,6 +27,14 @@ from creatoros.storage import (
     TopicSource,
     upgrade_database,
 )
+
+
+def isolated_service(database, *, output_root: Path, **kwargs):
+    expected = output_root.resolve()
+    assert expected.is_relative_to(Path(gettempdir()).resolve()), expected
+    service = ContentRunService(database, output_root=expected, **kwargs)
+    assert service.output_root == expected
+    return service
 
 
 class ControlledProducer:
@@ -118,7 +126,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     url, database = create_fixture(root)
     cleanup.callback(database.close)
     producer = ControlledProducer(block_first=True)
-    service = ContentRunService(database, producer_factory=lambda: producer, output_root=root / "outputs",
+    service = isolated_service(database, producer_factory=lambda: producer, output_root=root / "outputs",
                                 lease_seconds=3.0, production_protocol="legacy")
     with ThreadPoolExecutor(max_workers=4) as clients:
         ids = list(clients.map(lambda _: service.create("topic-1").id, range(4)))
@@ -144,7 +152,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     assert after.heartbeat_at > before.heartbeat_at
     assert len(service.repository.list_events(first.id)) == event_count
     assert StudioQueryService(database).overview().counts.producing_count == 1
-    rival = ContentRunService(database, production_protocol="legacy")
+    rival = isolated_service(database, output_root=root / "outputs", production_protocol="legacy")
     for action in (ManagedRunExecutor(rival).start, rival.recover_inflight):
         try:
             action()
@@ -167,7 +175,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     url, database = create_fixture(root, topic_count=1, name="late")
     cleanup.callback(database.close)
     late_producer = ControlledProducer(block_first=True)
-    late_service = ContentRunService(database, producer_factory=lambda: late_producer, output_root=root / "late-outputs",
+    late_service = isolated_service(database, producer_factory=lambda: late_producer, output_root=root / "late-outputs",
                                      production_protocol="legacy")
     late_run = late_service.create("topic-1")
     late_executor = ManagedRunExecutor(late_service)
@@ -192,7 +200,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
 
     url, database = create_fixture(root, topic_count=1, name="recovery")
     cleanup.callback(database.close)
-    recovery_service = ContentRunService(database, output_root=root / "recovery-outputs",
+    recovery_service = isolated_service(database, output_root=root / "recovery-outputs",
                                          production_protocol="legacy")
     recovery_run = recovery_service.create("topic-1")
     recovery_service._begin_attempt(recovery_run.id, owner_id="dead-owner")
@@ -213,7 +221,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
 
     url, database = create_fixture(root, topic_count=1, name="init-failure")
     cleanup.callback(database.close)
-    failed_service = ContentRunService(database, producer_factory=FailingProducer,
+    failed_service = isolated_service(database, producer_factory=FailingProducer,
                                        output_root=root / "init-failure-outputs", production_protocol="legacy")
     failed_run = failed_service.create("topic-1")
     failed_executor = ManagedRunExecutor(failed_service)
@@ -228,7 +236,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
 
     url, database = create_fixture(root, topic_count=1, name="schedule-failure")
     cleanup.callback(database.close)
-    service = ContentRunService(database, production_protocol="legacy")
+    service = isolated_service(database, output_root=root / "schedule-failure-outputs", production_protocol="legacy")
     run = service.create("topic-1")
     executor = ManagedRunExecutor(service)
     cleanup.callback(executor.shutdown)
@@ -244,7 +252,7 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
 
     url, database = create_fixture(root, topic_count=1, name="validation-restart")
     cleanup.callback(database.close)
-    service = ContentRunService(database, output_root=root / "validation-outputs", production_protocol="legacy")
+    service = isolated_service(database, output_root=root / "validation-outputs", production_protocol="legacy")
     run = service.create("topic-1")
     prepared = service._begin_attempt(run.id, owner_id="old-owner")
     producer = ControlledProducer()
@@ -254,7 +262,8 @@ with TemporaryDirectory() as temporary, ExitStack() as cleanup:
     database.close()
     database = Database(url)
     cleanup.callback(database.close)
-    service = ContentRunService(database, producer_factory=FailingProducer, production_protocol="legacy")
+    service = isolated_service(database, producer_factory=FailingProducer,
+                                output_root=root / "validation-outputs", production_protocol="legacy")
     assert service.recover_inflight() == (0, 1, 0)
     assert service.get(run.id).status is ContentRunStatus.AWAITING_APPROVAL
     assert len(service.repository.list_attempts(prepared["revision_id"])) == 1

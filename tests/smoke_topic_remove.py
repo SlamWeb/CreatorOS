@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -55,9 +56,10 @@ def _event_snapshot(events) -> tuple:
 
 
 def main():
-    with TemporaryDirectory() as temporary:
+    with TemporaryDirectory() as temporary, ExitStack() as cleanup:
         root = Path(temporary)
         database, runs, producer, app = make_fixture(root)
+        cleanup.callback(database.close)
         repo = ContentRepository(database)
         series_id = "agent-notes"
         library_url = f"/api/series/{series_id}/topic-library"
@@ -145,8 +147,9 @@ def main():
             assert history_run.id not in {item["id"] for item in overview["needs_attention"]}
 
             # Creator task summaries drop removed production work, both across
-            # the whole account and for its specific Series, without hiding a
-            # saved read-only discussion record for the historical Run.
+            # the whole account and for its specific Series. Since the scoped
+            # task projection change, saved discussions of removed Topics also
+            # leave this current-work index; direct history remains readable.
             discussion_record = {
                 "id": "historic-discussion",
                 "request_id": "historic-discussion-request",
@@ -167,8 +170,13 @@ def main():
                 assert history_run.id not in {item["id"] for item in task_summary["items"]
                                               if item["kind"] == "production"}
                 assert task_summary["summary"]["awaiting_approval"] == 0
-                assert any(item["id"] == "historic-discussion" and item["kind"] == "discussion"
-                           for item in task_summary["items"])
+                assert not any(item["id"] == "historic-discussion"
+                               for item in task_summary["items"])
+            history_discussions = client.get(f"/api/runs/{history_run.id}/discussion", headers=scoped_a)
+            assert history_discussions.status_code == 200, history_discussions.text
+            saved_discussion = next(item for item in history_discussions.json()["items"]
+                                    if item["id"] == "historic-discussion")
+            assert all(saved_discussion[key] == value for key, value in discussion_record.items())
             assert client.get("/api/creators/review-lab/tasks", headers=scoped_b).status_code == 403
             assert client.get(image_urls[0]).status_code == 200
             observation_tree = client.get("/api/observation/tree",
