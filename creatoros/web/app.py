@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from creatoros.agent.plans import PlanService
+from creatoros.web.plan_routes import routes as plan_routes
+
 import os
 import json
 import re
@@ -187,6 +190,9 @@ def create_app(
     account_context.skill_library = skill_library
     scope_request_lock = asyncio.Lock()
 
+    plans = PlanService(db, chat)
+    if hasattr(chat, "bind_plan_service"):
+        chat.bind_plan_service(plans)
     started_services = []
 
     def start_background_services():
@@ -195,7 +201,7 @@ def create_app(
         if started_services:
             raise RuntimeError("Background startup previously failed; inspect before retrying.")
         for service in (executor, publishing, chat, skill_installs, research, extractions,
-                        calibrations, iterations, discussions, feedback):
+                        calibrations, iterations, discussions, feedback, plans):
             started_services.append(service)
             service.start()
         app.state.background_services_started = True
@@ -212,7 +218,7 @@ def create_app(
                 # A deferred replacement has not acquired execution ownership or
                 # performed recovery. Do not "clean up" old task records there.
                 with ExitStack() as cleanup:
-                    for service in (executor, skill_installs, research, extractions, chat, discussions, iterations):
+                    for service in (executor, skill_installs, research, extractions, chat, discussions, iterations, plans):
                         if service in started_services:
                             cleanup.callback(service.shutdown)
                     if feedback in started_services:
@@ -244,6 +250,8 @@ def create_app(
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
+    app.state.agent_plans = plans
+    plans.start_gate = lambda: not (getattr(app.state, "maintenance", None) and app.state.maintenance.held)
     app.state.skill_installs = skill_installs
     app.state.topic_research = research
     app.state.skill_extractions = extractions
@@ -268,6 +276,7 @@ def create_app(
     app.include_router(skill_version_routes(skill_versions))
     app.include_router(skill_iteration_routes(iterations, chat))
     app.include_router(chat_routes(chat))
+    app.include_router(plan_routes(plans))
     app.include_router(chat_image_action_routes(chat, skill_installs.catalog, extractions, runs, artifacts, agent_scope))
     app.include_router(review_routes(runs, queries, artifacts, publications))
     app.include_router(publication_routes(publishing))

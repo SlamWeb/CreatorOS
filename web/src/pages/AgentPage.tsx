@@ -13,6 +13,7 @@ import { skillEditPrompt, type SkillEditHandoff } from "../components/skillEditH
 import { chatHref, chatLinkKind, chatLinkLabel, uniqueChatLinks, type ChatLink } from "../components/chatLinks";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../components/AgentAttachments";
 import { useAgentChat } from "../components/AgentChatHost";
+import { AgentPlan } from "../components/AgentPlan";
 import { AgentComposerControls } from "../components/AgentComposerControls";
 import { contextFocusDraftKey, initialReasoningEffort, isReasoningEffort, parseContextFocusDraft, parsePendingAgentTurn,
   pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey, sameContextTarget,
@@ -29,6 +30,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   manage_skill_iteration: "校准 Skill",
+  manage_plan: "管理计划",
   manage_topics: "管理选题",
   manage_media_collection: "管理素材集",
   manage_material: "管理素材",
@@ -510,6 +512,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     {(session.isError || sessions.isError || accountError || accountInactive || scopeMismatch) && <p role="alert" className="review-warning">
       {scopeMismatch ? "这个对话属于其他账号范围，不能在当前账号上下文中继续发送。" : accountInactive ? "该账号已停用，不能发送新的对话指令。" : accountError ? `无法读取账号，已阻止发送：${creator.error?.message ?? "账号不存在或暂不可用。"}` : session.error?.message ?? sessions.error?.message}
     </p>}
+    {!scopeMismatch && id && <AgentPlan key={id} sessionId={id} visible={active} conversationRunning={doc?.status === "running"} />}
     {!scopeMismatch && <div className="agent-transcript" ref={transcript} onScroll={e => {
       const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
     }} aria-label="对话记录">

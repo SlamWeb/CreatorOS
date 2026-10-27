@@ -84,14 +84,19 @@ def topic_view(topic: Topic, runs, *, management_actions=None) -> TopicView:
                      key=lambda item: (item.created_at, item.id), reverse=True)
     related = [run for run in all_related if run.task_id is None]
     task_runs = {}
+    from sqlalchemy.orm import object_session
+    from creatoros.storage import ProductionTask
+    session = object_session(topic)
+    hidden = set()
+    ids = {run.task_id for run in all_related if run.task_id}
+    if session is not None and ids:
+        hidden = set(session.scalars(select(ProductionTask.id).where(
+            ProductionTask.id.in_(ids), ProductionTask.archived_at.is_not(None))))
     for child in all_related:
-        if child.task_id:
+        if child.task_id and child.task_id not in hidden:
             task_runs.setdefault(child.task_id, child)
     collection_id = None
     if task_runs:
-        from sqlalchemy.orm import object_session
-        from creatoros.storage import ProductionTask
-        session = object_session(topic)
         if session is not None:
             task = session.get(ProductionTask, next(iter(task_runs)))
             collection_id = task.collection_id if task else None

@@ -1,5 +1,16 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-10-27 制作任务控制
+
+- `manage_production_task` 通过当前账号受限的 Studio 接口按选题 list、stop、remove；运行中 stop 返回请求已发送及真实当前状态，未确认完成时不说已停止。移除只隐藏终态任务，保留 Run、图片及历史。
+- 隔离 loopback HTTP + SQLite 测试两项通过，覆盖跨账号拒绝、排队任务停止与移除、参数和精简返回；未调用模型，不代表真实 Codex 中断验收。
+
+## Agent 计划与持续执行（进行中）
+
+- Agent 根据任务制定可调整的步骤并调用已有能力，宿主负责持久化、依赖、等待、终态续接和幂等，不增加专门的一键生图剪辑工具，也不让模型轮询。
+- 本次要求和 Skill 显式固定；跨账号拒绝，失败项单独处理，已完成图片和历史记录保留。与 Web 使用相同业务接口，不隐式发布。
+- 验收：隔离 HTTP/SQLite 的工具调用、重复提交、失败恢复、跨账号边界和真实前端 Agent；正式运行中的任务不受影响。
+
 ## 同一选题的独立制作任务（2026-10-27，隔离工具验收）
 
 - 不增加工具：`start_content_run(topic_id, tasks)` 接受1～100项名称、完整brief与可选独立SkillOverrides，提交原选题下的独立Run并汇总同一制作素材集。与topic_ids、fresh、参考图制作和顶层skill_overrides互斥；模型不能自传request_id或task_id。

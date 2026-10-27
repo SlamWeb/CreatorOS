@@ -263,9 +263,13 @@ class StagedAgentHttpTests(unittest.TestCase):
             sound.setnchannels(1); sound.setsampwidth(2); sound.setframerate(8000)
             sound.writeframes(b"\0\0" * 8000)
         bgm = self.app.state.materials.put("review-lab", "same-turn.wav", output.getvalue())
+        # A plan collects only these exact Runs in an account-owned, topic-independent folder.
+        precise = self.app.state.media_collections.create("review-lab", name="本轮精确收图",
+            request_id=uuid4().hex, run_ids=[item["run_id"] for item in images["items"]])
+        self.assertIsNone(precise["topic_id"])
         video_arguments = {"topic_id": "review-1", "tasks": [{"kind": "video", "title": "同轮视频", "brief": "承接这些图片与音乐",
             "skills": [{"skill_id": skill["id"], "role": "primary"}],
-            "inputs": {"collection_id": images["collection_id"], "bgm_material_id": bgm["id"]},
+            "inputs": {"collection_id": precise["id"], "bgm_material_id": bgm["id"]},
             "depends_on": [item["id"] for item in images["items"]]}]}
         video_result = self.call("start_content_run", context, **video_arguments)
         self.assertFalse(video_result.is_error, video_result.content)

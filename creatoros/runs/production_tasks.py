@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from uuid import uuid4
 from typing import Literal
 
@@ -166,9 +167,20 @@ class ProductionTaskService:
             if topic is None or session.get(TopicRemoval, topic_id):
                 raise ContentRunError("选题已移除。", code="not_found", status_code=404)
             self._assert_task_owner(task, topic)
-            if task.dispatch_state == "dispatched":
+            if action == "remove":
+                if task.archived_at is None:
+                    run = session.scalar(select(ContentRun).where(ContentRun.task_id == task.id)
+                        .order_by(ContentRun.created_at.desc(), ContentRun.id.desc()).limit(1))
+                    if (run is not None and run.status.value in {"queued", "producing", "validating"}) or (run is None and task.dispatch_state == "waiting"):
+                        raise ContentRunError("任务仍在运行或等待，请先停止再移除。")
+                    if run is not None and run.error_type == "codex_interrupt_unconfirmed":
+                        raise ContentRunError("Codex 停止状态未确认，请先核对线程；任务记录保留。")
+                    task.archived_at = datetime.now(timezone.utc)
+            elif task.archived_at is not None:
+                raise ContentRunError("任务已移除，历史记录仍保留。")
+            elif task.dispatch_state == "dispatched":
                 raise ContentRunError("已进入生产，请在内容页操作该任务。")
-            if action == "cancel":
+            elif action == "cancel":
                 task.dispatch_state = "cancelled"
             elif action == "resume":
                 topic = session.get(Topic, topic_id)
@@ -180,10 +192,10 @@ class ProductionTaskService:
                 except ValueError as error:
                     raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
                 task.dispatch_state, task.last_error = "waiting", None
-            else:
+            elif action != "remove":
                 raise ValueError("Unknown stage action")
         self.executor._wake.set()
-        return self._list(topic_id, [task_id])
+        return self._list(topic_id) if action == "remove" else self._list(topic_id, [task_id])
 
     def _list(self, topic_id, identifiers=None):
         with self.database.session() as session:
@@ -193,6 +205,8 @@ class ProductionTaskService:
             query = select(ProductionTask).where(ProductionTask.topic_id == topic_id)
             if identifiers is not None:
                 query = query.where(ProductionTask.id.in_(identifiers))
+            else:
+                query = query.where(ProductionTask.archived_at.is_(None))
             tasks = list(session.scalars(query.order_by(ProductionTask.position, ProductionTask.id)))
             latest = {}
             if tasks:

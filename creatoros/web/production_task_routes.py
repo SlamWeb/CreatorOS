@@ -35,4 +35,8 @@ def production_task_routes(service):
     def cancel(topic_id: str, task_id: str):
         return service.control(topic_id, task_id, "cancel")
 
+    @router.post("/{task_id}/remove")
+    def remove(topic_id: str, task_id: str):
+        return service.control(topic_id, task_id, "remove")
+
     return router

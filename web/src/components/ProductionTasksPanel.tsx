@@ -35,6 +35,7 @@ export function ProductionTasksPanel({ topicId, series, startExpanded = false, d
   const [expanded, setExpanded] = useState(startExpanded || !!draft.submitted);
   const [localError, setLocalError] = useState("");
   const [storageFailed, setStorageFailed] = useState(false);
+  const [stopping, setStopping] = useState<string[]>([]);
   const submitting = useRef(false);
   const seriesLibrary = useQuery({ queryKey: ["series-skills", series.id], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(series.id)}/skills`), enabled: expanded && !!series.creator_id, retry: false });
   const choices = seriesLibrary.data?.available_versions ?? seriesLibrary.data?.items ?? [];
@@ -62,10 +63,19 @@ export function ProductionTasksPanel({ topicId, series, startExpanded = false, d
     onSettled: async () => { try { await refresh(); } finally { submitting.current = false; } },
   });
   const waitingAction = useMutation({ retry: false,
-    mutationFn: ({ id, action }: { id: string; action: "resume" | "cancel" }) => action === "resume"
-      ? studioApi.resumeProductionTask(topicId, id) : studioApi.cancelProductionTask(topicId, id),
+    mutationFn: async ({ id, action, runId, runVersion }: { id: string; action: "resume" | "cancel" | "stop" | "remove"; runId?: string; runVersion?: number }): Promise<void> => {
+      if (action === "resume") await studioApi.resumeProductionTask(topicId, id);
+      else if (action === "remove") await studioApi.removeProductionTask(topicId, id);
+      else if (action === "stop") await studioApi.cancelRun(runId!, { expected_version: runVersion! });
+      else await studioApi.cancelProductionTask(topicId, id);
+    },
+    onSuccess: (_result, input) => { if (input.action === "stop") setStopping(current => [...new Set([...current, input.id])]); },
     onSettled: refresh,
   });
+  useEffect(() => {
+    if (!tasks.data) return;
+    setStopping(current => current.filter(id => tasks.data!.items.some(task => task.id === id && task.status === "producing")));
+  }, [tasks.data]);
   const locked = disabled || create.isPending || !!draft.submitted;
   const defaultIds = seriesLibrary.data?.defaults.image.map(item => item.skill_id) ?? [];
   function selection(item: TaskDraft): string[] {
@@ -118,6 +128,12 @@ export function ProductionTasksPanel({ topicId, series, startExpanded = false, d
       {!task.run_id && ["waiting", "needs_attention"].includes(task.status) && <div className="media-actions">
         {task.status === "needs_attention" && <button type="button" className="button button-secondary" disabled={waitingAction.isPending} onClick={() => waitingAction.mutate({ id: task.id, action: "resume" })}>重试准备材料</button>}
         <button type="button" className="button button-quiet" disabled={waitingAction.isPending} onClick={() => waitingAction.mutate({ id: task.id, action: "cancel" })}>取消等待</button></div>}
+      {(task.run_id && ["queued", "producing"].includes(task.status) || !["waiting", "queued", "producing", "validating"].includes(task.status)) && <div className="media-actions">
+        {task.run_id && ["queued", "producing"].includes(task.status) && <button type="button" className="button button-quiet" disabled={waitingAction.isPending || stopping.includes(task.id) || !task.run_version}
+          onClick={() => waitingAction.mutate({ id: task.id, action: "stop", runId: task.run_id!, runVersion: task.run_version! })}>{stopping.includes(task.id) ? "正在停止…" : "停止"}</button>}
+        {!["waiting", "queued", "producing", "validating"].includes(task.status) && <button type="button" className="button button-danger" title="从列表移除，保留产物和历史" disabled={waitingAction.isPending}
+          onClick={() => waitingAction.mutate({ id: task.id, action: "remove" })}>删除</button>}
+      </div>}
     </li>)}</ol>}
     {!tasks.isPending && !tasks.isError && !tasks.data?.items.length && !expanded && <p className="muted">把这个选题拆成几项，分别制作后一起选片。</p>}
     {expanded && <form className="production-task-form" onSubmit={event => { event.preventDefault(); submit(); }}>

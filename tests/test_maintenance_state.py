@@ -77,6 +77,20 @@ class MaintenanceStateTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT status FROM content_runs").fetchall(), [("queued",)])
             self.assertEqual(db.execute("SELECT count(*) FROM production_queue_items").fetchone()[0], 0)
 
+    def test_running_plans_and_pending_continuations_block_restart(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("INSERT INTO agent_plans (id,session_id,creator_id,request_id,request_digest,title,status,version,studio_url,continuation_state,continuation_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       ('plan','session','owner','req','digest','plan','running',1,'http://127.0.0.1:8765','none',0,'2026-01-01','2026-01-01'))
+        report = inspect_idle(self.layout)
+        self.assertFalse(report['idle'])
+        self.assertTrue(any(x['source']=='agent_plans' for x in report['busy']))
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("UPDATE agent_plans SET status='completed',continuation_state='pending'")
+        self.assertFalse(inspect_idle(self.layout)['idle'])
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("UPDATE agent_plans SET continuation_state='done'")
+        self.assertTrue(inspect_idle(self.layout)['idle'])
+
     def test_missing_database_is_not_created(self):
         layout = Layout.from_paths(self.root / "missing.db", self.root / "out")
         self.assertFalse(inspect_idle(layout)["idle"])

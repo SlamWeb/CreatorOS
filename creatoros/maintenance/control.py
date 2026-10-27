@@ -123,7 +123,8 @@ class MaintenanceController:
         locks = (services.executor._lock, services.executor.service._write_lock,
                  services.chat.lock, services.skill_installs.lock, services.topic_research.lock,
                  services.skill_extractions.lock, services.skill_iterations.lock,
-                 services.content_discussions.lock)
+                 services.content_discussions.lock,
+                 *([services.agent_plans._lock] if hasattr(services, "agent_plans") else []))
         with ExitStack() as stack:
             for lock in locks:
                 if not lock.acquire(blocking=False):

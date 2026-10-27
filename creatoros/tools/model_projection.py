@@ -197,9 +197,9 @@ PROJECTED_TOOLS = frozenset({
     "prepare_topic_selection", "queue_topics", "install_producer_skill", "get_skill_install",
     "create_skill_draft",
     "manage_skill_iteration",
-    "manage_topics",
+    "manage_topics", "manage_production_task",
     "manage_media_collection",
-    "manage_skill_library", "manage_material",
+    "manage_skill_library", "manage_material", "manage_plan",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS | _EXTRACTION_WRITES
 
 
@@ -219,6 +219,30 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return _error(data) | _pick(data, _SKILL + ("digest",) + _SKILL_BATCH)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "manage_production_task":
+        result = _pick(data, ("action", "topic_id", "task_id", "run_id", "status", "message"))
+        fields = ("id", "title", "status", "kind", "run_id", "run_version")
+        if "items" in data:
+            result["items"] = _list(data["items"], lambda item: _pick(item, fields))
+        if "task" in data:
+            result["task"] = _pick(data["task"], fields)
+        return result
+    if tool_name == "manage_plan":
+        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error")
+        def step(item):
+            result = _pick(item, ("id", "title", "tool", "depends_on", "wait_for_completion", "status", "error", "retryable"))
+            if isinstance(item, dict) and isinstance(item.get("result"), dict):
+                value = item["result"]
+                result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url"))
+                if isinstance(value.get("items"), list):
+                    result["result"]["items"] = _list(value["items"], lambda row: _pick(row, ("id", "task_id", "run_id", "status", "title", "url")))
+            return result
+        projected = _pick(data, fields)
+        if isinstance(data.get("steps"), list):
+            projected["steps"] = _list(data["steps"], step)
+        if isinstance(data.get("items"), list):
+            projected["items"] = _list(data["items"], lambda item: _pick(item, fields))
+        return projected
     if tool_name == "manage_skill_library":
         result = _pick(data, ("action", "creator_id", "series_id", "version", "defaults")) | _items(data, _SKILL + ("digest",))
         if "available_versions" in data:

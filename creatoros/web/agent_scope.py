@@ -88,6 +88,13 @@ class AgentScopeGuard:
 
         method, path = request.method.upper(), request.url.path
 
+        plans = re.fullmatch(r"/api/agent/sessions/([^/]+)/plans(?:/([a-f0-9]{64})(?:/(actions))?)?", path)
+        if plans:
+            allowed = ((plans.group(2) is None and method in {"GET", "POST"})
+                       or (plans.group(2) is not None and plans.group(3) is None and method in {"GET", "PATCH"})
+                       or (plans.group(3) == "actions" and method == "POST"))
+            return None if plans.group(1) == session_id and allowed else self._denied()
+
         library = re.fullmatch(r"/api/creators/([^/]+)/skills(?:/([^/]+))?", path)
         if library:
             allowed = (method in {"GET", "POST"} and library.group(2) is None
@@ -105,7 +112,7 @@ class AgentScopeGuard:
             if material.group(2) and not self._owns_material(material.group(2), creator_id):
                 return self._denied()
             return None
-        task_action = re.fullmatch(r"/api/topics/([^/]+)/production-tasks/([^/]+)/(resume|cancel)", path)
+        task_action = re.fullmatch(r"/api/topics/([^/]+)/production-tasks/([^/]+)/(resume|cancel|remove)", path)
         if task_action:
             return None if (method == "POST" and self._owns_topic(task_action.group(1), creator_id)
                             and self._owns_task(task_action.group(2), creator_id, task_action.group(1))) else self._denied()
@@ -404,6 +411,10 @@ class AgentScopeGuard:
             return None if allowed else self._denied()
 
         match = _RUN_EXECUTE.fullmatch(path)
+        if method == "POST" and match:
+            return None if self._owns_run(match.group(1), creator_id) else self._denied()
+
+        match = re.fullmatch(r"/api/runs/([^/]+)/cancel", path)
         if method == "POST" and match:
             return None if self._owns_run(match.group(1), creator_id) else self._denied()
 

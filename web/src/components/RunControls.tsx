@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, studioApi } from "../api/client";
 import type { RunDetail } from "../api/types";
@@ -14,13 +14,16 @@ const phaseLabels = { planning: "准备内容", rendering: "逐页制图", assem
 export function RunControls({ run, compact = false }: { run: RunDetail; compact?: boolean }) {
   const detailId = useId();
   const [detailOpen, setDetailOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (action: "execute" | "cancel") => action === "execute"
       ? studioApi.executeRun(run.id, run.version)
       : studioApi.cancelRun(run.id, { expected_version: run.version }),
+    onSuccess: (_result, action) => { if (action === "cancel" && run.status === "producing") setStopping(true); },
     onSettled: () => queryClient.invalidateQueries(),
   });
+  useEffect(() => { if (run.status !== "producing") setStopping(false); }, [run.id, run.status]);
   const queued = run.production_queue?.status === "pending";
   const blockedReason = queued ? run.production_queue?.blocked_reason : null;
   const canStart = !queued && (run.allowed_actions.includes("execute") || run.allowed_actions.includes("resume"));
@@ -51,7 +54,7 @@ export function RunControls({ run, compact = false }: { run: RunDetail; compact?
     </div> : active ? <p className="muted">未记录阶段进度</p> : null}
     <div className="form-actions">
       {canStart ? <button className="button button-primary" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" && run.production_queue?.status !== "needs_attention" ? "开始生产" : "恢复生产"}</button> : null}
-      {run.allowed_actions.includes("cancel") ? <button className="button button-quiet" disabled={mutation.isPending} onClick={() => mutation.mutate("cancel")}>取消此任务</button> : null}
+      {run.allowed_actions.includes("cancel") ? <button className="button button-quiet" disabled={mutation.isPending || stopping} onClick={() => mutation.mutate("cancel")}>{stopping ? "正在停止…" : run.status === "producing" ? "停止" : "取消此任务"}</button> : null}
     </div>
     {mutation.isError ? <p className="form-error" role="alert">{mutation.error.message} {mutation.error instanceof ApiError && mutation.error.runId ? <Link to={`/runs/${mutation.error.runId}`}>查看当前运行 →</Link> : null}</p> : null}
   </div>;

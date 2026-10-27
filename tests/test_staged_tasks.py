@@ -113,6 +113,14 @@ class StagedTasksTests(unittest.TestCase):
         with self.db.session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), 1)
 
+    def test_video_rejects_collection_owned_by_another_topic(self):
+        images, image = self.image()
+        other = self.collections.create("creator", name="other", request_id="other-topic", topic_id="another")
+        payload = self.video_payload(images, image)
+        payload["inputs"]["collection_id"] = other["id"]
+        with self.assertRaisesRegex(ValueError, "本选题素材集"):
+            self.tasks.create("topic", request_id="bad-collection", tasks=[payload])
+
     def test_existing_completed_collection_dispatches_video_without_database_self_lock(self):
         images, image = self.image()
         self.runs.execute(image["run_id"])
@@ -150,6 +158,16 @@ class StagedTasksTests(unittest.TestCase):
         run = self.runs.get(result["items"][0]["run_id"])
         self.assertEqual(run.input_snapshot_json["production_protocol"], "task-v1")
         self.assertEqual(run.input_snapshot_json["execution_spec"]["skills"][0]["skill_id"], builtin)
+
+    def test_account_skill_can_be_selected_without_changing_series_pool(self):
+        self.library.add("creator", skill_id=self.visual["id"], request_id="extra-account-skill")
+        before = self.library.get_series("single")
+        self.assertNotIn(self.visual["id"], [item["id"] for item in before["items"]])
+        result = self.tasks.create("topic", request_id="account-skill-task", tasks=[
+            dict(title="Account skill", skill_ids=[self.visual["id"]])])
+        run = self.runs.get(result["items"][0]["run_id"])
+        self.assertEqual(run.input_snapshot_json["execution_spec"]["skills"][0]["skill_id"], self.visual["id"])
+        self.assertEqual(self.library.get_series("single"), before)
 
     def test_single_start_uses_explicit_stage_default_and_replay_keeps_frozen_edition(self):
         pool = self.library.get_series("single")

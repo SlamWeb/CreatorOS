@@ -126,6 +126,15 @@ class ManagedRunExecutor:
 
     def cancel(self, run_id: str, *, expected_version: int) -> None:
         with self._lock:
+            run = self.service.get(run_id)
+            if run.version != expected_version:
+                raise ContentRunError("运行状态已变化，请刷新后再停止。")
+            if run.status.value == "producing":
+                task = self._active.get(run_id)
+                if task is None or task.future.done():
+                    raise ContentRunError("无法确认此任务的执行者，请刷新状态后再操作。")
+                task.cancel.set()
+                return
             self.service.cancel(run_id, expected_version=expected_version)
             self.queue.cancel_pending(run_id)
 

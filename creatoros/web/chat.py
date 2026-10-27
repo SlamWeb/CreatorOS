@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import hashlib
 import os
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -46,6 +47,8 @@ STUDIO_TOOLS = frozenset({"manage_media_collection", "query_feedback", "prepare_
                           "read_image", "extract_skill_from_images", "create_skill_draft", "import_content_images",
                           "get_creator_tasks", "read_tool_result", "read_file"})
 ACCOUNT_TOOLS = frozenset({
+    "manage_plan",
+    "manage_production_task",
     "manage_media_collection",
     "manage_skill_library", "manage_material",
     "query_feedback", "prepare_publication", "get_publication",
@@ -220,7 +223,7 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "选题pending是待选，queued是已确认入队，不代表任务正在排队。只有用户明确要求生产才start_content_run。"
     "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台最多30个选题并行。"
     "同一个选题需要多张独立制作再合为一份作品时，用start_content_run(topic_id,tasks)一次提交制作任务，不拆成多个选题。"
-    "每项写清kind=image或video、名称、完整要求、准确skills及主/辅助角色；先查账号库/栏目池，按输出能力选主Skill。"
+    "需要长时间等待或多步依赖时用 manage_plan 制定通用步骤并由宿主推进，不轮询或重复提交。多张图可在一个 start_content_run 步骤内列多个独立 tasks，并设 wait_for_completion=true。收集本次图片时，新建素材集并令 run_ids 为 {\"$ref\":\"图片步骤ID.items.*.run_id\"}，依赖该图片步骤，不传 topic_id；视频步骤使用 {\"$ref\":\"素材集步骤ID.collection_id\"} 作为 inputs.collection_id 并依赖素材集步骤。视频任务明确 kind=video 和 BGM；按需要选择账号 Skill，不区分主辅。"
     "视频inputs只用图片集合/导出与BGM素材ID；音乐分享链接先manage_material(import_link)取得实文件，失败请用户上传，不能声称音乐已就绪。"
     "图片完成后可人工选片导出再制视频；用户明确授权等待选中的生图任务时填写depends_on，由持久后台推进，不轮询、不重交。"
     "查看原选题可读各项进度；各任务失败独立处理，不重跑已成功的任务，不重复提交整批。"
@@ -516,6 +519,51 @@ class AgentChatService:
             self.require_creator(doc.get("creator_id"))
             return self.attachments.put(session_id, name, data_base64)
 
+    def bind_plan_service(self, plans):
+        """Wake an idle account conversation when a durable plan settles."""
+        self.plan_service = plans
+        plans.set_continuation_callback(self._resume_plans)
+
+    def _resume_plans(self):
+        plans = self.plan_service
+        for session_id in plans.pending_continuation_sessions():
+            with self.lock:
+                if self.stopping.is_set() or session_id in self.active or len(self.active) >= self.max_parallel_sessions:
+                    continue
+                token = uuid4().hex
+                event = plans.claim_continuation(session_id, token, lease_seconds=120)
+                if not event:
+                    continue
+                try:
+                    doc = self._read(session_id)
+                    if doc.get("creator_id") != event["creator_id"] or doc.get("scope_kind") != "creator":
+                        raise ValueError("计划与对话账号不一致")
+                    # Persist the event identity before execution: a process crash can
+                    # interrupt a continuation but must never replay its side effects.
+                    request_id = "plan-" + hashlib.sha256(event["event_id"].encode()).hexdigest()
+                    if any(item["id"] == request_id for item in doc["requests"]):
+                        plans.ack_continuation(event["plan_id"], event["event_id"], token)
+                        continue
+                    provider = self.provider_factory()
+                    if isinstance(provider, DeepSeekProvider):
+                        provider.image_resolver = lambda ref, sid=session_id: self.attachments.resolve(sid, ref)
+                        provider.set_reasoning_effort(doc.get("reasoning_effort", "high"))
+                    observation = {key: event[key] for key in ("plan_id", "status", "steps")}
+                    doc["requests"].append({"id": request_id, "text": "", "status": "running",
+                                            "kind": "plan_continuation", "event_id": event["event_id"]})
+                    doc.update(status="running", error=None, version=doc["version"] + 1)
+                    self.active[session_id], self.providers[session_id] = doc, provider
+                    self._save(doc)
+                    thread = Thread(target=self._run, args=(doc, "后台计划结果", event["studio_url"], provider,
+                                    request_id, None, False, None, observation),
+                                    kwargs={"on_done": lambda p=plans, e=event, t=token:
+                                            p.ack_continuation(e["plan_id"], e["event_id"], t)}, daemon=True)
+                    self.threads[session_id] = thread
+                    thread.start()
+                except Exception:
+                    plans.release_continuation(event["plan_id"], event["event_id"], token)
+                    raise
+
     def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
                reasoning_effort=None, iteration_mode=False, context_target=None):
         if context_target is not None:
@@ -697,7 +745,7 @@ class AgentChatService:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
-    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None):
+    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None):
         status, error = "idle", None
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
@@ -717,13 +765,21 @@ class AgentChatService:
                 save_messages(messages, session_file)
             focus = self.focus_context_builder.build(doc.get("creator_id"), doc["id"], context_target,
                 image_budget=max(0, 20 * 1024 * 1024 - sum(item["size"] for item in attachments or []))) if context_target else None
+            permitted_tools = ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS
+            if host_observation and host_observation.get("status") == "needs_attention":
+                # Failure notifications can inspect and explain, but must not work
+                # around the failed step by silently submitting a new production.
+                permitted_tools = permitted_tools & frozenset({"get_content_run", "get_producer_skill",
+                    "get_creator_tasks", "list_creators", "list_creator_series", "list_producer_skills",
+                    "read_image", "read_tool_result"})
             run_agent(provider, console=WebConsole(text or "（用户发送了图片，请根据上下文判断用途；用途不明时先询问。）"),
                       user_attachments=attachments,
+                      host_observation=host_observation,
                       **({"request_context": focus, "user_context_ref": context_target} if focus else {}),
                       session_file=session_file,
                       user_request_id=request_id, capture_request_trace=True,
                       runtime_context=ChatRuntimeContext(project_root=PROJECT_ROOT, studio_url=studio_url,
-                                                     allowed_tools=ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS,
+                                                     allowed_tools=permitted_tools,
                                                      archive_only_reads=True, creator_id=doc.get("creator_id"),
                                                      agent_session_id=doc["id"], stopping=self.stopping,
                                                      research_wait_timeout_seconds=self.research_wait_timeout_seconds,
@@ -766,6 +822,8 @@ class AgentChatService:
                     self.active.pop(doc["id"], None)
                     self.providers.pop(doc["id"], None)
                     self.threads.pop(doc["id"], None)
+                if on_done is not None:
+                    on_done()
 
     def shutdown(self):
         self.stopping.set()

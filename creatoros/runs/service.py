@@ -587,7 +587,7 @@ class ContentRunService:
             raise
         except Exception as error:
             try:
-                if cancel_event.is_set():
+                if cancel_event.is_set() and getattr(error, "error_type", "") != "codex_interrupt_unconfirmed":
                     self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
                 else:
                     self._mark_failed(

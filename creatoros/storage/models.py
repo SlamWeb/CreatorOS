@@ -444,6 +444,7 @@ class ProductionTask(TimestampMixin, Base):
     dependency_json: Mapped[list] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
     dispatch_state: Mapped[str] = mapped_column(String(30), default="dispatched", server_default="dispatched", nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ManagedMaterial(TimestampMixin, Base):
@@ -778,6 +779,40 @@ class SeriesSkillRef(TimestampMixin, Base):
     skill_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     defaults_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class AgentPlan(TimestampMixin, Base):
+    __tablename__ = "agent_plans"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(120), index=True)
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id", ondelete="RESTRICT"))
+    request_id: Mapped[str] = mapped_column(String(128))
+    request_digest: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(240))
+    status: Mapped[str] = mapped_column(String(30))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    studio_url: Mapped[str] = mapped_column(String(200))
+    continuation_state: Mapped[str] = mapped_column(String(30), default="none")
+    continuation_version: Mapped[int] = mapped_column(Integer, default=0)
+    continuation_token: Mapped[str | None] = mapped_column(String(120))
+    continuation_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AgentPlanStep(TimestampMixin, Base):
+    __tablename__ = "agent_plan_steps"
+    __table_args__ = (UniqueConstraint("plan_id", "step_key", name="uq_agent_plan_steps_plan_key"),)
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    plan_id: Mapped[str] = mapped_column(ForeignKey("agent_plans.id", ondelete="CASCADE"), index=True)
+    step_key: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(240))
+    position: Mapped[int] = mapped_column(Integer)
+    tool: Mapped[str] = mapped_column(String(100))
+    arguments_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    depends_on_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    wait_for_completion: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    result_json: Mapped[dict | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class SkillCalibration(TimestampMixin, Base):

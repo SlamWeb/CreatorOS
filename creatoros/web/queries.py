@@ -631,6 +631,8 @@ class StudioQueryService:
             return ["approve", "cancel"] if run.status is ContentRunStatus.AWAITING_APPROVAL else ["view"]
         if run.status is ContentRunStatus.QUEUED:
             return ["execute", "cancel"]
+        if run.status is ContentRunStatus.PRODUCING:
+            return ["view", "cancel"]
         if run.status is ContentRunStatus.INTERRUPTED or (run.status is ContentRunStatus.FAILED and run.retryable):
             return ["resume", "revise", "cancel", "fresh"]
         if run.status is ContentRunStatus.AWAITING_APPROVAL:

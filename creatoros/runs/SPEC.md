@@ -1,5 +1,12 @@
 # ContentRun SPEC
 
+## 2026-10-27 单任务停止与移除
+
+- 用户显式停止排队 Run 时取消队列；停止正在生产 Run 时只通知其执行者，Codex SDK 发送 turn.interrupt，状态在执行者退出后变为 interrupted。停止未得到确认时记录失败，不假称已停止或自动恢复。验收阶段不强制中断。
+- 隔离 SQLite 的停止、队列和多阶段回归 31 项通过；另有账号范围 HTTP 校验通过。受控 Producer 只验证信号与文件保留，不代表真实 Codex 已完成中断验证。
+- 终态制作任务允许软移出当前列表；原 Run、产物和 Trace 保留。运行或等待中的任务必须先停止或取消，不能通过删除隐式中断。
+- 隔离测试覆盖版本冲突、单项停止不阻塞其他任务、文件保留、归档后幂等重放及跨账号拒绝；不触碰正式运行中的任务。
+
 ## 统一图文/视频执行规范（2026-10-27，隔离验证）
 
 - 新任务使用 `production_protocol=task-v1` 与 `TaskExecutionSpec`：kind=image/video，准确主/辅助 Skill ID+目录 digest，以及宿主已鉴权材料 ID+摘要。旧 skill_name/composition 协议保持解析；统一规范不强求旧二元绑定。

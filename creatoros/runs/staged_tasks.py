@@ -30,13 +30,10 @@ class StagedTasks:
         if item.skill_ids is not None:
             if not self.library:
                 raise ValueError("栏目 Skill 库未配置。")
-            pool = self.library.get_series(topic.series_id)
-            families = {value["family_id"] for value in pool["items"]}
             selected = []
             for skill_id in item.skill_ids:
-                if (not self.library.can_use(topic.series.creator_id, skill_id)
-                        or self.library._family(skill_id) not in families):
-                    raise ContentRunError("所选 Skill 不在当前栏目可用池中。", code="scope_conflict", status_code=403)
+                if not self.library.can_use(topic.series.creator_id, skill_id):
+                    raise ContentRunError("所选 Skill 不在当前账号的 Skill 库中。", code="scope_conflict", status_code=403)
                 selected.append(dict(skill_id=skill_id, digest=self.library.describe(skill_id)["digest"], role="selected"))
             selections = selected
         if not selections and not item.skill_overrides and self.library:
@@ -64,8 +61,8 @@ class StagedTasks:
             if not inputs:
                 raise ValueError("视频需要图片素材集和 BGM。")
             detail = self.collections.get(creator_id, inputs["collection_id"])
-            if detail.get("topic_id") != topic.id:
-                raise ValueError("请选择本选题的素材集。")
+            if detail.get("topic_id") not in (None, topic.id):
+                raise ValueError("请选择当前账号的独立素材集或本选题素材集。")
             bgm = self.materials.resolve(creator_id, inputs["bgm_material_id"])
             spec.materials.append(TaskMaterial(id=bgm["id"], kind="audio", path=str(bgm["path"]),
                                                sha256=bgm["sha256"], name=bgm["name"]))

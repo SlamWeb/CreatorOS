@@ -531,8 +531,9 @@ async def review_composition(thread, producer, directory, refs, request, progres
     except BaseException:
         try:
             await asyncio.wait_for(turn.interrupt(), timeout=5)
-        except Exception:
-            pass
+        except Exception as error:
+            if cancel_event is not None and cancel_event.is_set():
+                raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from error
         raise
     require_completed_turn(result)
     if result.usage is not None:
@@ -771,13 +772,16 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         result.final_response or "", encoding="utf-8")
                 finally:
                     if not terminal_received:
+                        interrupt_error = None
                         try:
                             await asyncio.wait_for(turn.interrupt(), timeout=5)
-                        except Exception:
-                            pass
+                        except Exception as error:
+                            interrupt_error = error
                         if not collector.done():
                             collector.cancel()
                         await asyncio.gather(collector, return_exceptions=True)
+                        if interrupt_error is not None and cancel_event is not None and cancel_event.is_set():
+                            raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from interrupt_error
                     if not structured:
                         try:
                             ingest(directory, checkpoint, producer.generated_images_root)

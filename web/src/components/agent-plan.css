@@ -1,0 +1,17 @@
+.agent-plan { flex: none; border-bottom: 1px solid var(--border, #e1e4e9); }
+.agent-plan-heading { padding: 8px 16px; }
+.agent-plan-toggle { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; padding: 4px 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.agent-plan-toggle span { color: var(--muted, #697586); font-size: 13px; }
+.agent-plan-toggle span:last-child { margin-left: auto; color: var(--blue, #006de5); }
+.agent-plan-content { max-height: min(48vh, 440px); overflow: auto; padding: 4px 16px 16px; }
+.agent-plan-content label { display: grid; gap: 6px; }
+.agent-plan-title, .agent-plan-step-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.agent-plan-title span, .agent-plan-status, .agent-plan-dependencies, .agent-plan-note { color: var(--muted, #697586); font-size: 13px; }
+.agent-plan-status.is-failed, .agent-plan-status.is-unknown { color: #ba3c3c; }
+.agent-plan-steps { margin: 10px 0; padding: 0; list-style: none; }
+.agent-plan-step { padding: 10px 0; border-bottom: 1px solid var(--border, #e1e4e9); }
+.agent-plan-step p { margin: 6px 0 0; }
+.agent-plan-step-actions, .agent-plan-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.agent-plan .text-link { padding: 0; border: 0; background: transparent; color: var(--blue, #006de5); font: inherit; font-size: 13px; cursor: pointer; }
+.agent-plan .text-link:disabled { opacity: .55; cursor: default; }
+.agent-plan-detail { overflow: auto; max-height: 200px; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-muted, #f4f5f7); font-size: 12px; }

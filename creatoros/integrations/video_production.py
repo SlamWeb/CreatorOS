@@ -172,13 +172,16 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                                        for key in CodexUsage.model_fields})
             finally:
                 if not completed:
+                    interrupt_error = None
                     try:
                         await asyncio.wait_for(turn.interrupt(), 5)
-                    except Exception:
-                        pass
+                    except Exception as error:
+                        interrupt_error = error
                     if not collector.done():
                         collector.cancel()
                     await asyncio.gather(collector, return_exceptions=True)
+                    if interrupt_error is not None and cancel is not None and cancel.is_set():
+                        raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from interrupt_error
             progress.finish("completed")
             return checkpoint
     except Exception:
