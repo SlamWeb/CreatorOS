@@ -1,5 +1,11 @@
 # 多阶段制作验证 · 2026-10-27
 
+## 简化 Skill 选择后的真实剪辑
+
+- 在隔离数据中新建选题，导入两张先前真实生成的图片和 BGM；将未声明 `creatoros-outputs` 的原版 image-beat-story 加入栏目池，用新 `skill_ids` 经真实 HTTP 提交一次视频任务，未修改正式账号或重跑旧图片。
+- 独立 Codex thread 完成 6 秒、1080×1440 的 H.264/AAC MP4，状态待验收；真实文件 SHA256、Range 206 及完整 ffmpeg 解码通过。中间一次 xfade 帧率命令失败，Codex 在同一线程自行纠正；未再次提交任务。
+- SDK 累计输入 1,255,496 tokens（其中缓存 1,163,008），输出 20,251，属于多次调用累计，不是单次上下文长度。证据 `tmp/simple-skills-real-codex/simple-probe-evidence.json`，真实 HTTP 调用不等于浏览器触发；浏览器操作另有隔离 E2E。
+
 ## 真实浏览器与真实模型
 
 独立数据目录 `tmp/staged-real-20261027-b`，服务 8792；使用真实 DeepSeek、Codex SDK、生图和用户的 image-beat-story 剪辑 Skill。测试只在复制的剪辑 Skill 中补充视频输出声明；原 Skill 未改。BGM 是六秒合成 WAV，图片由模型真实生成。
