@@ -289,6 +289,8 @@
 
 ## 多阶段制作工具（2026-10-27）
 
+- `start_content_run.tasks[].skill_ids` 直接指定本栏目内一个或多个版本，不向模型要求主辅或输出声明；现存 `skills` 保留历史兼容。栏目与账号 `manage_skill_library` 结果提供过滤权限后的 `available_versions`，投影保留 ID/digest，不开放别的账号私有候选。模型修改栏目池可只传 `skill_ids` 与版本，宿主保留仍有效的旧默认并清理已移除项；旧 `defaults` 参数仍可用。
+
 - 新增两个对象级工具：`manage_skill_library` 的 get/add/remove/set_pool 管理账号引用和栏目阶段默认；`manage_material` 的 list/get/import_link 查询、导入 BGM 分享链接。账号 ID 由宿主绑定，模型无文件路径、音频字节或请求键入口。
 - `start_content_run.tasks` 支持 image/video、精确 Skill ID 与 primary/supporting、集合/导出/BGM 对象 ID 和 depends_on。Agent 的 digest 可省略：宿主同次调用按唯一 Skill ID 读取完整目录摘要；显式摘要不符拒绝，HTTP/冻结层仍校验完整 digest。既有图片入口保持兼容，typed tasks 直接走任务路由。
 - 请求键由可信会话/用户轮次、Topic 和补齐摘要后的规范任务 payload 派生；同轮图片与视频分别提交，同一有效规范（包括省略/显式同摘要）重放取回原任务。模型不能指定请求键。等待无 Run 的回执不拼造 Run URL，依赖由后台推进，不让 LLM 轮询。

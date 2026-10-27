@@ -87,7 +87,7 @@ class StagedAgentHttpTests(unittest.TestCase):
         return execute_tool_call(ToolCall(uuid4().hex, tool_name, json.dumps(arguments)),
                                  context or self.context(), model_requested=True)
 
-    def test_shared_account_reference_is_usable_but_all_edit_routes_are_denied(self):
+    def test_shared_account_reference_forks_private_candidate(self):
         context = self.context()
         added = self.call("manage_skill_library", context, action="add", skill_id=self.foreign["id"])
         self.assertFalse(added.is_error, added.content)
@@ -100,13 +100,20 @@ class StagedAgentHttpTests(unittest.TestCase):
         self.assertEqual(self.client.get(endpoint + "/files", headers=self.header()).status_code, 200)
         source = self.catalog.read_skill_file(self.foreign["id"], "SKILL.md")
         for method, path, body in (("PUT", endpoint + "/files/content", {"path": "SKILL.md", "content": source["content"] + "edit", "expected_digest": source["digest"]}),
-            ("POST", endpoint + "/versions", {"expected_digest": source["digest"], "request_id": uuid4().hex}),
-            ("DELETE", endpoint + "/assets", {"path": "assets/reference.png", "expected_digest": source["digest"]}),
+            ("POST", endpoint + "/versions", {"expected_digest": source["digest"], "request_id": uuid4().hex})):
+            response = self.client.request(method, path, headers=self.header(), json=body)
+            self.assertEqual(response.status_code, 200, response.text)
+            candidate_id = response.json().get("skill_id") or response.json()["id"]
+            self.assertNotEqual(candidate_id, self.foreign["id"])
+            self.assertEqual(self.catalog._record(candidate_id)["creator_id"], "review-lab")
+            foreign_read = self.client.get(f"/api/producer-skills/{candidate_id}/files", headers=self.header(self.other))
+            self.assertEqual(foreign_read.status_code, 403, foreign_read.text)
+        for method, path, body in (("DELETE", endpoint + "/assets", {"path": "assets/reference.png", "expected_digest": source["digest"]}),
             ("POST", f"/api/agent/sessions/{self.account}/image-actions/skill-asset", {
                 "operation": "delete_image", "skill_id": self.foreign["id"], "path": "assets/reference.png",
                 "expected_digest": source["digest"], "request_id": uuid4().hex})):
             response = self.client.request(method, path, headers=self.header(), json=body)
-            self.assertEqual(response.status_code, 403, response.text)
+            self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(self.catalog.describe(self.foreign["id"])["digest"], source["digest"])
         with self.database.session() as session:
             session.add(Series(id="shared-legacy", creator_id="review-lab", name="共享旧绑定", description="", audience="",
@@ -136,6 +143,27 @@ class StagedAgentHttpTests(unittest.TestCase):
         self.assertTrue(denied.is_error)
         self.assertEqual(denied.error_type, "agent_scope_rejected")
         self.assertEqual(self.client.get("/api/series/other-series/skills", headers=self.header()).status_code, 403)
+
+    def test_agent_changes_pool_without_supplying_legacy_defaults(self):
+        context = self.context()
+        self.app.state.skill_library.add("review-lab", self.mind["id"], uuid4().hex)
+        initial = self.app.state.skill_library.set_series("agent-notes", 0,
+            [self.legacy["id"], self.mind["id"]],
+            {"image": [{"skill_id": self.legacy["id"], "role": "primary"},
+                       {"skill_id": self.mind["id"], "role": "supporting"}], "video": []})
+        candidate = self.candidate(self.legacy)
+        changed = self.call("manage_skill_library", context, action="set_pool", series_id="agent-notes",
+            expected_version=initial["version"], skill_ids=[candidate["skill_id"], self.mind["id"]])
+        self.assertFalse(changed.is_error, changed.content)
+        result = json.loads(changed.content)
+        self.assertEqual(result["defaults"], initial["defaults"])
+        removed = self.call("manage_skill_library", context, action="set_pool", series_id="agent-notes",
+            expected_version=result["version"], skill_ids=[self.mind["id"]])
+        self.assertFalse(removed.is_error, removed.content)
+        self.assertEqual(json.loads(removed.content)["defaults"], {"image": [], "video": []})
+        stale = self.call("manage_skill_library", context, action="set_pool", series_id="agent-notes",
+            expected_version=result["version"], skill_ids=[candidate["skill_id"]])
+        self.assertTrue(stale.is_error)
 
     def test_typed_task_scope_rejects_foreign_skill_material_and_host_path_before_writes(self):
         from creatoros.storage.models import ManagedMaterial

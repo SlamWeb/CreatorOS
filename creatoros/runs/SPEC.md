@@ -14,6 +14,9 @@
 
 ## 选题内独立制作任务（2026-10-27）
 
+- 简化选择：任务新增 `skill_ids` 精确版本列表，按账号权限及栏目池家族校验，由宿主读取摘要并冻结原始正文/资源。无需 Skill 输出声明，所选 Skill 均为 `selected`，原样并列交给 Codex；旧 `skills`、旧输出角色及已冻结任务按原协议读取。图片/视频提示词对 `selected` 不设置主辅优先级。原请求不含 `skill_ids` 时保持既有幂等摘要。
+- 隔离真实 SQLite/文件与受控本地调度定向测试 11/11：无声明 Skill、多 Skill 冻结、同请求重放、池外拒绝、移除旧池引用但保留文件、图片/视频平等提示及旧提示兼容；不代表真实模型质量或端到端视频验收。
+
 - [制作任务契约](../../docs/production-tasks/SPEC.md)：新增 ProductionTask 与 nullable ContentRun.task_id；旧 Run 保持 null，互斥/最新运行/父状态写入按新旧作用域区分。复用原队列与30工位限制，不创建第二生产器。
 - Task、Run、Revision、队列与素材集/回执同事务；默认或指定 Skill 都在提交时冻结正文及附件。task fresh 默认保留自己的选用，不退回栏目；候选 digest 改变需明确重选。旧 fresh 不变。
 - 新增核心 11 项通过；联合任务/素材集 34 项通过。真实两线程生图及前端收图、ZIP 另记 [验证](../../docs/production-tasks/VALIDATION.md)。正式环境未迁移或重启。

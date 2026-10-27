@@ -3,7 +3,7 @@ import path from "node:path";
 
 const repo = path.resolve(import.meta.dirname, "..");
 const root = path.join(repo, "tmp", `production-tasks-ui-${Date.now()}`);
-const dist = path.join(repo, "tmp", "production-tasks-20261027", "dist");
+const dist = process.env.PRODUCTION_TASKS_DIST ?? path.join(repo, "tmp", "production-tasks-20261027", "dist");
 const python = process.env.CREATOROS_PYTHON ?? "python";
 
 // Real isolated HTTP/SQLite, deterministic local E2EProducer; this suite never calls paid Codex.

@@ -34,11 +34,17 @@ class ProductionTaskInput(RunModel):
     skill_overrides: SkillOverrides | None = None
     kind: Literal["image", "video"] = "image"
     skills: list[SelectedTaskSkill] = Field(default_factory=list, max_length=12)
+    skill_ids: list[str] | None = Field(default=None, min_length=1, max_length=12)
     inputs: VideoTaskInputs | None = None
     depends_on: list[str] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def stage_inputs(self):
+        if self.skill_ids is not None:
+            if self.skills or self.skill_overrides:
+                raise ValueError("请只使用一种 Skill 选择方式。")
+            if any(not value.strip() or len(value) > 120 for value in self.skill_ids) or len(set(self.skill_ids)) != len(self.skill_ids):
+                raise ValueError("Skill 选择不能为空或重复。")
         if self.kind == "image" and (self.inputs or self.depends_on):
             raise ValueError("图片任务不接收剪辑素材或阶段依赖。")
         if self.kind == "video" and (not self.inputs or self.skill_overrides):
@@ -75,7 +81,8 @@ class ProductionTaskService:
         except ValueError as error:
             raise ContentRunError(str(error), code="invalid_request", status_code=422) from error
         request_id = request_id.strip()
-        digest = _digest(dict(topic_id=topic_id, tasks=[item.model_dump(mode="json") for item in inputs]))
+        # Keep old request hashes unchanged; old callers have no skill_ids key.
+        digest = _digest(dict(topic_id=topic_id, tasks=[item.model_dump(mode="json", exclude={"skill_ids"} if item.skill_ids is None else set()) for item in inputs]))
         # Keep dispatcher and writes out until every queue authorization commits.
         with self.executor._lock:
             self.executor.start()
@@ -129,6 +136,8 @@ class ProductionTaskService:
                                     self.stages.dispatch(session, task, topic)
                                 identifiers.append(task.id)
                                 continue
+                        except ContentRunError:
+                            raise
                         except ValueError as error:
                             raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
                         run = self.runs._create(topic_id, task_id=task.id, bound_session=session,

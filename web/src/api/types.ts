@@ -162,7 +162,7 @@ export type SkillOverrides = { skill_id?: string; mind_skill_id?: string; produc
 export type TaskKind = "image" | "video";
 export interface TaskSkill { skill_id: string; digest: string; role: "primary" | "supporting" }
 export interface ProductionTaskInput {
-  title: string; brief: string; kind?: TaskKind; skills?: TaskSkill[]; skill_overrides?: SkillOverrides;
+  title: string; brief: string; kind?: TaskKind; skill_ids?: string[]; skills?: TaskSkill[]; skill_overrides?: SkillOverrides;
   inputs?: { collection_id: string; export_id?: string; bgm_material_id: string }; depends_on?: string[];
 }
 export interface ProductionTaskView extends ProductionTaskInput {
@@ -403,6 +403,7 @@ export interface ProducerSkillItem {
 
 export interface SkillLibraryView {
   creator_id: string; series_id?: string; version: number; items: ProducerSkillItem[];
+  available_versions?: ProducerSkillItem[];
   defaults: Record<TaskKind, { skill_id: string; role: "primary" | "supporting" }[]>;
 }
 

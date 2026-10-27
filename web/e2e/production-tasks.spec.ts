@@ -36,10 +36,12 @@ test("split creates two tasks with independent Skills in one topic, and refresh 
   await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("保持主角轮廓，画城市清晨。");
   await dialog.getByLabel("任务 2 名称", { exact: true }).fill("结尾世界");
   await dialog.getByLabel("任务 2 制作要求", { exact: true }).fill("保持主角轮廓，画森林黄昏。");
-  await dialog.getByLabel("任务 2 Skill 方式", { exact: true }).selectOption("single");
-  await expect(dialog.getByLabel("任务 2 完整 Skill", { exact: true }).locator(`option[value="${original.id}"]`)).toHaveText(/v1/);
-  await expect(dialog.getByLabel("任务 2 完整 Skill", { exact: true }).locator(`option[value="${skill.id}"]`)).toHaveText(/v2.*候选/);
-  await dialog.getByLabel("任务 2 完整 Skill", { exact: true }).selectOption(skill.id);
+  const firstSkills = dialog.getByRole("group", { name: "任务 1 选择 Skill" });
+  const secondSkills = dialog.getByRole("group", { name: "任务 2 选择 Skill" });
+  await expect(firstSkills).toContainText(/v1/);
+  await expect(secondSkills).toContainText(/v2.*候选/);
+  await firstSkills.locator(`input[value="${original.id}"]`).check();
+  await secondSkills.locator(`input[value="${skill.id}"]`).check();
   await dialog.evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: info.outputPath("split-desktop.png"), fullPage: true });
   await dialog.getByRole("button", { name: "提交并开始制作（2）", exact: true }).scrollIntoViewIfNeeded();
@@ -66,9 +68,9 @@ test("split creates two tasks with independent Skills in one topic, and refresh 
   await expect(dialog.locator(".production-task-list > li").first()).toContainText("v1");
   await expect(dialog.locator(".production-task-list > li").nth(1)).toContainText("v2");
   expect(writes).toHaveLength(1);
-  const body = writes[0].body as { tasks: { skill_overrides?: { skill_id: string; expected_digests: Record<string, string> } }[] };
-  expect(body.tasks[0].skill_overrides).toBeUndefined();
-  expect(body.tasks[1].skill_overrides).toEqual({ skill_id: skill.id, expected_digests: { [skill.id]: skill.digest } });
+  const body = writes[0].body as { tasks: { skill_ids: string[] }[] };
+  expect(body.tasks[0].skill_ids).toEqual([original.id]);
+  expect(body.tasks[1].skill_ids).toEqual([skill.id]);
   await page.reload();
   await expect(dialog.locator(".production-task-list > li")).toHaveCount(2);
   await expect(dialog.getByLabel("任务 1 名称", { exact: true })).toHaveCount(0);
@@ -113,8 +115,8 @@ test("lost task reply keeps one frozen submission across refresh and explicit re
   await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("先拍清晨的世界。");
   await dialog.getByLabel("任务 2 名称", { exact: true }).fill("第二项保留");
   await dialog.getByLabel("任务 2 制作要求", { exact: true }).fill("再拍黄昏的世界。");
-  await dialog.getByLabel("任务 2 Skill 方式", { exact: true }).selectOption("single");
-  await dialog.getByLabel("任务 2 完整 Skill", { exact: true }).selectOption("knowledge-to-carousel");
+  await dialog.getByRole("group", { name: "任务 1 选择 Skill" }).locator('input[value="knowledge-to-carousel"]').check();
+  await dialog.getByRole("group", { name: "任务 2 选择 Skill" }).locator('input[value="knowledge-to-carousel"]').check();
   await dialog.getByRole("button", { name: "提交并开始制作（2）" }).click();
   await expect(dialog.getByRole("alert")).toContainText("提交结果待核对");
   await expect(dialog.getByLabel("任务 1 名称", { exact: true })).toBeDisabled();
@@ -137,14 +139,17 @@ test("a task can explicitly select content and visual Skills without changing th
   const selected = await post(request, "/test/production-task-pair", {});
   // Installed Skills now require explicit account-library references before use.
   for (const skill of [selected.mind, selected.production]) await post(request, `/api/creators/${fixture.account.id}/skills`, { skill_id: skill.id, request_id: crypto.randomUUID() });
+  const pool = await request.get(`/api/series/${fixture.series.id}/skills`).then(value => value.json());
+  const updated = await request.put(`/api/series/${fixture.series.id}/skills`, { data: { expected_version: pool.version, skill_ids: ["knowledge-to-carousel", selected.mind.id, selected.production.id], defaults: pool.defaults } });
+  expect(updated.ok(), await updated.text()).toBeTruthy();
   await page.goto(`${fixture.url}&topic=${fixture.topicId}&production=split`);
   const dialog = page.getByRole("dialog", { name: "选题详情" });
   await dialog.getByRole("button", { name: "移除任务 2", exact: true }).click();
   await dialog.getByLabel("任务 1 名称", { exact: true }).fill("组合制作");
   await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("以第一份组织内容，以第二份制作画面。");
-  await dialog.getByLabel("任务 1 Skill 方式", { exact: true }).selectOption("pair");
-  await dialog.getByLabel("任务 1 内容 Skill", { exact: true }).selectOption(selected.mind.id);
-  await dialog.getByLabel("任务 1 制图 Skill", { exact: true }).selectOption(selected.production.id);
+  const skills = dialog.getByRole("group", { name: "任务 1 选择 Skill" });
+  await skills.locator(`input[value="${selected.mind.id}"]`).check();
+  await skills.locator(`input[value="${selected.production.id}"]`).check();
   await dialog.getByRole("button", { name: "提交并开始制作（1）", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("pair-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -156,11 +161,9 @@ test("a task can explicitly select content and visual Skills without changing th
   expect(response.ok(), await response.text()).toBeTruthy();
   const result = await response.json();
   expect(result.items).toHaveLength(1);
-  expect(response.request().postDataJSON().tasks[0].skill_overrides).toEqual({ mind_skill_id: selected.mind.id,
-    production_skill_id: selected.production.id, expected_digests: { [selected.mind.id]: selected.mind.digest, [selected.production.id]: selected.production.digest } });
+  expect(response.request().postDataJSON().tasks[0].skill_ids).toEqual([selected.mind.id, selected.production.id]);
   const run = await request.get(`/api/runs/${result.items[0].run_id}`).then(value => value.json());
-  expect(run.input_snapshot.composition.mind.id).toBe(selected.mind.id);
-  expect(run.input_snapshot.composition.production.id).toBe(selected.production.id);
+  expect(run.input_snapshot.execution_spec.skills.map((item: { skill_id: string }) => item.skill_id)).toEqual([selected.mind.id, selected.production.id]);
   const series = await request.get(`/api/series/${fixture.series.id}`).then(value => value.json());
   expect(series.skill_name).toBe("knowledge-to-carousel");
   expect(series.mind_skill_id).toBeNull();

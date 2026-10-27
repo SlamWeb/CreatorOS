@@ -39,7 +39,7 @@ class ManageSkillLibraryArgs(BaseModel):
             "get": (set(), {"series_id"}),
             "add": ({"skill_id"}, set()),
             "remove": ({"skill_id", "expected_version"}, set()),
-            "set_pool": ({"series_id", "expected_version", "skill_ids", "defaults"}, set()),
+            "set_pool": ({"series_id", "expected_version", "skill_ids"}, {"defaults"}),
         }[self.action]
         present = {key for key in self.model_fields_set if key not in {"action", "creator_id"}
                    and getattr(self, key) is not None}
@@ -84,6 +84,20 @@ def _request_id(action, owner, value, context):
     return sha256(json.dumps(source, sort_keys=True, ensure_ascii=False).encode()).hexdigest() if turn else uuid4().hex
 
 
+def _preserve_defaults(column, account, selected_ids):
+    """Keep compatible legacy defaults without asking the Agent to set roles."""
+    versions = [*account.get("items", []), *account.get("available_versions", []),
+                *column.get("items", []), *column.get("available_versions", [])]
+    families = {item["id"]: item.get("family_id", item["id"]) for item in versions if "id" in item}
+    selected = {families[value] for value in selected_ids if value in families}
+    defaults = {}
+    for kind in ("image", "video"):
+        kept = [item for item in column.get("defaults", {}).get(kind, [])
+                if families.get(item.get("skill_id")) in selected]
+        defaults[kind] = kept if any(item.get("role") == "primary" for item in kept) else []
+    return defaults
+
+
 def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
                          expected_version=None, skill_ids=None, defaults=None, context=None):
     def invoke(client):
@@ -98,7 +112,12 @@ def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
         elif action == "remove":
             data = client.request("DELETE", account + "/" + quote(skill_id, safe=""), params={"expected_version": expected_version})
         else:
-            stage_defaults = StageDefaultsArgs.model_validate(defaults).model_dump()
+            if defaults is None:
+                current = client.request("GET", column)
+                account_skills = client.request("GET", account)
+                stage_defaults = _preserve_defaults(current, account_skills, skill_ids)
+            else:
+                stage_defaults = StageDefaultsArgs.model_validate(defaults).model_dump()
             data = client.request("PUT", column, payload={"expected_version": expected_version,
                 "skill_ids": skill_ids, "defaults": stage_defaults})
         return {**data, "action": action}

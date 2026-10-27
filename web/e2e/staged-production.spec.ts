@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 
 async function post(request: APIRequestContext, url: string, data: object) { const response = await request.post(url, { data }); expect(response.ok(), await response.text()).toBeTruthy(); return response.json(); }
 
-test("account Skill library and series defaults persist, conflicts keep the visible draft", async ({ page, request }, info) => {
+test("account Skill library and series pool persist, conflicts keep the visible draft", async ({ page, request }, info) => {
   const suffix = crypto.randomUUID().slice(0, 6);
   const account = await post(request, "/api/creators", { display_name: `阶段前端验收-${suffix}` });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: `阶段默认-${suffix}` });
@@ -24,21 +24,21 @@ test("account Skill library and series defaults persist, conflicts keep the visi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.goto(`/?creator=${account.id}&series=${series.id}`);
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
-  const pool = page.getByRole("region", { name: "栏目常用 Skill", exact: true });
-  await pool.getByLabel("阶段辅助写作 · v1", { exact: true }).check();
-  await pool.getByRole("button", { name: "保存常用池与默认" }).click();
+  const pool = page.getByRole("region", { name: "栏目 Skill", exact: true });
+  await pool.getByLabel("阶段辅助写作", { exact: true }).check();
+  await pool.getByRole("button", { name: "保存栏目 Skill" }).click();
   await expect(pool.getByRole("status")).toContainText("已保存");
   const poolState = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
   expect(poolState.items.some((item: { id: string }) => item.id === skill.id)).toBe(true);
   await page.reload(); await page.getByRole("button", { name: "栏目设置", exact: true }).click();
-  await expect(pool.getByLabel("阶段辅助写作 · v1", { exact: true })).toBeChecked();
-  await pool.getByLabel("阶段辅助写作 · v1", { exact: true }).uncheck();
+  await expect(pool.getByLabel("阶段辅助写作", { exact: true })).toBeChecked();
+  await pool.getByLabel("阶段辅助写作", { exact: true }).uncheck();
   await page.route(`**/api/series/${series.id}/skills`, async route => { if (route.request().method() === "PUT") await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { message: "受控：栏目配置已变化" } }) }); else await route.continue(); });
-  await pool.getByRole("button", { name: "保存常用池与默认" }).click();
+  await pool.getByRole("button", { name: "保存栏目 Skill" }).click();
   await expect(pool.getByRole("alert")).toContainText("栏目配置已变化");
-  await expect(pool.getByLabel("阶段辅助写作 · v1", { exact: true })).not.toBeChecked();
-  await pool.getByRole("button", { name: "重新读取并放弃草稿" }).click();
-  await expect(pool.getByLabel("阶段辅助写作 · v1", { exact: true })).toBeChecked();
+  await expect(pool.getByLabel("阶段辅助写作", { exact: true })).not.toBeChecked();
+  await pool.getByRole("button", { name: "放弃修改" }).click();
+  await expect(pool.getByLabel("阶段辅助写作", { exact: true })).toBeChecked();
   await page.screenshot({ path: info.outputPath("series-pool-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: info.outputPath("series-pool-desktop.png"), fullPage: true });
@@ -55,6 +55,13 @@ test("collection uploads audio and creates one video with playback, download and
   const run = await post(request, "/api/runs", { topic_id: topicId });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(response => response.json())).status).toBe("awaiting_approval");
+  const currentPool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
+  const poolUpdate = await request.put(`/api/series/${series.id}/skills`, { data: { expected_version: currentPool.version, skill_ids: [...currentPool.items.map((item: { id: string }) => item.id), seeded.skill.id], defaults: currentPool.defaults } });
+  expect(poolUpdate.ok(), await poolUpdate.text()).toBeTruthy();
+  const original = await request.get(`/api/producer-skills/${seeded.skill.id}/files/text?path=SKILL.md`).then(response => response.json());
+  const candidateResponse = await request.put(`/api/producer-skills/${seeded.skill.id}/files/content`, { data: { path: "SKILL.md", content: original.content.replace("creatoros-outputs: [video]\n", ""), expected_digest: original.digest } });
+  expect(candidateResponse.ok(), await candidateResponse.text()).toBeTruthy();
+  const candidate = await candidateResponse.json();
   const collection = await post(request, `/api/creators/${account.id}/collections`, { name: "视频选片", topic_id: topicId, run_ids: [], request_id: crypto.randomUUID() });
   const endpoint = `/api/topics/${topicId}/production-tasks`;
   const submissions: unknown[] = [];
@@ -64,10 +71,11 @@ test("collection uploads audio and creates one video with playback, download and
   const form = page.getByRole("form", { name: "制作视频", exact: true });
   await form.getByLabel("视频任务名称").fill("剪辑任务");
   await form.getByLabel("剪辑要求", { exact: true }).fill("保持竖屏，淡入淡出。受控UI验证。");
-  await form.getByLabel("剪辑 Skill", { exact: true }).selectOption(seeded.skill.id);
+  await form.getByRole("checkbox", { name: "staged-ui-video · v2 · 候选", exact: true }).check();
   await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "broken.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("controlled invalid audio") });
   await expect(form.getByRole("alert")).toContainText("无法读取媒体文件");
   await expect(form.getByLabel("视频任务名称")).toHaveValue("剪辑任务");
+  await expect(form.getByRole("checkbox", { name: "staged-ui-video · v2 · 候选", exact: true })).toBeChecked();
   await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "bgm.wav", mimeType: "audio/wav", buffer: Buffer.from(seeded.audio_base64, "base64") });
   await expect(form.getByLabel("选择 BGM")).not.toHaveValue("");
   const materialId = await form.getByLabel("选择 BGM").inputValue();
@@ -84,6 +92,7 @@ test("collection uploads audio and creates one video with playback, download and
   await form.getByRole("button", { name: "提交视频制作", exact: true }).click();
   await expect(form.getByRole("status").filter({ hasText: "视频任务已保存" })).toBeVisible();
   expect(submissions).toHaveLength(1);
+  expect((submissions[0] as { tasks: { skill_ids: string[] }[] }).tasks[0].skill_ids).toEqual([candidate.skill_id]);
   const result = await request.get(endpoint).then(response => response.json());
   expect(result.items).toHaveLength(1); const task = result.items[0];
   expect(task.kind).toBe("video"); expect(task.depends_on).toEqual([]);
@@ -116,27 +125,27 @@ test("new series can be created before choosing any Skill", async ({ page, reque
   await page.goto(`/?creator=${account.id}`);
   await page.getByRole("button", { name: "新建栏目", exact: true }).click();
   await page.getByLabel("新栏目名称").fill("先建栏目再选 Skill");
-  await expect(page.getByLabel("配方", { exact: true })).toHaveValue("none");
+  await expect(page.getByLabel("配方", { exact: true })).toHaveCount(0);
   await page.locator(".rail-form").getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "先建栏目再选 Skill", exact: true })).toBeVisible();
   const seriesId = new URL(page.url()).searchParams.get("series");
   const series = await request.get(`/api/series/${seriesId}`).then(response => response.json());
   expect([series.skill_name, series.mind_skill_id, series.production_skill_id]).toEqual([null, null, null]);
   await page.reload(); await page.getByRole("button", { name: "栏目设置", exact: true }).click();
-  await expect(page.getByRole("region", { name: "栏目常用 Skill", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "栏目 Skill", exact: true })).toBeVisible();
   const seeded = await post(request, "/test/staged-video", {});
   await post(request, `/api/creators/${account.id}/skills`, { skill_id: seeded.image_skill.id, request_id: crypto.randomUUID() });
   await page.reload(); await page.getByRole("button", { name: "栏目设置", exact: true }).click();
-  const pool = page.getByRole("region", { name: "栏目常用 Skill", exact: true });
-  await pool.getByRole("checkbox", { name: "staged-ui-image · v1", exact: true }).check();
-  await pool.getByLabel("生图默认主 Skill").selectOption(seeded.image_skill.id);
-  await pool.getByRole("button", { name: "保存常用池与默认" }).click();
+  const pool = page.getByRole("region", { name: "栏目 Skill", exact: true });
+  await pool.getByRole("checkbox", { name: "staged-ui-image", exact: true }).check();
+  await pool.getByRole("button", { name: "保存栏目 Skill" }).click();
   await expect(pool.getByRole("status")).toContainText("已保存");
   await post(request, `/api/series/${seriesId}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "默认Skill展示" }] });
   await page.reload();
-  await expect(page.locator(".workspace-bound-skills")).toContainText("staged-ui-image");
-  await expect(page.getByLabel("生产使用的 Skill")).toContainText("staged-ui-image");
-  await expect(page.getByLabel("生产使用的 Skill")).not.toContainText("未记录");
+  const savedPool = await request.get(`/api/series/${seriesId}/skills`).then(response => response.json());
+  expect(savedPool.items.some((item: { id: string }) => item.id === seeded.image_skill.id)).toBe(true);
+  await page.reload(); await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  await expect(pool.getByRole("checkbox", { name: "staged-ui-image", exact: true })).toBeChecked();
 });
 
 test("image freezes multiple Skills and a dependent video waits without a Run until cancelled", async ({ page, request }) => {
@@ -145,6 +154,9 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
   const account = await post(request, "/api/creators", { display_name: `多Skill-${crypto.randomUUID().slice(0, 6)}` });
   const series = (await post(request, "/api/series", { creator_id: account.id, name: "一主多辅", skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
   for (const skill of [pair.mind, pair.production, seeded.image_skill, seeded.skill]) await post(request, `/api/creators/${account.id}/skills`, { skill_id: skill.id, request_id: crypto.randomUUID() });
+  const pool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
+  const poolSaved = await request.put(`/api/series/${series.id}/skills`, { data: { expected_version: pool.version, skill_ids: ["knowledge-to-carousel", pair.mind.id, pair.production.id, seeded.image_skill.id, seeded.skill.id], defaults: pool.defaults } });
+  expect(poolSaved.ok(), await poolSaved.text()).toBeTruthy();
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "独立图片任务" }] });
   const topicId = queued.topic_ids[0];
   await page.goto(`/?creator=${account.id}&series=${series.id}&topic=${topicId}&production=split`);
@@ -152,18 +164,16 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
   await dialog.getByRole("button", { name: "移除任务 2", exact: true }).click();
   await dialog.getByLabel("任务 1 名称", { exact: true }).fill("一主多辅任务");
   await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("使用主Skill制图，其他两份辅助。");
-  await dialog.getByLabel("任务 1 Skill 方式", { exact: true }).selectOption("multiple");
-  await dialog.getByLabel("任务 1 主 Skill", { exact: true }).selectOption(seeded.image_skill.id);
-  const supporting = dialog.locator(".task-supporting-skills");
-  await supporting.getByRole("checkbox", { name: /knowledge-to-storyboard-deep/ }).check();
-  await supporting.getByRole("checkbox", { name: /xiaobai/ }).check();
+  const choices = dialog.getByRole("group", { name: "任务 1 选择 Skill" });
+  await choices.locator(`input[value="${seeded.image_skill.id}"]`).check();
+  await choices.locator(`input[value="${pair.mind.id}"]`).check();
+  await choices.locator(`input[value="${pair.production.id}"]`).check();
   const submitted = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/topics/${topicId}/production-tasks`);
   await dialog.getByRole("button", { name: "提交并开始制作（1）", exact: true }).click();
   const response = await submitted; expect(response.ok(), await response.text()).toBe(true);
   const body = response.request().postDataJSON();
   expect(body.tasks[0].kind).toBe("image");
-  expect(body.tasks[0].skills.filter((item: { role: string }) => item.role === "primary")).toHaveLength(1);
-  expect(body.tasks[0].skills.filter((item: { role: string }) => item.role === "supporting")).toHaveLength(2);
+  expect(body.tasks[0].skill_ids).toEqual([seeded.image_skill.id, pair.mind.id, pair.production.id]);
   const result = await response.json();
   const run = await request.get(`/api/runs/${result.items[0].run_id}`).then(value => value.json());
   expect(run.input_snapshot.execution_spec.skills).toHaveLength(3);
@@ -175,7 +185,7 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
   const form = page.getByRole("form", { name: "制作视频", exact: true });
   await form.getByLabel("视频任务名称").fill("等待指定图片");
   await form.getByLabel("剪辑要求", { exact: true }).fill("必须等指定任务，不跳过缺图。");
-  await form.getByLabel("剪辑 Skill", { exact: true }).selectOption(seeded.skill.id);
+  await form.getByRole("checkbox", { name: /staged-ui-video.*v1/ }).check();
   await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "bgm.wav", mimeType: "audio/wav", buffer: Buffer.from(seeded.audio_base64, "base64") });
   await expect(form.getByLabel("选择 BGM")).not.toHaveValue("");
   await form.getByLabel("视频开始方式").selectOption("wait");
@@ -193,15 +203,14 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
   await page.reload(); await expect(waiting).toContainText("已取消");
 });
 
-test("original image production, revision and approval still work through the current UI", async ({ page, request }) => {
+test("existing image Run, revision and approval still work through the current UI", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: `旧图片回归-${crypto.randomUUID().slice(0, 6)}` });
   const series = (await post(request, "/api/series", { creator_id: account.id, name: "旧单图栏目", skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "单图路径回归" }] });
-  await page.goto(`/?creator=${account.id}&series=${series.id}`);
-  const card = page.getByTestId(`library-${queued.topic_ids[0]}`);
-  await card.getByRole("button", { name: "生产", exact: true }).click();
-  await page.getByRole("link", { name: "查看任务 →", exact: true }).click();
-  const runId = new URL(page.url()).pathname.split("/").pop();
+  const existing = await post(request, "/api/runs", { topic_id: queued.topic_ids[0] });
+  await post(request, `/api/runs/${existing.id}/execute`, { expected_version: existing.version });
+  const runId = existing.id;
+  await page.goto(`/runs/${runId}`);
   await expect(page.getByRole("button", { name: "批准第 1 版", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "产物图片", exact: true })).toBeVisible();
   await expect(page.locator(".run-video-artifact")).toHaveCount(0);

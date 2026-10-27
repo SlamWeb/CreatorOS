@@ -37,3 +37,8 @@ body:has(.video-production-form) .workspace-chat-launcher { left:24px; right:aut
 .video-bgm-preview video { max-height:260px; }
 .video-dependencies { padding:8px 0; }
 @media(max-width:600px) { .skill-library-list li { align-items:start; flex-direction:column; gap:8px; } .skill-library-add { align-items:stretch; } }
+
+.series-skill-choice { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.series-skill-choice label { flex:1 1 180px; }
+.series-skill-choice select { flex:0 1 240px; min-height:36px; padding:6px 9px; }
+.series-skill-choice small { font-size:12px; }

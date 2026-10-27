@@ -15,26 +15,26 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
   production_state?: "unproduced" | "produced"; skill_usage?: TopicSkillUsage };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
-function TopicSkills({ topic, defaultSkills }: { topic: LibraryTopic; defaultSkills?: ProducerSkillItem[] }) {
-  const usage = topic.skill_usage?.source === "series" && defaultSkills ? { source: "series" as const, items: defaultSkills.map(skill => ({ id: skill.id, name: skill.display_name ?? skill.name, version_number: skill.version_number ?? null, version_status: skill.version_status ?? null })) } : topic.skill_usage;
+function TopicSkills({ topic }: { topic: LibraryTopic; defaultSkills?: ProducerSkillItem[] }) {
+  if (topic.skill_usage?.source === "series") return null;
+  const usage = topic.skill_usage;
   if (!usage) return null;
-  const label = usage.source === "external" ? "外部导入" : usage.source === "series" ? "将用"
-    : topic.production_state === "produced" ? "已用" : "任务用";
+  const label = usage.source === "external" ? "外部导入" : topic.production_state === "produced" ? "已用" : "任务用";
   return <div className="topic-skill-usage" aria-label="生产使用的 Skill"
-    title={usage.source === "series" ? "栏目生图默认版本，提交生产时确定" : "本次任务的版本，继续生产不会换成栏目新版"}>
+    title="本次任务的版本，继续生产不会换成栏目新版">
     <span>{label}</span>
     {usage.items.map(skill => <Link key={skill.id} to={`/skills?skill=${encodeURIComponent(skill.id)}`}>
       <span>{skill.name}</span><small>{skill.version_number ? `v${skill.version_number}${skill.version_status === "candidate" ? " · 候选" : ""}`
         : skill.id === "knowledge-to-carousel" ? "内置" : "版本未知"}</small>
     </Link>)}
-    {!usage.items.length && usage.source !== "external" && <span>{usage.source === "series" ? "未设置生图默认" : "未记录 Skill"}</span>}
+    {!usage.items.length && usage.source !== "external" && <span>未记录 Skill</span>}
   </div>;
 }
 
-export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false,
+export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss, productionEnabled = false, batchProductionEnabled = false,
   heading, headerActions, headerPanels, onViewAll, series, skills = [] }: {
   seriesId: string; startButton: (topic: TopicView) => ReactNode; compact?: boolean;
-  onDiscuss?: (title: string, topic?: TopicView) => void; productionEnabled?: boolean;
+  onDiscuss?: (title: string, topic?: TopicView) => void; productionEnabled?: boolean; batchProductionEnabled?: boolean;
   heading?: ReactNode; headerActions?: ReactNode; headerPanels?: ReactNode;
   onViewAll?: () => void;
   series?: SeriesView; skills?: ProducerSkillItem[];
@@ -134,7 +134,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     libraryRef.current?.focus({ preventScroll: true });
   }, [offset, query.isPending]);
   const submitBatch = () => {
-    if (submitting.current || !productionEnabled || !selectedTopics.length) return;
+    if (submitting.current || !productionEnabled || !batchProductionEnabled || !selectedTopics.length) return;
     submitting.current = true;
     batch.mutate(selectedTopics.map(topic => ({ id: topic.id, title: topic.title })));
   };
@@ -223,14 +223,14 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       <span className="library-count">{query.data?.page.total ?? "—"} 项</span>
       <button type="button" className="library-refresh" aria-label="刷新选题库" disabled={query.isFetching} onClick={() => void query.refetch()}><RefreshCw size={14} /></button>
       {compact && onViewAll && <button type="button" className="library-view-all" onClick={onViewAll}>查看全部<ChevronRight size={14} aria-hidden="true" /></button>}
-      {!compact && !query.isError && (!!pendingTopics.length || (productionEnabled && !!eligible.length)) && <details className="library-select-menu" onKeyDown={event => {
+      {!compact && !query.isError && (!!pendingTopics.length || (productionEnabled && batchProductionEnabled && !!eligible.length)) && <details className="library-select-menu" onKeyDown={event => {
         if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); }
       }}><summary><ListChecks size={15} aria-hidden="true" />选择</summary><div>
         {!!pendingTopics.length && <button type="button" disabled={pendingQueue.isPending || batch.isPending} onClick={event => {
           setSelected([]); setPendingSelection(pendingTopics.map(topic => topic.id));
           const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus();
         }}>全选本页待选</button>}
-        {productionEnabled && !!eligible.length && <button type="button" disabled={pendingQueue.isPending || batch.isPending} onClick={event => {
+        {productionEnabled && batchProductionEnabled && !!eligible.length && <button type="button" disabled={pendingQueue.isPending || batch.isPending} onClick={event => {
           setPendingSelection([]); setSelected(eligible.map(topic => topic.id));
           const menu = event.currentTarget.closest("details"); menu?.removeAttribute("open"); menu?.querySelector("summary")?.focus();
         }}>全选本页可生产选题</button>}
@@ -274,7 +274,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
             aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending || batch.isPending}
             onChange={event => { if (event.target.checked) setSelected([]); setPendingSelection(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
-          {productionEnabled && !pending && !topic.production_task_count && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
+          {productionEnabled && batchProductionEnabled && !pending && !topic.production_task_count && topic.available_actions.includes("start") && <input className="content-card-select" type="checkbox"
             aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending || pendingQueue.isPending}
             onChange={event => { if (event.target.checked) setPendingSelection([]); setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
             {pending ? <span className="library-pending">待确认</span>
@@ -285,7 +285,8 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
           {!pending && topic.production_queue_status === "pending" && topic.production_queue_position
             ? <small>第 {topic.production_queue_position} 项</small> : null}
           {!pending && topic.card_count ? <small>{topic.card_count} 张</small> : null}
-          {!pending && !topic.production_task_count && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
+          {!pending && !topic.production_task_count && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) &&
+            (topic.existing_run_id ? startButton(topic) : <button type="button" className="topic-run-button" disabled={!productionEnabled} onClick={() => openDetail(topic.id, false, true)}>制作</button>)}
           <details className="content-card-menu" onKeyDown={e => { if (e.key === "Escape") { e.currentTarget.open = false; e.currentTarget.querySelector("summary")?.focus(); } }}>
             <summary aria-label={`选题操作 ${topic.title}`}><MoreHorizontal size={18} /></summary>
             <div><button type="button" onClick={e => { e.currentTarget.closest("details")?.removeAttribute("open"); openDetail(topic.id); }}>详情与编辑</button>
@@ -297,7 +298,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       </article>;
     })}</div>}
     {pagination("底部")}
-    {(selectedPending.length > 0 || pendingQueue.isPending || (productionEnabled && (selectedTopics.length > 0 || batch.isPending))) && <div className="library-selection-dock">
+      {(selectedPending.length > 0 || pendingQueue.isPending || (productionEnabled && batchProductionEnabled && (selectedTopics.length > 0 || batch.isPending))) && <div className="library-selection-dock">
       {(selectedPending.length > 0 || pendingQueue.isPending) ? <div className="library-batch-toolbar" role="group" aria-label="批量入队">
         <label><input type="checkbox" aria-label="全选本页待选" disabled={pendingQueue.isPending || query.isError}
           checked={!!pendingTopics.length && pendingTopics.every(topic => pendingSelection.includes(topic.id))}
@@ -315,7 +316,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
         <span>已选 {batch.isPending ? batch.variables?.length ?? selectedTopics.length : selectedTopics.length} 项</span>
         <button type="button" className="button button-secondary" disabled={batch.isPending} onClick={() => setSelected([])}>取消选择</button>
         <button type="button" className="button button-primary" disabled={!selectedTopics.length || batch.isPending || query.isError} onClick={submitBatch}>
-          {batch.isPending ? "正在提交…" : `批量生产（${selectedTopics.length}）`}</button>
+          {batch.isPending ? "正在提交…" : `批量生产（${selectedTopics.length}，沿用已配置 Skill）`}</button>
       </div>}
     </div>}
     {detail && <TopicDetail key={detail.id} topic={detail} onClose={() => closeDetail(detail.id)}
@@ -381,7 +382,7 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
     <div className="topic-detail-actions">
       {pending ? <button type="button" className="button button-primary" disabled={remove.isPending || topic.stale || !topic.available_actions.includes("prepare_topic_selection")} onClick={() => onChoose(topic)}>挑选本批次</button>
         : <>{topic.existing_run_id && <Link className="button button-secondary" to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(returnUrl)}`} onClick={onOpenRun}>查看内容与生产记录</Link>}
-          {!remove.isPending && !topic.production_task_count && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
+          {!remove.isPending && !topic.production_task_count && topic.existing_run_id && (topic.available_actions.includes("start") || topic.available_actions.includes("resume")) && startButton(topic)}
           <button type="button" className="button button-secondary" disabled={remove.isPending} onClick={() => setEditing(true)}>编辑</button>
         </>}
       <button type="button" className="button button-danger" disabled={remove.isPending || save.isPending} onClick={() => setConfirmRemove(true)}>移除</button>

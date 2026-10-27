@@ -52,9 +52,19 @@ TASK_SKILL_RULES = (
     "当前任务明确要求优先于 Skill 默认；实质硬要求互斥才说明来源并请求选择，不静默丢弃内容。"
 )
 
+EQUAL_SKILL_RULES = (
+    "本任务使用以下选中的 Skill，逐份参考原文和资源，结合当前任务要求共同完成；"
+    "它们没有预设主次，按任务需要使用，不创建融合 Skill。"
+    "当前任务明确要求优先于 Skill 默认；实质硬要求互斥时说明并请求选择。"
+)
+
 
 def composition_rules(directory: Path) -> str:
-    return TASK_SKILL_RULES if (directory / "execution_spec.json").is_file() else COMPOSITION_RULES
+    path = directory / "execution_spec.json"
+    if not path.is_file():
+        return COMPOSITION_RULES
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return EQUAL_SKILL_RULES if all(item.get("role") == "selected" for item in data.get("skills", [])) else TASK_SKILL_RULES
 
 
 class CompositionReview(ProductionModel):
@@ -823,7 +833,7 @@ def produce_native(producer, **request):
                                            directory.parent.parent / "revision-inputs"])
         (directory / "execution_spec.json").write_text(spec.model_dump_json(indent=2), encoding="utf-8")
         refs = [(skill.skill_id, Path(skill.path) / "SKILL.md") for skill in spec.skills]
-        name = next(skill.skill_id for skill in spec.skills if skill.role == "primary")
+        name = next((skill.skill_id for skill in spec.skills if skill.role == "primary"), spec.skills[0].skill_id)
     elif pair is not None:
         snapshot = directory.parent.parent / "skill-snapshot"
         refs = freeze_pair(ProducerSkillCatalog(request.get("skills_root") or producer.project_root / "data/producer-skills",

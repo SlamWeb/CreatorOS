@@ -220,7 +220,10 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
     if tool_name == "manage_skill_library":
-        return _pick(data, ("action", "creator_id", "series_id", "version", "defaults")) | _items(data, _SKILL + ("digest",))
+        result = _pick(data, ("action", "creator_id", "series_id", "version", "defaults")) | _items(data, _SKILL + ("digest",))
+        if "available_versions" in data:
+            result["available_versions"] = _list(data["available_versions"], lambda item: _pick(item, _SKILL + ("digest",)))
+        return result
     if tool_name == "manage_material":
         fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url")
         return _pick(data, ("action", "creator_id") + fields) | _items(data, fields)

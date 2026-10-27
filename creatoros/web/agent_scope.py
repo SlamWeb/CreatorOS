@@ -527,6 +527,10 @@ class AgentScopeGuard:
                 isinstance(item, dict) and isinstance(item.get("skill_id"), str)
                 and "path" not in item and self._owns_skill(item["skill_id"], creator_id) for item in selected)):
             return False
+        skill_ids = task.get("skill_ids")
+        if skill_ids is not None and (not isinstance(skill_ids, list) or not skill_ids or not all(
+                isinstance(item, str) and self._owns_skill(item, creator_id) for item in skill_ids)):
+            return False
         inputs = task.get("inputs")
         if inputs is not None:
             if not isinstance(inputs, dict) or set(inputs) - {"collection_id", "export_id", "bgm_material_id"}:

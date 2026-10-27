@@ -30,6 +30,12 @@ VIDEO_MANIFEST = "video_artifact.json"
 VIDEO_CHECKPOINT = "video_checkpoint.json"
 
 
+def video_skill_rules(spec):
+    if all(skill.role == "selected" for skill in spec.skills):
+        return "结合本次任务要求共同参考所有选中的 Skill 和资源，它们没有预设主次；不要另写融合 Skill。"
+    return "完整使用以下原始主/辅助 Skill，辅助不得替换主 Skill；不要另写融合 Skill。"
+
+
 class VideoDelivery(ProductionModel):
     title: str = Field(min_length=1)
     text: str
@@ -138,7 +144,8 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                       for skill in spec.skills]
             materials = [{**item.model_dump(exclude={"path"}), "path": str(Path(item.path).relative_to(directory))}
                          for item in spec.materials]
-            prompt = (PRODUCTION_RULES + "\n本次交付视频 MP4。完整使用以下原始主/辅助 Skill，辅助不得替换主 Skill；不要另写融合 Skill。"
+            skill_rules = video_skill_rules(spec)
+            prompt = (PRODUCTION_RULES + "\n本次交付视频 MP4。" + skill_rules +
                       "所有资源路径相对当前 cwd 的父目录，按本次输入选择并剪辑。只读输入材料，输出仅写当前 work。"
                       "视频输出用 H.264 + AAC、yuv420p MP4，设置 faststart 以便网页播放。"
                       "最终返回 JSON，video_path 是当前 work 下真实 MP4 的相对路径。不要发布。"

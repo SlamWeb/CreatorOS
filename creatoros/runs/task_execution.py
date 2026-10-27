@@ -37,7 +37,7 @@ def freeze_execution_spec(spec, catalog, target: Path, *, trusted_skill_roots=()
             source = _safe_source(Path(selected.path), roots)
         else:
             source = Path(catalog.resolve_for_task(selected.skill_id, kind=spec.kind,
-                role=selected.role, expected_digest=selected.digest))
+                primary=selected.role == "primary", expected_digest=selected.digest))
         if _digest(source) != selected.digest:
             raise ValueError("Skill 与任务固定版本不一致。")
         if selected.role == "primary" and spec.kind not in declared_skill_outputs(source):

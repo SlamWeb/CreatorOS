@@ -27,6 +27,18 @@ class StagedTasks:
 
     def prepare(self, session, task, topic, item, origin_session_id, context_snapshot_ref):
         selections = item.skills
+        if item.skill_ids is not None:
+            if not self.library:
+                raise ValueError("栏目 Skill 库未配置。")
+            pool = self.library.get_series(topic.series_id)
+            families = {value["family_id"] for value in pool["items"]}
+            selected = []
+            for skill_id in item.skill_ids:
+                if (not self.library.can_use(topic.series.creator_id, skill_id)
+                        or self.library._family(skill_id) not in families):
+                    raise ContentRunError("所选 Skill 不在当前栏目可用池中。", code="scope_conflict", status_code=403)
+                selected.append(dict(skill_id=skill_id, digest=self.library.describe(skill_id)["digest"], role="selected"))
+            selections = selected
         if not selections and not item.skill_overrides and self.library:
             pool = self.library.get_series(topic.series_id)
             # No explicit stage defaults yet: keep legacy image execution intact.

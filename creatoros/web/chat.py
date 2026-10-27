@@ -93,7 +93,7 @@ SKILL_EDIT_POLICY = (
     "写入成功只说已保存候选、尚未切换栏目；后续编辑必须使用回执中的新skill_id和digest。"
     "只有需要定位历史版或候选时才include_versions=true查家族；已有准确ID和回执不重复列家族。"
     "草稿可能已被用户在网页入库；已saved时用saved_skills准确ID编辑库中Skill，不再edit_extracted_skills。"
-    "用户明确要求试做时start_content_run的tasks携带kind、所选精确版本ID和主/辅助角色；digest通常省略由宿主读取校验，冻结选择仅作用本次，不必切栏目。"
+    "用户明确要求试做时start_content_run的tasks携带kind和本栏目池内选中的Skill精确版本ID（skill_ids）；宿主冻结各版本，选择仅作用本次，不必切栏目。"
     "版本发布确认仍由用户在页面完成；用户明确要求配置栏目阶段默认时可manage_skill_library(set_pool)。"
     "冲突重新读取并核对，不强制覆盖。"
     "用户要求根据已产出图片诊断或改 Skill 时，先按提供的 Run/版本用 get_content_run 核实，"

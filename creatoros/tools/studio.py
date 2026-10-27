@@ -95,6 +95,8 @@ class ProductionTaskArgs(BaseModel):
     title: str = Field(min_length=1, max_length=240, description="同一选题内该制作任务的简短名称。")
     brief: str = Field(min_length=1, max_length=10_000, description="该任务的完整制作要求、图片数量和分工；各任务独立生产。")
     kind: Literal["image", "video"] = "image"
+    skill_ids: list[str] | None = Field(default=None, min_length=1, max_length=12,
+        description="本栏目中本次使用的 Skill 精确版本 ID，可选多项；宿主冻结各版本。")
     skills: list[TaskSkillArgs] | None = Field(default=None, min_length=1, max_length=12,
         description="本次精确版本ID与角色，恰有一个primary；其余supporting。digest通常省略由宿主读取。")
     inputs: TaskInputsArgs | None = Field(default=None,
@@ -106,6 +108,11 @@ class ProductionTaskArgs(BaseModel):
 
     @model_validator(mode="after")
     def typed_selection(self):
+        if self.skill_ids is not None:
+            if self.skills is not None or self.skill_overrides is not None:
+                raise ValueError("请只使用一种 Skill 选择方式。")
+            if any(not item.strip() or len(item) > 120 for item in self.skill_ids) or len(set(self.skill_ids)) != len(self.skill_ids):
+                raise ValueError("Skill 选择不能为空或重复。")
         if self.skills is not None:
             if self.skill_overrides is not None:
                 raise ValueError("skills 不能与旧 skill_overrides 混用。")
@@ -113,7 +120,7 @@ class ProductionTaskArgs(BaseModel):
                 raise ValueError("每个任务必须且只能选择一个主 Skill。")
             if len({item.skill_id for item in self.skills}) != len(self.skills):
                 raise ValueError("同一任务不能重复引用 Skill。")
-        if self.kind == "video" and (not self.skills or not self.inputs or not self.inputs.bgm_material_id):
+        if self.kind == "video" and (not (self.skills or self.skill_ids) or not self.inputs or not self.inputs.bgm_material_id):
             raise ValueError("视频任务需要明确的 skills 与 BGM 素材 ID。")
         if self.kind == "image" and (self.inputs is not None or self.depends_on):
             raise ValueError("图片任务不接受视频输入或等待依赖。")

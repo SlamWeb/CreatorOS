@@ -36,9 +36,6 @@ export function WorkspacePage() {
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const [accountDraft, setAccountDraft] = useState<{ name: string; handle: string } | null>(null);
   const [seriesDraft, setSeriesDraft] = useState<{ name: string; creatorId: string | null } | null>(null);
-  const [recipe, setRecipe] = useState<"none" | "legacy" | "pair">("none");
-  const [pairMind, setPairMind] = useState("");
-  const [pairVisual, setPairVisual] = useState("");
   const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
   const [treeOpen, setTreeOpen] = useState(false);
   const chat = useAgentChat();
@@ -94,13 +91,9 @@ export function WorkspacePage() {
   const createSeries = useMutation({
     retry: false,
     mutationFn: (input: { name: string; creatorId: string | null }) => studioApi.composeSeries(
-      recipe === "none" ? { name: input.name, description: "", audience: "", creator_id: input.creatorId, request_id: crypto.randomUUID().replaceAll("-", "") } : recipe === "pair"
-        ? { name: input.name, description: "", audience: "", creator_id: input.creatorId,
-            mind_skill_id: pairMind, production_skill_id: pairVisual, request_id: crypto.randomUUID().replaceAll("-", "") }
-        : { name: input.name, description: "", audience: "", creator_id: input.creatorId,
-            skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID().replaceAll("-", "") },
+      { name: input.name, description: "", audience: "", creator_id: input.creatorId, request_id: crypto.randomUUID().replaceAll("-", "") },
     ),
-    onSuccess: async (result) => { setSeriesDraft(null); setRecipe("none"); await refresh(); selectSeries(result.series.id, result.series.creator_id); },
+    onSuccess: async (result) => { setSeriesDraft(null); await refresh(); selectSeries(result.series.id, result.series.creator_id); },
   });
 
   const assign = useMutation({
@@ -221,22 +214,7 @@ export function WorkspacePage() {
         }}>
           <input autoFocus required maxLength={120} placeholder="栏目名称" value={seriesDraft.name}
             aria-label="新栏目名称" onChange={event => setSeriesDraft({ ...seriesDraft, name: event.target.value })} />
-          <select aria-label="配方" value={recipe} onChange={event => setRecipe(event.target.value as "none" | "legacy" | "pair")}>
-            <option value="none">稍后在栏目设置选择 Skill</option>
-            <option value="legacy">知识点轮播</option>
-            <option value="pair">组合（Mind × Visualize）</option>
-          </select>
-          {recipe === "pair" && <>
-            <select aria-label="Mind" value={pairMind} onChange={event => setPairMind(event.target.value)}>
-              <option value="">Mind…</option>
-              {(skills.data?.items ?? []).filter(s => s.role === "mind").map(s => <option key={s.id} value={s.id}>{s.display_name ?? s.name}</option>)}
-            </select>
-            <select aria-label="Visualize" value={pairVisual} onChange={event => setPairVisual(event.target.value)}>
-              <option value="">Visualize…</option>
-              {(skills.data?.items ?? []).filter(s => s.role === "production").map(s => <option key={s.id} value={s.id}>{s.display_name ?? s.name}</option>)}
-            </select>
-          </>}
-          <div><button className="button button-primary" disabled={createSeries.isPending || (recipe === "pair" && (!pairMind || !pairVisual))}>创建</button>
+          <div><button className="button button-primary" disabled={createSeries.isPending}>创建</button>
             <button className="button button-secondary" type="button" onClick={() => setSeriesDraft(null)}>取消</button></div>
           {createSeries.isError && <p className="form-error" role="alert">{createSeries.error.message}</p>}
         </form> : null}
@@ -309,8 +287,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   const client = useQueryClient();
   const [topicTitle, setTopicTitle] = useState("");
   const skillPool = useQuery({ queryKey: ["series-skills", series.id], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(series.id)}/skills`), enabled: !!series.creator_id, retry: false });
-  const stageGroups = skillPool.data ? (["image", "video"] as const).map(kind => ({ kind, ids: skillPool.data.defaults[kind].map(item => item.skill_id) }))
-    : [{ kind: "image", ids: series.skill_name ? [series.skill_name] : [series.mind_skill_id, series.production_skill_id].filter((id): id is string => !!id) }];
+  const poolItems = skillPool.data?.items ?? [];
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -358,16 +335,11 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   const heading = <div className="workspace-title-group">
         {overview ? <h2><button type="button" onClick={onSelect}>{series.name} <span aria-hidden="true">→</span></button></h2> : <h1>{series.name}</h1>}
         {!overview && <><div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
-          {!stageGroups.some(group => group.ids.length) && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目常用 Skill</button>}
-          {stageGroups.filter(group => group.ids.length).map(group => <div key={group.kind}><span className="muted">{group.kind === "video" ? "视频默认：" : "生图默认："}</span>{group.ids
-            .map((id, index) => {
-              const bound = [...(skillPool.data?.items ?? []), ...skills].find(item => item.id === id || item.name === id);
-              const label = bound?.display_name ?? bound?.name ?? "Skill 信息不可读取";
-              return <span key={`${id}-${index}`}>
-                {index > 0 && <span aria-hidden="true"> × </span>}
-                <SkillReferenceButton id={id} known={bound} fallback={label} onInspect={onInspectSkill} showVersion />
-              </span>;
-            })}</div>)}
+          {!poolItems.length && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目 Skill</button>}
+          {poolItems.length > 0 && <div><span className="muted">栏目 Skill：</span>{poolItems.map((bound, index) => <span key={bound.id}>
+            {index > 0 && <span aria-hidden="true"> · </span>}
+            <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} showVersion />
+          </span>)}</div>}
         </div>
         </>}
       </div>;
@@ -421,6 +393,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
     <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss} onViewAll={overview ? onSelect : undefined}
       series={series} skills={skills}
       heading={!overview ? heading : undefined} headerActions={!overview ? headerActions : undefined} headerPanels={headerPanels}
-      productionEnabled={series.is_active && !!series.creator_id} />
+      productionEnabled={series.is_active && !!series.creator_id}
+      batchProductionEnabled={!!skillPool.data?.defaults.image.length && skillPool.data.defaults.image.every(item => poolItems.some(skill => skill.id === item.skill_id))} />
   </section>;
 }

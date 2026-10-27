@@ -164,7 +164,7 @@ class SkillLibraryService:
             ids = self._ids(session, creator_id)
             row = session.get(CreatorSkillRef, creator_id)
             version = row.version if row else 0
-        return {"creator_id": creator_id, "items": self._items(ids, creator_id), "version": version,
+        return {"creator_id": creator_id, "items": self._items(ids, creator_id), "available_versions": self.available(creator_id), "version": version,
                 "defaults": {"image": [], "video": []}}
 
     def available(self, creator_id):
@@ -245,13 +245,16 @@ class SkillLibraryService:
         with self.db.session() as session:
             series = self._series(session, series_id)
             row = session.get(SeriesSkillRef, series_id)
-            ids = list(dict.fromkeys([*(row.skill_ids_json if row else []), *self._bindings(series)]))
+            ids = list(dict.fromkeys(row.skill_ids_json if row else self._bindings(series)))
             defaults = row.defaults_json if row else {"image": ([
                 {"skill_id": series.production_skill_id or series.skill_name, "role": "primary"},
                 *([{"skill_id": series.mind_skill_id, "role": "supporting"}] if series.mind_skill_id else [])
             ] if self._bindings(series) else []), "video": []}
             creator_id, version = series.creator_id, row.version if row else 0
-        return {"series_id": series_id, "creator_id": creator_id, "items": self._items(ids, creator_id),
+        items = self._items(ids, creator_id)
+        families = {item["family_id"] for item in items}
+        versions = [item for item in self.available(creator_id) if item["family_id"] in families]
+        return {"series_id": series_id, "creator_id": creator_id, "items": items, "available_versions": versions,
                 "version": version, "defaults": defaults}
 
     def set_series(self, series_id, expected_version, skill_ids, defaults):
@@ -271,8 +274,6 @@ class SkillLibraryService:
                         raise ValueError("同一家族只能加入栏目池一次。")
                     if not all(self._contains(session, series.creator_id, value) for value in skill_ids):
                         raise PermissionError("栏目常用池只能引用账号 Skill 库。")
-                    if any(self._family(value) not in families for value in self._bindings(series)):
-                        raise SkillLibraryConflict("不能移除仍被旧栏目绑定引用的 Skill 家族。")
                     for kind, selections in defaults.items():
                         if not isinstance(selections, list):
                             raise ValueError("阶段默认必须是列表。")

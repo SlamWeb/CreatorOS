@@ -14,7 +14,7 @@ class TaskContract(BaseModel):
 class TaskSkill(TaskContract):
     skill_id: str = Field(min_length=1, max_length=120)
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
-    role: Literal["primary", "supporting"]
+    role: Literal["primary", "supporting", "selected"]
     path: str | None = None
 
 
@@ -39,8 +39,10 @@ class TaskExecutionSpec(TaskContract):
 
     @model_validator(mode="after")
     def selections(self):
-        if sum(skill.role == "primary" for skill in self.skills) != 1:
+        if not all(skill.role == "selected" for skill in self.skills) and sum(skill.role == "primary" for skill in self.skills) != 1:
             raise ValueError("任务必须且只能选择一个主 Skill。")
+        if any(skill.role == "selected" for skill in self.skills) and not all(skill.role == "selected" for skill in self.skills):
+            raise ValueError("统一 Skill 选择不能与旧角色混用。")
         if len({skill.skill_id for skill in self.skills}) != len(self.skills):
             raise ValueError("同一任务不能重复选择 Skill。")
         if len({item.id for item in self.materials}) != len(self.materials):
