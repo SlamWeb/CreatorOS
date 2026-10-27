@@ -369,6 +369,9 @@ class StudioQueryService:
             for attempt in attempts:
                 attempts_by_revision.setdefault(attempt.revision_id, []).append(attempt)
             snapshot = dict(run.input_snapshot_json)
+            if snapshot.get("execution_spec"):
+                from creatoros.runs.task_contracts import TaskExecutionSpec
+                snapshot["execution_spec"] = TaskExecutionSpec.model_validate(snapshot["execution_spec"]).public_dict()
             if snapshot.get("task_references"):
                 ref = snapshot["task_references"]
                 snapshot["task_references"] = {**ref, "images": [
@@ -596,6 +599,7 @@ class StudioQueryService:
                     cover_url = f"/api/runs/{run.id}/revisions/{revision.id}/cards/{info['order']}?digest={revision.artifact_digest}&checksum={info['sha256']}"
         return RunSummary(
             id=run.id,
+            task_kind=(snapshot.get("execution_spec") or {}).get("kind", "image"),
             task_id=run.task_id,
             production_collection_id=collection_id,
             latest_run_id=latest_run_id or run.id,
@@ -640,7 +644,8 @@ class StudioQueryService:
     @staticmethod
     def _revision_view(revision, attempts: list[ContentAttempt]) -> RevisionView:
         artifact_dir = revision.artifact_directory
-        manifest = Path(artifact_dir) / "social_content_pack.json" if artifact_dir else None
+        spec = (revision.production_input_json or {}).get("execution_spec") or {}
+        manifest = Path(artifact_dir) / ("video_artifact.json" if spec.get("kind") == "video" else "social_content_pack.json") if artifact_dir else None
         return RevisionView(
             id=revision.id,
             revision_number=revision.revision_number,

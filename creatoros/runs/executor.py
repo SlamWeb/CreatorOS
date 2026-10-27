@@ -202,6 +202,9 @@ class ManagedRunExecutor:
                             del self._active[run_id]
                     # Never start another writer if the previous process is unaccounted for.
                     self.service.guard.assert_dispatchable()
+                    advance_tasks = getattr(self, "advance_tasks", None)
+                    if advance_tasks:
+                        advance_tasks()
                     item = (self.queue.next_pending(
                         excluded_topics={task.topic_id for task in self._active.values() if task.task_id is None},
                         excluded_tasks={task.task_id for task in self._active.values() if task.task_id is not None})

@@ -97,7 +97,7 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
         with self.database.session() as db:
             return tuple(len(list(db.scalars(select(model)))) for model in (Topic, ProductionTask, ContentRun))
 
-    def test_real_tool_replay_readback_and_same_key_payload_conflict(self):
+    def test_real_tool_replay_readback_and_distinct_payload_receipts(self):
         context = self.context()
         tasks = [{"title": "第一组", "brief": "第一组独立完整要求"}, {"title": "第二组", "brief": "第二组要求"}]
         original = self.counts()
@@ -114,13 +114,13 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
         self.assertFalse(replay.is_error, replay.content)
         self.assertEqual([item["id"] for item in json.loads(replay.content)["items"]],
                          [item["id"] for item in receipt["items"]])
-        conflict = self.call(context, topic_id="review-1", tasks=[{"title": "另一次", "brief": "same turn changed"}])
-        self.assertTrue(conflict.is_error, conflict.content)
-        self.assertEqual(self.counts(), (original[0], original[1] + 2, original[2] + 2))
+        different = self.call(context, topic_id="review-1", tasks=[{"title": "另一次", "brief": "same turn changed"}])
+        self.assertFalse(different.is_error, different.content)
+        self.assertEqual(self.counts(), (original[0], original[1] + 3, original[2] + 3))
         read = execute_tool_call(ToolCall("read", "manage_topics", json.dumps({"action": "get", "topic_id": "review-1"})),
                                 replace(context, user_request_id=uuid4().hex), model_requested=True)
         self.assertFalse(read.is_error, read.content)
-        self.assertEqual(len(json.loads(read.content)["production_tasks"]["items"]), 2)
+        self.assertEqual(len(json.loads(read.content)["production_tasks"]["items"]), 3)
         self.assertNotIn("brief", json.loads(created.to_model_content())["items"][0])
 
     def test_foreign_parent_or_any_foreign_override_rejects_whole_batch(self):

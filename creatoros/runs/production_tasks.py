@@ -4,8 +4,9 @@ from __future__ import annotations
 import hashlib
 import json
 from uuid import uuid4
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from sqlalchemy import func, select
 
 from creatoros.storage import ContentRun, MediaCollection, ProductionTask, Topic, TopicRemoval, WriteReceipt
@@ -15,10 +16,34 @@ from .service import ContentRunError
 from .repository import ContentRunRepository
 
 
+class SelectedTaskSkill(RunModel):
+    skill_id: str = Field(min_length=1, max_length=120)
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    role: Literal["primary", "supporting"]
+
+
+class VideoTaskInputs(RunModel):
+    collection_id: str = Field(min_length=1)
+    export_id: str | None = None
+    bgm_material_id: str = Field(min_length=1)
+
+
 class ProductionTaskInput(RunModel):
     title: str = Field(min_length=1, max_length=240)
     brief: str | None = Field(default=None, min_length=1, max_length=10000)
     skill_overrides: SkillOverrides | None = None
+    kind: Literal["image", "video"] = "image"
+    skills: list[SelectedTaskSkill] = Field(default_factory=list, max_length=12)
+    inputs: VideoTaskInputs | None = None
+    depends_on: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def stage_inputs(self):
+        if self.kind == "image" and (self.inputs or self.depends_on):
+            raise ValueError("图片任务不接收剪辑素材或阶段依赖。")
+        if self.kind == "video" and (not self.inputs or self.skill_overrides):
+            raise ValueError("视频任务需要素材输入和独立 Skill 选择。")
+        return self
 
 
 def _digest(value):
@@ -27,8 +52,18 @@ def _digest(value):
 
 
 class ProductionTaskService:
-    def __init__(self, database, runs, executor):
+    def __init__(self, database, runs, executor, *, library=None, collections=None, materials=None):
         self.database, self.runs, self.executor = database, runs, executor
+        from .staged_tasks import StagedTasks
+        self.stages = StagedTasks(self, library, collections, materials)
+        executor.advance_tasks = self.stages.advance
+
+    @staticmethod
+    def _assert_task_owner(task, topic):
+        frozen = task.definition_json or {}
+        if frozen and (frozen.get("creator_id") != topic.series.creator_id
+                       or frozen.get("series_id") != topic.series_id):
+            raise ContentRunError("制作任务的冻结归属与当前账号不一致。", code="scope_conflict", status_code=403)
 
     def create(self, topic_id, *, request_id, tasks, origin_session_id=None, context_snapshot_ref=None):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 64:
@@ -86,6 +121,16 @@ class ProductionTaskService:
                             position=position + index, collection_id=collection_id, create_request_id=request_id)
                         session.add(task)
                         session.flush()
+                        try:
+                            staged = self.stages.prepare(session, task, topic, item,
+                                                        origin_session_id, context_snapshot_ref)
+                            if staged:
+                                if not task.dependency_json:
+                                    self.stages.dispatch(session, task, topic)
+                                identifiers.append(task.id)
+                                continue
+                        except ValueError as error:
+                            raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
                         run = self.runs._create(topic_id, task_id=task.id, bound_session=session,
                             skill_overrides=item.skill_overrides, origin_session_id=origin_session_id,
                             context_snapshot_ref=context_snapshot_ref)
@@ -103,6 +148,34 @@ class ProductionTaskService:
     def list(self, topic_id):
         return self._list(topic_id)
 
+    def control(self, topic_id, task_id, action):
+        with self.executor._lock, self.runs._write_lock, self.database.session() as session:
+            task = session.get(ProductionTask, task_id)
+            if task is None or task.topic_id != topic_id:
+                raise ContentRunError("制作任务不存在。", code="not_found", status_code=404)
+            topic = session.get(Topic, topic_id)
+            if topic is None or session.get(TopicRemoval, topic_id):
+                raise ContentRunError("选题已移除。", code="not_found", status_code=404)
+            self._assert_task_owner(task, topic)
+            if task.dispatch_state == "dispatched":
+                raise ContentRunError("已进入生产，请在内容页操作该任务。")
+            if action == "cancel":
+                task.dispatch_state = "cancelled"
+            elif action == "resume":
+                topic = session.get(Topic, topic_id)
+                if not topic or session.get(TopicRemoval, topic_id):
+                    raise ContentRunError("选题已移除。", code="not_found", status_code=404)
+                try:
+                    task.dependency_json = self.stages.dependencies(session, topic_id,
+                        [dependency["task_id"] for dependency in task.dependency_json])
+                except ValueError as error:
+                    raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
+                task.dispatch_state, task.last_error = "waiting", None
+            else:
+                raise ValueError("Unknown stage action")
+        self.executor._wake.set()
+        return self._list(topic_id, [task_id])
+
     def _list(self, topic_id, identifiers=None):
         with self.database.session() as session:
             topic = session.get(Topic, topic_id)
@@ -119,6 +192,7 @@ class ProductionTaskService:
                     latest.setdefault(run.task_id, run)
             items = []
             for task in tasks:
+                self._assert_task_owner(task, topic)
                 run = latest.get(task.id)
                 snapshot = run.input_snapshot_json if run else {}
                 if run is not None and any(snapshot.get(key) != value for key, value in (
@@ -127,8 +201,15 @@ class ProductionTaskService:
                 pair = snapshot.get("composition") or {}
                 summary = snapshot.get("task_skill_summary") or snapshot.get("skill_name") or " + ".join(
                     str(pair.get(role, {}).get("id", "")) for role in ("mind", "production"))
+                spec = snapshot.get("execution_spec") or task.definition_json.get("execution_spec") or {}
+                if spec and not snapshot.get("task_skill_summary"):
+                    summary = " + ".join(item["skill_id"] for item in spec["skills"])
                 items.append(dict(id=task.id, topic_id=task.topic_id, title=task.title, brief=task.brief,
                     position=task.position, run_id=run.id if run else None, run_version=run.version if run else None,
-                    status=run.status.value if run else "queued", skill_overrides=snapshot.get("skill_overrides"),
+                    status=run.status.value if run else task.dispatch_state,
+                    kind=task.kind, dispatch_state=task.dispatch_state, last_error=task.last_error,
+                    depends_on=[item["task_id"] for item in task.dependency_json],
+                    skill_overrides=snapshot.get("skill_overrides"),
                     skill_summary=summary))
-            return dict(topic_id=topic_id, creator_id=topic.series.creator_id, items=items, collection_id=tasks[0].collection_id if tasks else None)
+            return dict(topic_id=topic_id, series_id=topic.series_id, creator_id=topic.series.creator_id,
+                        items=items, collection_id=tasks[0].collection_id if tasks else None)

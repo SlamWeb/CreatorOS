@@ -224,10 +224,12 @@ class MediaCollectionService:
     def _automatic_runs(session, row):
         """Task collections select current task outputs, in task order, not arrival order."""
         tasks = list(session.scalars(select(ProductionTask).where(
-            ProductionTask.collection_id == row.id).order_by(ProductionTask.position, ProductionTask.id)))
+            ProductionTask.collection_id == row.id, ProductionTask.kind == "image").order_by(ProductionTask.position, ProductionTask.id)))
         if not tasks:
             automatic = list(session.scalars(select(ContentRun.id).where(
-                ContentRun.topic_id == row.topic_id).order_by(ContentRun.created_at, ContentRun.id)))
+                ContentRun.topic_id == row.topic_id,
+                ContentRun.input_snapshot_json["execution_spec"]["kind"].as_string().is_distinct_from("video")
+                ).order_by(ContentRun.created_at, ContentRun.id)))
             return automatic, set()
         latest = {}
         for run in session.scalars(select(ContentRun).where(

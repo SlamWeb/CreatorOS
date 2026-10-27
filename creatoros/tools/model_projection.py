@@ -26,6 +26,7 @@ _SKILL = (
     "available", "editable", "carousel_compatible", "compatibility_note",
     "github_url",
     "family_id", "parent_id", "version_number", "version_status", "display_name",
+    "outputs", "capabilities", "can_use", "can_edit",
 )
 _TOPIC = (
     "reference_id",
@@ -40,7 +41,7 @@ _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
     "topic_id", "topic_title", "status", "version", "active_revision_number",
     "allowed_actions", "error_type", "error_message", "accepted", "card_count", "url",
-    "production_queue", "latest_run_id", "task_id", "production_collection_id",
+    "production_queue", "latest_run_id", "task_id", "production_collection_id", "kind", "task_kind",
 )
 _REVISION = (
     "id", "revision_id", "revision_number", "instruction", "artifact_digest",
@@ -59,6 +60,7 @@ _TASK = (
     "id", "kind", "title", "status", "series_id", "run_id", "url",
     "updated_at", "last_activity_at",
     "iteration_id", "topic_id", "stage", "active_round", "next_action",
+    "task_id", "task_kind", "topic_title", "topic_url", "collection_id", "collection_name", "collection_url", "last_error", "depends_on",
 )
 _ERROR = (
     "code", "error", "message", "error_type", "error_message", "status",
@@ -108,14 +110,17 @@ def _topic(data: Any) -> Any:
 def _production_tasks(data: dict) -> dict:
     return _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated")) | {
         "items": _list(data.get("items", []), lambda item: _pick(item, (
-            "id", "topic_id", "title", "position", "run_id", "run_version", "status", "skill_summary", "url")))
+            "id", "topic_id", "title", "position", "run_id", "run_version", "status", "skill_summary", "url",
+            "kind", "dispatch_state", "last_error", "depends_on")))
     }
 
 
 def _run(data: dict) -> dict:
     result = _pick(data, _RUN)
     if "revisions" in data:
-        result["revisions"] = _list(data["revisions"], lambda revision: _pick(revision, _REVISION))
+        result["revisions"] = _list(data["revisions"], lambda revision: _pick(revision, _REVISION) | (
+            {"video": _pick(revision["video"], ("url", "duration_seconds", "width", "height", "byte_size", "sha256", "has_audio"))}
+            if isinstance(revision, dict) and isinstance(revision.get("video"), dict) else {}))
     return result
 
 
@@ -194,6 +199,7 @@ PROJECTED_TOOLS = frozenset({
     "manage_skill_iteration",
     "manage_topics",
     "manage_media_collection",
+    "manage_skill_library", "manage_material",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS | _EXTRACTION_WRITES
 
 
@@ -213,11 +219,16 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         return _error(data) | _pick(data, _SKILL + ("digest",) + _SKILL_BATCH)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
+    if tool_name == "manage_skill_library":
+        return _pick(data, ("action", "creator_id", "series_id", "version", "defaults")) | _items(data, _SKILL + ("digest",))
+    if tool_name == "manage_material":
+        fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url")
+        return _pick(data, ("action", "creator_id") + fields) | _items(data, fields)
     if tool_name == "manage_media_collection":
         if data.get("export_id"):
-            # The host retains the complete receipt for Trace and downstream
-            # artifact handoff; chat only needs the successful business result.
-            return _pick(data, ("action", "name", "selected_count")) | {
+            # Keep exact handoff identities for a later video task; UI receipts
+            # still own downloads and user-facing replies omit internal IDs.
+            return _pick(data, ("action", "name", "selected_count", "collection_id", "export_id", "checksum")) | {
                 "message": "ZIP 已保存，下载按钮由界面在回复下方提供；无需写地址、导出编号或占位符。"}
         result = _pick(data, ("action", "id", "collection_id", "creator_id", "name", "version", "topic_id", "run_ids",
                               "snapshot_digest", "export_id", "selected_count", "size_bytes", "checksum", "deleted"))
@@ -328,7 +339,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name == "get_creator_tasks":
         result = _items(data, _TASK) | _pick(data, ("as_of", "filter"))
         if "summary" in data:
-            result["summary"] = _pick(data["summary"], ("active", "awaiting_approval", "failed"))
+            result["summary"] = _pick(data["summary"], ("active", "awaiting_approval", "failed", "needs_attention"))
         return result
     if tool_name in _SERIES_WRITE_TOOLS:
         result = _pick(data, ("request_id", "deduplicated", "url"))

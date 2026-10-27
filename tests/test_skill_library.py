@@ -91,6 +91,10 @@ class SkillLibraryTests(unittest.TestCase):
         self.assertTrue(service.can_edit("a", candidate["id"]))
         self.assertFalse(service.can_edit("b", candidate["id"]))
         service.add("a", candidate["id"], "request-one")
+        service.add("b", self.video["id"], "shared-release")
+        self.assertTrue(service.can_use("b", self.video["id"]))
+        self.assertFalse(service.can_use("b", candidate["id"]))
+        self.assertNotIn(candidate["id"], [item["id"] for item in service.available("b")])
         with self.assertRaises(PermissionError):
             service.add("b", candidate["id"], "request-one")
 

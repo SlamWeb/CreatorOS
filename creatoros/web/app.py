@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import re
 import asyncio
 from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
@@ -74,10 +76,14 @@ from .analytics_routes import analytics_routes
 from .media_collections import MediaCollectionService
 from .media_collection_routes import media_collection_routes
 from .production_task_routes import production_task_routes
+from .material_routes import material_routes
+from .skill_library_routes import create_skill_library_router
+from creatoros.integrations.managed_materials import MaterialStore
+from creatoros.integrations.skill_library import SkillLibraryService
 from creatoros.runs.production_tasks import ProductionTaskService
 from .static import mount_studio
 from .chat import AgentChatService
-from .chat_image_actions import chat_image_action_routes
+from .chat_image_actions import chat_image_action_routes, extraction_owner_path
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
 from .account_context import CreatorContextBuilder
@@ -166,6 +172,19 @@ def create_app(
     observations = ObservationService(db, chat=chat, research=research,
                                      discussions=discussions, extractions=extractions, runs=runs)
     agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions, iterations=iterations)
+    def skill_source_owner(record):
+        match = re.fullmatch(r"artifact extraction ([a-f0-9]{64})", record.get("source_note", ""))
+        if not match:
+            return None
+        try:
+            owner = json.loads(extraction_owner_path(chat, match.group(1)).read_text(encoding="utf-8")).get("creator_id")
+            return owner if isinstance(owner, str) else None
+        except (OSError, ValueError, KeyError, HTTPException):
+            return None
+
+    skill_library = SkillLibraryService(db, skill_installs.catalog, source_owner=skill_source_owner)
+    agent_scope.skill_library = skill_library
+    account_context.skill_library = skill_library
     scope_request_lock = asyncio.Lock()
 
     started_services = []
@@ -218,7 +237,10 @@ def create_app(
     app.state.feedback = feedback
     app.state.queries = queries
     app.state.media_collections = MediaCollectionService(db, artifacts)
-    app.state.production_tasks = ProductionTaskService(db, runs, executor)
+    app.state.skill_library = skill_library
+    app.state.materials = MaterialStore(db)
+    app.state.production_tasks = ProductionTaskService(db, runs, executor, library=skill_library,
+        collections=app.state.media_collections, materials=app.state.materials)
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
@@ -252,6 +274,8 @@ def create_app(
     app.include_router(analytics_routes(feedback))
     app.include_router(media_collection_routes(app.state.media_collections))
     app.include_router(production_task_routes(app.state.production_tasks))
+    app.include_router(create_skill_library_router(skill_library))
+    app.include_router(material_routes(app.state.materials))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):
@@ -614,7 +638,9 @@ def create_app(
             source = runs.get(payload.source_run_id)
             if source.topic_id != payload.topic_id:
                 raise ContentRunError("来源任务与选题不匹配。", status_code=409, code="source_mismatch")
-            if not payload.skill_overrides and session_id and chat.get(session_id).get("scope_kind") == "creator":
+            if (not payload.skill_overrides and source.task_id is None
+                    and (source.input_snapshot_json.get("execution_spec") or {}).get("kind") != "video"
+                    and session_id and chat.get(session_id).get("scope_kind") == "creator"):
                 topic = ContentRepository(db).get_topic(payload.topic_id)
                 if topic is not None:
                     account_context.require_series_skills(topic.series_id)

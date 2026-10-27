@@ -12,7 +12,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 
-from creatoros.storage import ContentRun, Creator, Database, Series, Topic, TopicRemoval, WriteReceipt, PublicationRequest
+from creatoros.storage import ContentRun, Creator, Database, ProductionTask, Series, Topic, TopicRemoval, WriteReceipt, PublicationRequest
+from creatoros.storage.models import ManagedMaterial, MediaCollection
 
 
 _CREATOR_PATH = re.compile(r"^/api/creators/([^/]+)$")
@@ -48,6 +49,7 @@ class AgentScopeGuard:
         self.research = research
         self.discussions = discussions
         self.iterations = iterations
+        self.skill_library = None
 
     async def check(self, request: Request) -> Response | None:
         session_id = request.headers.get("x-creatoros-agent-session")
@@ -86,6 +88,28 @@ class AgentScopeGuard:
 
         method, path = request.method.upper(), request.url.path
 
+        library = re.fullmatch(r"/api/creators/([^/]+)/skills(?:/([^/]+))?", path)
+        if library:
+            allowed = (method in {"GET", "POST"} and library.group(2) is None
+                       or method == "DELETE" and library.group(2) is not None)
+            # Candidate eligibility is enforced by the library service itself.
+            return None if library.group(1) == creator_id and allowed else self._denied()
+        pool = re.fullmatch(r"/api/series/([^/]+)/skills", path)
+        if pool:
+            return None if method in {"GET", "PUT"} and self._owns_series(pool.group(1), creator_id) else self._denied()
+        material = re.fullmatch(r"/api/creators/([^/]+)/materials(?:/([^/]+)(/file)?)?", path)
+        if material:
+            allowed = (method == "GET" or method == "POST" and material.group(2) is None)
+            if material.group(1) != creator_id or not allowed:
+                return self._denied()
+            if material.group(2) and not self._owns_material(material.group(2), creator_id):
+                return self._denied()
+            return None
+        task_action = re.fullmatch(r"/api/topics/([^/]+)/production-tasks/([^/]+)/(resume|cancel)", path)
+        if task_action:
+            return None if (method == "POST" and self._owns_topic(task_action.group(1), creator_id)
+                            and self._owns_task(task_action.group(2), creator_id, task_action.group(1))) else self._denied()
+
         collection = re.fullmatch(r"/api/creators/([^/]+)/collections(?P<tail>/.*)?", path)
         if collection:
             tail = collection.group("tail") or ""
@@ -111,7 +135,7 @@ class AgentScopeGuard:
             return None if (isinstance(payload, dict)
                             and self._owns_series(payload.get("series_id", ""), creator_id)
                             and self._owns_topic(payload.get("topic_id", ""), creator_id)
-                            and self._owns_skill(payload.get("skill_id", ""), creator_id)) else self._denied()
+                            and self._can_edit_skill(payload.get("skill_id", ""), creator_id)) else self._denied()
         iteration = re.fullmatch(r"/api/skill-iterations/([a-f0-9]{64})(?:/(actions|files/[a-zA-Z0-9_-]+))?", path)
         if iteration:
             if not self.iterations or not ((method == "GET" and iteration.group(2) != "actions")
@@ -164,7 +188,8 @@ class AgentScopeGuard:
 
         match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/versions", path)
         if match and method in {"GET", "POST"}:
-            if not self._owns_skill(match.group(1), creator_id):
+            permission = self._owns_skill if method == "GET" else self._can_edit_skill
+            if not permission(match.group(1), creator_id):
                 return self._denied()
             if method == "GET":
                 identity = match.group(1)
@@ -194,11 +219,12 @@ class AgentScopeGuard:
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
         if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
-            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
+            permission = self._can_edit_skill if method == "PUT" else self._can_read_skill
+            return None if permission(match.group(1), creator_id) else self._denied()
 
         match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/assets", path)
         if match and method in {"PUT", "DELETE"}:
-            return None if self._owns_skill(match.group(1), creator_id) else self._denied()
+            return None if self._can_edit_skill(match.group(1), creator_id) else self._denied()
 
         if method == "GET" and path == "/api/creators":
             return await self._creator_page(request, creator_id)
@@ -272,7 +298,7 @@ class AgentScopeGuard:
                     return self._denied()
                 tasks = payload.get("tasks") if isinstance(payload, dict) else None
                 if (not isinstance(tasks, list) or not tasks
-                        or not all(isinstance(task, dict) and self._owns_overrides(task, creator_id)
+                        or not all(isinstance(task, dict) and self._owns_task_selection(task, creator_id, match.group(1))
                                    for task in tasks)):
                     return self._denied()
             return None
@@ -426,6 +452,8 @@ class AgentScopeGuard:
             return all((run.input_snapshot_json or {}).get("creator_id") == creator_id for run in runs)
 
     def _owns_skill(self, skill_id: str, creator_id: str) -> bool:
+        if self.skill_library:
+            return self.skill_library.can_use(creator_id, skill_id)
         with self.db.session() as session:
             series = session.scalars(select(Series).where(Series.creator_id == creator_id))
             bindings = {binding for item in series
@@ -451,6 +479,51 @@ class AgentScopeGuard:
         except (AttributeError, ValueError, OSError, KeyError):
             return False
 
+    def _can_edit_skill(self, skill_id: str, creator_id: str) -> bool:
+        return (self.skill_library.can_edit(creator_id, skill_id) if self.skill_library
+                else self._owns_skill(skill_id, creator_id))
+
+    def _can_read_skill(self, skill_id: str, creator_id: str) -> bool:
+        return self._owns_skill(skill_id, creator_id) or self._can_edit_skill(skill_id, creator_id)
+
+    def _owns_material(self, material_id, creator_id):
+        if not isinstance(material_id, str):
+            return False
+        with self.db.session() as session:
+            item = session.get(ManagedMaterial, material_id)
+            return bool(item and item.creator_id == creator_id)
+
+    def _owns_task(self, task_id, creator_id, topic_id):
+        if not isinstance(task_id, str):
+            return False
+        with self.db.session() as session:
+            task = session.get(ProductionTask, task_id)
+            return bool(task and task.topic_id == topic_id and self._owns_topic(task.topic_id, creator_id))
+
+    def _owns_task_selection(self, task, creator_id, topic_id):
+        if not self._owns_overrides(task, creator_id):
+            return False
+        selected = task.get("skills")
+        if selected is not None and (not isinstance(selected, list) or not selected or not all(
+                isinstance(item, dict) and isinstance(item.get("skill_id"), str)
+                and "path" not in item and self._owns_skill(item["skill_id"], creator_id) for item in selected)):
+            return False
+        inputs = task.get("inputs")
+        if inputs is not None:
+            if not isinstance(inputs, dict) or set(inputs) - {"collection_id", "export_id", "bgm_material_id"}:
+                return False
+            if any(value is not None and (not isinstance(value, str) or not value) for value in inputs.values()):
+                return False
+            if inputs.get("bgm_material_id") and not self._owns_material(inputs["bgm_material_id"], creator_id):
+                return False
+            if inputs.get("collection_id"):
+                with self.db.session() as session:
+                    collection = session.get(MediaCollection, inputs["collection_id"])
+                    if collection is None or collection.creator_id != creator_id:
+                        return False
+        dependencies = task.get("depends_on", [])
+        return isinstance(dependencies, list) and all(self._owns_task(value, creator_id, topic_id) for value in dependencies)
+
     def _owns_overrides(self, payload, creator_id):
         overrides = payload.get("skill_overrides") if isinstance(payload, dict) else None
         if overrides is None:
@@ -467,6 +540,12 @@ class AgentScopeGuard:
         requested = request.query_params.get("family_skill_id")
         if requested and not self._owns_skill(requested, creator_id):
             return self._denied()
+        if self.skill_library:
+            items = self.skill_library.available(creator_id)
+            if requested:
+                family = self.skill_library._family(requested)
+                items = [item for item in items if item.get("family_id") == family]
+            return JSONResponse({"items": items, "include_versions": True}, headers={"Cache-Control": "no-store"})
         with self.db.session() as session:
             series = session.scalars(select(Series).where(Series.creator_id == creator_id))
             bindings = {binding for item in series

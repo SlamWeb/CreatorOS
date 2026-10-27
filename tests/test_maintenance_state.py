@@ -223,6 +223,24 @@ class MaintenanceStateTests(unittest.TestCase):
         with self.assertRaises(MaintenanceError):
             verify_snapshot(self.layout, before)
 
+    def test_managed_uploads_and_export_receipts_are_preserved_without_changing_layout_identity(self):
+        identity = self.layout.fingerprint()
+        for label, suffix in (("materials", ".materials"), ("media_exports", ".media-exports")):
+            with self.subTest(root=label):
+                path = self.layout.database.with_suffix(suffix) / "original" / "source.bin"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"original managed bytes")
+                before = snapshot(self.layout)
+                self.assertEqual(before["layout"], identity)
+                self.assertEqual(self.layout.fingerprint(), identity)
+                self.assertIn(f"{label}/original/source.bin", before["files"])
+                self.assertTrue(verify_snapshot(self.layout, before)["original_rows_unchanged"])
+                path.write_bytes(b"changed managed bytes")
+                with self.assertRaises(MaintenanceError):
+                    verify_snapshot(self.layout, before)
+                path.unlink()
+                with self.assertRaises(MaintenanceError):
+                    verify_snapshot(self.layout, before)
     @unittest.skipUnless(os.name == "nt", "Windows Junction regression")
     def test_windows_junction_and_linked_parent_are_rejected_on_python310(self):
         outside = self.root / "outside"

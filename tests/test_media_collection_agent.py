@@ -151,7 +151,7 @@ class MediaCollectionAgentHttpTests(unittest.TestCase):
         self.assertNotIn("url", projected)
         self.assertNotIn("collection_url", projected)
         self.assertNotIn("/api/creators", result.model_content)
-        self.assertEqual(set(projected), {"action", "name", "selected_count", "message"})
+        self.assertEqual(set(projected), {"action", "name", "selected_count", "message", "collection_id", "export_id", "checksum"})
         self.assertEqual(projected["action"], "export")
         self.assertEqual(projected["name"], receipt["name"])
         self.assertEqual(projected["selected_count"], receipt["selected_count"])
@@ -159,8 +159,8 @@ class MediaCollectionAgentHttpTests(unittest.TestCase):
         self.assertRegex(receipt["export_id"], r"^[a-f0-9]{64}$")
         self.assertRegex(receipt["checksum"], r"^[a-f0-9]{64}$")
         self.assertGreater(receipt["size_bytes"], 0)
-        self.assertNotIn(receipt["export_id"], result.model_content)
-        self.assertNotIn(receipt["checksum"], result.model_content)
+        self.assertEqual(projected["export_id"], receipt["export_id"])
+        self.assertEqual(projected["checksum"], receipt["checksum"])
         return receipt
 
     def test_crud_idempotency_cas_and_old_business_files_unchanged(self):
@@ -238,7 +238,7 @@ class MediaCollectionAgentHttpTests(unittest.TestCase):
         self.assertEqual(raw_query["export_id"], receipt["export_id"])
         self.assertEqual(raw_query["checksum"], receipt["checksum"])
         self.assertEqual(raw_query["size_bytes"], receipt["size_bytes"])
-        self.assertEqual(set(queried), {"action", "name", "selected_count", "message"})
+        self.assertEqual(set(queried), {"action", "name", "selected_count", "message", "collection_id", "export_id", "checksum"})
         self.assertEqual(queried["action"], "get")
         self.assertEqual(queried["name"], receipt["name"])
         self.assertEqual(queried["selected_count"], receipt["selected_count"])

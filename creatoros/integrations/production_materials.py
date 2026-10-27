@@ -84,6 +84,17 @@ def prepare_materials(directory: Path, refs, request: str) -> dict:
             file = safe_file(directory / "references", Path(picture.path), 32 * 1024 * 1024)
             resources.append({"path": file.relative_to(directory).as_posix(), "role": "task-reference",
                               "sha256": picture.sha256, "image": True})
+    execution_file = directory / "execution_spec.json"
+    if execution_file.is_file():
+        from creatoros.runs.task_contracts import TaskExecutionSpec
+        from creatoros.runs.task_execution import verify_execution_spec
+        spec = TaskExecutionSpec.model_validate_json(safe_file(directory, execution_file).read_text(encoding="utf-8"))
+        verify_execution_spec(spec, directory, ready=True)
+        for material in spec.materials:
+            file = safe_file(directory / "materials", Path(material.path))
+            resources.append({"path": file.relative_to(directory).as_posix(), "role": "task-material",
+                              "sha256": material.sha256, "image": False, "kind": material.kind,
+                              "material_id": material.id, "name": material.name})
     for number, resource in enumerate(resources, 1):
         resource.update(id=f"res_{number:03d}", read_path="../" + resource["path"])
     # Explicit task images have priority. Other images remain available by short

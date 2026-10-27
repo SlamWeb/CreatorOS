@@ -103,7 +103,7 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
     @router.post("/skill-asset")
     def skill_asset(session_id: str, payload: SkillAssetRequest, request: Request):
         creator_id = session(session_id, request)
-        require(not creator_id or scope._owns_skill(payload.skill_id, creator_id))
+        require(not creator_id or scope._can_edit_skill(payload.skill_id, creator_id))
         from .skill_routes import asset_response
         if payload.operation == "delete_image":
             return asset_response(lambda: catalog.delete_skill_image(

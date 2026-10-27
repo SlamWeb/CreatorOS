@@ -21,8 +21,13 @@ execution_counts = {"producer": 0, "extractor": 0}
 
 
 class E2EProducer:
+    native_skill_inputs = True
+
     def produce_to(self, **request) -> ProducedPack:
         execution_counts["producer"] += 1
+        if getattr(request.get("execution_spec"), "kind", None) == "video":
+            from tests.staged_ui_fixture import produce_controlled_video
+            return produce_controlled_video(request, root / "staged-fixtures")
         request["on_thread_started"]("studio-e2e-thread")
         sleep(1.5)
         directory = Path(request["directory"])
@@ -184,6 +189,24 @@ def seed_eval_runs(payload: dict):
     failed["evidence_files"] = [{"name": "missing.txt", "label": "未保存的证据"}]
     save_report(root / "eval-runs", failed)
     return {"run_id": report["run_id"], "failed_run_id": failed["run_id"], "long_text": long_text}
+
+
+@app.post("/test/staged-video")
+def staged_video_fixture():
+    from tests.staged_ui_fixture import seed_staged_video
+    return seed_staged_video(app.state.skill_installs.catalog, root / "staged-fixtures")
+
+
+app.router.routes.insert(0, app.router.routes.pop())
+
+
+@app.post("/test/waiting-task")
+def waiting_task_fixture():
+    from tests.staged_visibility_fixture import seed_waiting_task
+    return seed_waiting_task(database, runs)
+
+
+app.router.routes.insert(0, app.router.routes.pop())
 
 
 if __name__ == "__main__":

@@ -75,12 +75,51 @@ class TopicsArgs(PageArgs):
     state: Literal["all", "pending", "queued"] = Field(default="all", description="all 全部；pending 调研待选；queued 已确认入队。待选不可直接生产。")
 
 
+class TaskSkillArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    skill_id: str = Field(pattern=r"^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$")
+    digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$",
+        description="通常省略，由宿主读取此精确ID的当前摘要；显式提供时按真实内容校验。")
+    role: Literal["primary", "supporting"]
+
+
+class TaskInputsArgs(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+    collection_id: str = Field(min_length=1, max_length=128)
+    export_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    bgm_material_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class ProductionTaskArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=240, description="同一选题内该制作任务的简短名称。")
     brief: str = Field(min_length=1, max_length=10_000, description="该任务的完整制作要求、图片数量和分工；各任务独立生产。")
+    kind: Literal["image", "video"] = "image"
+    skills: list[TaskSkillArgs] | None = Field(default=None, min_length=1, max_length=12,
+        description="本次精确版本ID与角色，恰有一个primary；其余supporting。digest通常省略由宿主读取。")
+    inputs: TaskInputsArgs | None = Field(default=None,
+        description="视频图片集合/已导出ZIP与BGM素材ID；只传对象ID。")
+    depends_on: list[str] = Field(default_factory=list, max_length=100,
+        description="用户明确选择的本选题生图任务ID；等待由后台推进，不轮询。")
     skill_overrides: SkillOverrides | None = Field(default=None,
         description="本任务选择的完整Skill或Mind/Visualize版本及真实expected_digests；省略使用提交时栏目默认。")
+
+    @model_validator(mode="after")
+    def typed_selection(self):
+        if self.skills is not None:
+            if self.skill_overrides is not None:
+                raise ValueError("skills 不能与旧 skill_overrides 混用。")
+            if sum(item.role == "primary" for item in self.skills) != 1:
+                raise ValueError("每个任务必须且只能选择一个主 Skill。")
+            if len({item.skill_id for item in self.skills}) != len(self.skills):
+                raise ValueError("同一任务不能重复引用 Skill。")
+        if self.kind == "video" and (not self.skills or not self.inputs or not self.inputs.bgm_material_id):
+            raise ValueError("视频任务需要明确的 skills 与 BGM 素材 ID。")
+        if self.kind == "image" and (self.inputs is not None or self.depends_on):
+            raise ValueError("图片任务不接受视频输入或等待依赖。")
+        if len(set(self.depends_on)) != len(self.depends_on) or any(not value.strip() or len(value) > 80 for value in self.depends_on):
+            raise ValueError("depends_on 必须为不重复的真实任务 ID。")
+        return self
 
 
 class StartRunArgs(BaseModel):
@@ -102,7 +141,7 @@ class StartRunArgs(BaseModel):
     skill_overrides: SkillOverrides | None = Field(default=None,
         description="仅本次单选题选择完整 Skill 或内容/呈现版本，允许候选；每个指定ID须提供读取时expected_digests。可只换双Skill一边，不改栏目默认。")
     tasks: list[ProductionTaskArgs] | None = Field(default=None, min_length=1, max_length=100,
-        description="同一topic_id拆成多个制作任务并行生图、汇总一个素材集；几十张属于一个选题时用此字段，不复制Topic。每项可独立选Skill，不混用批量选题、fresh、参考图或顶层skill_overrides。")
+        description="同一topic_id的图片/视频任务；图片提交自动创建并返回collection_id，无需提前建素材集。视频复用该ID和图片task ID作为depends_on，后台等图齐再导出剪辑，无需轮询或预先export。kind、skills、inputs明确制作；不能混用其他生产模式。")
 
     @model_validator(mode="after")
     def exactly_one(self):
@@ -477,14 +516,33 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
                     for task in tasks]
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
-        identity = ["production-tasks-v1", session, turn, getattr(context, "creator_id", None), topic_id]
-        request_id = sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest() if turn else uuid4().hex
+        # One user turn may authorize image tasks and then their dependent video.
+        # The trusted turn plus normalized payload identifies one submission;
+        # a byte-equivalent retry reuses it, a different stage gets its own key.
         path = f"/api/topics/{quote(topic_id, safe='')}/production-tasks"
         def submit_tasks(client):
+            request_id = None
             try:
-                data = client.request("POST", path, payload={"request_id": request_id, "tasks": selected})
+                tasks_to_submit = json.loads(json.dumps(selected))
+                digests = {}
+                for task in tasks_to_submit:
+                    for skill in task.get("skills", []):
+                        skill_id = skill["skill_id"]
+                        if skill_id not in digests:
+                            digests[skill_id] = client.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files")["digest"]
+                        actual = digests[skill_id]
+                        if skill.get("digest") is not None and skill["digest"] != actual:
+                            raise StudioClientError("所选 Skill 内容已变化，请核对后再提交。", code="skill_digest_conflict",
+                                details={"skill_id": skill_id, "current_digest": actual})
+                        skill["digest"] = actual
+                identity = ["production-tasks-v2", session, turn, getattr(context, "creator_id", None), topic_id, tasks_to_submit]
+                request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
+                    separators=(",", ":")).encode()).hexdigest() if turn else uuid4().hex
+                data = client.request("POST", path, payload={"request_id": request_id, "tasks": tasks_to_submit})
             except StudioClientError as error:
-                error.details.update(topic_id=topic_id, request_id=request_id, receipt_url=path)
+                error.details.update(topic_id=topic_id, receipt_url=path)
+                if request_id:
+                    error.details["request_id"] = request_id
                 raise
             return production_tasks_receipt(data, context)
         return _call(submit_tasks, context)
@@ -537,7 +595,8 @@ def get_content_run(run_id, context=None):
 
 def production_tasks_receipt(data, context=None):
     """Keep original DTO evidence; navigation uses only guarded response identities."""
-    result = {**data, "items": [dict(item, url=f"/runs/{quote(item['run_id'], safe='')}")
+    result = {**data, "items": [dict(item, **({"url": f"/runs/{quote(item['run_id'], safe='')}"}
+              if isinstance(item.get("run_id"), str) and item["run_id"] else {}))
               for item in data.get("items", [])]}
     creator_id = data.get("creator_id") or getattr(context, "creator_id", None)
     if creator_id and data.get("collection_id"):

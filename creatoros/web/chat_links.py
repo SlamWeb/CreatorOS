@@ -5,11 +5,29 @@ This is not a permission check: the existing Studio API guard runs first.
 """
 import json
 import re
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 _ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
 _ROUTE = re.compile(rf"^/(series|runs)/({_ID})$")
 _LABELS = {"series": "查看栏目", "research": "查看调研", "preview": "查看入队预览", "production": "查看内容", "discussion": "查看讨论"}
+
+
+def _pending_task_receipts(item, tool):
+    creator, series, topic = (item.get(key) for key in ("creator_id", "series_id", "topic_id"))
+    if not all(isinstance(value, str) and re.fullmatch(_ID, value) for value in (creator, series, topic)):
+        return []
+    topic_url = "/?" + urlencode({"creator": creator, "series": series, "topic": topic})
+    if item.get("topic_url") != topic_url or item.get("url") != topic_url:
+        return []
+    title = str(item.get("topic_title") or item.get("title") or "查看选题")[:70]
+    links = [{"url": topic_url, "label": "选题 · " + title, "kind": "topic", "source_tool": tool}]
+    collection = item.get("collection_id")
+    if isinstance(collection, str) and re.fullmatch(_ID, collection):
+        url = "/?" + urlencode({"creator": creator, "view": "materials", "collection": collection})
+        if item.get("collection_url") == url:
+            links.append({"url": url, "label": "素材 · " + str(item.get("collection_name") or "素材集")[:70],
+                          "kind": "collection", "source_tool": tool})
+    return links
 
 
 def _media_receipts(data, tool):
@@ -167,6 +185,9 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             links = []
             for item in data.get("items", []):
                 if not isinstance(item, dict):
+                    continue
+                if item.get("kind") == "production_task":
+                    links.extend(_pending_task_receipts(item, name))
                     continue
                 if item.get("kind") == "skill_iteration":
                     link = _iteration_receipt(item, name)

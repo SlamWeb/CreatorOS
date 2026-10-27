@@ -37,6 +37,8 @@ from .artifacts import validate_artifact
 from .models import ContentRunInput, RunExecutionResult, SkillOverrides
 from .repository import ContentRunRepository
 from .ownership import LocalExecutionGuard
+from .task_contracts import TaskExecutionSpec, TaskMaterial
+from .task_execution import freeze_execution_spec, verify_execution_spec
 
 
 class ContentRunError(ValueError):
@@ -165,8 +167,13 @@ class ContentRunService:
         if not token or len(token) > 128:
             raise ContentRunError("重做请求标识必须为 1～128 个字符。", code="invalid_request", status_code=422)
         source = self.get(source_run_id)
-        if source.task_id is not None and skill_overrides is None:
-            frozen = ContentRunInput.model_validate(source.input_snapshot_json)
+        frozen = (ContentRunInput.model_validate(source.input_snapshot_json)
+                  if source.input_snapshot_json.get("production_protocol") != "external-import" else None)
+        if (frozen is not None and frozen.execution_spec is not None
+                and frozen.execution_spec.kind == "video" and skill_overrides is not None):
+            raise ContentRunError("视频重做不能使用图片 Skill 覆盖；如需更换剪辑 Skill，请新建视频制作任务。",
+                                  code="invalid_skill_selection", status_code=422)
+        if source.task_id is not None and skill_overrides is None and frozen is not None and frozen.execution_spec is None:
             if frozen.composition is not None:
                 skill_overrides = SkillOverrides(mind_skill_id=frozen.composition.mind.id,
                     production_skill_id=frozen.composition.production.id,
@@ -175,11 +182,17 @@ class ContentRunService:
             else:
                 skill_overrides = SkillOverrides(skill_id=frozen.skill_name,
                     expected_digests={frozen.skill_name: frozen.skill_digest})
+        # Independent tasks retain their explicit selection. A plain image Run
+        # uses today's stage defaults when starting fresh, just as legacy Runs do.
+        preserved_spec = (frozen.execution_spec if frozen is not None and skill_overrides is None
+                          and frozen.execution_spec is not None
+                          and (source.task_id is not None or frozen.execution_spec.kind == "video") else None)
         return self._create(
             source.topic_id, idempotency_key=f"fresh:{token}", task_id=source.task_id,
             origin_session_id=origin_session_id, context_snapshot_ref=context_snapshot_ref,
             fresh_source=(source_run_id, expected_version),
             skill_overrides=skill_overrides,
+            execution_spec=preserved_spec,
         )
 
     def _create(
@@ -193,8 +206,12 @@ class ContentRunService:
         skill_overrides: SkillOverrides | dict | None = None,
         task_id: str | None = None,
         bound_session=None,
+        execution_spec: TaskExecutionSpec | dict | None = None,
     ) -> ContentRun:
         try:
+            execution_spec = TaskExecutionSpec.model_validate(execution_spec) if execution_spec is not None else None
+            if execution_spec is not None and skill_overrides is not None:
+                raise ValueError("统一任务不能同时使用旧 Skill 选择。")
             selected = SkillOverrides.model_validate(skill_overrides) if skill_overrides is not None else None
         except ValueError as error:
             raise ContentRunError(str(error), code="invalid_skill_selection", status_code=422) from error
@@ -214,6 +231,11 @@ class ContentRunService:
         if existing is not None:
             if existing.topic_id != topic_id or existing.task_id != task_id:
                 raise ContentRunError("请求标识已用于另一个选题。", code="idempotency_conflict")
+            old_spec = existing.input_snapshot_json.get("execution_spec")
+            old_spec = TaskExecutionSpec.model_validate(old_spec).public_dict() if old_spec else None
+            if ((execution_spec is not None or selected is not None)
+                    and old_spec != (execution_spec.public_dict() if execution_spec else None)):
+                raise ContentRunError("请求标识已用于不同任务输入。", code="idempotency_conflict")
             previous_selection = existing.input_snapshot_json.get("skill_overrides")
             if isinstance(previous_selection, dict):
                 previous_selection = {key: value for key, value in previous_selection.items() if value is not None}
@@ -272,35 +294,54 @@ class ContentRunService:
                     raise ContentRunError("该选题已有生产记录；请查看原任务，结束后用从头重做选择新版。",
                                           code="run_exists", run_id=latest.id)
             pair_fields = {}
-            single_id = selected.skill_id if selected and selected.skill_id else (
-                None if selected and (selected.mind_skill_id or selected.production_skill_id) else series.skill_name)
             catalog = ProducerSkillCatalog(skills_root_for(self.database))
-            if single_id is None:
-                mind_id = (selected.mind_skill_id if selected else None) or series.mind_skill_id
-                production_id = (selected.production_skill_id if selected else None) or series.production_skill_id
-                if not mind_id or not production_id:
-                    raise ContentRunError("双 Skill 制作需要完整的内容与呈现选择。", code="invalid_skill_selection", status_code=422)
-                try:
-                    pair = snapshot_pair(
-                        catalog,
-                        mind_id,
-                        production_id,
-                        native=self.production_protocol == "native-v1",
-                        selected_digests=selected.expected_digests if selected else None,
-                    )
-                except ValueError as error:
-                    raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
-                pair_fields = dict(composition=pair, creator_name=creator.display_name,
-                                   creator_platform=creator.platform.value,
-                                   series_revision=series.revision, topic_source=topic.source.value)
+            if execution_spec is None and selected is None:
+                from creatoros.storage import SeriesSkillRef
+                from creatoros.integrations.skill_library import SkillLibraryService
+                pool = session.get(SeriesSkillRef, series.id)
+                defaults = (pool.defaults_json or {}).get("image", []) if pool else []
+                if defaults:
+                    library = SkillLibraryService(self.database, catalog)
+                    if any(not library.can_use(series.creator_id, item["skill_id"]) for item in defaults):
+                        raise ContentRunError("栏目默认 Skill 不在当前账号可用库中，请重新选择。", code="scope_conflict", status_code=403)
+                    execution_spec = TaskExecutionSpec(kind="image", skills=[{
+                        **item, "digest": library.describe(item["skill_id"])["digest"]} for item in defaults])
+                elif pool is not None or not any((series.skill_name, series.mind_skill_id, series.production_skill_id)):
+                    raise ContentRunError("请选择本次制作的主 Skill，或先设置栏目图片阶段默认。",
+                                          code="skill_selection_required", status_code=422)
+            if execution_spec is not None:
+                single_id = None
+                pair_fields = {"execution_spec": execution_spec}
             else:
-                try:
-                    directory = (catalog.resolve_selected_version(single_id, expected_digest=selected.expected_digests[single_id])
-                                 if selected else catalog.resolve(single_id))
-                    pair_fields = dict(skill_path=str(directory), skill_digest=(
-                        selected.expected_digests[single_id] if selected else _digest(directory)))
-                except (ValueError, OSError) as error:
-                    raise ContentRunError(str(error), code="invalid_skill") from error
+                single_id = selected.skill_id if selected and selected.skill_id else (
+                    None if selected and (selected.mind_skill_id or selected.production_skill_id) else series.skill_name)
+                catalog = ProducerSkillCatalog(skills_root_for(self.database))
+                if single_id is None:
+                    mind_id = (selected.mind_skill_id if selected else None) or series.mind_skill_id
+                    production_id = (selected.production_skill_id if selected else None) or series.production_skill_id
+                    if not mind_id or not production_id:
+                        raise ContentRunError("双 Skill 制作需要完整的内容与呈现选择。", code="invalid_skill_selection", status_code=422)
+                    try:
+                        pair = snapshot_pair(
+                            catalog,
+                            mind_id,
+                            production_id,
+                            native=self.production_protocol == "native-v1",
+                            selected_digests=selected.expected_digests if selected else None,
+                        )
+                    except ValueError as error:
+                        raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
+                    pair_fields = dict(composition=pair, creator_name=creator.display_name,
+                                       creator_platform=creator.platform.value,
+                                       series_revision=series.revision, topic_source=topic.source.value)
+                else:
+                    try:
+                        directory = (catalog.resolve_selected_version(single_id, expected_digest=selected.expected_digests[single_id])
+                                     if selected else catalog.resolve(single_id))
+                        pair_fields = dict(skill_path=str(directory), skill_digest=(
+                            selected.expected_digests[single_id] if selected else _digest(directory)))
+                    except (ValueError, OSError) as error:
+                        raise ContentRunError(str(error), code="invalid_skill") from error
             if topic.reference_id:
                 from creatoros.integrations.topic_references import TopicReferenceStore
                 try:
@@ -309,7 +350,8 @@ class ContentRunService:
                     raise ContentRunError("选题参考图片缺失或已变化，请检查后再生产。", code="invalid_references") from error
             task_metadata = {}
             if task_id is not None:
-                skill_ids = [single_id] if single_id else [pair_fields["composition"].mind.id, pair_fields["composition"].production.id]
+                skill_ids = ([item.skill_id for item in execution_spec.skills] if execution_spec else
+                             [single_id] if single_id else [pair_fields["composition"].mind.id, pair_fields["composition"].production.id])
                 labels = []
                 for reference in skill_ids:
                     metadata = catalog.reference_metadata(reference)
@@ -320,7 +362,7 @@ class ContentRunService:
                 task_metadata = {"task_id": task_id, "task_skill_summary": " + ".join(labels)}
             snapshot = ContentRunInput(
                 **pair_fields,
-                production_protocol=self.production_protocol,
+                production_protocol="task-v1" if execution_spec else self.production_protocol,
                 creator_id=series.creator_id,
                 series_id=series.id,
                 series_name=series.name,
@@ -339,12 +381,19 @@ class ContentRunService:
             )
             run_id = str(uuid4())
             revision_id = str(uuid4())
-            if selected is not None or task_id is not None:
+            if execution_spec is not None or selected is not None or task_id is not None:
                 # A selected candidate remains editable. Freeze its exact complete
                 # directory before accepting the request, not when the queue runs.
                 run_root = self.output_root / snapshot.creator_id / snapshot.series_id / run_id
                 try:
-                    if snapshot.composition is not None:
+                    if execution_spec is not None:
+                        frozen_spec = freeze_execution_spec(execution_spec, catalog, run_root / "skill-snapshot",
+                            trusted_skill_roots=[self.output_root / "staged-task-inputs", *(
+                                [self.output_root / snapshot.creator_id / snapshot.series_id / fresh_source[0] / "skill-snapshot"]
+                                if fresh_source else [])])
+                        verify_execution_spec(frozen_spec, run_root, ready=True)
+                        snapshot = snapshot.model_copy(update={"execution_spec": frozen_spec})
+                    elif snapshot.composition is not None:
                         run_root.mkdir(parents=True, exist_ok=True)
                         with TemporaryDirectory(prefix=".selected-skills-", dir=run_root) as temporary:
                             staging = Path(temporary) / "snapshot"
@@ -498,7 +547,8 @@ class ContentRunService:
             if cancel_event.is_set():
                 raise ContentRunLeaseError("执行器已停止。")
             producer = self.producer_factory()
-            native = prepared["input"].production_protocol == "native-v1"
+            native = prepared["input"].production_protocol in {"native-v1", "task-v1"}
+            task_spec = prepared["input"].execution_spec
             produced = producer.produce_to(
                 directory=prepared["directory"],
                 pack_id=f"{run_id}-r{prepared['revision_number']:03d}",
@@ -522,7 +572,8 @@ class ContentRunService:
                                            else prepared["thread_id"])),
                 **({"previous_pages": prepared["previous_pages"]}
                    if native or getattr(producer, "fresh_sessions", False) else {}),
-                **({"production_protocol": "native-v1"} if native else {}),
+                **({"production_protocol": prepared["input"].production_protocol} if native else {}),
+                **({"execution_spec": task_spec} if task_spec else {}),
                 revision_instruction=prepared["instruction"],
                 on_thread_started=lambda thread_id: self._attach_thread(
                     run_id, prepared["attempt_id"], thread_id, owner
@@ -604,7 +655,7 @@ class ContentRunService:
             revision_input = ContentRunInput.model_validate(revision.production_input_json)
             current = validate_artifact(revision.artifact_directory,
                                         composition=revision_input.composition,
-                                        production_protocol=revision_input.production_protocol)
+                                        production_protocol=revision_input.production_protocol, execution_spec=revision_input.execution_spec)
             if current.artifact_digest != artifact_digest or current.artifact_digest != revision.artifact_digest:
                 raise ContentRunError("产物已变化，旧 digest 不能批准，请重新验收。")
             previous = content_run.status
@@ -652,12 +703,30 @@ class ContentRunService:
                 raise ContentRunError(f"当前状态不能创建返工版本：{content_run.status.value}")
             previous = content_run.status
             number = content_run.active_revision_number + 1
+            revision_input = ContentRunInput.model_validate(content_run.input_snapshot_json)
+            if revision_input.execution_spec is not None and revision_input.execution_spec.kind == "video":
+                prior = repository.get_revision_number(run_id, content_run.active_revision_number)
+                if prior and prior.artifact_directory and prior.artifact_digest:
+                    prior_input = ContentRunInput.model_validate(prior.production_input_json)
+                    checked = validate_artifact(prior.artifact_directory, production_protocol="task-v1",
+                                                execution_spec=prior_input.execution_spec)
+                    if checked.artifact_digest != prior.artifact_digest or checked.video is None:
+                        raise ContentRunError("前一版视频已变化，不能创建返工上下文。", code="invalid_revision_context")
+                    prior_video = TaskMaterial(id="previous-video", kind="video",
+                        path=str(Path(prior.artifact_directory) / checked.video.path),
+                        sha256=checked.video.sha256, name="前一版本视频.mp4")
+                    spec = revision_input.execution_spec.model_copy(update={"materials": [
+                        item for item in revision_input.execution_spec.materials if item.id != "previous-video"] + [prior_video]})
+                    run_root = self.output_root / revision_input.creator_id / revision_input.series_id / run_id
+                    spec = freeze_execution_spec(spec, ProducerSkillCatalog(skills_root_for(self.database)),
+                        run_root / "revision-inputs" / f"revision-{number:03d}", trusted_skill_roots=[run_root])
+                    revision_input = revision_input.model_copy(update={"execution_spec": spec})
             revision = ContentRevision(
                 id=str(uuid4()),
                 content_run_id=run_id,
                 revision_number=number,
                 instruction=instruction.strip(),
-                production_input_json=content_run.input_snapshot_json,
+                production_input_json=revision_input.model_dump(mode="json", exclude_unset=True),
             )
             repository.add_revision(revision)
             content_run.active_revision_number = number
@@ -806,9 +875,11 @@ class ContentRunService:
                                     if attempt.output_directory]
             previous_pages = None
             clarification_only_previous = False
-            if revision.instruction:
+            image_native = (input_data.production_protocol in {"native-v1", "task-v1"}
+                            and (input_data.execution_spec is None or input_data.execution_spec.kind == "image"))
+            if revision.instruction and (input_data.execution_spec is None or input_data.execution_spec.kind == "image"):
                 prior_attempts = repository.list_attempts(revision.id)
-                if input_data.production_protocol == "native-v1":
+                if image_native:
                     # A same-Revision retry must reuse the first Attempt's exact
                     # prior-content input; do not rebuild it from mutable files.
                     frozen_request = False
@@ -844,7 +915,7 @@ class ContentRunService:
                             clarification_only_previous = True
                         else:
                             previous_input = ContentRunInput.model_validate(previous_revision.production_input_json)
-                            if previous_input.production_protocol != "native-v1":
+                            if previous_input.production_protocol not in {"native-v1", "task-v1"}:
                                 raise ContentRunError("前一版本不是原生协议，不能作为返工上下文。",
                                                       code="invalid_revision_context")
                             previous_directory = Path(previous_revision.artifact_directory)
@@ -855,7 +926,7 @@ class ContentRunService:
                                 checked = validate_artifact(
                                     previous_directory,
                                     composition=previous_input.composition,
-                                    production_protocol="native-v1",
+                                    production_protocol=previous_input.production_protocol, execution_spec=previous_input.execution_spec,
                                 )
                             except (ValueError, OSError) as error:
                                 raise ContentRunError("前一版本原生交付未通过当前文件验收。",
@@ -886,7 +957,7 @@ class ContentRunService:
                                 checked_again = validate_artifact(
                                     previous_directory,
                                     composition=previous_input.composition,
-                                    production_protocol="native-v1",
+                                    production_protocol=previous_input.production_protocol, execution_spec=previous_input.execution_spec,
                                 )
                             except (ValueError, OSError) as error:
                                 raise ContentRunError("构造返工上下文期间前一版本产物失效。",
@@ -945,7 +1016,10 @@ class ContentRunService:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
                 if (input_data.skill_overrides or input_data.task_id) and not (run_root / "skill-snapshot").is_dir():
                     raise ValueError("本次指定版本的冻结文件缺失，不能改用当前 Skill 重新生产。")
-                if input_data.composition is not None:
+                if input_data.execution_spec is not None:
+                    verify_execution_spec(input_data.execution_spec, run_root, ready=True)
+                    updates = {}
+                elif input_data.composition is not None:
                     pair = prepare_run_pair(catalog, input_data.composition, run_root,
                                             previous_directories, first_start=not previous_directories and not input_data.skill_overrides and not input_data.task_id)
                     updates = {"composition": pair}
@@ -1075,7 +1149,8 @@ class ContentRunService:
             attempt.completed_at = datetime.now(timezone.utc)
             attempt.duration_ms = max(0, round(elapsed * 1000))
             revision.artifact_directory = str(produced.directory)
-            revision.manifest_path = str(produced.directory / "social_content_pack.json")
+            manifest = "video_artifact.json" if getattr(produced.pack, "kind", None) == "video" else "social_content_pack.json"
+            revision.manifest_path = str(produced.directory / manifest)
             content_run.producer_thread_id = produced.session.thread_id
             content_run.status = ContentRunStatus.VALIDATING
             repository.add_event(
@@ -1097,7 +1172,7 @@ class ContentRunService:
         revision_input = ContentRunInput.model_validate(revision.production_input_json)
         validation = validate_artifact(revision.artifact_directory,
                                        composition=revision_input.composition,
-                                       production_protocol=revision_input.production_protocol)
+                                       production_protocol=revision_input.production_protocol, execution_spec=revision_input.execution_spec)
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
@@ -1164,6 +1239,7 @@ class ContentRunService:
             "skill_composition_invalid",
             "visual_delivery_failed",
             "native_delivery_failed",
+            "video_delivery_failed",
         }
         self._finish_error(
             run_id,

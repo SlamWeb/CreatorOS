@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from creatoros.storage import ContentRun, ContentRunStatus, Creator, Database, Series, SkillIteration, Topic, TopicRemoval
+from .staged_task_projection import pending_task_views
 
 
-_ACTIVE = {"researching", "running", "producing", "validating", "waiting_production"}
+_ACTIVE = {"researching", "running", "producing", "validating", "waiting_production", "waiting"}
 _FAILED = {"failed", "interrupted"}
 
 
@@ -34,8 +35,8 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
                           statuses: list[Literal["queued", "researching", "running", "producing", "validating",
                                                  "ready", "completed", "awaiting_approval", "approved",
                                                  "interrupted", "failed", "cancelled", "unknown", "stale",
-                                                 "waiting_production", "paused", "exhausted"]]
-                          | None = Query(default=None, min_length=1, max_length=17)):
+                                                 "waiting_production", "paused", "exhausted", "waiting", "needs_attention"]]
+                          | None = Query(default=None, min_length=1, max_length=22)):
         with db.session() as session:
             creator = session.get(Creator, creator_id)
             if creator is None or not creator.is_active:
@@ -64,6 +65,7 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
                 run_query = run_query.where(Series.id == series_id)
             run_rows = list(session.execute(run_query))
             removed = set(session.scalars(select(TopicRemoval.topic_id)))
+            pending_tasks = pending_task_views(session, creator_id=creator_id, series_id=series_id)
             iteration_rows = []
             if iterations is not None:
                 query = (select(SkillIteration).join(Topic, Topic.id == SkillIteration.topic_id)
@@ -80,6 +82,9 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
                 and (run.input_snapshot_json or {}).get("creator_id") == creator_id]
 
         items = []
+        for task in pending_tasks:
+            if task["series_id"] not in stale_series:
+                items.append({**task, **{key: _iso(task[key]) for key in ("created_at", "updated_at", "last_activity_at")}})
         for run, topic, series in runs:
             status = _status(run.status)
             items.append({
@@ -152,6 +157,8 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
         if statuses is not None:
             items = [item for item in items if item["status"] in statuses]
         items.sort(key=lambda item: item["updated_at"] or "", reverse=True)
+        items.sort(key=lambda item: 0 if item["kind"] == "production_task" and item["status"] == "waiting"
+                   else 1 if item["status"] == "needs_attention" else 2)
         item_statuses = [item["status"] for item in items]
         return {
             "items": items,
@@ -165,6 +172,7 @@ def worker_task_routes(db: Database, research, discussions, *, iterations=None) 
                 "awaiting_approval": sum(status == ContentRunStatus.AWAITING_APPROVAL.value
                                           for status in item_statuses),
                 "failed": sum(status in _FAILED for status in item_statuses),
+                **({"needs_attention": item_statuses.count("needs_attention")} if "needs_attention" in item_statuses else {}),
             },
             "as_of": datetime.now(timezone.utc).isoformat(),
         }

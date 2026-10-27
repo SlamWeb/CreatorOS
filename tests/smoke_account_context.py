@@ -90,7 +90,7 @@ def _builder_checks(root: Path):
     assert tree["creator"] == {"id": "creator-a", "display_name": "账号 A", "platform": "xiaohongshu"}
     assert len(tree["series"]) == 108
     assert {row["id"] for row in tree["series"]}.isdisjoint({"inactive", "other-account", "unassigned"})
-    assert all(set(row) == {"id", "name", "revision", "skill_bindings"} for row in tree["series"])
+    assert all(set(row) == {"id", "name", "revision", "skill_bindings", "skill_pool"} for row in tree["series"])
     assert all(row["revision"] >= 1 for row in tree["series"])
     assert next(row for row in tree["series"] if row["id"] == "pair")["skill_bindings"] == {
         "mind": mind["id"], "production": production["id"]}

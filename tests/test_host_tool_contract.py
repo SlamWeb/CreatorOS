@@ -36,10 +36,16 @@ class HostContractTests(unittest.TestCase):
         cli = {t["function"]["name"]: t["function"] for t in model_tool_schemas(tools, RuntimeContext(Path.cwd()))}
         self.assertIn("creator_id", cli["list_creator_series"]["parameters"]["properties"])
         for view in (by_name, cli):
-            self.assertIn("无需先融合", view["compose_series"]["description"])
-            fields = view["compose_series"]["parameters"]["properties"]
+            compose = view["compose_series"]
+            self.assertIn("名称", compose["description"])
+            self.assertIn("阶段默认", compose["description"])
+            self.assertIn("Mind＋Visualize", compose["description"])
+            self.assertEqual(compose["parameters"]["required"], ["name"])
+            fields = compose["parameters"]["properties"]
             self.assertIn("原始", fields["mind_skill_id"]["description"])
+            self.assertIn("无需先融合", fields["mind_skill_id"]["description"])
             self.assertIn("原始", fields["production_skill_id"]["description"])
+            self.assertIn("同一生产会话", fields["production_skill_id"]["description"])
 
     def test_binding_rejects_explicit_override_not_silent_rewrite(self):
         context = RuntimeContext(Path.cwd(), creator_id="a")

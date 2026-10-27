@@ -76,7 +76,7 @@ class StudioWriteService:
             name=request.name,
             description=request.description,
             audience=request.audience,
-            skill_name="knowledge-to-carousel",
+            skill_name=None,
             selection_policy=OperationPolicy.APPROVAL,
             publish_policy=OperationPolicy.APPROVAL,
             replenish_threshold=5,

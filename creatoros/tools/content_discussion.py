@@ -39,8 +39,8 @@ class CreatorTasksArgs(BaseModel):
     statuses: list[Literal["queued", "researching", "running", "producing", "validating",
                           "ready", "completed", "awaiting_approval", "approved",
                           "interrupted", "failed", "cancelled", "unknown", "stale",
-                          "waiting_production", "paused", "exhausted"]] | None = Field(
-        default=None, min_length=1, max_length=17,
+                          "waiting_production", "paused", "exhausted", "waiting", "needs_attention"]] | None = Field(
+        default=None, min_length=1, max_length=22,
         description="只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。")
 
 

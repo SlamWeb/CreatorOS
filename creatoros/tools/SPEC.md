@@ -285,3 +285,13 @@
 
 - 不新增模型可见工具：research_series_topics支持当前会话attachment_ids与reference_presentation；start_content_run新增参考作品直接制作分支，与已有Topic/fresh参数互斥。queue_topics保留候选reference_id，生产不只收到标题。
 - 图片由宿主绑定会话/栏目验证，不接受本地路径；宿主保存用户原话，模型整理的instructions不能替代原话。同会话同参考意图跨turn复用请求键；未知结果携带request_id/topic_id/回执入口，终态重放不伪称重新入队。验证和局限见 `docs/topic-references/SPEC.md`。
+
+## 多阶段制作工具（2026-10-27）
+
+- 新增两个对象级工具：`manage_skill_library` 的 get/add/remove/set_pool 管理账号引用和栏目阶段默认；`manage_material` 的 list/get/import_link 查询、导入 BGM 分享链接。账号 ID 由宿主绑定，模型无文件路径、音频字节或请求键入口。
+- `start_content_run.tasks` 支持 image/video、精确 Skill ID 与 primary/supporting、集合/导出/BGM 对象 ID 和 depends_on。Agent 的 digest 可省略：宿主同次调用按唯一 Skill ID 读取完整目录摘要；显式摘要不符拒绝，HTTP/冻结层仍校验完整 digest。既有图片入口保持兼容，typed tasks 直接走任务路由。
+- 请求键由可信会话/用户轮次、Topic 和补齐摘要后的规范任务 payload 派生；同轮图片与视频分别提交，同一有效规范（包括省略/显式同摘要）重放取回原任务。模型不能指定请求键。等待无 Run 的回执不拼造 Run URL，依赖由后台推进，不让 LLM 轮询。
+- 紧凑投影保留准确版本/权限、阶段等待状态、素材 ID，以及后续视频所需的集合/export_id/checksum；去掉本机路径和重复正文，用户回复仍不展示内部编号。
+- `tests.test_staged_production_agent`、`tests.test_production_task_tools` 与精确导出回执定向回归共 17 项通过；最终规范化请求键和省略摘要的同轮图片→依赖视频→重放路径另定向 3 项通过。真实隔离 loopback HTTP/SQLite/Skill 文件、真实音频探测解码；图像生产使用受控本地夹具，不代表真实视频或模型质量验收。
+- get_creator_tasks 包含尚无 Run 的 waiting/needs_attention/cancelled 制作，具名选题/素材集入口由宿主严格重建；已存在 Run 时不重复计算 task。紧凑投影保留任务类型/等待依赖和恢复入口，排除 definition。相关新旧 HTTP/导航 20 项通过（缺 codec 时三项明确 skip），worker/Observation 只读 smoke 通过。
+- 既有 reliability allowlist 新增 skill_libraries/staged_production 组、等待可见性和 Observation smoke。配置真实 ffmpeg/ffprobe 后相关 43 项通过；未配置时仅 codec case 报 skip，库/权限/结构/导航仍执行。通过 PATH 或 CREATOROS_FFMPEG、CREATOROS_FFPROBE 指向现有可执行文件，不为 CI 额外下载媒体运行时。

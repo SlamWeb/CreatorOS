@@ -3,7 +3,7 @@ from copy import deepcopy
 import json
 
 
-ACCOUNT_BOUND_TOOLS = frozenset({"list_creator_series", "get_creator_tasks", "compose_series", "query_feedback", "manage_media_collection"})
+ACCOUNT_BOUND_TOOLS = frozenset({"list_creator_series", "get_creator_tasks", "compose_series", "query_feedback", "manage_media_collection", "manage_skill_library", "manage_material"})
 
 
 class AccountArgumentRejected(ValueError):
@@ -26,10 +26,12 @@ def model_tool_schemas(schemas, context):
             parameters["required"] = [key for key in parameters.get("required", []) if key != "creator_id"]
             function["description"] = {
                 "manage_media_collection": function["description"],
+                "manage_skill_library": function["description"],
+                "manage_material": function["description"],
                 "list_creator_series": "查询当前绑定账号的栏目；账号由宿主确定。",
                 "query_feedback": "只读当前账号最近 7 天已发布笔记的本地反馈，按指标比较、分页，返回栏目与采样时间；不刷新平台。账号由宿主绑定。",
-                "get_creator_tasks": "查询当前绑定账号的调研、生产与讨论任务；可按栏目筛选，账号由宿主确定。",
-                "compose_series": "用户明确要求时为当前账号创建栏目：使用一份完整制作 Skill，或直接引用原始 Mind＋Visualize，无需先融合、不改写原 Skill。账号由宿主绑定。",
+                "get_creator_tasks": "查询当前账号任务，包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，可按栏目和状态筛选，不恢复或重新提交。",
+                "compose_series": "用户明确要求时为当前账号创建栏目，可仅填名称，之后配置常用池/阶段默认；也兼容旧完整Skill或Mind＋Visualize组合。账号由宿主绑定。",
             }[name]
     return result
 

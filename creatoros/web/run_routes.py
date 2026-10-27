@@ -5,7 +5,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 
 from fastapi import APIRouter, Header, Path, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse, FileResponse
 from PIL import Image
 
 from creatoros.runs import ContentRunError
@@ -21,6 +21,14 @@ from .schemas import (
 def review_routes(runs, queries, artifacts, publications) -> APIRouter:
     router = APIRouter(prefix="/api/runs")
     events = StudioEvents(runs.database)
+
+    @router.get("/{run_id}/revisions/{revision_id}/video")
+    def video(run_id: str, revision_id: str,
+              digest: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")],
+              checksum: Annotated[str, Query(pattern=r"^[a-f0-9]{64}$")]):
+        path = artifacts.video(run_id, revision_id, digest=digest, checksum=checksum)
+        return FileResponse(path, media_type="video/mp4", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     @router.get("/{run_id}/revisions/{revision_id}/cards/{order}")
     def image(run_id: str, revision_id: str, order: Annotated[int, Path(ge=1)],
@@ -42,11 +50,15 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
         try:
             root, recorded, data, _ = artifacts.locate(run_id, revision_id)
             if recorded != digest:
-                raise ValueError("图片版本已变化。")
+                raise ValueError("产物版本已变化。")
             checked = validate_artifact(root, composition=data.composition,
-                                        production_protocol=data.production_protocol)
+                                        production_protocol=data.production_protocol, execution_spec=data.execution_spec)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
+            if checked.video is not None:
+                path = artifacts.video(run_id, revision_id, digest=digest, checksum=checked.video.sha256)
+                return FileResponse(path, media_type="video/mp4", filename="creatoros-video.mp4", headers={
+                    "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
             # Read the verified bytes before constructing any response. One bad
             # page fails the whole export rather than silently shipping a partial ZIP.
             images = []
@@ -71,7 +83,7 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
         except ContentRunError:
             raise
         except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
-            raise ContentRunError("图片缺失或已变化，请刷新详情后重试下载。", code="artifact_changed") from error
+            raise ContentRunError("产物缺失或已变化，请刷新详情后重试下载。", code="artifact_changed") from error
 
     @router.post("/{run_id}/approve", response_model=RunDetail)
     def approve(run_id: str, payload: RunApproveRequest):
@@ -112,11 +124,15 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
             root, recorded, data, _ = artifacts.locate(run_id, revision_id)
             if recorded != digest:
                 raise ValueError("批准摘要与产物版本不一致。")
-            pack = artifacts.pack(root, data)
             checked = validate_artifact(root, composition=data.composition,
-                                        production_protocol=data.production_protocol)
+                                        production_protocol=data.production_protocol, execution_spec=data.execution_spec)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
+            if checked.video is not None:
+                path = artifacts.video(run_id, revision_id, digest=digest, checksum=checked.video.sha256)
+                return FileResponse(path, media_type="video/mp4", filename="creatoros-video.mp4", headers={
+                    "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+            pack = artifacts.pack(root, data)
             buffer = BytesIO()
             with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
                 for card in pack.cards:
@@ -131,7 +147,7 @@ def review_routes(runs, queries, artifacts, publications) -> APIRouter:
                 "Cache-Control": "no-store",
             })
         except (OSError, ValueError) as error:
-            raise ContentRunError("批准产物缺失或已变化，请先核对图片。", code="artifact_changed") from error
+            raise ContentRunError("批准产物缺失或已变化，请先核对产物。", code="artifact_changed") from error
 
     @router.get("/{run_id}/events", response_model=EventBatch)
     def list_events(run_id: str, after_id: Annotated[int, Query(ge=0)] = 0,

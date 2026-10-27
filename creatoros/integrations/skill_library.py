@@ -70,6 +70,12 @@ class SkillLibraryService:
         return list(dict.fromkeys([*(row.skill_ids_json if row else []), *self._legacy(session, creator_id)]))
 
     def _contains(self, session, creator_id, skill_id):
+        if skill_id != self.catalog.BUILTIN_ID:
+            edition = self.catalog._record(skill_id)
+            if edition.get("version_status") == "candidate":
+                owner = self._source_creator(skill_id)
+                if owner and owner != creator_id:
+                    return False
         ids = self._ids(session, creator_id)
         if skill_id in ids:
             return True
@@ -140,6 +146,8 @@ class SkillLibraryService:
     def _items(self, ids, creator_id):
         result, seen = [], set()
         for skill_id in ids:
+            if not self.can_use(creator_id, skill_id):
+                continue
             try:
                 item = self.describe(skill_id)
             except (ValueError, OSError, KeyError):
@@ -171,6 +179,8 @@ class SkillLibraryService:
             except (ValueError, OSError, KeyError):
                 continue
             for item in versions:
+                if not self.can_use(creator_id, item["id"]):
+                    continue
                 items[item["id"]] = {**item, "can_use": True,
                                      "can_edit": self.can_edit(creator_id, item["id"])}
         return list(items.values())

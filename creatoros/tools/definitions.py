@@ -58,6 +58,7 @@ from .content_discussion import (
 from .skill_iterations import ManageSkillIterationArgs, manage_skill_iteration
 from .topics import ManageTopicsArgs, manage_topics
 from .media_collections import ManageMediaCollectionArgs, manage_media_collection
+from .staged_production import ManageSkillLibraryArgs, ManageMaterialArgs, manage_skill_library, manage_material
 
 
 def _run_route_and_answer(*args, **kwargs):
@@ -193,7 +194,7 @@ tool_registry = {
              execute=queue_topics, args_model=QueueTopicsArgs, expose_to_model=False),
         Tool(name="manage_topics", description="管理选题，不生产：list按栏目筛选待选/已入队并翻页；get读取一条已入队选题和edit_digest；create仅用户明确新增时入队；update用原topic_id、changes和刚读取的edit_digest直接修改标题或完整切入点，不新建替代；remove按用户要求移除指定条目，已有产物保留历史，运行中拒绝。待选remove带真实candidate来源；待选入队用create保留reference_id。management_actions是管理权限，available_actions是生产操作。冲突先重读核对，未知结果不另建条目；不能把修改成功说成图片已更新。",
              execute=manage_topics, args_model=ManageTopicsArgs),
-        Tool(name="compose_series", description="用户明确要求创建栏目时使用：一份完整制作 Skill，或直接引用原始 Mind＋Visualize，两者无需先融合、不改写原 Skill。creator_id 可选，未分配栏目生产前必须分配。",
+        Tool(name="compose_series", description="用户明确要求创建栏目时使用，可仅提供名称，之后配置账号Skill库、栏目池和阶段默认。兼容完整Skill或Mind＋Visualize旧绑定，无需融合。creator_id可选，未分配栏目生产前须分配。",
              execute=compose_series, args_model=ComposeSeriesArgs),
         Tool(name="update_series_composition", description="编辑当前栏目：改名仅传name、series_id、expected_revision，不传Skill字段；保留栏目ID、选题与产物，不新建栏目。更换原始Mind＋Visualize时传完整两个Skill ID，不同时改名，无需融合。必须用当前revision，过期重读不能强制覆盖。旧单Skill不可转换组合，但可以改名。",
              execute=update_series_composition, args_model=UpdateCompositionArgs),
@@ -203,7 +204,11 @@ tool_registry = {
              execute=install_producer_skill, args_model=InstallSkillArgs),
         Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记，未绑定栏目，也不保证组合可生产。用户明确要求绑定时，可在栏目页面操作或使用 compose_series/update_series_composition，角色及生产适配器仍需校验。",
              execute=get_skill_install, args_model=SkillJobArgs),
-        Tool(name="list_producer_skills", description="列出本地Skill发布版元数据；要找修改候选/历史准确版本传include_versions=true，可用family_skill_id限定家族。账号请求仅看到当前账号绑定家族的全部版本。默认目录没有候选不代表候选不存在。正文按需读取，不生产。",
+        Tool(name="manage_skill_library", description="管理账号可用Skill库和栏目常用池：get读取账号库，带series_id读取栏目池/图片视频默认；add引用已发布Skill或可访问家族候选；remove以所见expected_version移出引用；set_pool以expected_version保存skill_ids与defaults.image/video（skill_id、primary/supporting）。账号库授予使用权限，栏目池只是常用子集；引用共享Skill不授予编辑权限，不复制正文。",
+             execute=manage_skill_library, args_model=ManageSkillLibraryArgs),
+        Tool(name="manage_material", description="查询账号音频/视频素材：list/get取得真实material_id；用户明确提供BGM分享链接时import_link。只有成功取得并校验音轨才可用于视频；解析失败请用户在页面上传文件，不编造音乐已就绪。只传对象ID或用户链接，不接受路径/base64，不启动生产。",
+             execute=manage_material, args_model=ManageMaterialArgs),
+        Tool(name="list_producer_skills", description="列出已安装发布版；账号库和栏目池用manage_skill_library。include_versions=true查当前账号可访问家族全部版本/候选，可用family_skill_id限定。正文按需读取，不生产。",
              execute=list_producer_skills, args_model=ListProducerSkillsArgs),
         Tool(name="get_producer_skill", description="读取指定Skill。编辑正文和参考图时一次传path=SKILL.md、list_files=true，取得全文、文件树和同一版本的真实digest；只读已知文件可直接path，无需先列目录。默认分页正文无写入digest。include_versions=true仅在需要定位历史版/候选时查家族，不与文件读取混用；已有准确ID不必再列家族。看图片用read_image。",
              execute=get_producer_skill, args_model=ProducerSkillArgs),
@@ -215,14 +220,14 @@ tool_registry = {
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs, expose_to_model=False),
-        Tool(name="start_content_run", description="用户明确要求生产时用topic_id单条或topic_ids批量提交。一个选题需多组独立Skill/几十张素材时用topic_id+tasks，每项title/完整brief/可选skill_overrides，后台并行后汇总一个素材集；不复制父Topic，不能混用fresh、批量选题或顶层版本覆盖。后续manage_topics(get)查该选题任务，失败沿原Run恢复/重做，不再创建任务。单条可用skill_overrides指定准确Skill版本（含候选）及expected_digests；先用get_producer_skill(include_versions=true)或文件列表取真实ID/digest，不必切换栏目，只冻结本次选择。批量和参考图入口暂不混用版本覆盖。用户给参考图且已明确制作时直接用series_id/title/完整instructions/attachment_ids，不需先调研；默认只参考内容，可reference_presentation=true。按最新或指定版清空上下文重做用mode=fresh和来源Run/所见version。仅讨论或改Skill不是生产授权。受理不等于完成，不自动恢复旧失败、不批准或发布；未知先查同一任务，不盲目重提。",
+        Tool(name="start_content_run", description="仅用户明确生产时提交。推荐topic_id+tasks：各项kind=image|video、title、完整brief、skills[{skill_id,role:primary|supporting}]；精确选择版本ID，digest通常省略，宿主读取校验并冻结。视频inputs使用collection_id/export_id/bgm_material_id，depends_on仅本选题明确选中的生图任务ID。视频新会话；依赖未齐先等待，由后台推进，不轮询或重复提交。状态用manage_topics(get)按需查。保留旧单条/批量/参考图/fresh参数，不与tasks混用。受理不等于完成，不批准/发布，不自动重跑历史失败；未知先查原任务。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),
         Tool(name="discuss_content_run", description="用户希望讨论已验收作品时，针对指定 revision 和 artifact_digest 创建只读讨论任务。讨论不修改图片、内容、Skill、审批状态或生产 Run；不自动返工。", execute=discuss_content_run, args_model=DiscussContentRunArgs),
         Tool(name="get_content_discussion", description="读取同一 Run 的讨论历史与任务状态，不调用模型或重复提交。", execute=get_content_discussion, args_model=GetContentDiscussionArgs),
         Tool(name="request_content_revision", description="仅在用户明确要求返工时调用；按当前 Run version 创建待执行 revision，不会执行生产、批准或发布。先查最新 Run 取得 expected_version。", execute=request_content_revision, args_model=RequestContentRevisionArgs),
-        Tool(name="get_creator_tasks", description="读取账号现有调研、生产与讨论任务摘要；只投影已有记录，不创建或改变任务状态。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
+        Tool(name="get_creator_tasks", description="读取账号调研、生产、讨论及等待材料的制作任务；waiting尚无Run，needs_attention需检查，cancelled已取消。返回具名选题/素材集入口，可按栏目和状态筛选；不创建、恢复或改变任务。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
         Tool(name="read_image", description="实际查看当前会话附件、当前账号 Skill 的参考图或指定产物版本的图片。按返回的附件看图，不猜测图片内容；不接受任意本地路径。", execute=read_image, args_model=ReadImageArgs),
         Tool(name="extract_skill_from_images", description="按用户要求从当前聊天图片提炼Skill草稿。宿主短时等待并展示进度；ready展示草稿，wait_background给任务入口并结束本轮，不连续查询。不会自动入库、组栏目或生产。", execute=extract_skill_from_images, args_model=ExtractSkillImagesArgs),
         Tool(name="create_skill_draft", description="用户已经给出现成提示词或完整Skill，要求保存为可复用Skill时使用。原样保存文字及指定会话参考图，不调用Codex重新提炼；只生成待检查草稿，不入库、不创建栏目、不生产。需要从作品总结方法而没有现成提示词时用extract_skill_from_images。", execute=create_skill_draft, args_model=CreateSkillDraftArgs),

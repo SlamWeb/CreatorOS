@@ -27,4 +27,12 @@ def production_task_routes(service):
             origin_session_id=request.headers.get("x-creatoros-agent-session"))
         return JSONResponse(jsonable_encoder(result), status_code=202, headers={"Cache-Control": "no-store"})
 
+    @router.post("/{task_id}/resume")
+    def resume(topic_id: str, task_id: str):
+        return service.control(topic_id, task_id, "resume")
+
+    @router.post("/{task_id}/cancel")
+    def cancel(topic_id: str, task_id: str):
+        return service.control(topic_id, task_id, "cancel")
+
     return router

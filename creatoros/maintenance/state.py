@@ -188,6 +188,12 @@ def inspect_idle(layout):
                             busy.append(dict(source="skill_iterations/" + identifier, reason=issue))
                     except (OSError, ValueError, TypeError, MaintenanceError):
                         busy.append(dict(source="skill_iterations/" + identifier, reason="试产证据不可读，拒绝猜测"))
+            if "production_tasks" in tables:
+                columns = {row[1] for row in db.execute("PRAGMA table_info(production_tasks)")}
+                if "dispatch_state" in columns:
+                    count = db.execute("SELECT count(*) FROM production_tasks WHERE dispatch_state='waiting'").fetchone()[0]
+                    if count:
+                        busy.append(dict(source="production_tasks", reason="存在等待前置图片的制作任务", count=count))
         for key, patterns in PATTERNS.items():
             root = safe_path(layout.roots()[key])
             for pattern in patterns:
@@ -228,7 +234,11 @@ def _tables(layout, original=None):
 
 def file_hashes(layout):
     files = {}
-    for label, root in layout.roots().items():
+    # Account uploads and immutable ZIP receipts live beside SQLite. Include
+    # their optional trees without changing the running host's layout identity.
+    roots = {**layout.roots(), "materials": layout.database.with_suffix(".materials"),
+             "media_exports": layout.database.with_suffix(".media-exports")}
+    for label, root in roots.items():
         safe_path(root)
         for path in sorted(root.rglob("*")):
             safe_path(path)

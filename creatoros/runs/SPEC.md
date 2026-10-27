@@ -1,5 +1,17 @@
 # ContentRun SPEC
 
+## 统一图文/视频执行规范（2026-10-27，隔离验证）
+
+- 新任务使用 `production_protocol=task-v1` 与 `TaskExecutionSpec`：kind=image/video，准确主/辅助 Skill ID+目录 digest，以及宿主已鉴权材料 ID+摘要。旧 skill_name/composition 协议保持解析；统一规范不强求旧二元绑定。
+- 提交时冻结每份 Skill 全目录；等待依赖时也先冻结 Skill，之后只添加已取得的 ZIP/BGM。Skill 正文保持各自原文，不构造融合 Skill。执行前逐份摘要核对，素材在 Run 与 Attempt 中再次固定，HTTP 只投影 ID/摘要/名称。
+- 统一复用 Run/Revision/Attempt、租约、线程登记、现有队列与 `_mark_*` 状态转换。视频首次新 thread，同 Revision 技术恢复沿原 thread/原 work/固定素材；已有完整 SDK 回执的宿主 IO 故障可离线收尾。普通视频返工把已验收前版 MP4 固定为单独 video 材料，不使用 image previous_pages；从头重做创建新 Run/thread。
+- 视频交付为独立 `video_artifact.json`，不伪装 CarouselCard；验收核对固定输入/Skill/材料、SDK 完成回执、MP4 摘要、真实时长/尺寸/音轨与完整解码，返回 images=[]、card_count=0 和 video 元数据。模型内容质量、听感与完整实际剪辑成功仍需真实生产/人工验收，不能由受控 SDK 证明。
+- 统一执行七项隔离本地测试覆盖主/辅助原文 native 生图、真实短 MP4、摘要篡改、完整回执离线恢复、同 thread/work 恢复、Run/返工/重做、SDK collector 生命周期，以及 HTTP Range 206 和 MP4 下载。旧 fresh/native 连续性/恢复 36 项、native_run_wiring 与 studio_artifacts smoke 通过。正式库/服务/历史产物无操作；真实 Codex 验证由主流程单列。
+- 严格复查修复并补回归：显式旧 ZIP 不得遗漏等待的图片版本；waiting 任务移交账号后读取/控制均拒绝且状态不变；内置 Skill 可作阶段默认；单卡片普通 start 使用显式池默认。staged 八项通过，既有素材集立即剪辑路径亦通过。并发同内容上传实测复现唯一键冲突后，在素材最终短写事务使用 BEGIN IMMEDIATE，三项材料上传/来源门禁/跨实例并发回归通过。
+- 视频适配异常归类为 `video_delivery_failed`，复用原 retryable/恢复入口；Run 层明确覆盖 SDK 已完成后宿主 IO 失败、原 Revision 新 Attempt 离线收尾且禁止再次调用 SDK。最终视频七项重跑 7/7（29.989 秒）；材料三项重跑 3/3（4.078 秒）。分享链接仅支持抖音/哔哩哔哩/小红书/YouTube 域及子域，其他来源要求上传；入口 DNS 私网/解析失败拒绝不等同于对第三方下载器全部后续网络行为进行隔离。
+- 真实隔离图产出后曾因开发中向 native-v1 evidence set 追加 execution_spec/materials，导致重启后的摘要算法漂移、两条正确图片投影不可用。只读差分证明两条 stored digest 均匹配追加前算法；最小修正移除这次未版本化追加，保持 native-v1 摘要契约。原两条图不改文件、不改行、不重生图，重新核验均 stored=current 且 artifact_available=true/cards=1；typed image 回归 1/1（5.175 秒）。未来扩充参与摘要的证据必须显式版本化，不能就地改变已有协议。
+- 最终 fresh 审查修正：普通单图 Run 的“从头重做”读取当前图片阶段默认，清空显式默认后拒绝隐式回退；普通返工继续原冻结规范。独立 ProductionTask 的 fresh 保留任务自己的明确选择，视频 fresh 不依赖栏目图片默认，也不接受会把视频悄悄变成图片的旧 skill_overrides；更换剪辑 Skill 需新建视频任务。三项新隔离回归通过（24.299 秒），含真实 loopback 账号作用域 HTTP；没有模型调用、正式数据或旧文件操作。
+
 ## 选题内独立制作任务（2026-10-27）
 
 - [制作任务契约](../../docs/production-tasks/SPEC.md)：新增 ProductionTask 与 nullable ContentRun.task_id；旧 Run 保持 null，互斥/最新运行/父状态写入按新旧作用域区分。复用原队列与30工位限制，不创建第二生产器。

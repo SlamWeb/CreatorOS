@@ -479,3 +479,13 @@
 
 - 新TopicReferenceStore按数据库/栏目隔离图片与不可变输入组，原字节不进共享Skill；支持PNG/JPEG/WebP，GIF明确拒绝避免静默转码。调研和native生产实际传多张LocalImageInput，默认内容借鉴，可选呈现；完整原要求和宿主保存的用户原话一起交付。
 - 生产references纳入摘要/恢复/验收，索引修复不重复传图或重画；旧任务兼容。真实追加调研暴露固定.tmp短暂Windows占用失败，调研状态已复用既有atomic_write_text独占临时文件+有界重试，不自动重跑模型。完整测试与保留失败见 `docs/topic-references/SPEC.md`。
+
+## 账号 Skill 库与任务输出能力（2026-10-27）
+
+- `SkillLibraryService` 保存家族引用，旧栏目绑定作为隐式账号可用库和生图阶段默认。栏目池仅能引用账号可用家族；仍被旧绑定/栏目池引用的库项不可移除。released 共享可引用；candidate 只允许已有可访问家族或本账号来源。单纯共享引用只授予 can_use，不授予 can_edit；本账号来源由受管 owner 回调确定，旧绑定家族保留兼容编辑边界。
+- Skill metadata 新增 `creatoros-outputs: [image, video]`，`describe` 暴露 outputs 与 capabilities.outputs；旧轮播契约兼容 image。`resolve_for_task` 检查精确摘要、主 Skill 的阶段输出能力，辅助 Mind 无独立生产要求；旧 resolve/resolve_selected_version 图片门禁保持。
+- 六项 `tests.test_skill_library` 验证幂等、CAS、跨账号候选拒绝、共享引用权限分离和完整目录冻结；连同 `tests.test_skill_version_scope`、`tests.test_skill_versions` 共 32 项通过。验证仅真实隔离文件/SQLite 与进程内 HTTP，不调用模型或正式生产服务；不代表视频生成质量或完整页面验收。
+- 未知来源的旧家族若同时被其他账号旧绑定，保守取消 legacy 编辑回退；实际可识别的 source_owner 仍按原账号判断。新增共享引用后再绑旧栏目不能升级为编辑权限。一个坏旧绑定不应阻断账号其他有效引用的使用；读取缺失项只返回 unavailable，不修复正文。
+- 明确归属其他账号的 candidate 不随其 released 共享引用开放：can_use/添加/available 均拒绝或过滤它；来源账号仍可使用自己的候选，released 共享保持。六项库回归最终通过，新增断言覆盖先引用外账号发布版、再拒绝其私有候选。
+
+- 视频播放验收按文件 SHA 缓存已完成的解码结果（有界64项），每次仍核对现有字节与交付摘要，不为每个 Range 请求重复解码整段视频；真实本地 MP4 解码计数与缓存后篡改拒绝回归通过。

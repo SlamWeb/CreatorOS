@@ -2,6 +2,9 @@
 
 Run: python -m tests.run_reliability
 Each test has its own process and timeout. Failures do not skip the remainder.
+Optional audio/video checks use existing ffmpeg/ffprobe on PATH or executable
+paths in CREATOROS_FFMPEG / CREATOROS_FFPROBE; without them codec cases report
+skipped while library, schema, scope and read-only visibility cases still run.
 """
 import json
 import subprocess
@@ -31,6 +34,9 @@ CASES = [
     ("skill_version_lifecycle", ["-m", "unittest", "tests.test_skill_version_service", "-v"]),
     ("skill_version_scope", ["-m", "unittest", "tests.test_skill_version_scope", "-v"]),
     ("selected_skill_run", ["-m", "unittest", "tests.test_selected_skill_run", "-v"]),
+    ("skill_libraries", ["-m", "unittest", "tests.test_skill_library", "tests.test_staged_production_agent", "-v"]),
+    ("staged_production", ["-m", "unittest", "tests.test_staged_tasks", "tests.test_task_video_execution",
+                            "tests.test_managed_materials", "tests.test_production_task_tools", "-v"]),
     ("skill_iteration_agent", ["-m", "unittest", "tests.test_skill_iteration_agent", "-v"]),
     ("skill_iteration_service", ["-m", "unittest", "tests.test_skill_iteration_service", "-v"]),
     ("skill_iteration_quality_policy", ["-m", "unittest", "tests.test_skill_iteration_quality_policy", "-v"]),
@@ -42,7 +48,7 @@ CASES = [
     ("skill_assets", ["-m", "unittest", "tests.test_skill_assets", "tests.test_skill_asset_tools", "-v"]),
     ("skill_context", ["-m", "unittest", "tests.test_model_projection", "tests.test_skill_context_projection",
                        "tests.test_skill_edit_batch", "tests.test_saved_skill_routing", "-v"]),
-    ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "-v"]),
+    ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "tests.test_staged_task_visibility", "-v"]),
     ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
@@ -52,7 +58,7 @@ CASES = [
         "smoke_skill_workbench", "smoke_topic_research_sdk", "smoke_content_discussion",
         "smoke_native_production", "smoke_worker_delivery", "smoke_studio_production_progress",
         "smoke_studio_executor", "smoke_topic_remove", "smoke_topic_remove_migration",
-        "smoke_account_context", "smoke_worker_task_projection",
+        "smoke_account_context", "smoke_worker_task_projection", "smoke_observation",
     )],
 ]
 
@@ -71,7 +77,7 @@ def main():
             try:
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 300 if name in {"safe_maintenance", "skill_calibration"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 status = "passed" if process.returncode == 0 else "failed"

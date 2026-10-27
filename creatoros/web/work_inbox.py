@@ -10,10 +10,11 @@ from fastapi import APIRouter, Query, Response
 from sqlalchemy import func, select
 
 from creatoros.storage import ContentAttempt, ContentRevision, ContentRun, Creator, Database, Series, SkillCalibration, Topic, TopicRemoval
+from .staged_task_projection import pending_task_views
 
 
-_ACTIVE = {"queued", "researching", "running", "producing", "validating"}
-_ATTENTION = {"ready", "awaiting_approval", "failed", "interrupted", "stale"}
+_ACTIVE = {"queued", "researching", "running", "producing", "validating", "waiting"}
+_ATTENTION = {"ready", "awaiting_approval", "failed", "interrupted", "stale", "needs_attention"}
 
 
 def _iso(value):
@@ -81,6 +82,7 @@ def work_inbox_routes(db: Database, research, extractions) -> APIRouter:
                 .where(Topic.id.not_in(select(TopicRemoval.topic_id)))
                 .order_by(ContentRun.updated_at.desc()).limit(500)))
             calibrations = {row.job_id: row for row in session.scalars(select(SkillCalibration))}
+            pending_tasks = pending_task_views(session)
             attempt_numbers = dict(session.execute(select(ContentAttempt.revision_id, func.max(ContentAttempt.attempt_number))
                 .where(ContentAttempt.revision_id.in_([revision.id for _, _, revision in run_rows if revision]))
                 .group_by(ContentAttempt.revision_id)).all())
@@ -99,6 +101,14 @@ def work_inbox_routes(db: Database, research, extractions) -> APIRouter:
             items.append(_item("production", run.id, topic.title, _status(run.status), run.created_at,
                                run.updated_at, f"/runs/{quote(run.id, safe='')}", series_id=series.id,
                                version=f"r{run.active_revision_number}:a{attempt_numbers.get(revision.id, 0) if revision else 0}:{revision.artifact_digest if revision else ''}"))
+
+        for task in pending_tasks:
+            item = _item("production_task", task["id"], task["title"], task["status"], task["created_at"],
+                task["updated_at"], task["topic_url"], series_id=task["series_id"])
+            item.update({key: task[key] for key in ("task_kind", "topic_id", "topic_title", "topic_url",
+                "collection_id", "collection_name", "collection_url", "last_error")})
+            item["label"] = "视频制作" if task["task_kind"] == "video" else "图片制作"
+            items.append(item)
 
         batches, skipped_research = _metadata(Path(research.root), "batches/*.json")
         for batch in batches:

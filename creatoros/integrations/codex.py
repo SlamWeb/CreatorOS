@@ -273,9 +273,17 @@ class CodexProducer:
         cancel_event: threading.Event | None = None,
         on_process_started: Callable[[dict], None] | None = None,
         on_process_stopped: Callable[[], None] | None = None,
-        production_protocol: Literal["legacy", "native-v1"] = "legacy",
+        production_protocol: Literal["legacy", "native-v1", "task-v1"] = "legacy",
+        execution_spec=None,
     ) -> ProducedPack:
-        if production_protocol == "native-v1":
+        if production_protocol == "task-v1" and execution_spec is not None and execution_spec.kind == "video":
+            from .video_production import produce_video
+            return produce_video(self, directory=directory, pack_id=pack_id,
+                creator_id=creator_id, series_id=series_id, topic_id=topic_id, topic_title=topic_title,
+                topic_brief=topic_brief, series_description=series_description, audience=audience,
+                execution_spec=execution_spec, skills_root=skills_root, revision_instruction=revision_instruction,
+                thread_id=thread_id, on_thread_started=on_thread_started, cancel_event=cancel_event)
+        if production_protocol in {"native-v1", "task-v1"}:
             from .native_production import produce_native
             return produce_native(self, directory=directory, pack_id=pack_id,
                 creator_id=creator_id, series_id=series_id, topic_id=topic_id, topic_title=topic_title,
@@ -283,6 +291,7 @@ class CodexProducer:
                 skill_name=skill_name, skill_directory=skill_directory, skill_digest=skill_digest,
                 composition=composition, skills_root=skills_root, revision_instruction=revision_instruction, thread_id=thread_id,
                 previous_pages=previous_pages, on_thread_started=on_thread_started, cancel_event=cancel_event,
+                **({"execution_spec": execution_spec} if execution_spec else {}),
                 **({"task_references": task_references} if task_references else {}))
         if task_references:
             raise CodexProducerError("任务参考图片需要原生生产协议，不能退化为只传标题。", error_type="reference_protocol_required")

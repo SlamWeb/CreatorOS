@@ -1,5 +1,10 @@
 # Safe local maintenance
 
+## 托管素材与固定导出保护 · 2026-10-27
+
+- full 文件快照额外纳入数据库旁可选的 `.materials` 与 `.media-exports` 原文件、ZIP 和收据；缺失目录不创建。普通 startup 重启仍不扫描历史文件。
+- 只扩充 file_hashes 的输入，不改变 Layout.roots/fingerprint 或运行中旧服务的实例目录身份。新 full 基线可检出素材/导出字节变化与删除；已有旧版 full 证据的覆盖范围不追溯扩张，不将旧证据冒称已验证这些新根。
+
 ## Routine restart simplification · 2026-10-23 · Implemented and verified
 
 - User authorized a lighter default: check running/authorized queued work, close admission, back up SQLite, gracefully restart and verify the new instance/health before opening consumers. Do not scan/hash historical files or dump/compare all business rows during routine restart.

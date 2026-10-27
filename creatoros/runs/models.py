@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.integrations.skill_pair import SkillPair
 from creatoros.integrations.topic_references import TaskReferences
+from .task_contracts import TaskExecutionSpec
 
 
 class RunModel(BaseModel):
@@ -34,7 +35,8 @@ class SkillOverrides(RunModel):
 
 
 class ContentRunInput(RunModel):
-    production_protocol: Literal["legacy", "native-v1", "external-import"] = "legacy"
+    production_protocol: Literal["legacy", "native-v1", "task-v1", "external-import"] = "legacy"
+    execution_spec: TaskExecutionSpec | None = None
     creator_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_id: str = Field(min_length=1, pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$")
     series_name: str = Field(min_length=1)
@@ -58,6 +60,12 @@ class ContentRunInput(RunModel):
 
     @model_validator(mode="after")
     def binding(self):
+        if self.production_protocol == "task-v1":
+            if self.execution_spec is None or self.skill_name is not None or self.composition is not None:
+                raise ValueError("统一任务使用 execution_spec，不能同时绑定旧 Skill 组合。")
+            return self
+        if self.execution_spec is not None:
+            raise ValueError("execution_spec 需要 task-v1 协议。")
         if self.production_protocol == "external-import":
             if self.skill_name is not None or self.composition is not None:
                 raise ValueError("外部导入产物不能声称由栏目 Skill 生成。")
@@ -76,11 +84,24 @@ class ValidatedImage(RunModel):
     sha256: str | None = None
 
 
+class ValidatedVideo(RunModel):
+    path: str
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    duration_seconds: float = Field(gt=0)
+    byte_size: int = Field(gt=0)
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    has_audio: bool
+    video_codec: str
+    audio_codec: str | None = None
+
+
 class ArtifactValidation(RunModel):
     artifact_digest: str = Field(min_length=64, max_length=64)
-    card_count: int = Field(gt=0)
-    total_image_bytes: int = Field(gt=0)
-    images: list[ValidatedImage] = Field(min_length=1)
+    card_count: int = Field(ge=0)
+    total_image_bytes: int = Field(ge=0)
+    images: list[ValidatedImage]
+    video: ValidatedVideo | None = None
 
 
 class RunExecutionResult(RunModel):

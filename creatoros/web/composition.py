@@ -1,7 +1,7 @@
 """组合栏目写服务：创建/改组合/分配账号的唯一写入点。
 
 规则（P2，用户已确认）：
-- 栏目只能是 legacy 单 Skill 或完整 mind+production pair，禁止半套与全空。
+- 新栏目可无旧绑定，之后配置常用池；旧单 Skill 与完整 pair 保持兼容，禁止半套。
 - legacy 栏目不转换为 pair；pair 组合可以保存为未验证，生产门禁在 Run 创建时。
 - 所有写操作带 request_id 幂等：重复提交返回首次结果，不生成第二条记录。
 - 配置修改使用所见 revision 做 CAS，冲突返回 409 且零写入。
@@ -69,7 +69,7 @@ class SeriesCompositionService:
             if skill_name is not None:
                 # legacy 绑定沿用生产门禁：必须可解析且满足当前产物契约。
                 legacy_binding = self._resolve_legacy(skill_name)
-            else:
+            elif mind_skill_id is not None or production_skill_id is not None:
                 mind_binding, production_binding = self._check_pair(mind_skill_id, production_skill_id)
             series = Series(
                 id=f"series-{uuid4().hex[:20]}",

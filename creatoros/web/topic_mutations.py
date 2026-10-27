@@ -12,7 +12,7 @@ from datetime import timezone
 from sqlalchemy import select
 
 from creatoros.storage import ContentRun, ContentRunStatus, Series, SkillIteration, Topic, TopicRemoval, WriteReceipt
-from creatoros.storage.models import ProductionQueueItem, TopicStatus
+from creatoros.storage.models import ProductionQueueItem, ProductionTask, TopicStatus
 from .schemas import TopicView
 
 
@@ -45,6 +45,8 @@ def block_reasons(session, topics, runs, discussions=None) -> dict[str, str]:
     queued = set(session.scalars(select(ContentRun.topic_id).join(
         ProductionQueueItem, ProductionQueueItem.run_id == ContentRun.id).where(
         ContentRun.topic_id.in_(ids), ProductionQueueItem.status.in_({"pending", "running"}))))
+    queued.update(session.scalars(select(ProductionTask.topic_id).where(
+        ProductionTask.topic_id.in_(ids), ProductionTask.dispatch_state == "waiting")))
     iterating = set()
     for iteration in session.scalars(select(SkillIteration).where(
             SkillIteration.topic_id.in_(ids),

@@ -96,14 +96,16 @@ class StudioClient:
     def run_summary(self, run: dict, *, accepted: bool = False) -> dict:
         fields = ("id", "creator_id", "creator_name", "series_id", "series_name", "topic_id", "task_id", "production_collection_id",
                   "topic_title", "status", "version", "active_revision_number", "allowed_actions",
-                  "error_type", "error_message", "card_count", "production_queue", "latest_run_id")
+                  "error_type", "error_message", "card_count", "production_queue", "latest_run_id", "task_kind")
         result = {key: run.get(key) for key in fields}
         result["run_id"] = result.pop("id")
         result["revisions"] = [
             {"revision_id": revision.get("id"),
              "revision_number": revision.get("revision_number"),
              "artifact_digest": revision.get("artifact_digest"),
-             "artifact_available": revision.get("artifact_available", False)}
+             "artifact_available": revision.get("artifact_available", False),
+             **({"video": {key: value for key, value in revision["video"].items() if key != "path"}}
+                if isinstance(revision.get("video"), dict) else {})}
             for revision in run.get("revisions", [])
         ]
         result["accepted"] = accepted

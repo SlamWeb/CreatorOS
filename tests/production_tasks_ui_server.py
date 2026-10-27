@@ -9,8 +9,9 @@ from tests.smoke_pair_production import install_fixture
 
 @app.post("/test/production-task-pair")
 def seed_pair():
+    from uuid import uuid4
     catalog = app.state.skill_installs.catalog
-    fixtures = root / "production-task-pair"
+    fixtures = root / "production-task-pair" / uuid4().hex
     return {
         "mind": install_fixture(catalog, fixtures, "knowledge-to-storyboard-deep",
                                 "https://github.com/SlamWeb/knowledge-to-storyboard", "mind"),

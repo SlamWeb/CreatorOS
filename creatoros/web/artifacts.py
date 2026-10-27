@@ -15,7 +15,7 @@ from creatoros.runs.models import ContentRunInput
 from creatoros.storage import ContentAttempt, ContentRevision, ContentRun
 from sqlalchemy import select
 
-from .schemas import CardView, PartialCardView, PublishCopyView, SourceView
+from .schemas import CardView, PartialCardView, PublishCopyView, SourceView, VideoView
 
 
 class StudioArtifacts:
@@ -57,15 +57,26 @@ class StudioArtifacts:
             root, digest, data, _saved_validation = self.locate(run_id, revision_id)
             if digest is None:
                 return dict(artifact_available=False, artifact_error=None, review_digest=None)
-            pack = self.pack(root, data)
             production_protocol = getattr(data, "production_protocol", "legacy")
             checked = validate_artifact(root, composition=data.composition,
-                                        production_protocol=production_protocol)
+                                        production_protocol=production_protocol, execution_spec=data.execution_spec)
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
+            if checked.video is not None:
+                from creatoros.integrations.video_production import VideoArtifact, VIDEO_MANIFEST
+                artifact = VideoArtifact.model_validate_json((root / VIDEO_MANIFEST).read_text(encoding="utf-8"))
+                if (artifact.creator_id, artifact.series_id, artifact.topic_id) != (data.creator_id, data.series_id, data.topic_id):
+                    raise ValueError("视频身份与 Run 不一致。")
+                return dict(artifact_available=True, artifact_error=None, review_digest=digest,
+                    content_summary=artifact.title, cards=[], sources=[],
+                    publish_copy=PublishCopyView(title=artifact.title, body=artifact.text, hashtags=[]),
+                    video=VideoView(**checked.video.model_dump(),
+                        url=f"/api/runs/{run_id}/revisions/{revision_id}/video?digest={digest}&checksum={checked.video.sha256}"))
+            pack = self.pack(root, data)
+            native_image = production_protocol in {"native-v1", "task-v1"}
             prefix = f"/api/runs/{run_id}/revisions/{revision_id}/cards"
             pages = {}
-            if production_protocol == "native-v1":
+            if native_image:
                 from creatoros.integrations.native_production import load_checkpoint, verified_pages
 
                 checkpoint = load_checkpoint(root)
@@ -84,9 +95,9 @@ class StudioArtifacts:
                 content_summary=pack.content_summary,
                 cards=[CardView(order=card.order, headline=card.headline, width=info.width, height=info.height,
                                 url=f"{prefix}/{card.order}?digest={digest}&checksum={info.sha256}",
-                                page_spec=(pages[card.order].content if production_protocol == "native-v1"
+                                page_spec=(pages[card.order].content if native_image
                                            else pages.get(card.order, {}).get("page_spec")),
-                                image_prompt=(pages[card.order].image_prompt if production_protocol == "native-v1"
+                                image_prompt=(pages[card.order].image_prompt if native_image
                                               else pages.get(card.order, {}).get("image_prompt")))
                        for card, info in zip(pack.cards, checked.images)],
                 publish_copy=PublishCopyView(**pack.publish_copy.model_dump()),
@@ -94,6 +105,22 @@ class StudioArtifacts:
             )
         except (OSError, ValueError, Image.DecompressionBombError):
             return dict(artifact_available=False, artifact_error="产物缺失、损坏或已变化，请检查文件或提出返工。", review_digest=None)
+
+    def video(self, run_id: str, revision_id: str, *, digest: str, checksum: str):
+        try:
+            root, recorded, data, validation = self.locate(run_id, revision_id)
+            if not data.execution_spec or data.execution_spec.kind != "video":
+                raise ContentRunError("此版本没有视频。", code="not_found", status_code=404)
+            if recorded != digest:
+                raise ContentRunError("视频版本已变化，请刷新详情。", code="artifact_changed")
+            checked = validate_artifact(root, production_protocol="task-v1", execution_spec=data.execution_spec)
+            if checked.artifact_digest != recorded or not checked.video or checked.video.sha256 != checksum:
+                raise ContentRunError("视频内容已变化，请刷新详情。", code="artifact_changed")
+            return root / checked.video.path
+        except ContentRunError:
+            raise
+        except (OSError, ValueError) as error:
+            raise ContentRunError("视频不可读取，请检查文件或提出返工。", code="artifact_unavailable") from error
 
     def cover_projection(self, run: ContentRun, revision: ContentRevision,
                          attempts: list[ContentAttempt]) -> dict:
@@ -177,6 +204,7 @@ class StudioArtifacts:
                     root,
                     composition=data.composition,
                     production_protocol=getattr(data, "production_protocol", "legacy"),
+                    execution_spec=data.execution_spec,
                 )
                 if checked.artifact_digest != recorded_digest:
                     raise ContentRunError("产物已变化，请重新检查。", code="artifact_changed")
@@ -246,7 +274,7 @@ class StudioArtifacts:
 
     @staticmethod
     def _verified_partial_pages(directory: Path, checkpoint, production_protocol: str):
-        if production_protocol == "native-v1":
+        if production_protocol in {"native-v1", "task-v1"}:
             from creatoros.integrations.native_production import verified_pages
         else:
             from creatoros.integrations.visual_production import verified_pages
@@ -265,6 +293,10 @@ class StudioArtifacts:
                 return None
             data = ContentRunInput.model_validate(revision.production_input_json)
             production_protocol = getattr(data, "production_protocol", "legacy")
+            if data.execution_spec and data.execution_spec.kind == "video":
+                return None
+            if production_protocol == "task-v1":
+                production_protocol = "native-v1"
             if production_protocol != "native-v1" and data.composition is None:
                 return None
             attempts = list(session.scalars(select(ContentAttempt).where(

@@ -19,6 +19,9 @@ jobs:
     env:
       PYTHONUTF8: "1"
       # No credentials are provided. The explicit allowlist never invokes live_*.
+      # Media tests use existing ffmpeg/ffprobe or explicit CREATOROS_FFMPEG /
+      # CREATOROS_FFPROBE executable paths; otherwise only codec-dependent cases
+      # report skipped. No additional media runtime is downloaded by this job.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

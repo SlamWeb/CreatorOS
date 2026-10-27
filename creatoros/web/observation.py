@@ -18,12 +18,15 @@ from creatoros.integrations.codex_public_events import sanitize_public
 from creatoros.storage import (ContentAttempt, ContentRevision, ContentRun, ContentRunEvent,
                                Creator, Series, Topic, PendingOperation, ManualPublication,
                                PublicationMetric, PublicationRequest, OperationEvent)
+from creatoros.storage import ProductionTask, MediaCollection
+from .staged_task_projection import pending_task_views, task_view
 
 
-ACTIVE = {"queued", "running", "researching", "producing", "validating"}
+ACTIVE = {"queued", "running", "researching", "producing", "validating", "waiting"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9_:.@-]{1,180}$")
 MODELS = {"creator": Creator, "series": Series, "topic": Topic, "run": ContentRun,
-          "revision": ContentRevision, "attempt": ContentAttempt, "operation": PendingOperation}
+          "revision": ContentRevision, "attempt": ContentAttempt, "operation": PendingOperation,
+          "production_task": ProductionTask}
 GROUPS = {"overview": "总览 Agent 会话", "unassigned": "未分配账号的栏目",
           "extractions": "全局 Skill 提炼与融合", "historical": "归属已变化的历史任务"}
 
@@ -364,6 +367,8 @@ class ObservationService:
                 parent = ("series", refs)
             elif kind == "topic":
                 parent = ("topics", [self._row(kind, refs[0]).series_id])
+            elif kind == "production_task":
+                parent = ("topic", [self._row(kind, refs[0]).topic_id])
             elif kind == "run":
                 run = self._row(kind, refs[0])
                 topic = self._row("topic", run.topic_id)
@@ -493,7 +498,15 @@ class ObservationService:
         if kind == "topic":
             topic = self._row(kind, refs[0])
             creator = self._row("series", topic.series_id).creator_id
-            return [node("run", [r.id], "生产 " + r.id[:8], status=r.status) for r in self._rows(ContentRun, ContentRun.topic_id == topic.id) if r.input_snapshot_json.get("creator_id") == creator]
+            with self.db.session() as session:
+                pending = pending_task_views(session, topic_id=topic.id)
+            return ([node("production_task", [item["id"]], item["title"], status=item["status"], children=False)
+                     for item in pending] + [node("run", [r.id], "生产 " + r.id[:8], status=r.status)
+                     for r in self._rows(ContentRun, ContentRun.topic_id == topic.id) if r.input_snapshot_json.get("creator_id") == creator])
+        if kind == "production_task":
+            task = self._row(kind, refs[0])
+            return [node("run", [run.id], "生产 " + run.id[:8], status=run.status)
+                    for run in self._rows(ContentRun, ContentRun.task_id == task.id)]
         if kind == "run":
             self._row(kind, refs[0])
             return [node("revision", [r.id], f"版本 {r.revision_number}", status="approved" if r.approved_at else "validated" if r.validated_at else "pending") for r in self._rows(ContentRevision, ContentRevision.content_run_id == refs[0], order=ContentRevision.revision_number)] + [node("discussions", refs, "产物讨论")]
@@ -553,7 +566,7 @@ class ObservationService:
 
     def _business_links(self, snapshot):
         links = []
-        mapping = {"run_id": "run", "revision_id": "revision", "series_id": "series", "topic_id": "topic", "creator_id": "creator"}
+        mapping = {"run_id": "run", "revision_id": "revision", "series_id": "series", "topic_id": "topic", "creator_id": "creator", "task_id": "production_task"}
         def visit(value, tool_name=""):
             if isinstance(value, dict):
                 for key, kind in mapping.items():
@@ -790,6 +803,17 @@ class ObservationService:
             if kind in MODELS:
                 row = self._row(kind, refs[0])
                 data = row_data(row)
+                if kind == "production_task":
+                    topic = self._row("topic", row.topic_id)
+                    series = self._row("series", topic.series_id)
+                    with self.db.session() as session:
+                        collection = session.get(MediaCollection, row.collection_id) if row.collection_id else None
+                    data = task_view(row, topic, series, collection)
+                    if data is None:
+                        raise HTTPException(404, "制作任务的冻结归属与当前账号不一致。")
+                    result["links"].append({"label": "选题：" + topic.title, "href": data["topic_url"]})
+                    if data["collection_url"]:
+                        result["links"].append({"label": "素材集：" + data["collection_name"], "href": data["collection_url"]})
                 result.update(label=data.get("title") or data.get("display_name") or data.get("name") or f"{kind} {refs[0]}", status=data.get("status"))
                 section("业务记录", data)
                 if kind == "attempt":
@@ -798,7 +822,7 @@ class ObservationService:
                         result["last_recorded_status"] = result["status"]
                         result["status"] = "unknown"
                         result["warnings"].append(self._stale_warning())
-                parent = {"series": ("creator", data.get("creator_id")), "topic": ("series", data.get("series_id")), "run": ("topic", data.get("topic_id")), "revision": ("run", data.get("content_run_id")), "attempt": ("revision", data.get("revision_id"))}.get(kind)
+                parent = {"series": ("creator", data.get("creator_id")), "topic": ("series", data.get("series_id")), "production_task": ("topic", data.get("topic_id")), "run": ("topic", data.get("topic_id")), "revision": ("run", data.get("content_run_id")), "attempt": ("revision", data.get("revision_id"))}.get(kind)
                 if parent and parent[1]:
                     result["links"].append({"label": "所属业务记录", "node_id": encode(*parent)})
                 if kind == "run":

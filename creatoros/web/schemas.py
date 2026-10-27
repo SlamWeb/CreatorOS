@@ -131,6 +131,19 @@ class EventBatch(ApiModel):
     next_after_id: int
 
 
+class VideoView(ApiModel):
+    url: str
+    path: str
+    duration_seconds: float
+    width: int
+    height: int
+    byte_size: int
+    sha256: str
+    has_audio: bool
+    video_codec: str | None = None
+    audio_codec: str | None = None
+
+
 class RevisionView(ApiModel):
     id: str
     revision_number: int = Field(gt=0)
@@ -144,6 +157,7 @@ class RevisionView(ApiModel):
     artifact_error: str | None = None
     content_summary: str | None = None
     cards: list[CardView] = Field(default_factory=list)
+    video: VideoView | None = None
     publish_copy: PublishCopyView | None = None
     sources: list[SourceView] = Field(default_factory=list)
     review_digest: str | None = None
@@ -151,6 +165,7 @@ class RevisionView(ApiModel):
 
 class RunSummary(ApiModel):
     id: str
+    task_kind: Literal["image", "video"] = "image"
     task_id: str | None = None
     production_collection_id: str | None = None
     latest_run_id: str | None = None
@@ -401,7 +416,7 @@ class TopicReorderRequest(WriteRequest):
 
 
 class SeriesComposeRequest(WriteRequest):
-    """组合/legacy 创建栏目：必须当场二选一绑定，允许暂不归属账号。"""
+    """可先创建空栏目，之后选择常用池；旧绑定仍禁止混用和半套。"""
 
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=10_000)
@@ -416,8 +431,8 @@ class SeriesComposeRequest(WriteRequest):
     def exactly_one_binding(self) -> "SeriesComposeRequest":
         legacy = self.skill_name is not None
         pair = self.mind_skill_id is not None or self.production_skill_id is not None
-        if legacy == pair:
-            raise ValueError("栏目必须二选一：legacy 单 Skill，或完整 mind+production 组合。")
+        if legacy and pair:
+            raise ValueError("不能同时提供 legacy 单 Skill 与 mind+production 组合。")
         if pair and not (self.mind_skill_id and self.production_skill_id):
             raise ValueError("组合必须同时包含内容 Skill 与制作 Skill。")
         return self

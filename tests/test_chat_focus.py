@@ -368,11 +368,12 @@ class ChatFocusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _read_managed(self.runs.output_root, link, 100)
 
-    def test_request_only_multimodal_projection_and_32_schemas_stay_identical(self):
+    def test_request_only_multimodal_projection_and_scoped_schemas_stay_identical(self):
         runtime = RuntimeContext(self.root, creator_id="account-a", allowed_tools=ACCOUNT_TOOLS,
                                  archive_only_reads=True)
         schemas = model_tool_schemas(tools, runtime)
-        self.assertEqual(len(schemas), 32)
+        self.assertEqual(len(schemas), 34)
+        self.assertTrue({"manage_skill_library", "manage_material"} <= {item["function"]["name"] for item in schemas})
         messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "查选定作品"},
                     {"role": "assistant", "tool_calls": [{"id": "read-one", "name": "get_content_run", "arguments": "{}"}]},
                     {"role": "tool", "tool_call_id": "read-one", "content": "{}"}]
@@ -446,7 +447,7 @@ class ChatFocusTests(unittest.TestCase):
         self.assertFalse(any(block.get("type") == "image_ref" for message in ledger
                              if isinstance(message.get("content"), list) for block in message["content"]))
         self.assertEqual(first_tools, second_tools)
-        self.assertEqual(len(first_tools), 32)
+        self.assertEqual(len(first_tools), 34)
         self.assertEqual(protected_records(self.db), before_rows)
         self.assertEqual(tree_hashes(self.runs.output_root), before_files)
 

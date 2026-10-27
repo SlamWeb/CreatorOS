@@ -13,8 +13,29 @@ from creatoros.content.models import MANIFEST_FILENAME
 from .models import ArtifactValidation, ValidatedImage
 
 
-def validate_artifact(directory: str | Path, *, composition=None, production_protocol="legacy") -> ArtifactValidation:
+def validate_artifact(directory: str | Path, *, composition=None, production_protocol="legacy", execution_spec=None) -> ArtifactValidation:
     root = Path(directory).resolve()
+    if production_protocol == "task-v1":
+        from .task_contracts import TaskExecutionSpec
+        from .task_execution import verify_execution_spec
+        if execution_spec is None:
+            execution_spec = TaskExecutionSpec.model_validate_json((root / "execution_spec.json").read_text(encoding="utf-8"))
+        else:
+            execution_spec = TaskExecutionSpec.model_validate(execution_spec)
+        if execution_spec.kind == "video":
+            from creatoros.integrations.video_production import validate_video_artifact
+            return validate_video_artifact(root, execution_spec)
+        saved = TaskExecutionSpec.model_validate_json((root / "execution_spec.json").read_text(encoding="utf-8"))
+        if saved.public_dict() != execution_spec.public_dict():
+            raise ValueError("图片执行规范与当前 Revision 不一致。")
+        verify_execution_spec(saved, root, ready=True)
+        from creatoros.integrations.native_production import load_checkpoint, request_digest
+        checkpoint = load_checkpoint(root)
+        expected_skills = {Path(item.path).name: item.digest for item in saved.skills}
+        if (checkpoint is None or checkpoint.skill_digests != expected_skills
+                or checkpoint.input_digest != request_digest(root)):
+            raise ValueError("图片生产回执与完整 Skill/任务输入不匹配。")
+        production_protocol = "native-v1"
     if not (root / MANIFEST_FILENAME).resolve().is_relative_to(root):
         raise ValueError("Manifest 路径越过产物目录。")
     pack = SocialContentPack.load(root)
