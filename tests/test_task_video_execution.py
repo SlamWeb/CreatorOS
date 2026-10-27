@@ -195,6 +195,11 @@ class TaskVideoExecutionTests(unittest.TestCase):
         self.assertTrue(view["video"].url.endswith("checksum=" + view["video"].sha256))
         self.assertTrue(artifacts.video(run.id, revision.id, digest=revision.artifact_digest,
                                        checksum=view["video"].sha256).is_file())
+        from creatoros.publication.publishing import PublicationService
+        from creatoros.runs import ContentRunError
+        with self.assertRaises(ContentRunError) as publication:
+            PublicationService(database, service, artifacts, None)._source(run.id)
+        self.assertEqual(publication.exception.code, "unsupported_artifact")
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
         from creatoros.web.run_routes import review_routes

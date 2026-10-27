@@ -129,6 +129,8 @@ class PublicationService:
             if not revision or not revision.artifact_digest:
                 fail("当前内容还没有可发布的完整产物。")
         root, recorded_digest, data, _ = self.artifacts.locate(run_id, revision.id)
+        if data.execution_spec and data.execution_spec.kind == "video":
+            fail("视频暂不支持此图文发布入口，请下载 MP4 后发布。", "unsupported_artifact", 422)
         if data.creator_id != creator.id or data.series_id != series.id:
             fail("内容生产时的账号归属已变化，请人工核对。", "account_mismatch")
         checked = validate_artifact(root, composition=data.composition,
