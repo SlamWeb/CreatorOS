@@ -85,11 +85,16 @@ def apply_skill_edit_batch(skill_id: str, expected_digest: str,
         if result.is_error:
             error_type = result.error_type or "skill_edit_failed"
             unknown = error_type in {"studio_outcome_unknown", "studio_invalid_response"}
+            try:
+                detail = json.loads(result.content).get("message", "")
+            except (ValueError, TypeError, AttributeError):
+                detail = ""
+            detail = detail if isinstance(detail, str) and len(detail) <= 300 else ""
             return _receipt(current_id, current_digest, applied, total, index, error_type,
                             outcome_unknown=unknown, failed=change,
                             message=("写入结果未知；已停止，须核对同一候选家族，不要重新提交整批。"
                                      if unknown else
-                                     "此项失败；已停止。之前成功的候选保留，未执行后续项。"))
+                                     f"此项失败{('：' + detail) if detail else ''}；已停止。之前成功的候选保留，未执行后续项。"))
         try:
             data = json.loads(result.content)
             next_id = data["skill_id"]

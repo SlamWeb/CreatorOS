@@ -154,11 +154,14 @@ def skill_routes(database, service):
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
     @router.put("/producer-skills/{skill_id}/files/content")
-    def update_skill_file(skill_id: str, request: UpdateSkillFileRequest):
+    def update_skill_file(skill_id: str, payload: UpdateSkillFileRequest, request: Request):
         try:
+            session_id = request.headers.get("x-creatoros-agent-session")
+            session = request.app.state.chat.get(session_id) if session_id else {}
+            creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
             return JSONResponse(service.catalog.update_skill_file(
-                skill_id, request.path, request.content, request.expected_digest,
-                display_name=request.display_name,
+                skill_id, payload.path, payload.content, payload.expected_digest,
+                display_name=payload.display_name, creator_id=creator_id,
             ), headers={"Cache-Control": "no-store"})
         except SkillDigestConflict as error:
             return JSONResponse(status_code=409, content={"error": {
@@ -175,23 +178,29 @@ def skill_routes(database, service):
             raise HTTPException(status_code=422, detail=str(error)) from error
 
     @router.put("/producer-skills/{skill_id}/assets")
-    def save_skill_asset(skill_id: str, request: SaveSkillImageRequest):
+    def save_skill_asset(skill_id: str, payload: SaveSkillImageRequest, request: Request):
         def action():
-            if len(request.data_base64) > 4 * ((MAX_UPLOAD_BYTES + 2) // 3) + 4:
+            session_id = request.headers.get("x-creatoros-agent-session")
+            session = request.app.state.chat.get(session_id) if session_id else {}
+            creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+            if len(payload.data_base64) > 4 * ((MAX_UPLOAD_BYTES + 2) // 3) + 4:
                 raise OverflowError("单张图片最多 4 MiB。")
             try:
-                raw = base64.b64decode(request.data_base64, validate=True)
+                raw = base64.b64decode(payload.data_base64, validate=True)
             except (binascii.Error, ValueError) as error:
                 raise ValueError("data_base64 必须是有效的图片 base64。") from error
             return service.catalog.save_skill_image(
-                skill_id, request.path, raw, request.expected_digest, overwrite=request.overwrite)
+                skill_id, payload.path, raw, payload.expected_digest, overwrite=payload.overwrite, creator_id=creator_id)
 
         return asset_response(action)
 
     @router.delete("/producer-skills/{skill_id}/assets")
-    def delete_skill_asset(skill_id: str, request: DeleteSkillImageRequest):
+    def delete_skill_asset(skill_id: str, payload: DeleteSkillImageRequest, request: Request):
+        session_id = request.headers.get("x-creatoros-agent-session")
+        session = request.app.state.chat.get(session_id) if session_id else {}
+        creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
         return asset_response(lambda: service.catalog.delete_skill_image(
-            skill_id, request.path, request.expected_digest))
+            skill_id, payload.path, payload.expected_digest, creator_id=creator_id))
 
     @router.delete("/producer-skills/{skill_id}")
     def remove_skill(skill_id: str, body: RemoveSkillRequest, request: Request):

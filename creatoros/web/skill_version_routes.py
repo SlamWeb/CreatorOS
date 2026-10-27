@@ -1,5 +1,5 @@
 """Human review boundary for immutable Skill versions."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,8 +55,11 @@ def skill_version_routes(service):
         return call(lambda: service.history(skill_id))
 
     @router.post("/producer-skills/{skill_id}/versions")
-    def create(skill_id: str, request: CandidateRequest):
-        return call(lambda: service.catalog.create_skill_candidate(skill_id, **request.model_dump()))
+    def create(skill_id: str, payload: CandidateRequest, request: Request):
+        session_id = request.headers.get("x-creatoros-agent-session")
+        session = request.app.state.chat.get(session_id) if session_id else {}
+        creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+        return call(lambda: service.catalog.create_skill_candidate(skill_id, **payload.model_dump(), creator_id=creator_id))
 
     @router.post("/producer-skills/{skill_id}/version-trials")
     def trial(skill_id: str, request: VersionTrialRequest):

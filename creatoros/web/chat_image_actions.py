@@ -103,17 +103,18 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
     @router.post("/skill-asset")
     def skill_asset(session_id: str, payload: SkillAssetRequest, request: Request):
         creator_id = session(session_id, request)
-        require(not creator_id or scope._can_edit_skill(payload.skill_id, creator_id))
+        if creator_id and not scope._can_fork_or_edit_skill(payload.skill_id, creator_id):
+            raise HTTPException(403, "当前账号不能修改或基于此 Skill 创建候选。")
         from .skill_routes import asset_response
         if payload.operation == "delete_image":
             return asset_response(lambda: catalog.delete_skill_image(
-                payload.skill_id, payload.path, payload.expected_digest))
+                payload.skill_id, payload.path, payload.expected_digest, creator_id=creator_id))
         # Merely naming an attachment from another conversation never grants access.
         chat.attachments.get(session_id, payload.attachment_id)
         raw = chat.attachments.path(session_id, payload.attachment_id).read_bytes()
         return asset_response(lambda: catalog.save_skill_image(
             payload.skill_id, payload.path, raw, payload.expected_digest,
-            overwrite=payload.operation == "replace_image"))
+            overwrite=payload.operation == "replace_image", creator_id=creator_id))
 
     @router.post("/reference")
     def reference(session_id: str, payload: ReferenceRequest, request: Request):

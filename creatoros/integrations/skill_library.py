@@ -102,7 +102,7 @@ class SkillLibraryService:
             return None
         item = self.catalog._record(skill_id)
         owner = item.get("creator_id") or item.get("source_creator_id")
-        if self.source_owner:
+        if not owner and self.source_owner:
             owner = self.source_owner(item) or owner
         return owner
 

@@ -188,9 +188,9 @@ class AgentScopeGuard:
 
         match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/versions", path)
         if match and method in {"GET", "POST"}:
-            permission = self._owns_skill if method == "GET" else self._can_edit_skill
+            permission = self._owns_skill if method == "GET" else self._can_fork_or_edit_skill
             if not permission(match.group(1), creator_id):
-                return self._denied()
+                return self._skill_denied()
             if method == "GET":
                 identity = match.group(1)
                 if identity == self.research.catalog.BUILTIN_ID:
@@ -204,6 +204,8 @@ class AgentScopeGuard:
                     result = request.app.state.skill_versions.history(identity)
                 result["bindings"] = [item for item in result.get("bindings", [])
                                       if self._owns_series(item["series_id"], creator_id)]
+                result["items"] = [item for item in result.get("items", [])
+                                   if self._owns_skill(item["id"], creator_id)]
                 return JSONResponse(result, headers={"Cache-Control": "no-store"})
             return None
 
@@ -219,12 +221,12 @@ class AgentScopeGuard:
 
         match = _PRODUCER_SKILL_FILES.fullmatch(path)
         if match and (method == "GET" or method == "PUT" and path.endswith("/files/content")):
-            permission = self._can_edit_skill if method == "PUT" else self._can_read_skill
-            return None if permission(match.group(1), creator_id) else self._denied()
+            permission = self._can_fork_or_edit_skill if method == "PUT" else self._can_read_skill
+            return None if permission(match.group(1), creator_id) else self._skill_denied()
 
         match = re.fullmatch(r"/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/assets", path)
         if match and method in {"PUT", "DELETE"}:
-            return None if self._can_edit_skill(match.group(1), creator_id) else self._denied()
+            return None if self._can_fork_or_edit_skill(match.group(1), creator_id) else self._skill_denied()
 
         if method == "GET" and path == "/api/creators":
             return await self._creator_page(request, creator_id)
@@ -482,6 +484,23 @@ class AgentScopeGuard:
     def _can_edit_skill(self, skill_id: str, creator_id: str) -> bool:
         return (self.skill_library.can_edit(creator_id, skill_id) if self.skill_library
                 else self._owns_skill(skill_id, creator_id))
+
+    @staticmethod
+    def _skill_denied():
+        return JSONResponse(status_code=403, content={"error": {
+            "code": "skill_scope_rejected", "message": "当前账号不能访问或修改此 Skill 版本。"
+        }})
+
+    def _can_fork_or_edit_skill(self, skill_id: str, creator_id: str) -> bool:
+        try:
+            if skill_id == self.research.catalog.BUILTIN_ID:
+                return False
+            record = self.research.catalog._record(skill_id)
+            if record.get("version_status", "released") == "released":
+                return self._owns_skill(skill_id, creator_id)
+            return self._owns_skill(skill_id, creator_id) and self._can_edit_skill(skill_id, creator_id)
+        except (ValueError, OSError, KeyError):
+            return False
 
     def _can_read_skill(self, skill_id: str, creator_id: str) -> bool:
         return self._owns_skill(skill_id, creator_id) or self._can_edit_skill(skill_id, creator_id)

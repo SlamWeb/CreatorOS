@@ -322,9 +322,9 @@ class ProducerSkillCatalog:
         return [*items, *families.values()]
 
     @_skill_io_locked
-    def create_skill_candidate(self, skill_id: str, expected_digest: str, request_id: str) -> dict:
+    def create_skill_candidate(self, skill_id: str, expected_digest: str, request_id: str, *, creator_id: str | None = None) -> dict:
         from .skill_versions import create_candidate
-        return create_candidate(self, skill_id, expected_digest, request_id)
+        return create_candidate(self, skill_id, expected_digest, request_id, creator_id=creator_id)
 
     @_skill_io_locked
     def list_skill_versions(self, skill_id: str) -> dict:
@@ -553,7 +553,7 @@ class ProducerSkillCatalog:
         raise TypeError("此文件类型不支持预览。")
 
     def update_skill_file(self, skill_id: str, relative_path: str, content: str,
-                          expected_digest: str, *, display_name: str | None = None) -> dict:
+                          expected_digest: str, *, display_name: str | None = None, creator_id: str | None = None) -> dict:
         with _SKILL_EDIT_LOCK:
             from .skill_versions import edit_result, edit_target
             if skill_id == self.BUILTIN_ID:
@@ -571,7 +571,7 @@ class ProducerSkillCatalog:
             if Path(relative_path).as_posix().casefold() == "skill.md":
                 _validate_skill_frontmatter(normalized)
             target_id, replayed = edit_target(self, skill_id, expected_digest,
-                {"operation": "text", "path": relative_path, "content": normalized})
+                {"operation": "text", "path": relative_path, "content": normalized}, creator_id=creator_id)
             if replayed:
                 updated = self.read_skill_file(target_id, relative_path)
                 if updated["content"] != normalized:
@@ -584,7 +584,7 @@ class ProducerSkillCatalog:
             return edit_result(self, target_id, result)
 
     def save_skill_image(self, skill_id: str, path: str, raw: bytes,
-                         expected_digest: str, overwrite: bool = False) -> dict:
+                         expected_digest: str, overwrite: bool = False, *, creator_id: str | None = None) -> dict:
         from .skill_assets import (SkillAssetExistsError, _target, _check_digest, _validate_image,
                                    _projected_size, save_skill_image)
         from .skill_versions import edit_result, edit_target
@@ -600,7 +600,7 @@ class ProducerSkillCatalog:
             if not target.exists() and len(self._list_skill_files_locked(skill_id)["files"]) >= self.MAX_BROWSE_FILES:
                 raise ValueError("Skill 文件数量已达上限。")
             target_id, replayed = edit_target(self, skill_id, expected_digest,
-                {"operation": "image", "path": path, "sha256": hashlib.sha256(raw).hexdigest(), "overwrite": overwrite})
+                {"operation": "image", "path": path, "sha256": hashlib.sha256(raw).hexdigest(), "overwrite": overwrite}, creator_id=creator_id)
             if replayed:
                 updated = self.read_skill_file(target_id, path)
                 if updated["content"] != raw:
@@ -611,7 +611,7 @@ class ProducerSkillCatalog:
                 result = save_skill_image(self, target_id, path, raw, expected_digest, overwrite=overwrite)
             return edit_result(self, target_id, result)
 
-    def delete_skill_image(self, skill_id: str, path: str, expected_digest: str) -> dict:
+    def delete_skill_image(self, skill_id: str, path: str, expected_digest: str, *, creator_id: str | None = None) -> dict:
         from .skill_assets import (SkillAssetExistsError, SkillReferencedError, _target,
                                    _check_digest, _referencing_files, delete_skill_image)
         from .skill_versions import edit_result, edit_target
@@ -625,7 +625,7 @@ class ProducerSkillCatalog:
             if referenced:
                 raise SkillReferencedError(referenced)
             target_id, replayed = edit_target(self, skill_id, expected_digest,
-                {"operation": "delete_image", "path": path})
+                {"operation": "delete_image", "path": path}, creator_id=creator_id)
             if replayed:
                 candidate_path = self.locate(target_id) / relative
                 if candidate_path.exists():

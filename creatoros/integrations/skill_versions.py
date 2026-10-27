@@ -99,7 +99,7 @@ def _draft_directory(catalog, source_directory: Path) -> tuple[Path, str]:
 
 
 def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: str,
-                     *, source_directory: Path | None = None) -> dict:
+                     *, source_directory: Path | None = None, creator_id: str | None = None) -> dict:
     from .producer_skills import _digest, freeze_skill
     if skill_id == catalog.BUILTIN_ID:
         raise PermissionError("内置 Skill 只读。")
@@ -112,13 +112,15 @@ def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: s
     source_id = source_record["id"]
     draft, draft_digest = (_draft_directory(catalog, source_directory) if source_directory is not None
                            else (None, expected_digest))
-    request_key = hashlib.sha256(f"{source_id}\0{request_id}".encode()).hexdigest()
+    identity = f"{source_id}\0{request_id}" if creator_id is None else f"{source_id}\0{request_id}\0{creator_id}"
+    request_key = hashlib.sha256(identity.encode()).hexdigest()
     candidate_id = source_record["name"][:100].strip("-") + "--" + request_key[:16]
     existing_path = _managed(catalog, "registry", candidate_id + ".json")
     if existing_path.exists():
         existing = catalog._record(candidate_id)
         if (existing.get("candidate_request_key") != request_key
                 or existing.get("parent_id") != source_id
+                or (creator_id is not None and existing.get("creator_id") != creator_id)
                 or existing.get("parent_digest") != expected_digest
                 or existing.get("candidate_source_digest", expected_digest) != draft_digest):
             raise ValueError("同一候选请求的输入已改变，请使用新的请求标识。")
@@ -148,6 +150,9 @@ def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: s
               "version_number": number, "version_status": "candidate",
               "created_at": now, "digest": draft_digest, "candidate_source_digest": draft_digest,
               "candidate_request_key": request_key, "source_kind": "version"}
+    if creator_id is not None:
+        record["creator_id"] = creator_id
+        record.pop("source_creator_id", None)
     record.pop("release_digest", None)
     _write_record(catalog, record)  # visibility only after both complete copies exist
     return catalog.describe(candidate_id)
@@ -184,13 +189,15 @@ def publish_candidate(catalog, skill_id: str, expected_digest: str) -> dict:
     return catalog.describe(source["id"])
 
 
-def edit_target(catalog, skill_id: str, expected_digest: str, operation: dict) -> tuple[str, bool]:
+def edit_target(catalog, skill_id: str, expected_digest: str, operation: dict,
+                creator_id: str | None = None) -> tuple[str, bool]:
     """Direct legacy editor calls create candidates too; no hidden shared writes."""
     source = _check_digest(catalog, skill_id, expected_digest)
     if source["version_status"] == "candidate":
         return source["id"], False
     operation_key = hashlib.sha256(json.dumps(operation, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-    candidate = create_candidate(catalog, source["id"], expected_digest, "edit-" + operation_key)
+    candidate = create_candidate(catalog, source["id"], expected_digest, "edit-" + operation_key,
+                                 creator_id=creator_id)
     return candidate["id"], (candidate["digest"] != expected_digest
                               or candidate["version_status"] == "released")
 
