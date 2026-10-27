@@ -58,7 +58,12 @@ export interface DiscussionEntry {
 }
 export interface CreatorTaskItem {
   id: string;
-  kind: "research" | "production" | "discussion";
+  kind: "research" | "production" | "discussion" | "production_task" | "skill_iteration";
+  task_kind?: "image" | "video";
+  topic_url?: string;
+  topic_title?: string;
+  collection_url?: string | null;
+  collection_name?: string | null;
   title: string;
   status: string;
   series_id: string | null;
@@ -69,7 +74,7 @@ export interface CreatorTaskItem {
 }
 export interface CreatorTaskList {
   items: CreatorTaskItem[];
-  summary: { active: number; awaiting_approval: number; failed: number };
+  summary: { active: number; awaiting_approval: number; failed: number; needs_attention?: number };
   as_of: string;
 }
 
@@ -127,6 +132,7 @@ export interface PageResponse<T> {
 }
 
 export interface RunSummary {  id: string;
+  task_kind?: TaskKind;
   latest_run_id?: string | null;
   task_id?: string | null;
   production_collection_id?: string | null;
@@ -153,12 +159,17 @@ export interface RunSummary {  id: string;
 }
 
 export type SkillOverrides = { skill_id?: string; mind_skill_id?: string; production_skill_id?: string; expected_digests: Record<string, string> };
-export interface ProductionTaskInput { title: string; brief: string; skill_overrides?: SkillOverrides }
-export interface ProductionTaskView extends ProductionTaskInput {
-  id: string; topic_id: string; position: number; run_id: string; run_version: number;
-  status: string; skill_summary: string;
+export type TaskKind = "image" | "video";
+export interface TaskSkill { skill_id: string; digest: string; role: "primary" | "supporting" }
+export interface ProductionTaskInput {
+  title: string; brief: string; kind?: TaskKind; skills?: TaskSkill[]; skill_overrides?: SkillOverrides;
+  inputs?: { collection_id: string; export_id?: string; bgm_material_id: string }; depends_on?: string[];
 }
-export interface ProductionTaskList { topic_id: string; collection_id: string | null; items: ProductionTaskView[] }
+export interface ProductionTaskView extends ProductionTaskInput {
+  id: string; topic_id: string; position: number; run_id: string | null; run_version: number | null;
+  status: string; skill_summary: string; dispatch_state?: string; last_error?: string | null;
+}
+export interface ProductionTaskList { topic_id: string; series_id?: string; collection_id: string | null; items: ProductionTaskView[] }
 export type RunStartInput = ({ topic_id: string; mode?: "start"; request_id?: string } | {
   topic_id: string; mode: "fresh"; source_run_id: string; expected_version: number; request_id: string;
 }) & { skill_overrides?: SkillOverrides };
@@ -197,6 +208,7 @@ export interface RevisionView {
   content_summary: string | null;
   review_digest: string | null;
   cards: CardView[];
+  video?: { url: string; path: string; duration_seconds: number; width: number; height: number; byte_size: number; sha256: string; has_audio: boolean } | null;
   publish_copy: { title: string; body: string; hashtags: string[] } | null;
   sources: { title: string; url: string | null }[];
 }
@@ -385,6 +397,13 @@ export interface ProducerSkillItem {
   version_status?: "candidate" | "released";
   latest_trial_job_id?: string | null;
   version_trial_job_id?: string | null;
+  outputs?: TaskKind[];
+  capabilities?: { outputs: TaskKind[] };
+}
+
+export interface SkillLibraryView {
+  creator_id: string; series_id?: string; version: number; items: ProducerSkillItem[];
+  defaults: Record<TaskKind, { skill_id: string; role: "primary" | "supporting" }[]>;
 }
 
 export interface SkillVersionBinding {

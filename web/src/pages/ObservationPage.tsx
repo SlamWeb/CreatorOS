@@ -7,7 +7,7 @@ import { ApiError } from "../api/client";
 import "./observation.css";
 
 const kinds: Record<string, string> = {
-  creator: "账号", series: "栏目", topic: "选题", research: "调研", run: "生产任务", error: "错误诊断",
+  creator: "账号", series: "栏目", topic: "选题", research: "调研", run: "生产任务", production_task: "制作任务", error: "错误诊断",
   revision: "版本", attempt: "执行尝试", codex_turn: "Codex 执行回合", codex_item: "工具 / 回复步骤",
   session: "Agent 对话", user_turn: "一次用户请求", request: "模型请求", tool: "工具调用", tool_call: "工具调用",
   group: "分组", discussion: "版本讨论", extraction: "Skill 提炼", message: "消息", sessions: "对话列表",
@@ -24,6 +24,7 @@ const statuses: Record<string, string> = {
   failed: "失败", interrupted: "已中断", cancelled: "已取消", ready: "已就绪", partial: "部分记录",
   awaiting_approval: "待批准", approved: "已批准", published: "已发布", idle: "空闲",
   active: "启用", archived: "已归档", unknown: "未知", missing: "记录缺失",
+  waiting: "等待材料", needs_attention: "待核对", dispatched: "已开始执行",
   validated: "已校验", executing: "执行中", started: "已开始", in_progress: "进行中",
   success: "成功", done: "已完成", error: "错误", stopped: "已停止", expired: "已过期",
   draft: "草稿", available: "待选择", selected: "已选择", disabled: "已停用", recorded: "已记录", unavailable: "尚无记录",

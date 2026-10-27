@@ -1,5 +1,41 @@
 import { expect, test } from "@playwright/test";
 
+test("waiting video remains findable in inbox, account summary and Observation without a Run", async ({ page, request }, testInfo) => {
+  const response = await request.post("/test/waiting-task", { data: {} });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const seed = await response.json();
+  const taskCount = async () => (await (await request.get(`/api/topics/${seed.topic_id}/production-tasks`)).json()).items.length;
+  const before = await taskCount();
+  await page.goto("/skills");
+  await page.getByRole("button", { name: "任务", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "任务", exact: true });
+  const row = panel.locator(".work-inbox-row").filter({ hasText: seed.title });
+  await expect(row).toContainText("等待材料");
+  await expect(panel.getByRole("link", { name: `素材集：${seed.collection_name}`, exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("waiting-inbox-desktop.png"), fullPage: true });
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`topic=${seed.topic_id}`));
+  await page.goto(`/?creator=${seed.creator_id}&series=${seed.series_id}`);
+  await page.getByRole("button", { name: "查看任务", exact: true }).click();
+  await expect(page.locator(".creator-task-summary")).toContainText(seed.title);
+  await expect(page.locator(".creator-task-summary")).toContainText("等待材料");
+  await page.goto(`/observation?node=${seed.observation_node}`);
+  await expect(page.locator(".observation-page")).toContainText(seed.title);
+  await expect(page.getByRole("link", { name: `素材集：${seed.collection_name}`, exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/skills");
+  await page.reload();
+  await page.getByRole("button", { name: "任务", exact: true }).click();
+  await expect(panel.locator(".work-inbox-row").filter({ hasText: seed.title })).toContainText("等待材料");
+  const bounds = await panel.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath("waiting-inbox-mobile.png"), fullPage: true });
+  await panel.getByRole("link", { name: `素材集：${seed.collection_name}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`collection=${seed.collection_id}`));
+  expect(await taskCount()).toBe(before);
+});
+
 test("task inbox finds old and new work, keeps viewed versions across refresh without business writes", async ({ page, request }, testInfo) => {
   const old = await (await request.post("/test/calibration", { data: {} })).json();
   await page.goto("/skills");

@@ -8,7 +8,8 @@ import { initialInboxState, isInboxUnseen, markInboxSeen, type InboxSeenState, t
 import "./task-inbox.css";
 
 export type WorkInboxItem = InboxVersion & { key: string; title: string; status: string; bucket: "active" | "attention" | "recent";
-  updated_at: string; url: string; series_id: string | null; skill_ids: string[]; label?: string };
+  updated_at: string; url: string; series_id: string | null; skill_ids: string[]; label?: string;
+  topic_title?: string; collection_url?: string | null; collection_name?: string | null };
 type WorkInboxData = { items: WorkInboxItem[]; objects: InboxVersion[]; as_of: string;
   counts: Record<string, number>; has_more: boolean; unreadable_records: number };
 type Controls = { items: WorkInboxItem[]; isUnseen: (item: InboxVersion) => boolean;
@@ -21,6 +22,8 @@ const seenKey = "creatoros:work-inbox:seen:v1";
 const labels: Record<string, string> = { queued: "排队中", researching: "调研中", running: "进行中", producing: "制作中",
   validating: "检查中", ready: "待查看", awaiting_approval: "待验收", failed: "失败", interrupted: "已中断",
   stale: "需重新检查", saved: "已保存", applied: "已保存", approved: "已验收", cancelled: "已取消", completed: "已完成", created: "新栏目" };
+labels.waiting = "等待材料";
+labels.needs_attention = "待核对";
 const kindLabels: Record<string, string> = { production: "生产", research: "调研", extraction: "Skill 提炼", calibration: "Skill 校准", series: "栏目" };
 
 function readSeen(): InboxSeenState | null {
@@ -130,12 +133,13 @@ export function TaskInbox() {
         {([ ["active", "进行中"], ["attention", "待处理"], ["recent", "最近"] ] as const).map(([bucket, title]) => {
           const group = inbox.items.filter(item => item.bucket === bucket);
           return group.length ? <section key={bucket} className="work-inbox-group"><h3>{title}</h3>
-            {group.map(item => <Link key={item.key} to={item.url} className="work-inbox-row" onClick={() => { inbox.markSeen(item); inbox.setOpen(false); }}>
+            {group.map(item => <div key={item.key}><Link to={item.url} className="work-inbox-row" onClick={() => { inbox.markSeen(item); inbox.setOpen(false); }}>
               <span className="work-inbox-row-main"><span className="work-inbox-row-kind">{item.label ?? kindLabels[item.kind] ?? "任务"}</span>
                 <span className="work-inbox-row-title">{item.title}</span></span>
-              <span className={`work-inbox-state ${["failed", "interrupted", "stale"].includes(item.status) ? "is-error" : ""}`}>
+              <span className={`work-inbox-state ${["failed", "interrupted", "stale", "needs_attention"].includes(item.status) ? "is-error" : ""}`}>
                 {inbox.isUnseen(item) && <UnseenDot />}{labels[item.status] ?? "状态待核对"}</span>
-            </Link>)}
+            </Link>{item.collection_url && <Link className="work-inbox-collection" to={item.collection_url}
+              onClick={() => { inbox.markSeen(item); inbox.setOpen(false); }}>素材集：{item.collection_name ?? "查看素材"}</Link>}</div>)}
           </section> : null;
         })}
       </div>

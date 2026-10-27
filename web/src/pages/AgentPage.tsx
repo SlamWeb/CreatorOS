@@ -31,6 +31,8 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   manage_skill_iteration: "校准 Skill",
   manage_topics: "管理选题",
   manage_media_collection: "管理素材集",
+  manage_material: "管理素材",
+  manage_skill_library: "管理 Skill 库",
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const base = "/api/agent/sessions";

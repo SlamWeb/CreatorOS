@@ -9,9 +9,8 @@ async function post(request: APIRequestContext, url: string, data: object) {
 async function topicFixture(request: APIRequestContext, skillId?: string) {
   const suffix = crypto.randomUUID().slice(0, 6);
   const account = await post(request, "/api/creators", { display_name: `拆分测试-${suffix}` });
-  const series = skillId ? (await post(request, "/api/series", { creator_id: account.id, name: `多项制作-${suffix}`,
-    skill_name: skillId, request_id: crypto.randomUUID() })).series
-    : await post(request, `/api/creators/${account.id}/series`, { name: `多项制作-${suffix}` });
+  const series = (await post(request, "/api/series", { creator_id: account.id, name: `多项制作-${suffix}`,
+    skill_name: skillId ?? "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
     topics: [{ title: `同一个故事-${suffix}`, brief: "隔离接线测试，不调用付费生产。" }] });
   return { account, series, topicId: queued.topic_ids[0], url: `/?creator=${account.id}&series=${series.id}` };
@@ -136,6 +135,8 @@ test("lost task reply keeps one frozen submission across refresh and explicit re
 test("a task can explicitly select content and visual Skills without changing the series default", async ({ page, request }, info) => {
   const fixture = await topicFixture(request);
   const selected = await post(request, "/test/production-task-pair", {});
+  // Installed Skills now require explicit account-library references before use.
+  for (const skill of [selected.mind, selected.production]) await post(request, `/api/creators/${fixture.account.id}/skills`, { skill_id: skill.id, request_id: crypto.randomUUID() });
   await page.goto(`${fixture.url}&topic=${fixture.topicId}&production=split`);
   const dialog = page.getByRole("dialog", { name: "选题详情" });
   await dialog.getByRole("button", { name: "移除任务 2", exact: true }).click();

@@ -8,6 +8,7 @@
 .creator-task-summary ul { display: grid; gap: .25rem; margin: .55rem 0 0; padding: 0; list-style: none; }
 .creator-task-summary li > a, .creator-task-summary li > div { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto auto; align-items: baseline; gap: .65rem; padding: .35rem .4rem; border-radius: 6px; color: inherit; text-decoration: none; }
 .creator-task-summary li > a:hover { background: #f1f5f9; }
+.creator-task-summary li > .creator-task-collection { display: block; width: fit-content; max-width: 100%; margin-left: 5.15rem; color: var(--accent); font-size: 12px; overflow-wrap: anywhere; }
 .creator-task-kind, .creator-task-status { color: var(--ink-muted, #667085); font-size: .79rem; }
 .creator-task-title { min-width: 0; overflow-wrap: anywhere; font-size: .88rem; }
 .creator-task-status-failed { color: #a43c23; }

@@ -138,6 +138,8 @@ CREATOROS_PRODUCTION_CONCURRENCY=5
 
 想用自然语言操作，进入「Agent」；工作台的「账号 Agent」入口会绑定当前账号。总览适合平台级 Skill 管理和跨账号查看，账号对话适合该账号的栏目与选题操作。
 
+同一选题需要分多项生图、集中选片再制作视频时，见[多阶段制作使用说明](docs/staged-production/USAGE.md)。
+
 <details>
 <summary>可选：从 CLI 与同一个 Studio 对话</summary>
 

@@ -19,6 +19,8 @@ import "./run-inspector.css";
 
 type RunSkillSnapshot = { id: string; name: string; role: string; digest: string | null };
 function runSkills(run: RunDetail): RunSkillSnapshot[] {
+  const execution = run.input_snapshot.execution_spec as { skills?: { skill_id: string; name?: string; digest: string; role: string }[] } | undefined;
+  if (execution?.skills?.length) return execution.skills.map(skill => ({ id: skill.skill_id, name: skill.name ?? skill.skill_id, digest: skill.digest, role: skill.role }));
   const snapshot = run.input_snapshot as {
     skill_name?: unknown; skill_digest?: unknown;
     composition?: { mind?: { id?: unknown; name?: unknown; digest?: unknown }; production?: { id?: unknown; name?: unknown; digest?: unknown } };
@@ -59,11 +61,12 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const observationNode = btoa(JSON.stringify(["run", run.id])).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
   const { events, connection } = useRunEvents(run.id, ["queued", "producing", "validating", "running"].includes(run.status));
   const revision = run.revisions.find((item) => selected ? item.id === selected : item.revision_number === run.active_revision_number);
+  const videoTask = run.task_kind === "video" || (run.input_snapshot.execution_spec as { kind?: string } | undefined)?.kind === "video" || !!revision?.video;
   const old = revision ? revision.revision_number !== run.active_revision_number : false;
   const missingRevision = Boolean(selected) && !revision;
   const current = !old && !missingRevision;
   const latestRun = !run.latest_run_id || run.latest_run_id === run.id;
-  const canShowPublication = current && latestRun && !!revision?.publish_copy;
+  const canShowPublication = !videoTask && current && latestRun && !!revision?.publish_copy;
   const discuss = () => agentChat.open({ creatorId: run.creator_id, accountName: run.creator_name,
     draftSeed: `我想讨论作品「${run.topic_title}」${revision ? `的第 ${revision.revision_number} 版` : ""}。\nRun ID：${run.id}\n${revision ? `Revision ID：${revision.id}\n` : ""}请先查看这版实际图片，再和我讨论；不要自动改 Skill 或生产。\n我的问题：` });
   const discussionButton = <button type="button" className="button button-secondary" onClick={discuss}><MessageSquare size={16} aria-hidden="true" />讨论</button>;
@@ -82,24 +85,24 @@ export function RunInspector({ run }: { run: RunDetail }) {
     {missingRevision ? <div className="review-warning" role="alert">找不到这个内容版本。<button className="text-link" onClick={() => setSelected(null)}>返回当前版本</button></div> : null}
     {run.error_message ? <p className="review-warning" role="alert">{run.error_message}</p> : null}
     <div className="inspector-grid">
-      <section className="inspector-visual" aria-label="产物图片">
+      <section className="inspector-visual" aria-label={videoTask ? "产物视频" : "产物图片"}>
         <div className="run-visual-toolbar">
           {collectionLink && <Link className="button button-secondary" to={collectionLink}>素材文件夹</Link>}
           <select aria-label="内容版本" value={revision?.id ?? ""} onChange={(e) => setSelected(e.target.value)} disabled={!run.revisions.length}>{missingRevision ? <option value="" disabled>版本不存在</option> : null}{[...run.revisions].reverse().map((item) => <option key={item.id} value={item.id}>第 {item.revision_number} 版{item.revision_number === run.active_revision_number ? " · 当前" : " · 历史"}</option>)}</select>
         {revision?.cards.length && revision.review_digest ? <ArtifactDownload key={`${run.id}-${revision.id}-${revision.review_digest}`} runId={run.id} title={run.topic_title} revision={revision} /> : null}
         {revision?.cards.length && revision.review_digest ? <Link className="button button-secondary" to={`/calibrate?run=${encodeURIComponent(run.id)}&revision=${encodeURIComponent(revision.id)}`}>改进 Skill</Link> : null}
         </div>
-        {revision?.cards.length ? <Carousel key={revision.id} cards={revision.cards} /> : partialCards.length ? null : <div className="artifact-empty"><h2>{revision?.artifact_error ? "图片无法读取" : run.status === "producing" ? "正在制作图片" : "还没有图片"}</h2>{revision?.artifact_error ? <p role="alert">{revision.artifact_error}</p> : null}</div>}
+        {videoTask ? revision?.video ? <VideoArtifact key={revision.id} video={revision.video} title={run.topic_title} /> : <div className="artifact-empty"><h2>{revision?.artifact_error ? "视频无法读取" : run.status === "producing" ? "正在制作视频" : "还没有视频"}</h2>{revision?.artifact_error && <p role="alert">{revision.artifact_error}</p>}</div> : revision?.cards.length ? <Carousel key={revision.id} cards={revision.cards} /> : partialCards.length ? null : <div className="artifact-empty"><h2>{revision?.artifact_error ? "图片无法读取" : run.status === "producing" ? "正在制作图片" : "还没有图片"}</h2>{revision?.artifact_error ? <p role="alert">{revision.artifact_error}</p> : null}</div>}
         {partialCards.length ? <PartialPreviews pages={partialCards} /> : null}
       </section>
       <aside className="inspector-copy">
         <section className="run-review-console" aria-label="验收与返工">
           <h2>{old ? "历史版本" : "验收与返工"}</h2>
           {!old && revision ? <ReviewActions key={`${run.id}-${revision.id}`} run={run} revision={revision} onRevision={() => setSelected(null)}
-            discussion={discussionButton}
+            discussion={videoTask ? null : discussionButton}
             publishAction={run.status === "approved" && canShowPublication ? <button type="button" className="button button-primary" onClick={() => setPanel("publish")}>{run.publication ? "查看发布" : "去发布"}</button> : undefined}
-            freshAction={current && run.allowed_actions.includes("fresh") ? <FreshProductionAction key={`${run.id}-${run.version}`} run={run} returnTo={returnTo} /> : undefined} />
-            : <div className="run-primary-actions">{discussionButton}</div>}
+            freshAction={!videoTask && current && run.allowed_actions.includes("fresh") ? <FreshProductionAction key={`${run.id}-${run.version}`} run={run} returnTo={returnTo} /> : undefined} />
+            : !videoTask ? <div className="run-primary-actions">{discussionButton}</div> : null}
           {current ? <RunControls run={run} compact /> : null}
         </section>
         {usedSkills.length ? <section className="run-skill-links" aria-label="本次运行使用的 Skill">
@@ -110,7 +113,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
           })}
           {skills.isError ? <button type="button" className="text-link" onClick={() => void skills.refetch()}>Skill 读取失败，重试</button> : null}
         </section> : null}
-        <div className="run-panel-tabs" aria-label="内容面板">
+        {!videoTask && <><div className="run-panel-tabs" aria-label="内容面板">
           <button type="button" aria-pressed={panel === "copy"} onClick={() => setPanel("copy")}>文案</button>
           {panel === "discussion" && <button type="button" aria-pressed onClick={() => setPanel("discussion")}>旧讨论</button>}
           {canShowPublication ? <button type="button" aria-pressed={panel === "publish"} onClick={() => setPanel("publish")}>发布</button> : null}
@@ -123,6 +126,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
           <PublicationPanel key={`${run.id}-${revision.id}`} run={run} revision={revision} active={panel === "publish"} />
           {run.status === "approved" && publicationRequest.isSuccess && !publicationRequest.data ? <section className="manual-publication-fallback"><button className="button button-quiet" type="button" aria-expanded={manualOpen} onClick={() => setManualOpen(!manualOpen)}>{manualOpen ? "收起手动发布记录" : "手动发布记录"}</button>{manualOpen ? <ManualPublicationPanel run={run} revision={revision} /> : null}</section> : null}
         </div> : null}
+        </>}
       </aside>
     </div>
     <section className="run-records">
@@ -130,7 +134,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
       <div id="run-history" hidden={!historyOpen}>
       <nav className="run-record-links" aria-label="技术记录入口">
       <Link className="button button-quiet" to={`/observation?node=${encodeURIComponent(observationNode)}`}>Observation</Link>
-      <button type="button" className="button button-quiet" onClick={() => setPanel("discussion")}>旧讨论记录</button>
+      {!videoTask && <button type="button" className="button button-quiet" onClick={() => setPanel("discussion")}>旧讨论记录</button>}
       </nav>
       <span className="stream-status" role="status">{connection}</span>
       {revision?.instruction ? <div className="revision-note"><h3>本版返工要求</h3><p>{revision.instruction}</p></div> : null}
@@ -142,6 +146,14 @@ export function RunInspector({ run }: { run: RunDetail }) {
     {inspectedSkill && <SkillInspector key={inspectedSkill.id} skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: run.creator_id, seriesId: run.series_id, runId: run.id, revisionId: revision?.id }} />}
   </article>;
+}
+
+function VideoArtifact({ video, title }: { video: NonNullable<RevisionView["video"]>; title: string }) {
+  const [failed, setFailed] = useState(false);
+  return <div className="run-video-artifact"><video aria-label={`视频产物：${title}`} controls preload="metadata" src={apiUrl(video.url)} width={video.width} height={video.height} onError={() => setFailed(true)} />
+    {failed && <p className="form-error" role="alert">视频播放失败，请重新读取详情或下载文件检查。</p>}
+    <div className="run-video-meta"><span>{video.width} × {video.height} · {video.duration_seconds.toFixed(1)} 秒 · {video.has_audio ? "含音轨" : "无音轨"}</span><a className="button button-secondary" download href={apiUrl(video.url)}>下载 MP4</a></div>
+  </div>;
 }
 
 function FreshProductionAction({ run, returnTo }: { run: RunDetail; returnTo: string }) {
@@ -307,7 +319,7 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
   return <div className="review-actions">
     <div className="run-primary-actions">
     {publishAction}
-    {run.allowed_actions.includes("approve") ? <button className="button button-primary approve-button" disabled={mutation.isPending || conflict || !revision.review_digest || !revision.cards.length} onClick={() => mutation.mutate("approve")}>批准第 {revision.revision_number} 版</button> : null}
+    {run.allowed_actions.includes("approve") ? <button className="button button-primary approve-button" disabled={mutation.isPending || conflict || !revision.review_digest || (!revision.cards.length && !revision.video)} onClick={() => mutation.mutate("approve")}>批准第 {revision.revision_number} 版</button> : null}
     {discussion}
     </div>
     {run.allowed_actions.includes("revise") || freshAction ? <div className="run-rework-actions">
@@ -315,7 +327,7 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
     {freshAction}
     </div> : null}
     {run.status === "approved" ? <p className="approval-receipt">{run.publication ? "已发布" : "已批准 · 尚未发布"}</p> : null}
-    {editing ? <form onSubmit={(e) => { e.preventDefault(); mutation.mutate("revise"); }}><label>告诉生产者要改哪里<textarea autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder="例如：第二张的例子太抽象，换成点餐场景。" /></label><div className="form-actions"><button className="button button-primary" disabled={!instruction.trim() || mutation.isPending || conflict}>保存返工要求</button><button className="button button-quiet" type="button" onClick={() => setEditing(false)}>收起</button></div><p className="approval-note">保留旧图，创建新版本；现在不会开始生产。</p></form> : null}
+    {editing ? <form onSubmit={(e) => { e.preventDefault(); mutation.mutate("revise"); }}><label>告诉生产者要改哪里<textarea autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder={revision.video ? "例如：开场停留两秒，降低背景音乐音量。" : "例如：第二张的例子太抽象，换成点餐场景。"} /></label><div className="form-actions"><button className="button button-primary" disabled={!instruction.trim() || mutation.isPending || conflict}>保存返工要求</button><button className="button button-quiet" type="button" onClick={() => setEditing(false)}>收起</button></div><p className="approval-note">保留旧产物，创建新版本；现在不会开始生产。</p></form> : null}
     {receipt && run.status !== "approved" ? <p className="copy-receipt" role="status">{receipt}</p> : null}
     {mutation.isError ? <div className="form-error" role="alert">{conflict ? "内容已变化，请重新检查；本次操作没有被自动重试。" : mutation.error.message}<button className="text-link" onClick={async () => { await queryClient.refetchQueries({ queryKey: ["run", run.id] }); mutation.reset(); }}>重新检查</button></div> : null}
   </div>;

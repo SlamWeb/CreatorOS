@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ListChecks, MoreHorizontal, RefreshCw, Search, X } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
-import type { PageResponse, ProducerSkillItem, SeriesView, TopicSkillUsage, TopicView } from "../api/types";
+import type { PageResponse, ProducerSkillItem, SeriesView, TopicSkillUsage, TopicView, SkillLibraryView } from "../api/types";
 import { StatusPill } from "./StatusPill";
 import { TopicResearchPanel } from "./TopicResearchPanel";
 import { ProductionTasksPanel } from "./ProductionTasksPanel";
@@ -15,19 +15,19 @@ type PendingTopic = { id: string; title: string; selection_state: "pending"; bat
   production_state?: "unproduced" | "produced"; skill_usage?: TopicSkillUsage };
 type LibraryTopic = PendingTopic | (TopicView & { selection_state: "queued" });
 
-function TopicSkills({ topic }: { topic: LibraryTopic }) {
-  const usage = topic.skill_usage;
+function TopicSkills({ topic, defaultSkills }: { topic: LibraryTopic; defaultSkills?: ProducerSkillItem[] }) {
+  const usage = topic.skill_usage?.source === "series" && defaultSkills ? { source: "series" as const, items: defaultSkills.map(skill => ({ id: skill.id, name: skill.display_name ?? skill.name, version_number: skill.version_number ?? null, version_status: skill.version_status ?? null })) } : topic.skill_usage;
   if (!usage) return null;
   const label = usage.source === "external" ? "外部导入" : usage.source === "series" ? "将用"
     : topic.production_state === "produced" ? "已用" : "任务用";
   return <div className="topic-skill-usage" aria-label="生产使用的 Skill"
-    title={usage.source === "series" ? "栏目当前绑定版本，提交生产时确定" : "本次任务的版本，继续生产不会换成栏目新版"}>
+    title={usage.source === "series" ? "栏目生图默认版本，提交生产时确定" : "本次任务的版本，继续生产不会换成栏目新版"}>
     <span>{label}</span>
     {usage.items.map(skill => <Link key={skill.id} to={`/skills?skill=${encodeURIComponent(skill.id)}`}>
       <span>{skill.name}</span><small>{skill.version_number ? `v${skill.version_number}${skill.version_status === "candidate" ? " · 候选" : ""}`
         : skill.id === "knowledge-to-carousel" ? "内置" : "版本未知"}</small>
     </Link>)}
-    {!usage.items.length && usage.source !== "external" && <span>未记录 Skill</span>}
+    {!usage.items.length && usage.source !== "external" && <span>{usage.source === "series" ? "未设置生图默认" : "未记录 Skill"}</span>}
   </div>;
 }
 
@@ -42,6 +42,10 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const client = useQueryClient();
+  const skillPool = useQuery({ queryKey: ["series-skills", seriesId], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(seriesId)}/skills`), enabled: !!series?.creator_id, retry: false });
+  const defaultSkills = skillPool.data?.defaults.image.flatMap(selected => {
+    const skill = [...skillPool.data.items, ...skills].find(item => item.id === selected.skill_id); return skill ? [skill] : [];
+  });
   const [researchOpen, setResearchOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [pendingSelection, setPendingSelection] = useState<string[]>([]);
@@ -265,7 +269,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
               onClick={() => rememberReturn(topic.id)}>{content}</Link>
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
-        {!(topic.selection_state === "queued" && topic.production_task_count) && <TopicSkills topic={topic} />}
+        {!(topic.selection_state === "queued" && topic.production_task_count) && <TopicSkills topic={topic} defaultSkills={defaultSkills} />}
         <footer className="content-card-footer">
           {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
             aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending || batch.isPending}
@@ -325,7 +329,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
       }}
       startRemoving={removePromptId === detail.id} onChoose={chooseBatch}
       returnUrl={detailReturnUrl} onOpenRun={() => rememberReturn(detail.id, detailReturnUrl)}
-      series={series} skills={skills} startSplitting={params.get("production") === "split"}
+      series={series} skills={skills} defaultSkills={defaultSkills} startSplitting={params.get("production") === "split"}
       startButton={startButton} onDiscuss={onDiscuss} onChanged={async () => {
         await Promise.all([client.invalidateQueries({queryKey:["topics"]}), client.invalidateQueries({queryKey:["series-all"]})]);
       }} onRemovedChanged={async () => {
@@ -341,13 +345,13 @@ function CardCover({ url, title }: {url: string; title: string}) {
     : <img className="content-card-cover" src={apiUrl(url)} alt={`${title} · 第一张图片`} loading="lazy" onError={() => setFailed(true)} />;
 }
 
-function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onChoose, startButton, onDiscuss, onChanged, onRemovedChanged, returnUrl, onOpenRun, series, skills, startSplitting }: {
+function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onChoose, startButton, onDiscuss, onChanged, onRemovedChanged, returnUrl, onOpenRun, series, skills, defaultSkills, startSplitting }: {
   topic: LibraryTopic; onClose: () => void; onChoose: (topic: PendingTopic) => void;
   onRemoved: () => void; requestId: () => string; startRemoving: boolean;
   returnUrl: string; onOpenRun: () => void;
   startButton: (topic: TopicView) => ReactNode; onDiscuss?: (title: string, topic?: TopicView) => void;
   onChanged: () => Promise<void>; onRemovedChanged: () => Promise<void>;
-  series?: SeriesView; skills: ProducerSkillItem[]; startSplitting: boolean;
+  series?: SeriesView; skills: ProducerSkillItem[]; defaultSkills?: ProducerSkillItem[]; startSplitting: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState(topic.title);
@@ -366,7 +370,7 @@ function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onCh
   return <dialog ref={dialog} className="topic-detail-dialog" aria-label="选题详情" onCancel={e => {e.preventDefault();onClose();}}>
     <header><span>{pending ? "待选建议" : "选题详情"}</span><button type="button" aria-label="关闭选题详情" onClick={onClose}><X size={18} /></button></header>
     <h2>{topic.title}</h2>
-    {!(topic.selection_state === "queued" && topic.production_task_count) && <TopicSkills topic={topic} />}
+    {!(topic.selection_state === "queued" && topic.production_task_count) && <TopicSkills topic={topic} defaultSkills={defaultSkills} />}
     {editing ? <form className="candidate-editor" onSubmit={e => {e.preventDefault();if(title.trim() && !remove.isPending) save.mutate();}}>
       <label>标题<input required maxLength={240} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label>切入点<textarea aria-label="切入点" rows={5} maxLength={10000} value={brief} onChange={e => setBrief(e.target.value)} /></label>

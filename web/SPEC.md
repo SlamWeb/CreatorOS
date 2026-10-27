@@ -882,6 +882,14 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - 以隔离临时 SQLite 启动同一 API，页面能显示真实测试账号/栏目/选题布局；测试数据不进入正式库。
 - 在 1440×900 和 390px 宽检查首屏层级、无横向溢出、详情可回退；浏览器刷新详情 URL 仍由前端路由承接。
 
+## 等待制作任务可见性（2026-10-27，已验证）
+
+- 用户目标：已提交但尚无 Run 的剪辑任务，在账号任务、任务铃铛与 Observation 均可找回；点击原选题继续检查等待原因，也能打开具名素材集。沿用现有布局与配色，仅补真实状态文案和链接。
+- 数据由数据库保存，读取不启动/恢复任务。等待、待核对、已取消属于制作任务；一旦有 Run，摘要只计算 Run，避免双计。冻结账号/栏目与当前归属不符、已移除/停用的对象不进入普通列表。
+- 验收：Given 等待且无 Run When 查看/刷新 Then 原任务仍可见且无新增写入；Given needs_attention/cancelled Then 显示准确状态；Given 已分派 Run Then 仅一条生产记录；Given 账号迁移或已移除 Then 不泄露原任务；桌面/390px 检查具名选题与素材集链接及键盘返回。
+- 只读共享投影接入账号任务、任务铃铛、Observation；待核对独立计数，不伪称生产失败。get_creator_tasks 的宿主导航回执也接受具名选题/素材集入口，不把 definition 或主机路径送入 Agent。
+- 新增 SQLite/真实 loopback HTTP 回归覆盖三种无 Run 状态、归属、移除、分派去重与读取零写入；`task-inbox.spec.ts` 全四项通过，实际点击原选题/素材集、刷新和 Observation，原未读/网络失败恢复仍通过。1440×900、390×844 截图已看，保存在 `tmp/staged-task-visibility-qa/`；typecheck/build 通过，局部 detector 无发现。
+
 ## 最近验证
 
 - 2026-09-03：`npm install` 安装 31 个前端依赖，`npm run typecheck` 与 `npm run build` 通过（Vite 8.2.2，产物约 284 kB JS / 13.4 kB CSS）。
@@ -944,3 +952,18 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 - 最终 build 通过，单次 detector []。隔离 Chrome 实际操作覆盖无图、带图、完整 Markdown 声明冲突422且保留输入、图片文件树预览及刷新；真实 DeepSeek 保存草稿后明确确认入库/建栏目，两独立轮均通过。17项后端自动测试与已知原有回归失败边界见 integrations/SPEC.md。
 - 1440×900/390×844 全页截图已逐张查看；c轮功能报告与Trace在 tmp/authored-skill-browser-20261019-c，d轮仅UI复核在 tmp/authored-skill-browser-20261019-d。手机FAB/文本框/保存按钮无交叠，聊天可开关，收表单恢复原右侧位置，无横向溢出、浏览器错误或意外写入；根 .impeccable/review/author-{desktop,mobile}.png 为忽略的QA副本，无新上线位图。
 - 独立 finish reviewer 初轮 fix，复核后 ship，仅评分手机遮挡修复及其回归；缺失 PRODUCT.md 的要求按窄扩展规则撤回，不将该 verdict 宣称为全站审计通过。独立 documenter 比对截图、theme/styles与组件后确认此局部无新增体系漂移，保留现有体系，不生成 PRODUCT/DESIGN/sidecar；旧配色/Logo/主题未变。
+
+# 多阶段制作界面（2026-10-27，受控验证通过，真实模型验收由主任务记录）
+
+- 目标：账号集中管理可用 Skill 引用，栏目维护常用池和生图/视频默认；选题下每个任务独立选主/辅助 Skill；素材集直接提交视频制作。保持现有配色、字体、logo 和图片生产入口。
+- 入口与返回：账号工作区新增「Skill 库」标签；栏目设置内编辑常用池/阶段默认；选题「拆分制作」增加一主多辅；素材集「制作视频」展开表单，提交后回同选题任务列表。视频详情沿用验收/返工，显示播放器和 MP4 下载，隐藏图片专用讨论/发布。
+- 状态：服务器拥有库/池/任务/材料；URL 保存当前账号/栏目/选题/素材集；图片任务、视频任务草稿仅暂存在本标签页 sessionStorage。写入不自动重试，提交前冻结精确 request_id 与正文；结果不明只能核对同请求。Skill 冲突保留所见草稿并提供重读，不偷换版本重发。
+- 空/失败：空库引导从已安装 Skill 添加；无视频 Skill 引导账号库；链接解析成功才可选 BGM；无保留图片禁止立即提交；等待模式须明确勾选当前选题图片任务。waiting/needs_attention 无 Run 时显示真实等待原因，提供显式准备重试/取消等待。
+- Given 已添加 Skill When 刷新账号页 Then 引用仍存在；Given 栏目常用池 When 保存/刷新 Then 默认保留；Given 409 When 保存 Then 显示错误且保留草稿；Given 多辅助 Skill When 提交 Then 精确 digest/role 入任务；Given 视频任务 When 上传/选 BGM 并提交 Then 同选题出现独立视频任务，刷新不重提；Given 视频产物 When 打开 Then 可播放/下载/验收，图片讨论和发布入口不出现。
+- 验证计划：隔离 Vite 输出 `tmp/staged-ui/dist`，隔离 SQLite/8877 的真实 HTTP E2E；受控生产仅证明 UI/持久化接线，不证明 Codex 真视频。真实 DS/Codex 由本轮主任务验证；正式 dist/服务由维护门槛单独处理。
+- 当前验证：TypeScript 检查、独立 Vite build、Impeccable detector `[]` 通过（现有 chunk 大小警告保留）；`playwright.staged.config.ts` 在 8877/临时 SQLite 中 8 passed（1.8m），包括账号引用/刷新、栏目池409保留草稿、空栏目创建/配置默认后卡片展示、一主多辅摘要冻结、坏音频拒绝且保留草稿、有效BGM上传、视频提交/刷新不重发、真实MP4播放时间前进/下载/批准刷新、缺图依赖无Run/取消等待刷新，以及当前界面单图生产→返工停queued→手动开始→批准刷新。
+- 已看图：1440×900 与 390×844 的账号库、栏目池、视频表单和视频详情；截图位于 `tmp/staged-ui/test-results`。修正栏目设置原有全局label flex让主Skill标题折成窄列，以及账号库Skill引用缺少按钮样式的问题；配色/logo未变。
+- 最终视频专项复核 1 passed（49.4s）：表单打开时聊天悬浮按钮移至导航留白，手机视频验收同样避让；额外断言手机按钮右缘不超过72px，避免覆盖解析链接/批准。新工具 `manage_material` / `manage_skill_library` 显示中文标签。
+- 账号库最终样式/行为复核 1 passed（19.2s），账号库与栏目池桌面/手机截图保留在 `tmp/staged-ui/library-results`；视频最终复核截图在 `tmp/staged-ui/test-results`。
+- 真实浏览器发现的阶段默认展示问题：空栏目设置image默认后，旧卡片/栏目标题仍只读legacy绑定而显示未记录。现在顶部/卡片/详情读取同一栏目阶段默认；旧Run仍显示其冻结快照。新增“空栏目→配置默认→新选题展示”回归。
+- 旧 `studio-workflow.spec.ts` 首个已知失败为未展开“添加选题”便填写隐藏input（第29行），属于既有脚本与现UI不一致；本轮没有修改原脚本消除该失败，使用新增明确覆盖当前单图入口/返工/批准的回归。8 passed 是本轮隔离套件，不等于全站旧套件全部通过。受控图片/视频Producer不构成真Codex能力证明；真人审美与真实DS/Codex结论由主任务分别记录。

@@ -3,6 +3,7 @@ const labels: Record<string, string> = {
   interrupted: "已中断", failed: "失败", approved: "已批准", cancelled: "已取消",
   active: "运营中", draft: "草稿", ready: "就绪",
   production_pending: "排队中", needs_attention: "待核对",
+  waiting: "等待材料", dispatching: "准备执行",
 };
 
 export function StatusPill({ status }: { status: string | null | undefined }) {

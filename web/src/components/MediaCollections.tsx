@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Download, Folder, Pause, Play, Plus, RefreshCw } from "lucide-react";
 import { ApiError, apiUrl, request } from "../api/client";
 import { StatusPill } from "./StatusPill";
+import { VideoProductionForm } from "./VideoProductionForm";
 import "./media-collections.css";
 
 type CollectionSummary = { id: string; name: string; version: number; topic_id: string | null };
@@ -136,6 +137,7 @@ function CollectionContent({ creatorId, collectionId, pickerSources, pickerError
   const [sourceDraft, setSourceDraft] = useState<{ ids: string[]; version: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ name: string; version: number } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const downloadAbort = useRef<AbortController | null>(null);
   useEffect(() => () => downloadAbort.current?.abort(), []);
@@ -203,10 +205,11 @@ function CollectionContent({ creatorId, collectionId, pickerSources, pickerError
     <div className="media-selection-toolbar"><div className="media-actions"><button type="button" className="button button-secondary" disabled={busy || included.length === data.items.length} onClick={() => patch({ excluded_ids: [] })}>全部保留</button>
       <button type="button" className="button button-secondary" disabled={busy || !included.length} onClick={() => patch({ excluded_ids: data.items.map(item => item.id) })}>全部排除</button>
       <button type="button" className="button button-secondary" disabled={busy || data.items.length < 2} onClick={() => { setNotice(""); write.mutate({ suffix: "/sort", method: "POST", body: { expected_version: data.version, snapshot_digest: data.snapshot_digest } }); }}>相近排序（试验性）</button></div>
-      <div className="media-actions"><button type="button" className="button button-secondary" disabled={!included.length || busy} aria-expanded={previewOpen} onClick={() => setPreviewOpen(value => !value)}>{previewOpen ? "收起预览" : "连续预览"}</button>
+      <div className="media-actions"><button type="button" className="button button-secondary" disabled={busy} aria-expanded={videoOpen} onClick={() => setVideoOpen(value => !value)}>{videoOpen ? "收起视频制作" : "制作视频"}</button><button type="button" className="button button-secondary" disabled={!included.length || busy} aria-expanded={previewOpen} onClick={() => setPreviewOpen(value => !value)}>{previewOpen ? "收起预览" : "连续预览"}</button>
       <button type="button" className="button button-primary" disabled={!included.length || busy} onClick={() => download.mutate(data)}><Download size={16} aria-hidden="true" />{download.isPending ? "打包中…" : `下载所选 ZIP（${included.length}）`}</button></div>
     </div>
     <p className="media-hint">相近排序只调整图片顺序；勾选保留的图片用于预览和下载。</p>
+    {videoOpen && <VideoProductionForm creatorId={creatorId} collectionId={collectionId} topicId={data.topic_id} includedCount={included.length} topics={Array.from(new Map([...data.sources, ...pickerSources].filter(source => source.topic_id).map(source => [source.topic_id!, { id: source.topic_id!, title: source.topic_title ?? source.run_title }])).values())} />}
     {write.isError && <p className="form-error" role="alert">{errorMessage(write.error)} <button type="button" className="text-link" disabled={busy} onClick={() => { void refresh(); setRename(null); setSourceDraft(null); write.reset(); }}>重新读取并检查</button></p>}
     {remove.isError && <p className="form-error" role="alert">{errorMessage(remove.error)}</p>}
     {download.isError && <p className="form-error" role="alert">{download.error.message}</p>}

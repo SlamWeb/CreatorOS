@@ -3,8 +3,8 @@ import { Plus, Settings2 } from "lucide-react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCreators } from "../api/hooks";
-import { studioApi } from "../api/client";
-import type { ProducerSkillItem, SeriesView, TopicView } from "../api/types";
+import { request, studioApi } from "../api/client";
+import type { ProducerSkillItem, SeriesView, TopicView, SkillLibraryView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { TopicLibrary } from "../components/TopicLibrary";
 import { useAgentChat } from "../components/AgentChatHost";
@@ -13,6 +13,7 @@ import { SkillReferenceButton } from "../components/SkillReferenceButton";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { MediaCollections } from "../components/MediaCollections";
+import { CreatorSkillLibrary, SeriesSkillPool } from "../components/SkillLibrary";
 import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./workspace.css";
 
@@ -35,7 +36,7 @@ export function WorkspacePage() {
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const [accountDraft, setAccountDraft] = useState<{ name: string; handle: string } | null>(null);
   const [seriesDraft, setSeriesDraft] = useState<{ name: string; creatorId: string | null } | null>(null);
-  const [recipe, setRecipe] = useState<"legacy" | "pair">("legacy");
+  const [recipe, setRecipe] = useState<"none" | "legacy" | "pair">("none");
   const [pairMind, setPairMind] = useState("");
   const [pairVisual, setPairVisual] = useState("");
   const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
@@ -93,13 +94,13 @@ export function WorkspacePage() {
   const createSeries = useMutation({
     retry: false,
     mutationFn: (input: { name: string; creatorId: string | null }) => studioApi.composeSeries(
-      recipe === "pair"
+      recipe === "none" ? { name: input.name, description: "", audience: "", creator_id: input.creatorId, request_id: crypto.randomUUID().replaceAll("-", "") } : recipe === "pair"
         ? { name: input.name, description: "", audience: "", creator_id: input.creatorId,
             mind_skill_id: pairMind, production_skill_id: pairVisual, request_id: crypto.randomUUID().replaceAll("-", "") }
         : { name: input.name, description: "", audience: "", creator_id: input.creatorId,
             skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID().replaceAll("-", "") },
     ),
-    onSuccess: async (result) => { setSeriesDraft(null); setRecipe("legacy"); await refresh(); selectSeries(result.series.id, result.series.creator_id); },
+    onSuccess: async (result) => { setSeriesDraft(null); setRecipe("none"); await refresh(); selectSeries(result.series.id, result.series.creator_id); },
   });
 
   const assign = useMutation({
@@ -220,7 +221,8 @@ export function WorkspacePage() {
         }}>
           <input autoFocus required maxLength={120} placeholder="栏目名称" value={seriesDraft.name}
             aria-label="新栏目名称" onChange={event => setSeriesDraft({ ...seriesDraft, name: event.target.value })} />
-          <select aria-label="配方" value={recipe} onChange={event => setRecipe(event.target.value as "legacy" | "pair")}>
+          <select aria-label="配方" value={recipe} onChange={event => setRecipe(event.target.value as "none" | "legacy" | "pair")}>
+            <option value="none">稍后在栏目设置选择 Skill</option>
             <option value="legacy">知识点轮播</option>
             <option value="pair">组合（Mind × Visualize）</option>
           </select>
@@ -259,14 +261,14 @@ export function WorkspacePage() {
       {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {params.has("creator") && !account && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && (series || !["data", "materials"].includes(params.get("view") ?? "")) && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
+      {account && (series || !["data", "materials", "skills"].includes(params.get("view") ?? "")) && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={() => setSeriesDraft({name:"",creatorId:scopedCreatorId})}>新建栏目</button>}
       </header>
-      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials"].includes(params.get("view") ?? "") ? params.get("view") : "content") === tab.value}
+      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"},{value:"skills",label:"Skill 库"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials","skills"].includes(params.get("view") ?? "") ? params.get("view") : "content") === tab.value}
         onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value !== "content") next.set("view",tab.value); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
-      {account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
+      {account && params.get("view") === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={setInspectedSkill} /> : account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
       {!!accountSeries.some(item => item.topic_count > 0) && <>{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
         accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}
@@ -306,6 +308,9 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
 }) {
   const client = useQueryClient();
   const [topicTitle, setTopicTitle] = useState("");
+  const skillPool = useQuery({ queryKey: ["series-skills", series.id], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(series.id)}/skills`), enabled: !!series.creator_id, retry: false });
+  const stageGroups = skillPool.data ? (["image", "video"] as const).map(kind => ({ kind, ids: skillPool.data.defaults[kind].map(item => item.skill_id) }))
+    : [{ kind: "image", ids: series.skill_name ? [series.skill_name] : [series.mind_skill_id, series.production_skill_id].filter((id): id is string => !!id) }];
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -353,15 +358,16 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   const heading = <div className="workspace-title-group">
         {overview ? <h2><button type="button" onClick={onSelect}>{series.name} <span aria-hidden="true">→</span></button></h2> : <h1>{series.name}</h1>}
         {!overview && <><div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
-          {(series.skill_name ? [series.skill_name] : [series.mind_skill_id, series.production_skill_id].filter((id): id is string => !!id))
+          {!stageGroups.some(group => group.ids.length) && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目常用 Skill</button>}
+          {stageGroups.filter(group => group.ids.length).map(group => <div key={group.kind}><span className="muted">{group.kind === "video" ? "视频默认：" : "生图默认："}</span>{group.ids
             .map((id, index) => {
-              const bound = skills.find(item => item.id === id || item.name === id);
+              const bound = [...(skillPool.data?.items ?? []), ...skills].find(item => item.id === id || item.name === id);
               const label = bound?.display_name ?? bound?.name ?? "Skill 信息不可读取";
               return <span key={`${id}-${index}`}>
                 {index > 0 && <span aria-hidden="true"> × </span>}
                 <SkillReferenceButton id={id} known={bound} fallback={label} onInspect={onInspectSkill} showVersion />
               </span>;
-            })}
+            })}</div>)}
         </div>
         </>}
       </div>;
@@ -394,6 +400,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
       {onDelete && <button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
         disabled={deletePending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>}
       </div>
+      {settingsOpen && series.creator_id && <SeriesSkillPool key={`${series.id}:${series.creator_id}`} seriesId={series.id} creatorId={series.creator_id} />}
     </div>}
     {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
     {!overview && <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {

@@ -94,6 +94,8 @@ export const studioApi = {
   productionTasks: (topicId: string) => request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks`),
   createProductionTasks: (topicId: string, input: { request_id: string; tasks: ProductionTaskInput[] }) =>
     request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks`, { method: "POST", body: JSON.stringify(input) }),
+  resumeProductionTask: (topicId: string, taskId: string) => request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks/${encodeURIComponent(taskId)}/resume`, { method: "POST", body: "{}" }),
+  cancelProductionTask: (topicId: string, taskId: string) => request<ProductionTaskList>(`/api/topics/${encodeURIComponent(topicId)}/production-tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST", body: "{}" }),
   previewOperation: (input: OperationPreviewInput) => request<PendingOperationView>("/api/operations/preview", { method: "POST", body: JSON.stringify(input) }),
   proposeOperation: (input: OperationProposeInput) => request<PendingOperationView>("/api/operations/propose", { method: "POST", body: JSON.stringify(input) }),
   operation: (id: string) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}`),
