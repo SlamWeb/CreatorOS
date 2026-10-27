@@ -177,10 +177,11 @@ class Series(TimestampMixin, Base):
         CheckConstraint(
             "publish_policy IN ('approval', 'auto')", name="publish_policy_values"
         ),
-        # 栏目只能是旧单 Skill 或完整 mind+production 组合，禁止半套绑定。
+        # Legacy defaults remain valid; new series can use only a stage Skill pool.
         CheckConstraint(
             "(skill_name IS NOT NULL AND mind_skill_id IS NULL AND production_skill_id IS NULL) "
-            "OR (skill_name IS NULL AND mind_skill_id IS NOT NULL AND production_skill_id IS NOT NULL)",
+            "OR (skill_name IS NULL AND mind_skill_id IS NOT NULL AND production_skill_id IS NOT NULL) "
+            "OR (skill_name IS NULL AND mind_skill_id IS NULL AND production_skill_id IS NULL)",
             name="skill_binding_shape",
         ),
         CheckConstraint("revision > 0", name="revision_positive"),
@@ -438,6 +439,23 @@ class ProductionTask(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     collection_id: Mapped[str | None] = mapped_column(ForeignKey("media_collections.id", ondelete="RESTRICT"))
     create_request_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="image", server_default="image", nullable=False)
+    definition_json: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
+    dependency_json: Mapped[list] = mapped_column(JSON, default=list, server_default="[]", nullable=False)
+    dispatch_state: Mapped[str] = mapped_column(String(30), default="dispatched", server_default="dispatched", nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class ManagedMaterial(TimestampMixin, Base):
+    """Account-owned input bytes; source URLs are provenance, not identity."""
+    __tablename__ = "managed_materials"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id", ondelete="RESTRICT"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    kind: Mapped[str] = mapped_column(String(20))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class ContentRun(TimestampMixin, Base):
@@ -740,6 +758,26 @@ class PublicationFeedbackState(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class CreatorSkillRef(TimestampMixin, Base):
+    """Account-owned references to shared Skill families; no Skill file copies."""
+    __tablename__ = "creator_skill_refs"
+    __table_args__ = (CheckConstraint("version > 0", name="version_positive"),)
+    creator_id: Mapped[str] = mapped_column(ForeignKey("creators.id", ondelete="CASCADE"), primary_key=True)
+    skill_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    request_ids_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class SeriesSkillRef(TimestampMixin, Base):
+    """Frequent account Skill subset and explicit defaults by output kind."""
+    __tablename__ = "series_skill_refs"
+    __table_args__ = (CheckConstraint("version > 0", name="version_positive"),)
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id", ondelete="CASCADE"), primary_key=True)
+    skill_ids_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    defaults_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class SkillCalibration(TimestampMixin, Base):

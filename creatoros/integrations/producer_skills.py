@@ -48,6 +48,19 @@ def _validate_skill_frontmatter(content: str) -> dict:
     return parse_skill_frontmatter(content)
 
 
+def declared_skill_outputs(directory: Path) -> list[str]:
+    """Output claims from frozen Skill metadata, independent from its use role."""
+    metadata = parse_skill_frontmatter((Path(directory) / "SKILL.md").read_text(encoding="utf-8"))
+    outputs = metadata.get("creatoros-outputs", [])
+    if isinstance(outputs, str):
+        outputs = [outputs]
+    if not isinstance(outputs, list) or any(not isinstance(value, str) or value not in {"image", "video"} for value in outputs):
+        raise ValueError("creatoros-outputs 只能声明 image、video。")
+    if metadata.get("creatoros-output") == "social-content-pack.image-carousel":
+        outputs = [*outputs, "image"]
+    return sorted(set(outputs))
+
+
 def _with_display_name(content: str, display_name: str) -> str:
     if not isinstance(display_name, str):
         raise ValueError("显示名称必须是字符串。")
@@ -276,13 +289,19 @@ class ProducerSkillCatalog:
                    "local_path": str(directory), "role": self._role(data),
                    "carousel_compatible": receipt.carousel_compatible,
                    "compatibility_note": receipt.compatibility_note}
-        return {**current, "producible": self._producible(current) and current["version_status"] == "released"}
+        outputs = declared_skill_outputs(directory)
+        # Existing carousel contracts retain their image capability. Output
+        # declarations do not change the legacy carousel binding gate.
+        outputs = sorted(set(outputs) | ({"image"} if self._producible(current) else set()))
+        return {**current, "outputs": outputs, "capabilities": {"outputs": outputs},
+                "producible": self._producible(current) and current["version_status"] == "released"}
 
     def list(self):
         builtin = {"id": self.BUILTIN_ID, "name": self.BUILTIN_ID,
                    "description": "把知识点转成图片轮播", "carousel_compatible": True,
                    "compatibility_note": "内置生产技能", "commit": None, "github_url": None,
                    "role": "legacy_end_to_end", "producible": True,
+                   "outputs": ["image"], "capabilities": {"outputs": ["image"]},
                    "local_path": str(self.project_root / "creatoros" / "skills" / self.BUILTIN_ID)}
         items = [builtin]
         families = {}
@@ -740,6 +759,27 @@ class ProducerSkillCatalog:
         directory = self._resolve_production(skill_id, allow_candidate=True)
         if _digest(directory) != expected_digest:
             raise SkillDigestConflict(_digest(directory))
+        return directory
+
+    @_skill_io_locked
+    def resolve_for_task(self, skill_id: str, expected_digest: str, kind: str,
+                         primary: bool | None = None, *, role: str | None = None) -> Path:
+        """Resolve an explicit task edition; callers freeze the complete directory."""
+        if role is not None:
+            if role not in {"primary", "supporting"} or (primary is not None and primary != (role == "primary")):
+                raise ValueError("任务 Skill 角色无效。")
+            primary = role == "primary"
+        if kind not in {"image", "video"} or not isinstance(primary, bool):
+            raise ValueError("任务 kind 或 Skill 角色无效。")
+        if not isinstance(expected_digest, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_digest):
+            raise ValueError("expected_digest 必须是当前完整 Skill 摘要。")
+        directory = self.locate(skill_id)
+        current_digest = _digest(directory)
+        if current_digest != expected_digest:
+            raise SkillDigestConflict(current_digest)
+        data = ({"outputs": ["image"]} if skill_id == self.BUILTIN_ID else self.describe(skill_id))
+        if primary and kind not in data["outputs"]:
+            raise ValueError(f"主 Skill 没有声明 {kind} 输出能力。")
         return directory
 
     def _resolve_production(self, skill_id: str, *, allow_candidate: bool) -> Path:

@@ -121,3 +121,9 @@
 - 新 Alembic `20260923_0005`：`creator_id`、`skill_name` 可空；新增 `mind_skill_id`、`production_skill_id`、`revision`（version_id_col）；`skill_binding_shape` 禁止半套绑定；`uq_series_unassigned_name` 部分唯一索引兜底未分配同名。
 - `series_composition_migration_smoke=passed`：0004 旧库升级/降级/再升级数据逐字段不变，`compare_metadata` 零漂移；约束与索引行为逐项验证。详见 docs/studio/composition/SPEC.md 实施记录。
 - 本轮只迁移隔离库与正式库副本彩排，原 `data/creatoros.db` 保持 0004；日常启动仍由既有入口显式升级。
+
+## 账号 Skill 库与栏目池（2026-10-27）
+
+- `20261027_0021` 新增 `creator_skill_refs`、`series_skill_refs`；各 owner 一行保存家族引用的精确 Skill ID 列表、版本及请求回执/阶段默认 JSON，不复制 Skill 文件、不改写 Creator/Series 的旧绑定。
+- 账号 POST 幂等回执按账号/request_id 保存原 Skill ID；不同输入重用请求拒绝。栏目 PUT 与账号 DELETE 以 version 比较后写入；SQLite 短元数据写事务用 BEGIN IMMEDIATE，防止跨服务实例写丢失或移除库引用与新增栏目池引用竞态。
+- `tests.test_skill_library` 的六项隔离 SQLite/catalog/HTTP 测试通过，迁移到含后续阶段任务 schema 的 head 后 `compare_metadata` 零漂移；验证双服务同版本只能一方写成功。此处仅验证 SQLite，未迁移正式库。
