@@ -98,6 +98,9 @@ class MaintenanceController:
             busy.append("chat")
         if service.executor._active:
             busy.append("production")
+        materials = getattr(service, "materials", None)
+        if materials and any(item.get("status") == "running" for item in materials._analysis_jobs.values()):
+            busy.append("bgm_analysis")
         extraction = service.skill_extractions
         if extraction.active_id or extraction._draining:
             busy.append("skill_extraction")
@@ -124,6 +127,7 @@ class MaintenanceController:
                  services.chat.lock, services.skill_installs.lock, services.topic_research.lock,
                  services.skill_extractions.lock, services.skill_iterations.lock,
                  services.content_discussions.lock,
+                 *([services.materials._analysis_lock] if hasattr(services, "materials") else []),
                  *([services.agent_plans._lock] if hasattr(services, "agent_plans") else []))
         with ExitStack() as stack:
             for lock in locks:

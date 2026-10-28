@@ -16,6 +16,18 @@ class MaterialUpload(WriteRequest):
         return self
 
 
+class MaterialAnalysis(WriteRequest):
+    analysis: dict
+    receipt: dict
+    onsets: dict
+
+
+class MaterialAnalysisRequest(WriteRequest):
+    start: float = 0
+    duration: float | None = None
+    force: bool = False
+
+
 def material_routes(store):
     router = APIRouter(prefix="/api/creators/{creator_id}/materials")
 
@@ -36,5 +48,26 @@ def material_routes(store):
     def file(creator_id: str, identifier: str):
         value = store.resolve(creator_id, identifier)
         return FileResponse(value["path"], headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @router.put("/{identifier}/analysis")
+    def save_analysis(creator_id: str, identifier: str, body: MaterialAnalysis):
+        return store.save_analysis(creator_id, identifier, body.analysis, body.receipt, body.onsets)
+
+    @router.get("/{identifier}/analysis")
+    def get_analysis(creator_id: str, identifier: str):
+        import json
+        item = store.resolve_analysis(creator_id, identifier)
+        if not item:
+            return {"analysis_available": False}
+        bundle = json.loads(item["path"].read_text(encoding="utf-8"))
+        return {"analysis_available": True, "analysis": bundle["analysis"], "receipt": bundle["receipt"]}
+
+    @router.post("/{identifier}/analysis/run", status_code=202)
+    def start_analysis(creator_id: str, identifier: str, body: MaterialAnalysisRequest):
+        return store.start_analysis(creator_id, identifier, start=body.start, duration=body.duration, force=body.force)
+
+    @router.get("/{identifier}/analysis/status")
+    def analysis_status(creator_id: str, identifier: str):
+        return store.analysis_status(creator_id, identifier)
 
     return router

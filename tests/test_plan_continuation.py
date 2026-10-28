@@ -107,7 +107,7 @@ class PlanContinuationTests(unittest.TestCase):
                     path = f'/api/agent/sessions/{sid}/plans'
                     created = client.post(path, json={'request_id':str(uuid4()), 'title':'失败的读取', 'steps':[
                         {'id':'bad','title':'读取不存在的 Skill','tool':'get_producer_skill',
-                         'arguments':{'skill_id':'missing'}}]})
+                         'arguments':{'skill_id':'missing--0000000000000000'}}]})
                     self.assertEqual(created.status_code, 200, created.text)
                     pid = created.json()['id']
                     detail = lambda: client.get(f'{path}/{pid}').json()

@@ -217,7 +217,9 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
 def turn_links(entries, turn_id):
     links = {}
     for entry in entries:
-        if entry.get("kind") == "tool" and entry.get("turn_id") == turn_id:
+        # Account-wide lookup can contain many unrelated historical tasks. Keep
+        # its links on the tool entry, not appended to the final answer.
+        if entry.get("kind") == "tool" and entry.get("turn_id") == turn_id and entry.get("name") != "get_creator_tasks":
             for link in entry.get("links", []):
                 links[link["url"]] = link
     return list(links.values())

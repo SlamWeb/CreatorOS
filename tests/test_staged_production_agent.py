@@ -27,6 +27,18 @@ from tests import test_skill_version_scope as scope_fixture
 
 
 class StagedAgentSchemaTests(unittest.TestCase):
+    def test_shared_task_instructions_validate_before_dispatch(self):
+        task = {'title':'图片','brief':'具体画面'}
+        parsed = StartRunArgs(topic_id='topic', instructions='共用风格', tasks=[task])
+        self.assertEqual(parsed.instructions, '共用风格')
+        with self.assertRaises(ValidationError):
+            StartRunArgs(topic_id='topic', instructions='风格', tasks=[{'title':'图片','brief':'x'*10000}])
+        context = RuntimeContext(Path.cwd(), creator_id='a', allowed_tools=ACCOUNT_TOOLS)
+        result = execute_tool_call(ToolCall('bad', 'start_content_run', json.dumps({
+            'topic_id':'topic', 'tasks':[{'title':'缺少描述'}]})), context, model_requested=True)
+        self.assertEqual(result.error_type, 'invalid_arguments')
+        self.assertTrue(result.details['pre_dispatch'])
+
     def test_video_accepts_bgm_share_text_without_preimport(self):
         share = "2.89 复制打开抖音，看看【作品】 https://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic"
         task = {"kind": "video", "title": "剪辑", "brief": "按节拍剪辑", "skill_ids": ["video-test--" + "a" * 16],
@@ -61,7 +73,7 @@ class StagedAgentSchemaTests(unittest.TestCase):
         for name in ("manage_skill_library", "manage_material"):
             self.assertIn(name, schemas)
             self.assertNotIn("creator_id", schemas[name]["parameters"]["properties"])
-        self.assertEqual(schemas["manage_material"]["parameters"]["properties"]["action"]["enum"], ["list", "get"])
+        self.assertEqual(schemas["manage_material"]["parameters"]["properties"]["action"]["enum"], ["list", "get", "analyze", "analysis", "analysis_status"])
         self.assertNotIn("source_url", schemas["manage_material"]["parameters"]["properties"])
 
     def test_waiting_task_and_resource_projections_preserve_handoff_ids(self):
@@ -215,6 +227,14 @@ class StagedAgentHttpTests(unittest.TestCase):
         got = self.call("manage_material", action="get", material_id=receipt["id"])
         self.assertFalse(got.is_error, got.content)
         self.assertEqual(json.loads(got.content)["duration_seconds"], 1)
+        status = self.call("manage_material", action="analysis_status", material_id=receipt["id"])
+        self.assertFalse(status.is_error, status.content)
+        self.assertEqual(json.loads(status.to_model_content())["status"], "not_started")
+        analysis = self.call("manage_material", action="analysis", material_id=receipt["id"])
+        self.assertFalse(analysis.is_error, analysis.content)
+        self.assertFalse(json.loads(analysis.to_model_content())["analysis_available"])
+        denied_analysis = self.client.get(f"/api/creators/other/materials/{receipt['id']}/analysis", headers=self.header(self.other))
+        self.assertEqual(denied_analysis.status_code, 403)
         denied = self.client.get(f"/api/creators/other/materials/{receipt['id']}", headers=self.header(self.other))
         self.assertEqual(denied.status_code, 403)
         failed = self.call("manage_material", action="import_link", source_url="http://127.0.0.1/music.mp3")

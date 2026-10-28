@@ -2,18 +2,22 @@
 import base64
 import hashlib
 import ipaddress
+import json
+import math
 from pathlib import Path
 import os
 import shutil
 import socket
 import subprocess
+import sys
+import threading
 from tempfile import TemporaryDirectory
 from urllib.parse import urlsplit
 
 from sqlalchemy import select, text
 from creatoros.storage import Creator
 from creatoros.storage.models import ManagedMaterial
-from .atomic_file import atomic_write_bytes
+from .atomic_file import atomic_write_bytes, atomic_write_text
 from .media_tools import probe_media, decode_media
 
 MAX_BYTES = 64 * 1024 * 1024
@@ -28,6 +32,8 @@ class MaterialStore:
         path = database.engine.url.database
         self.root = (Path(root).resolve() if root else
                      Path(path).resolve().with_suffix(".materials") if path and path != ":memory:" else None)
+        self._analysis_lock = threading.Lock()
+        self._analysis_jobs = {}
 
     def _creator(self, session, creator_id):
         creator = session.get(Creator, creator_id)
@@ -98,7 +104,8 @@ class MaterialStore:
     def list(self, creator_id):
         with self.database.session() as session:
             self._creator(session, creator_id)
-            return [self._view(row) for row in session.scalars(select(ManagedMaterial).where(
+            return [{**self._view(row), "analysis_available": (self._path(row).parent / "bgm-analysis.json").is_file()}
+                    for row in session.scalars(select(ManagedMaterial).where(
                 ManagedMaterial.creator_id == creator_id).order_by(ManagedMaterial.created_at.desc()))]
 
     def resolve(self, creator_id, identifier):
@@ -110,7 +117,97 @@ class MaterialStore:
             path = self._path(row)
             if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != row.sha256:
                 raise ValueError("素材缺失或已变化。")
-            return {**self._view(row), "path": path}
+            return {**self._view(row), "analysis_available": (path.parent / "bgm-analysis.json").is_file(), "path": path}
+
+    def save_analysis(self, creator_id, identifier, analysis, receipt, onsets):
+        """Save an existing bgm-understanding result beside its account's audio."""
+        from .bgm_analysis import validate_analysis
+
+        audio = self.resolve(creator_id, identifier)
+        try:
+            validate_analysis(audio["path"], receipt, onsets, audio_duration=audio["duration_seconds"])
+        except (KeyError, TypeError) as error:
+            raise ValueError("BGM 分析缺少音频来源或起音数据。") from error
+        # Keep only the source identity and timebase; analysis files may contain
+        # paths from the computer where they were originally generated.
+        clean_receipt = {key: receipt[key] for key in ("inputSha256", "sourceStartSeconds", "sourceEndSeconds")}
+        analysis = json.loads(json.dumps(analysis, ensure_ascii=False))
+        if isinstance(analysis.get("audio"), dict):
+            analysis["audio"].pop("source", None)
+        for value in analysis.get("sources", {}).values():
+            if isinstance(value, dict):
+                value.pop("path", None)
+        bundle = {"analysis": analysis, "receipt": clean_receipt, "onsets": onsets,
+                  "audio_duration": audio["duration_seconds"]}
+        destination = audio["path"].parent / "bgm-analysis.json"
+        atomic_write_text(destination, json.dumps(bundle, ensure_ascii=False, indent=2))
+        return {"material_id": identifier, "analysis_available": True}
+
+    def resolve_analysis(self, creator_id, identifier):
+        """Return a registered analysis path, or None for unanalysed audio."""
+        audio = self.resolve(creator_id, identifier)
+        path = audio["path"].parent / "bgm-analysis.json"
+        if not path.is_file():
+            return None
+        return {"path": path, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    def analysis_status(self, creator_id, identifier):
+        audio = self.resolve(creator_id, identifier)
+        with self._analysis_lock:
+            job = self._analysis_jobs.get((creator_id, identifier))
+            if job:
+                return dict(job)
+        saved = audio["path"].parent / "bgm-analysis-status.json"
+        if saved.is_file():
+            status = json.loads(saved.read_text(encoding="utf-8"))
+            if status.get("status") == "running":
+                return {"status": "interrupted", "message": "上次分析中断，可手动重新开始。"}
+            return status
+        return {"status": "completed" if self.resolve_analysis(creator_id, identifier) else "not_started"}
+
+    def start_analysis(self, creator_id, identifier, *, start=0, duration=None, force=False):
+        audio = self.resolve(creator_id, identifier)
+        if not isinstance(start, (int, float)) or isinstance(start, bool) or not math.isfinite(start) or start < 0:
+            raise ValueError("分析起点必须是非负秒数。")
+        if duration is not None and (not isinstance(duration, (int, float)) or isinstance(duration, bool) or not math.isfinite(duration) or not 0 < duration <= 300):
+            raise ValueError("分析时长必须在 0 到 300 秒之间。")
+        key = (creator_id, identifier)
+        with self._analysis_lock:
+            if self._analysis_jobs.get(key, {}).get("status") == "running":
+                return {"status": "running"}
+            if not force and (audio["path"].parent / "bgm-analysis.json").is_file():
+                return {"status": "completed", "analysis_available": True}
+            self._analysis_jobs[key] = {"status": "running"}
+            atomic_write_text(audio["path"].parent / "bgm-analysis-status.json", '{"status":"running"}')
+
+        def run():
+            try:
+                script = Path.home() / ".codex" / "skills" / "bgm-understanding" / "scripts" / "analyze_bgm.py"
+                if not script.is_file():
+                    raise ValueError("没有找到 bgm-understanding 分析器。")
+                configured = os.getenv("CREATOROS_BGM_PYTHON")
+                python = [configured] if configured else (["py", "-3.11"] if os.name == "nt" else [sys.executable])
+                with TemporaryDirectory(prefix="creatoros-bgm-understanding-") as temp:
+                    target = Path(temp) / "analysis"
+                    command = [*python, str(script), "--audio", str(audio["path"]), "--output-dir", str(target), "--start", str(start)]
+                    if duration is not None:
+                        command.extend(["--duration", str(duration)])
+                    result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
+                    if result.returncode:
+                        raise ValueError("BGM 分析未完成：" + (result.stderr.strip() or result.stdout.strip() or "分析器退出失败")[-1000:])
+                    def load(path):
+                        return json.loads(path.read_text(encoding="utf-8"))
+                    self.save_analysis(creator_id, identifier, load(target / "music-analysis.json"),
+                                       load(target / "source-receipt.json"), load(target / "onsets" / "events.json"))
+                status = {"status": "completed"}
+            except (ValueError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError) as error:
+                status = {"status": "failed", "message": str(error)}
+            with self._analysis_lock:
+                self._analysis_jobs[key] = status
+                atomic_write_text(audio["path"].parent / "bgm-analysis-status.json", json.dumps(status, ensure_ascii=False))
+
+        threading.Thread(target=run, name="creatoros-bgm-analysis", daemon=True).start()
+        return {"status": "running"}
 
     def from_url(self, creator_id, source_url):
         parsed = urlsplit(source_url)

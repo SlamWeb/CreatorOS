@@ -7,7 +7,7 @@ import unittest
 from creatoros.ai.types import TextDelta
 from creatoros.events import AgentEvent
 from creatoros.web.chat import AgentChatService
-from creatoros.web.chat_links import tool_links
+from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.integrations.studio import StudioClient, StudioClientError
 
 ORIGIN = "http://127.0.0.1:8878"
@@ -78,6 +78,14 @@ class ChatLinksTests(unittest.TestCase):
         items[1]["series_id"] = "different"
         items[2]["revision_id"] = "different"
         self.assertEqual(tool_links("get_creator_tasks", json.dumps({"items": items}), studio_url=ORIGIN), [])
+
+    def test_account_task_lookup_does_not_append_unrelated_links_to_answer(self):
+        old = {"url": f"/runs/{RUN}", "label": "旧任务", "source_tool": "get_creator_tasks"}
+        current = {"url": "/series/series-a", "label": "当前栏目", "source_tool": "manage_topics"}
+        entries = [{"kind": "tool", "turn_id": "one", "name": "get_creator_tasks", "links": [old]},
+                   {"kind": "tool", "turn_id": "one", "name": "manage_topics", "links": [current]}]
+        self.assertEqual(turn_links(entries, "one"), [current])
+        self.assertEqual(entries[0]["links"], [old])
 
     def test_multiple_steps_persist_raw_and_no_turn_or_session_carryover(self):
         with TemporaryDirectory() as root:

@@ -50,17 +50,20 @@ class ManageSkillLibraryArgs(BaseModel):
 
 class ManageMaterialArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    action: Literal["list", "get", "import_link"]
+    action: Literal["list", "get", "import_link", "analyze", "analysis", "analysis_status"]
     creator_id: str | None = Field(default=None, min_length=1, max_length=80, description="省略用当前账号。")
     material_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     source_url: str | None = Field(default=None, min_length=1, max_length=2000, description="用户提供的音乐/视频分享链接，不传主机路径。")
+    start: float = Field(default=0, ge=0, description="音乐分析片段起点，秒。")
+    duration: float | None = Field(default=None, gt=0, le=300, description="音乐分析片段时长，秒；不填使用默认。")
+    force: bool = Field(default=False, description="明确要求重新分析时设为 true。")
     offset: int = Field(default=0, ge=0)
     limit: int = Field(default=20, ge=1, le=100)
 
     @model_validator(mode="after")
     def action_fields(self):
-        if self.action == "get" and (not self.material_id or self.source_url):
-            raise ValueError("get 需要 material_id，不能带分享链接。")
+        if self.action in {"get", "analyze", "analysis", "analysis_status"} and (not self.material_id or self.source_url):
+            raise ValueError("此操作需要 material_id，不能带分享链接。")
         if self.action == "import_link" and (not self.source_url or self.material_id):
             raise ValueError("import_link 需要 source_url，不能带素材 ID。")
         if self.action == "list" and (self.material_id or self.source_url):
@@ -125,11 +128,16 @@ def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
 
 
 def manage_material(action, creator_id=None, material_id=None, source_url=None,
-                    offset=0, limit=20, context=None):
+                    start=0, duration=None, force=False, offset=0, limit=20, context=None):
     def invoke(client):
         owner = _creator(creator_id, context)
         root = f"/api/creators/{quote(owner, safe='')}/materials"
-        if action == "get":
+        if action == "analyze":
+            data = client.request("POST", root + "/" + quote(material_id, safe="") + "/analysis/run", payload={"start": start, "duration": duration, "force": force})
+        elif action in {"analysis", "analysis_status"}:
+            suffix = "/analysis/status" if action == "analysis_status" else "/analysis"
+            data = client.request("GET", root + "/" + quote(material_id, safe="") + suffix)
+        elif action == "get":
             data = client.request("GET", root + "/" + quote(material_id, safe=""))
         elif action == "import_link":
             data = client.request("POST", root, payload={"source_url": source_url}, timeout_seconds=150)

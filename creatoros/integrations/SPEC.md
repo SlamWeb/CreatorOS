@@ -1,5 +1,12 @@
 # External Integrations SPEC
 
+## 2026-10-28 账号音乐分析
+
+- 对账号已有音频启动 bgm-understanding 后台分析，使用本机 Python 3.11；摘要、来源回执和完整起音候选保存于该素材目录。索引通过账号素材列表的 `analysis_available` 与 `material_id` 暴露。音频仍由 MaterialStore 负责账号归属、文件及 SHA 校验；结果候选不等于人工听证。
+- 启动/状态通过账号素材 analysis API，运行期间纳入维护活动检查；进程异常退出后保留中断状态，不自动重跑。单个素材相同时间仅允许一个分析作业，旧结果在新分析失败时保留。暂不接入剪辑任务，也不解析外部分享链接。
+- 隔离真实验证：复制现有《好兄弟》MP3 字节到临时 SQLite 账号素材，运行真实 Python 3.11 分析器处理 4 秒，完成并落盘；未对节拍做人耳逐项验证。`tests.test_bgm_analysis`、`tests.test_managed_materials` 4 项通过。
+- 新增 BGM 集 Skill 草稿，账号 Agent 可通过素材工具查询分析摘要或提交分析。Skill 草稿尚未注册到正式账号；分享链接获取音频及音乐 Skill 最终工作流仍需完成，不能声称整条链路已经可用。
+
 ## 2026-10-28 视频 BGM 分享原文
 
 视频执行器将 BGM 分享全文直接放入 Codex 提示词，链接任务使用 SDK auto_review 而非一律拒绝请求；素材文件输入保持原方式。视频结构化交付同时支持成功和明确失败，错误信息保留获取音源的实际障碍，nullable 字段在 SDK 输出 schema 中仍全部 required，旧成功回执可继续读取。隔离真实 Codex 验证仅确认输入交接；路由超时与浏览器拒绝记录保留，不能据此声称成片成功。

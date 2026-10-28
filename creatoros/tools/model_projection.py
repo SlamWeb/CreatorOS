@@ -228,7 +228,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["task"] = _pick(data["task"], fields)
         return result
     if tool_name == "manage_plan":
-        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "pause_reason", "continuation_state")
+        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "message", "pause_reason", "continuation_state")
         def step(item):
             result = _pick(item, ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
             if isinstance(item, dict) and isinstance(item.get("result"), dict):
@@ -249,8 +249,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["available_versions"] = _list(data["available_versions"], lambda item: _pick(item, _SKILL + ("digest",)))
         return result
     if tool_name == "manage_material":
-        fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url")
-        return _pick(data, ("action", "creator_id") + fields) | _items(data, fields)
+        fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url", "analysis_available")
+        return _pick(data, ("action", "creator_id", "status", "message", "analysis", "receipt") + fields) | _items(data, fields)
     if tool_name == "manage_media_collection":
         if data.get("export_id"):
             # Keep exact handoff identities for a later video task; UI receipts

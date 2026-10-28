@@ -46,7 +46,13 @@ def _spec(step):
     return {key: step[key] for key in ('id', 'title', 'tool', 'arguments', 'depends_on', 'wait_for_completion')}
 
 
-def _validate_steps(steps):
+def _has_reference(value):
+    if isinstance(value, dict):
+        return '$ref' in value or any(_has_reference(item) for item in value.values())
+    return isinstance(value, list) and any(_has_reference(item) for item in value)
+
+
+def _validate_steps(steps, owner):
     if not isinstance(steps, list) or not 1 <= len(steps) <= 100:
         raise ValueError('计划需要 1–100 个步骤。')
     known = set()
@@ -71,6 +77,16 @@ def _validate_steps(steps):
             raise ValueError('依赖必须引用前面已定义的步骤。')
         if item.get('wait_for_completion', False) and tool != 'start_content_run':
             raise ValueError('当前仅支持等待生产任务完成。')
+        if tool != 'request_review' and not _has_reference(args):
+            from creatoros.tools.definitions import tool_registry
+            from creatoros.tools.host_contract import bind_account_arguments
+            from pydantic import ValidationError
+            context = RuntimeContext(project_root=PROJECT_ROOT, creator_id=owner)
+            try:
+                raw = bind_account_arguments(tool, json.dumps(args, ensure_ascii=False), context)
+                tool_registry[tool].parse_arguments(raw)
+            except (ValidationError, ValueError) as error:
+                raise ValueError(f'步骤「{item["title"]}」参数无效：{str(error)[:1200]}') from error
         known.add(key)
 
 
@@ -177,7 +193,7 @@ class PlanService:
         normalized = [dict(id=item['id'], title=item['title'], tool=item['tool'],
                            arguments=item.get('arguments', {}), depends_on=item.get('depends_on', []),
                            wait_for_completion=item.get('wait_for_completion', False)) for item in steps]
-        _validate_steps(normalized)
+        _validate_steps(normalized, owner)
         signature = _hash({'title': title, 'steps': normalized})
         identity = _hash({'session_id': sid, 'request_id': request_id})
         with self._write() as session:
@@ -194,7 +210,9 @@ class PlanService:
                         title=item['title'], position=position, tool=item['tool'], arguments_json=item['arguments'],
                         depends_on_json=item['depends_on'], wait_for_completion=item['wait_for_completion'], status='pending'))
         self._wake.set()
-        return self.get(sid, identity)
+        result = self.get(sid, identity)
+        result['message'] = '计划已创建，具体制作是否提交请以步骤回执为准。'
+        return result
 
     def list(self, sid):
         owner = self._owner(sid)
@@ -231,9 +249,21 @@ class PlanService:
                 steps=[dict(id=s.step_key, title=s.title, tool=s.tool, arguments=deepcopy(s.arguments_json),
                     depends_on=list(s.depends_on_json), wait_for_completion=s.wait_for_completion,
                     status=s.status, result=deepcopy(s.result_json), error=s.error,
-                    retryable=(s.status == 'failed' and s.tool in {'get_content_run', 'get_producer_skill'}
-                               and (s.result_json or {}).get('_error_type') not in {'invalid_arguments', 'agent_scope_rejected'}),
+                    retryable=self._retryable(s),
                     skippable=self._skippable(s)) for s in rows])
+
+    @staticmethod
+    def _safe_production_validation_failure(row):
+        result = row.result_json or {}
+        return (row.tool == 'start_content_run' and row.status == 'failed'
+                and result.get('_error_type') == 'invalid_arguments'
+                and result.get('_pre_dispatch') is True)
+
+    @classmethod
+    def _retryable(cls, row):
+        return cls._safe_production_validation_failure(row) or (
+            row.status == 'failed' and row.tool in {'get_content_run', 'get_producer_skill'}
+            and (row.result_json or {}).get('_error_type') not in {'invalid_arguments', 'agent_scope_rejected'})
 
     @staticmethod
     def _skippable(row):
@@ -248,7 +278,7 @@ class PlanService:
         owner = self._owner(sid)
         normalized = [dict(id=x['id'],title=x['title'],tool=x['tool'],arguments=x.get('arguments',{}),
             depends_on=x.get('depends_on',[]),wait_for_completion=x.get('wait_for_completion',False)) for x in steps]
-        _validate_steps(normalized)
+        _validate_steps(normalized, owner)
         with self._write() as session:
             p = self._find(session, sid, owner, identity)
             if p.version != expected_version: raise ContentRunError('计划已变化，请刷新。', code='plan_conflict', status_code=409)
@@ -278,8 +308,15 @@ class PlanService:
             for key,row in existing.items():
                 prior = dict(id=key,title=row.title,tool=row.tool,arguments=row.arguments_json,
                              depends_on=row.depends_on_json,wait_for_completion=row.wait_for_completion)
-                if row.status not in {'pending', 'blocked'} and supplied.get(key) != prior:
+                changed = supplied.get(key) != prior
+                repairable = self._safe_production_validation_failure(row) and key in supplied and supplied[key]['tool'] == row.tool
+                if row.status not in {'pending', 'blocked'} and changed and not repairable:
                     raise ContentRunError('已开始的步骤不能修改或移除。', code='plan_conflict', status_code=409)
+                if changed and repairable:
+                    history = list((row.result_json or {}).get('_repair_history', []))
+                    history.append({'arguments': deepcopy(row.arguments_json), 'error': row.error,
+                                    'result': {k: v for k, v in (row.result_json or {}).items() if k != '_repair_history'}})
+                    row.status, row.error, row.result_json = 'pending', None, {'_repair_history': history}
                 if key not in supplied: session.delete(row)
             for pos,item in enumerate(normalized):
                 row = existing.get(item['id'])
@@ -309,10 +346,15 @@ class PlanService:
                 if p.continuation_state in {'pending', 'done_checkpoint'}: p.continuation_state = 'none'
             elif action == 'retry':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
-                if (not row or row.status != 'failed' or row.tool not in {'get_content_run', 'get_producer_skill'}
-                        or (row.result_json or {}).get('_error_type') in {'invalid_arguments', 'agent_scope_rejected'}):
+                if not row or not self._retryable(row):
                     raise ValueError('该步骤不能安全自动重试；请先检查原任务。')
-                row.status, row.error, row.result_json = 'pending', None, None
+                if self._safe_production_validation_failure(row):
+                    prior = deepcopy(row.result_json or {})
+                    history = list(prior.pop('_repair_history', []))
+                    history.append({'arguments': deepcopy(row.arguments_json), 'error': row.error, 'result': prior})
+                    row.status, row.error, row.result_json = 'pending', None, {'_repair_history': history}
+                else:
+                    row.status, row.error, row.result_json = 'pending', None, None
                 for blocked in self._rows(session, identity):
                     if blocked.status == 'blocked': blocked.status, blocked.error = 'pending', None
                 p.status, p.continuation_state = 'running', 'none'
@@ -478,6 +520,9 @@ class PlanService:
             row = session.get(AgentPlanStep, plan_id+':'+step_id)
             p = session.get(AgentPlan, plan_id)
             if not row or not p or row.status != 'running': return
+            history = (row.result_json or {}).get('_repair_history')
+            if history:
+                data['_repair_history'] = history
             if result.is_error:
                 unknown = result.error_type in {'studio_outcome_unknown','studio_invalid_response','tool_exception'}
                 # An HTTP error from a write can arrive after the server committed.
@@ -485,7 +530,12 @@ class PlanService:
                 if row.tool == 'start_content_run' and result.error_type not in {
                         'invalid_arguments', 'agent_scope_rejected', 'studio_unavailable'}:
                     unknown = True
+                if (row.tool == 'start_content_run' and result.error_type == 'invalid_arguments'
+                        and result.details.get('pre_dispatch') is not True):
+                    unknown = True
                 data['_error_type'] = result.error_type
+                if result.error_type == 'invalid_arguments' and result.details.get('pre_dispatch') is True:
+                    data['_pre_dispatch'] = True
                 row.status = 'unknown' if unknown else 'failed'
                 row.error = str(data.get('message') or result.error_type or '步骤失败')[:2000]
                 row.result_json = data

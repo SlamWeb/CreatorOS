@@ -102,6 +102,7 @@ class MaintenanceControlTests(unittest.TestCase):
                         (self.app.state.skill_extractions, "_draining", True),
                         (self.app.state.topic_research, "active_batch_id", "research"),
                         (self.app.state.skill_installs, "_draining", True),
+                        (self.app.state.materials, "_analysis_jobs", {("creator", "music"): {"status": "running"}}),
                         (self.app.state.publishing, "_foreground_waiters", 1)]
             for target, name, value in channels:
                 with self.subTest(channel=name), patch.object(target, name, value):

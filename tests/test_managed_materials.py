@@ -1,13 +1,14 @@
 """Real local audio bytes and SQLite, no model/network substitution."""
 import base64
 import io
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import wave
 from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
-from time import sleep
+from time import monotonic, sleep
 from contextlib import ExitStack
 
 from creatoros.storage import ContentRepository, Database, upgrade_database
@@ -56,6 +57,39 @@ class MaterialTests(unittest.TestCase):
                 self.assertEqual(store.resolve("a", receipt["id"])["path"].read_bytes(), raw)
                 with self.assertRaises(ValueError):
                     store.resolve("b", receipt["id"])
+                self.assertFalse(store.list("a")[0]["analysis_available"])
+                analysis_receipt = {"inputSha256": receipt["sha256"], "sourceStartSeconds": 0,
+                                    "sourceEndSeconds": 1}
+                onsets = {"analysisOffset": 0, "analysisDurationSeconds": 1,
+                          "events": [{"id": "event-1", "timeSeconds": 0.5, "accepted": True}]}
+                store.save_analysis("a", receipt["id"], {"mood": "soft"}, analysis_receipt, onsets)
+                self.assertTrue(store.list("a")[0]["analysis_available"])
+                self.assertTrue(store.resolve_analysis("a", receipt["id"])["path"].is_file())
+                self.assertEqual(store.start_analysis("a", receipt["id"])["status"], "completed")
+                status_path = store.resolve("a", receipt["id"])["path"].parent / "bgm-analysis-status.json"
+                status_path.write_text('{"status":"running"}', encoding="utf-8")
+                self.assertEqual(MaterialStore(db).analysis_status("a", receipt["id"])["status"], "interrupted")
+                with patch.dict(os.environ, {"CREATOROS_BGM_PYTHON": str(Path(temporary) / "missing-python")}):
+                    self.assertEqual(store.start_analysis("a", receipt["id"], force=True)["status"], "running")
+                    deadline = monotonic() + 5
+                    while store.analysis_status("a", receipt["id"])["status"] == "running" and monotonic() < deadline:
+                        sleep(0.02)
+                    self.assertEqual(store.analysis_status("a", receipt["id"])["status"], "failed")
+                self.assertTrue(store.resolve_analysis("a", receipt["id"])["path"].is_file())
+                from fastapi import FastAPI
+                from fastapi.testclient import TestClient
+                from creatoros.web.material_routes import material_routes
+                app = FastAPI()
+                app.include_router(material_routes(store))
+                with TestClient(app) as client:
+                    response = client.get(f"/api/creators/a/materials/{receipt['id']}/analysis")
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()["analysis"]["mood"], "soft")
+                    self.assertTrue(client.get("/api/creators/a/materials").json()["items"][0]["analysis_available"])
+                with self.assertRaises(ValueError):
+                    store.resolve_analysis("b", receipt["id"])
+                with self.assertRaises(ValueError):
+                    store.save_analysis("a", receipt["id"], {}, {**analysis_receipt, "inputSha256": "0" * 64}, onsets)
                 with self.assertRaises(ValueError):
                     store.upload("a", "fake.mp3", base64.b64encode(b"not audio").decode())
                 self.assertEqual(len(store.list("a")), 1)

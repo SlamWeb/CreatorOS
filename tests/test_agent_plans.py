@@ -14,6 +14,48 @@ from creatoros.storage.models import AgentPlanStep, CreatorPlatform, ProductionT
 from creatoros.storage import ContentRepository
 
 class PlanTests(unittest.TestCase):
+    def test_plan_rejects_invalid_unreferenced_step_before_creation(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            try:
+                sid = app.state.chat.create('review-lab')['id']
+                service = app.state.agent_plans
+                with self.assertRaisesRegex(ValueError, '参数无效'):
+                    service.create(sid, 'invalid', '测试', [{'id':'images','title':'生图',
+                        'tool':'start_content_run','arguments':{'topic_id':'review-1',
+                        'tasks':[{'title':'缺少 brief'}]}}], 'http://127.0.0.1:8765')
+                self.assertEqual(service.list(sid)['items'], [])
+            finally: db.close()
+
+    def test_only_proven_pre_dispatch_failure_can_be_repaired(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            try:
+                sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
+                step = {'id':'images','title':'生图','tool':'start_content_run',
+                    'arguments':{'topic_id':'review-1','tasks':[{'title':'图','brief':'画一张'}]}}
+                plan = service.create(sid, 'pre-dispatch', '测试', [step], 'http://127.0.0.1:8765')
+                self.assertIn('是否提交', plan['message'])
+                with db.session() as session:
+                    row = session.get(AgentPlanStep, plan['id'] + ':images')
+                    row.status, row.error, row.result_json = 'failed', '参数错误', {'_error_type':'invalid_arguments','_pre_dispatch':True}
+                self.assertTrue(service.get(sid, plan['id'])['steps'][0]['retryable'])
+                repaired = dict(step, arguments={**step['arguments'], 'instructions':'共同风格'})
+                view = service.edit(sid, plan['id'], plan['version'], [repaired])
+                self.assertEqual(view['steps'][0]['status'], 'pending')
+                self.assertEqual(view['steps'][0]['result']['_repair_history'][0]['error'], '参数错误')
+                for status, result in [('unknown', {'_error_type':'invalid_arguments','_pre_dispatch':True}),
+                                       ('failed', {'_error_type':'invalid_arguments'}),
+                                       ('waiting', {'items':[{'id':'already-submitted'}]})]:
+                    with db.session() as session:
+                        row = session.get(AgentPlanStep, plan['id'] + ':images')
+                        row.status, row.result_json = status, result
+                    with self.assertRaises(Exception):
+                        service.edit(sid, plan['id'], view['version'], [step])
+                    with self.assertRaises(ValueError):
+                        service.action(sid, plan['id'], view['version'], 'retry', 'images')
+            finally: db.close()
+
     def test_checkpoint_persists_and_requires_explicit_resume(self):
         with tempfile.TemporaryDirectory() as root:
             db, _, _, app = make_fixture(Path(root))
@@ -21,7 +63,7 @@ class PlanTests(unittest.TestCase):
             service = app.state.agent_plans
             plan = service.create(sid, 'checkpoint', '判断后继续', [
                 {'id':'review','title':'检查素材','tool':'request_review','arguments':{'question':'图片够吗？'}},
-                {'id':'next','title':'继续','tool':'get_producer_skill','arguments':{'skill_id':'missing'},'depends_on':['review']},
+                {'id':'next','title':'继续','tool':'get_producer_skill','arguments':{'skill_id':'missing--0000000000000000'},'depends_on':['review']},
             ], 'http://127.0.0.1:8765')
             service.advance()
             view = service.get(sid, plan['id'])
@@ -62,7 +104,7 @@ class PlanTests(unittest.TestCase):
             sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
             plan = service.create(sid, 'checkpoint-restart', '检查点恢复', [
                 {'id':'review','title':'检查','tool':'request_review','arguments':{'question':'是否继续？'}},
-                {'id':'next','title':'后续','tool':'get_producer_skill','arguments':{'skill_id':'none'},'depends_on':['review']},
+                {'id':'next','title':'后续','tool':'get_producer_skill','arguments':{'skill_id':'missing--0000000000000000'},'depends_on':['review']},
             ], 'http://127.0.0.1:8765')
             service.advance(); event = service.claim_continuation(sid, 'one')
             self.assertTrue(service.ack_continuation(plan['id'], event['event_id'], 'one'))
@@ -80,11 +122,11 @@ class PlanTests(unittest.TestCase):
             db, _, _, app = make_fixture(Path(root))
             sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
             original = {'id':'images','title':'生图','tool':'start_content_run',
-                'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片'}]}}
+                'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片','brief':'制作该图片'}]}}
             plan = service.create(sid, 'no-repeat', '不重画', [original], 'http://127.0.0.1:8765')
             with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'unknown'
             extra = {'id':'retry-as-new','title':'另起','tool':'start_content_run',
-                     'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片'}]}}
+                     'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片','brief':'制作该图片'}]}}
             with self.assertRaises(Exception): service.edit(sid, plan['id'], plan['version'], [original, extra])
             self.assertEqual(len(service.get(sid, plan['id'])['steps']), 1)
             with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'succeeded'
@@ -154,7 +196,8 @@ class PlanTests(unittest.TestCase):
                 path = f'/api/agent/sessions/{sid}/plans'
                 spec = {'request_id':'precise', 'title':'产图收集', 'steps':[
                     {'id':'images','title':'产图','tool':'start_content_run',
-                     'arguments':{'topic_id':'review-1','tasks':[{'title':'图片','brief':'测试图片'}]},
+                     'arguments':{'topic_id':'review-1','instructions':'共同风格','tasks':[
+                         {'title':'图片一','brief':'测试图片一'}, {'title':'图片二','brief':'测试图片二'}]},
                      'wait_for_completion':True},
                     {'id':'collect','title':'收图','tool':'manage_media_collection',
                      'arguments':{'action':'create','name':'本轮','run_ids':{'$ref':'images.items.*.run_id'}},
@@ -168,7 +211,12 @@ class PlanTests(unittest.TestCase):
                     time.sleep(.1)
                 self.assertEqual(result['status'],'completed',result)
                 image, collection = result['steps']
-                self.assertEqual(collection['result']['run_ids'], [image['result']['items'][0]['run_id']])
+                with db.session() as session:
+                    for index, item in enumerate(image['result']['items']):
+                        saved = session.get(ProductionTask, item['id'])
+                        self.assertIn('共同风格', saved.brief)
+                        self.assertIn(['测试图片一','测试图片二'][index], saved.brief)
+                self.assertEqual(collection['result']['run_ids'], [item['run_id'] for item in image['result']['items']])
                 self.assertIsNone(collection['result']['topic_id'])
             db.close()
 
@@ -194,7 +242,7 @@ class PlanTests(unittest.TestCase):
             service.set_continuation_callback(None)
             plan = service.create(sid, 'restart-test', '恢复测试', [
                 {'id':'write','title':'修改选题','tool':'manage_topics',
-                 'arguments':{'action':'update'},'depends_on':[]}], 'http://127.0.0.1:8765')
+                 'arguments':{'action':'update','topic_id':'x','changes':{'title':'新标题'},'expected_digest':'a'*64},'depends_on':[]}], 'http://127.0.0.1:8765')
             with db.session() as session:
                 row = session.get(AgentPlanStep, plan['id']+':write')
                 row.status = 'running'

@@ -18,9 +18,9 @@ def model_tool_schemas(schemas, context):
         function = schema["function"]
         name = function["name"]
         if name == "manage_material":
-            function["parameters"]["properties"]["action"]["enum"] = ["list", "get"]
+            function["parameters"]["properties"]["action"]["enum"] = ["list", "get", "analyze", "analysis", "analysis_status"]
             function["parameters"]["properties"].pop("source_url", None)
-            function["description"] = "查询已有音频或视频素材，仅 list/get。用户给的 BGM 分享全文直接传 start_content_run.inputs.bgm_reference，由 Codex 处理，不在此解析或下载。"
+            function["description"] = "查询当前账号音频或视频素材；analyze 后台分析已有音频，analysis_status 查询状态，analysis 获取摘要。用户提供 BGM 分享链接制作视频时仍直接传 bgm_reference。"
         if context.archive_only_reads and name == "read_file":
             function["description"] = "读取当前会话的工具结果归档文本；不能读取项目文件、Skill 文件或其他会话。"
             function["parameters"]["properties"]["path"]["description"] = "当前会话归档结果中提供的路径。"

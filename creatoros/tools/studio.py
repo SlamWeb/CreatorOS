@@ -150,7 +150,7 @@ class StartRunArgs(BaseModel):
     expected_version: int | None = Field(default=None, gt=0, description="fresh 模式所见原 Run version。")
     series_id: str | None = Field(default=None, min_length=1, description="按用户给的参考作品直接制作时的目标栏目；不要先另调候选调研。")
     title: str | None = Field(default=None, min_length=1, max_length=240, description="直接制作的简短选题名称，仅用于展示，不替代原始要求。")
-    instructions: str = Field(default="", max_length=3000, description="用户对参考作品的完整原始要求；不要缩成标题后丢弃。")
+    instructions: str = Field(default="", max_length=3000, description="参考制作的完整要求；使用 tasks 时作为每个制作任务的共同要求。")
     attachment_ids: list[str] = Field(default_factory=list, max_length=20, description="当前会话参考图片的已有ID，直接制作必须提供。")
     reference_presentation: bool = Field(default=False, description="默认只借鉴内容，用户明确要求同时参考呈现才为true。")
     skill_overrides: SkillOverrides | None = Field(default=None,
@@ -163,9 +163,11 @@ class StartRunArgs(BaseModel):
         if self.tasks is not None:
             if (not self.topic_id or self.topic_ids is not None or self.mode != "start"
                     or self.source_run_id is not None or self.expected_version is not None
-                    or self.series_id is not None or self.title is not None or self.instructions
+                    or self.series_id is not None or self.title is not None
                     or self.attachment_ids or self.reference_presentation or self.skill_overrides is not None):
                 raise ValueError("制作任务仅接受一个topic_id和tasks，各任务内指定Skill；不能混用其他生产模式。")
+            if self.instructions.strip() and any(len(task.brief) + len(self.instructions.strip()) + len('共同要求：\n\n\n本任务：\n') > 10_000 for task in self.tasks):
+                raise ValueError("共同要求与单项制作要求合并后不能超过 10000 字。")
             return self
         if self.attachment_ids:
             if self.skill_overrides is not None:
@@ -529,6 +531,9 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
     if tasks is not None:
         selected = [ProductionTaskArgs.model_validate(task).model_dump(mode="json", exclude_none=True)
                     for task in tasks]
+        if instructions.strip():
+            for task in selected:
+                task["brief"] = f"共同要求：\n{instructions.strip()}\n\n本任务：\n{task['brief']}"
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
         # One user turn may authorize image tasks and then their dependent video.

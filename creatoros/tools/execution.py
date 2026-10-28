@@ -33,6 +33,7 @@ def execute_tool_call(
             error_type="tool_not_exposed",
         )
 
+    before_dispatch = True
     try:
         raw_arguments = (bind_account_arguments(tool_name, tool_call.arguments, context)
                          if model_requested else tool_call.arguments)
@@ -49,6 +50,7 @@ def execute_tool_call(
         if model_requested and tool_name == "manage_material" and arguments.get("action") == "import_link":
             return ToolResult(content="BGM 分享链接无需导入或解析。请把用户完整分享文本放入视频任务 inputs.bgm_reference，和素材集、剪辑 Skill、剪辑要求一起提交给 Codex；不要再请求上传音轨。",
                               is_error=True, error_type="bgm_direct_handoff_required")
+        before_dispatch = False
         result = tool.execute(context=context, **arguments)
         result = result if isinstance(result, ToolResult) else ToolResult(content=str(result))
         if model_requested:
@@ -67,7 +69,7 @@ def execute_tool_call(
             is_error=True,
             error_type="invalid_arguments",
             retryable=True,
-            details={"validation_errors": error.errors()},
+            details={"validation_errors": error.errors(), "pre_dispatch": before_dispatch},
         )
     except Exception as error:
         return ToolResult(
