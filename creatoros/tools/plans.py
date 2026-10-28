@@ -84,7 +84,7 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                 started = any(item["tool"] == "start_content_run" and item["status"] not in {"pending", "blocked"}
                               for item in current["steps"])
                 safe_actions = {"manage_topics": {"list", "get"}, "manage_skill_library": {"get"},
-                    "manage_material": {"list", "get", "import_link"},
+                    "manage_material": {"list", "get"},
                     "manage_media_collection": {"list", "get", "create", "export"}}
                 for item in normalized:
                     previous = old.get(item["id"])

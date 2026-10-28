@@ -101,7 +101,7 @@ class TaskInputsArgs(BaseModel):
 class ProductionTaskArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=240, description="同一选题内该制作任务的简短名称。")
-    brief: str = Field(min_length=1, max_length=10_000, description="该任务的完整制作要求、图片数量和分工；各任务独立生产。")
+    brief: str = Field(min_length=1, max_length=10_000, description="本项独立画面的具体文案/场景和制作要求；理由图默认只交付这一张，25张独立理由图应填25项tasks，不在此写‘做25张’。")
     kind: Literal["image", "video"] = "image"
     skill_ids: list[str] | None = Field(default=None, min_length=1, max_length=12,
         description="本栏目中本次使用的 Skill 精确版本 ID，可选多项；宿主冻结各版本。")
@@ -156,7 +156,7 @@ class StartRunArgs(BaseModel):
     skill_overrides: SkillOverrides | None = Field(default=None,
         description="仅本次单选题选择完整 Skill 或内容/呈现版本，允许候选；每个指定ID须提供读取时expected_digests。可只换双Skill一边，不改栏目默认。")
     tasks: list[ProductionTaskArgs] | None = Field(default=None, min_length=1, max_length=100,
-        description="同一topic_id的图片/视频任务；图片提交自动创建并返回collection_id，无需提前建素材集。视频复用该ID和图片task ID作为depends_on，后台等图齐再导出剪辑，无需轮询或预先export。kind、skills、inputs明确制作；不能混用其他生产模式。")
+        description="同一选题的独立制作单位，一项对应一个Codex thread。独立理由图/场景图默认一张一项；25张=25项并行，先写好各自内容。返回同一collection_id；剪辑由计划等待图片完成再执行，分享文本直接放inputs.bgm_reference，无需先解析。不能混用其他生产模式。")
 
     @model_validator(mode="after")
     def exactly_one(self):

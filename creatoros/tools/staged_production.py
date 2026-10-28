@@ -132,8 +132,7 @@ def manage_material(action, creator_id=None, material_id=None, source_url=None,
         if action == "get":
             data = client.request("GET", root + "/" + quote(material_id, safe=""))
         elif action == "import_link":
-            data = client.request("POST", root, payload={"source_url": source_url,
-                "request_id": _request_id("material-link", owner, source_url, context)}, timeout_seconds=150)
+            data = client.request("POST", root, payload={"source_url": source_url}, timeout_seconds=150)
         else:
             data = client.request("GET", root)
             items = data.get("items", [])

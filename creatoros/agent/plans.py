@@ -26,7 +26,7 @@ from creatoros.tools.execution import execute_tool_call
 ALLOWED = {
     'start_content_run': None,
     'manage_topics': {'get', 'list', 'create', 'update', 'remove'},
-    'manage_material': {'list', 'get', 'import_link'},
+    'manage_material': {'list', 'get'},
     'manage_media_collection': {'list', 'get', 'create', 'export'},
     'manage_skill_library': {'get', 'add'},
     'get_content_run': None,

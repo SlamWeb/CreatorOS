@@ -46,6 +46,9 @@ def execute_tool_call(
                 if (arguments.get("plan_id") != context.plan_continuation_id
                         or arguments.get("action") not in {"get", "update", "resume", "retry", "skip"}):
                     raise AccountArgumentRejected("自动续接只能检查和调整触发本次通知的计划。")
+        if model_requested and tool_name == "manage_material" and arguments.get("action") == "import_link":
+            return ToolResult(content="BGM 分享链接无需导入或解析。请把用户完整分享文本放入视频任务 inputs.bgm_reference，和素材集、剪辑 Skill、剪辑要求一起提交给 Codex；不要再请求上传音轨。",
+                              is_error=True, error_type="bgm_direct_handoff_required")
         result = tool.execute(context=context, **arguments)
         result = result if isinstance(result, ToolResult) else ToolResult(content=str(result))
         if model_requested:

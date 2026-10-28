@@ -441,9 +441,12 @@ class ChatFocusTests(unittest.TestCase):
         second_messages, second_tools = self.captures[1]
         self.assertTrue(self.has_focus_message(first_messages))
         self.assertFalse(self.has_focus_message(second_messages))
+        self.assertIn("current_production_contract", json.dumps(first_messages))
+        self.assertIn("current_production_contract", json.dumps(second_messages))
         ledger = json.loads((self.root / "chats" / self.sid / "messages.json").read_text(encoding="utf-8"))
         self.assertFalse(self.has_focus_message(ledger))
         self.assertNotIn("FROZEN_account-a", json.dumps(ledger))
+        self.assertNotIn("current_production_contract", json.dumps(ledger))
         self.assertFalse(any(block.get("type") == "image_ref" for message in ledger
                              if isinstance(message.get("content"), list) for block in message["content"]))
         self.assertEqual(first_tools, second_tools)

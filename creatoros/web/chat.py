@@ -222,7 +222,8 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "生产/排队/核验/讨论期间拒绝改删；有产物的移除保留历史，修改不会改变旧Run和图片。冲突重读核对，不强制覆盖。"
     "选题pending是待选，queued是已确认入队，不代表任务正在排队。只有用户明确要求生产才start_content_run。"
     "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台最多30个选题并行。"
-    "同一个选题需要多张独立制作再合为一份作品时，用start_content_run(topic_id,tasks)一次提交制作任务，不拆成多个选题。"
+    "同一个选题需要多张独立理由图或场景图时，先拟好每条具体内容，一张图对应一项tasks，每项brief只要求自己这一张；25张即25项并行任务，不把‘产出25张’写进单项brief。同一个topic_id自动收进同一素材集，不拆成多个选题。只有用户明确要求一个会话连续做多页作品时才用单任务多图。"
+    "用户要求生图后再剪辑时，先用manage_plan安排完整的图片→收图→视频依赖，不要仅提交图片就结束或要求用户等图齐再来发消息；BGM分享文本本身即可提交剪辑步骤。"
     "需要长时间等待或多步依赖时用 manage_plan 制定通用步骤并由宿主推进，不轮询或重复提交。需要根据结果判断时在计划中添加 request_review 步骤，arguments 为 {\"question\":\"具体要判断什么\"}；后台暂停计划并唤醒你，读取当前计划，根据结果调整未开始步骤，再明确 resume。失败步骤只有实际调用 skip 并取得状态 skipped 的回执后才能说已跳过；只改后续步骤并不等于已跳过。需要跳过时先读取最新计划及版本，确认该步骤 skippable=true，调用 skip 后按新版本调整依赖；不安全或未知的步骤不跳过。无把握或结果未知就说明并等待用户，绝不重复提交生产。多张图可在一个 start_content_run 步骤内列多个独立 tasks，并设 wait_for_completion=true。收集本次图片时，新建素材集并令 run_ids 为 {\"$ref\":\"图片步骤ID.items.*.run_id\"}，依赖该图片步骤，不传 topic_id；视频步骤使用 {\"$ref\":\"素材集步骤ID.collection_id\"} 作为 inputs.collection_id 并依赖素材集步骤。视频任务明确 kind=video 和 BGM；按需要选择账号 Skill，不区分主辅。"
     "视频inputs使用图片集合/导出与BGM文件素材ID或用户提供的BGM分享原文二选一；用户给分享链接时，将完整分享文本原样放进bgm_reference交给Codex结合Skill处理，不需要先解析、下载或调用manage_material(import_link)。任务受理不代表音轨已取得或视频已完成。"
     "图片完成后可人工选片导出再制视频；用户明确授权等待选中的生图任务时填写depends_on，由持久后台推进，不轮询、不重交。"
@@ -772,6 +773,16 @@ class AgentChatService:
                 save_messages(messages, session_file)
             focus = self.focus_context_builder.build(doc.get("creator_id"), doc["id"], context_target,
                 image_budget=max(0, 20 * 1024 * 1024 - sum(item["size"] for item in attachments or []))) if context_target else None
+            if doc.get("scope_kind") == "creator":
+                # Current capability facts outrank stale assistant claims in a
+                # long conversation, without rewriting the conversation ledger.
+                focus = deepcopy(focus) if focus else {"data": {}, "images": [], "kind": "tool_contract"}
+                focus["data"]["current_production_contract"] = {
+                    "bgm_share_field": "inputs.bgm_reference",
+                    "audio_import_required": False,
+                    "independent_images": "一图一task，25张独立理由图=25项tasks，同一选题收进同一素材集",
+                    "image_then_video": "用manage_plan等待图片完成后继续剪辑，分享原文直接给Codex",
+                    "obsolete_history": "旧回复中必须先取得音频素材ID的说法已作废"}
             permitted_tools = ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS
             if host_observation:
                 # A continuation acts on this plan only. It cannot directly submit
@@ -808,6 +819,8 @@ class AgentChatService:
             error = ("选中的作品资料不可读取或归属已变化，请返回选题重新选择；未自动重试或生产。" if context_target
                      else "图片附件不可读取，请重新上传原图后再发送；未自动重试。")
         except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Agent 请求未完整结束")
             status, error = "failed", "Agent 请求未完整结束。请先查看已有任务，再决定下一步；未自动重试。"
         finally:
             try:
