@@ -228,14 +228,14 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result["task"] = _pick(data["task"], fields)
         return result
     if tool_name == "manage_plan":
-        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error")
+        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "pause_reason", "continuation_state")
         def step(item):
-            result = _pick(item, ("id", "title", "tool", "depends_on", "wait_for_completion", "status", "error", "retryable"))
+            result = _pick(item, ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
             if isinstance(item, dict) and isinstance(item.get("result"), dict):
                 value = item["result"]
-                result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url"))
+                result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url", "question"))
                 if isinstance(value.get("items"), list):
-                    result["result"]["items"] = _list(value["items"], lambda row: _pick(row, ("id", "task_id", "run_id", "status", "title", "url")))
+                    result["result"]["items"] = _list(value["items"], lambda row: _pick(row, ("id", "task_id", "run_id", "status", "terminal_status", "error", "title", "url")))
             return result
         projected = _pick(data, fields)
         if isinstance(data.get("steps"), list):

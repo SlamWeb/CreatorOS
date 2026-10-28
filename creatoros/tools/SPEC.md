@@ -300,6 +300,8 @@
 
 ## 多阶段制作工具（2026-10-27）
 
+- 2026-10-28：计划步骤可加入 `request_review` 检查点；自动续接绑定原计划，只开放受限读取与计划修改，不直接启动生产或另建计划。自动修改只提交变化步骤时宿主保留已执行历史，已提交/未知生图不能换步骤重提；可安全跳过只读失败并保留原错。模型投影保留恢复所需参数、是否可跳过和各制作项实际状态。隔离 HTTP 及真实 DeepSeek 读取失败恢复已验证；失败由隔离测试计划注入，不代表真实 Codex 故障已验证。
+
 - `start_content_run.tasks[].skill_ids` 直接指定本栏目内一个或多个版本，不向模型要求主辅或输出声明；现存 `skills` 保留历史兼容。栏目与账号 `manage_skill_library` 结果提供过滤权限后的 `available_versions`，投影保留 ID/digest，不开放别的账号私有候选。模型修改栏目池可只传 `skill_ids` 与版本，宿主保留仍有效的旧默认并清理已移除项；旧 `defaults` 参数仍可用。
 
 - 新增两个对象级工具：`manage_skill_library` 的 get/add/remove/set_pool 管理账号引用和栏目阶段默认；`manage_material` 的 list/get/import_link 查询、导入 BGM 分享链接。账号 ID 由宿主绑定，模型无文件路径、音频字节或请求键入口。

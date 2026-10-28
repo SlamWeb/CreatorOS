@@ -22,7 +22,7 @@ class Edit(BaseModel):
 
 class Action(BaseModel):
     expected_version: int
-    action: Literal['pause', 'resume', 'retry']
+    action: Literal['pause', 'resume', 'retry', 'skip']
     step_id: str | None = None
 
 def routes(service):

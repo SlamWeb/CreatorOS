@@ -25,6 +25,8 @@ class RuntimeContext:
     agent_session_id: str | None = None
     # Host-owned user turn identity; never accepted as model tool arguments.
     user_request_id: str | None = None
+    # A host-delivered continuation may adjust only its own existing plan.
+    plan_continuation_id: str | None = None
 
     @classmethod
     def from_defaults(cls):

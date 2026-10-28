@@ -37,6 +37,15 @@ def execute_tool_call(
         raw_arguments = (bind_account_arguments(tool_name, tool_call.arguments, context)
                          if model_requested else tool_call.arguments)
         arguments = tool.parse_arguments(raw_arguments)
+        if model_requested and context and context.plan_continuation_id:
+            actions = {"manage_topics": {"get", "list"}, "manage_material": {"get", "list"},
+                       "manage_media_collection": {"get", "list"}, "manage_skill_library": {"get"}}
+            if tool_name in actions and arguments.get("action") not in actions[tool_name]:
+                raise AccountArgumentRejected("自动续接只能查看数据；调整操作需写入当前计划。")
+            if tool_name == "manage_plan":
+                if (arguments.get("plan_id") != context.plan_continuation_id
+                        or arguments.get("action") not in {"get", "update", "resume", "retry", "skip"}):
+                    raise AccountArgumentRejected("自动续接只能检查和调整触发本次通知的计划。")
         result = tool.execute(context=context, **arguments)
         result = result if isinstance(result, ToolResult) else ToolResult(content=str(result))
         if model_requested:

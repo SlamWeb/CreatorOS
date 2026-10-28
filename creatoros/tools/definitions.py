@@ -119,7 +119,7 @@ tool_registry = {
              execute=manage_production_task, args_model=ManageProductionTaskArgs),
         Tool(name="manage_media_collection", description="管理当前账号素材集：list可按name筛选文件夹，可include_sources取任务索引；get读取选片/版本或已导出ZIP；create关联选题及额外Run；update用所见expected_version改名/来源/顺序/排除项；remove只删集合不删原图；export把当前保留图片按序保存为ZIP，返回准确下载入口和export_id，供后续剪辑取用，不调用Codex、不生产、不改Skill、不发布。仅导出时，定位collection_id后可直接export，无需先get全部图片；可省略version与snapshot由宿主读取当前选片，指定旧快照会拒绝。未知结果先查询，不换集合或另起生产。",
              execute=manage_media_collection, args_model=ManageMediaCollectionArgs),
-        Tool(name="manage_plan", description="管理当前账号对话的通用执行计划。用户明确授权需要多步或等待长任务时，create 提交步骤、依赖及工具参数，宿主自动执行并在任务完成后继续；可 list/get 查询、update 调整未开始步骤、pause/resume、retry 明确重试失败步骤。步骤仅使用允许的已有工具，引用依赖结果用 {$ref:'步骤ID.字段'}。不要轮询，不重复提交，不把受理说成完成。",
+        Tool(name="manage_plan", description="管理当前账号对话的通用执行计划。create 提交步骤和依赖，由宿主执行；需要判断时加入 request_review 步骤，参数 question 说明要判断的问题，后台暂停并唤醒本会话。续接后 get 当前计划，update 可只传要修改的未开始或阻塞步骤，其他步骤由宿主保留；paused 计划调整后 resume，needs_attention 计划调整后自动继续。失败时先 get 最新版本，只可 skip 标记可安全跳过的无副作用步骤，再修改后续依赖。已提交或结果未知的生产必须先核对，不可更名重提。引用依赖结果用 {$ref:'步骤ID.字段'}。不要轮询或把受理说成完成。",
              execute=manage_plan, args_model=ManagePlanArgs),
         Tool(name="query_feedback", description="只读本地已采集的账号反馈，比较最近 7 天已发布笔记的点赞、收藏等累计指标。支持分页，返回各笔记采样时间和栏目；不刷新平台、不发布、不新增选题。",
              execute=query_feedback, args_model=QueryFeedbackArgs),

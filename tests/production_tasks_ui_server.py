@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 
 from tests.studio_e2e_server import app, root
 from tests.smoke_pair_production import install_fixture
+
+if os.environ.get("CREATOROS_UI_HOLD_PLAN_CONTINUATION") == "1":
+    # UI-only fixture: keep notifications pending without starting an LLM.
+    app.state.agent_plans.set_continuation_callback(lambda: None)
 
 
 @app.post("/test/production-task-pair")

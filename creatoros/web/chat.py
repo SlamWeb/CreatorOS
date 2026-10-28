@@ -223,7 +223,7 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "选题pending是待选，queued是已确认入队，不代表任务正在排队。只有用户明确要求生产才start_content_run。"
     "用户要求多篇生产时，用start_content_run的topic_ids一次提交明确选中的选题；逐项说明已排队或未提交，后台最多30个选题并行。"
     "同一个选题需要多张独立制作再合为一份作品时，用start_content_run(topic_id,tasks)一次提交制作任务，不拆成多个选题。"
-    "需要长时间等待或多步依赖时用 manage_plan 制定通用步骤并由宿主推进，不轮询或重复提交。多张图可在一个 start_content_run 步骤内列多个独立 tasks，并设 wait_for_completion=true。收集本次图片时，新建素材集并令 run_ids 为 {\"$ref\":\"图片步骤ID.items.*.run_id\"}，依赖该图片步骤，不传 topic_id；视频步骤使用 {\"$ref\":\"素材集步骤ID.collection_id\"} 作为 inputs.collection_id 并依赖素材集步骤。视频任务明确 kind=video 和 BGM；按需要选择账号 Skill，不区分主辅。"
+    "需要长时间等待或多步依赖时用 manage_plan 制定通用步骤并由宿主推进，不轮询或重复提交。需要根据结果判断时在计划中添加 request_review 步骤，arguments 为 {\"question\":\"具体要判断什么\"}；后台暂停计划并唤醒你，读取当前计划，根据结果调整未开始步骤，再明确 resume。失败步骤只有实际调用 skip 并取得状态 skipped 的回执后才能说已跳过；只改后续步骤并不等于已跳过。需要跳过时先读取最新计划及版本，确认该步骤 skippable=true，调用 skip 后按新版本调整依赖；不安全或未知的步骤不跳过。无把握或结果未知就说明并等待用户，绝不重复提交生产。多张图可在一个 start_content_run 步骤内列多个独立 tasks，并设 wait_for_completion=true。收集本次图片时，新建素材集并令 run_ids 为 {\"$ref\":\"图片步骤ID.items.*.run_id\"}，依赖该图片步骤，不传 topic_id；视频步骤使用 {\"$ref\":\"素材集步骤ID.collection_id\"} 作为 inputs.collection_id 并依赖素材集步骤。视频任务明确 kind=video 和 BGM；按需要选择账号 Skill，不区分主辅。"
     "视频inputs只用图片集合/导出与BGM素材ID；音乐分享链接先manage_material(import_link)取得实文件，失败请用户上传，不能声称音乐已就绪。"
     "图片完成后可人工选片导出再制视频；用户明确授权等待选中的生图任务时填写depends_on，由持久后台推进，不轮询、不重交。"
     "查看原选题可读各项进度；各任务失败独立处理，不重跑已成功的任务，不重复提交整批。"
@@ -304,6 +304,7 @@ class AgentChatService:
         self.active = {}
         self.providers = {}
         self.last_saved = {}
+        self.plan_continuation_retry_after = {}
         self.max_parallel_sessions = max_parallel_sessions
         from creatoros.config import CODEX_PRODUCER_TIMEOUT_SECONDS
         self.research_wait_timeout_seconds = (CODEX_PRODUCER_TIMEOUT_SECONDS + 10
@@ -528,6 +529,8 @@ class AgentChatService:
         plans = self.plan_service
         for session_id in plans.pending_continuation_sessions():
             with self.lock:
+                if monotonic() < self.plan_continuation_retry_after.get(session_id, 0):
+                    continue
                 if self.stopping.is_set() or session_id in self.active or len(self.active) >= self.max_parallel_sessions:
                     continue
                 token = uuid4().hex
@@ -548,7 +551,7 @@ class AgentChatService:
                     if isinstance(provider, DeepSeekProvider):
                         provider.image_resolver = lambda ref, sid=session_id: self.attachments.resolve(sid, ref)
                         provider.set_reasoning_effort(doc.get("reasoning_effort", "high"))
-                    observation = {key: event[key] for key in ("plan_id", "status", "steps")}
+                    observation = {key: event[key] for key in ("plan_id", "status", "steps", "reason") if key in event}
                     doc["requests"].append({"id": request_id, "text": "", "status": "running",
                                             "kind": "plan_continuation", "event_id": event["event_id"]})
                     doc.update(status="running", error=None, version=doc["version"] + 1)
@@ -562,7 +565,11 @@ class AgentChatService:
                     thread.start()
                 except Exception:
                     plans.release_continuation(event["plan_id"], event["event_id"], token)
-                    raise
+                    # An unavailable provider should not turn a durable pending
+                    # event into a tight loop or disappear silently.
+                    self.plan_continuation_retry_after[session_id] = monotonic() + 30
+                    import logging
+                    logging.getLogger(__name__).warning("计划续接暂不可用，将稍后重新检查", exc_info=True)
 
     def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
                reasoning_effort=None, iteration_mode=False, context_target=None):
@@ -766,10 +773,11 @@ class AgentChatService:
             focus = self.focus_context_builder.build(doc.get("creator_id"), doc["id"], context_target,
                 image_budget=max(0, 20 * 1024 * 1024 - sum(item["size"] for item in attachments or []))) if context_target else None
             permitted_tools = ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS
-            if host_observation and host_observation.get("status") == "needs_attention":
-                # Failure notifications can inspect and explain, but must not work
-                # around the failed step by silently submitting a new production.
-                permitted_tools = permitted_tools & frozenset({"get_content_run", "get_producer_skill",
+            if host_observation:
+                # A continuation acts on this plan only. It cannot directly submit
+                # new production; permitted plan edits are additionally checked.
+                permitted_tools = permitted_tools & frozenset({"manage_plan", "manage_topics", "manage_material",
+                    "manage_media_collection", "manage_skill_library", "get_content_run", "get_producer_skill",
                     "get_creator_tasks", "list_creators", "list_creator_series", "list_producer_skills",
                     "read_image", "read_tool_result"})
             run_agent(provider, console=WebConsole(text or "（用户发送了图片，请根据上下文判断用途；用途不明时先询问。）"),
@@ -782,6 +790,7 @@ class AgentChatService:
                                                      allowed_tools=permitted_tools,
                                                      archive_only_reads=True, creator_id=doc.get("creator_id"),
                                                      agent_session_id=doc["id"], stopping=self.stopping,
+                                                     plan_continuation_id=host_observation.get("plan_id") if host_observation else None,
                                                      research_wait_timeout_seconds=self.research_wait_timeout_seconds,
                                                      research_progress=lambda data: self._emit(doc, AgentEvent("research_progress", data), studio_url),
                                                      discussion_progress=lambda data: self._emit(doc, AgentEvent("discussion_progress", data), studio_url),

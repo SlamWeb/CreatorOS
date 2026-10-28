@@ -8,7 +8,7 @@ export default defineConfig({
   use: { baseURL: "http://127.0.0.1:8791", channel: "chrome", viewport: { width: 1440, height: 900 }, screenshot: "only-on-failure" },
   webServer: {
     command: `"${process.env.CREATOROS_PYTHON ?? "python"}" -m tests.production_tasks_ui_server --port 8791`, cwd: repo,
-    env: { ...process.env, CREATOROS_E2E_ROOT: path.join(repo, "tmp", `agent-plan-${Date.now()}`), CREATOROS_E2E_DIST: path.join(repo, "tmp", "agent-plan-dist") },
+    env: { ...process.env, DEEPSEEK_API_KEY: "", CREATOROS_UI_HOLD_PLAN_CONTINUATION: "1", CREATOROS_E2E_ROOT: path.join(repo, "tmp", `agent-plan-${Date.now()}`), CREATOROS_E2E_DIST: path.join(repo, "tmp", "agent-plan-dist") },
     url: "http://127.0.0.1:8791/api/health", reuseExistingServer: false, timeout: 120_000,
   },
 });

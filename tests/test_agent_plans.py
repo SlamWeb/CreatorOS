@@ -3,17 +3,113 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from creatoros.agent.plans import _validate_plan_inputs
+from creatoros.agent.plans import _validate_plan_inputs, PlanService
 
 import httpx
 from sqlalchemy import select
 
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
-from creatoros.storage.models import AgentPlanStep, CreatorPlatform
+from creatoros.storage.models import AgentPlanStep, CreatorPlatform, ProductionTask, ContentRun, Topic, Series
 from creatoros.storage import ContentRepository
 
 class PlanTests(unittest.TestCase):
+    def test_checkpoint_persists_and_requires_explicit_resume(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            sid = app.state.chat.create('review-lab')['id']
+            service = app.state.agent_plans
+            plan = service.create(sid, 'checkpoint', '判断后继续', [
+                {'id':'review','title':'检查素材','tool':'request_review','arguments':{'question':'图片够吗？'}},
+                {'id':'next','title':'继续','tool':'get_producer_skill','arguments':{'skill_id':'missing'},'depends_on':['review']},
+            ], 'http://127.0.0.1:8765')
+            service.advance()
+            view = service.get(sid, plan['id'])
+            self.assertEqual((view['status'], view['pause_reason']), ('paused', 'checkpoint'))
+            self.assertEqual([x['status'] for x in view['steps']], ['succeeded', 'pending'])
+            event = service.claim_continuation(sid, 'worker')
+            self.assertEqual(event['reason'], 'checkpoint')
+            self.assertTrue(service.ack_continuation(plan['id'], event['event_id'], 'worker'))
+            self.assertIsNone(service.claim_continuation(sid, 'worker'))
+            service.advance()
+            self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'pending')
+            view = service.get(sid, plan['id'])
+            service.action(sid, plan['id'], view['version'], 'resume')
+            service.advance()
+            self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'running')
+            db.close()
+
+    def test_batch_waits_for_every_sibling_even_when_one_failed(self):
+        failed = SimpleNamespace(id='r1', topic_id='t', task_id='one', status=SimpleNamespace(value='failed'), error_message='失败')
+        running = SimpleNamespace(id='r2', topic_id='t', task_id='two', status=SimpleNamespace(value='producing'), error_message=None, active_revision_number=1)
+        refs = {(ProductionTask,'one'):SimpleNamespace(topic_id='t'), (ProductionTask,'two'):SimpleNamespace(topic_id='t'),
+                (Topic,'t'):SimpleNamespace(series_id='s'), (Series,'s'):SimpleNamespace(creator_id='a'),
+                (ContentRun,'r1'):failed, (ContentRun,'r2'):running}
+        class Session:
+            def get(self, cls, key): return refs.get((cls, key))
+            def scalar(self, query): return SimpleNamespace(id='rev', artifact_digest='digest')
+        step = SimpleNamespace(result_json={'items':[{'id':'one','run_id':'r1'}, {'id':'two','run_id':'r2'}]})
+        self.assertIsNone(PlanService._watch(Session(), SimpleNamespace(creator_id='a'), step))
+        self.assertEqual(step.result_json['items'][0]['terminal_status'], 'failed')
+        running.status.value = 'awaiting_approval'
+        result = PlanService._watch(Session(), SimpleNamespace(creator_id='a'), step)
+        self.assertEqual(result[0], 'failed')
+        self.assertEqual([x['terminal_status'] for x in step.result_json['items']], ['failed','succeeded'])
+
+    def test_restart_does_not_skip_checkpoint_or_redeliver_acked_event(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
+            plan = service.create(sid, 'checkpoint-restart', '检查点恢复', [
+                {'id':'review','title':'检查','tool':'request_review','arguments':{'question':'是否继续？'}},
+                {'id':'next','title':'后续','tool':'get_producer_skill','arguments':{'skill_id':'none'},'depends_on':['review']},
+            ], 'http://127.0.0.1:8765')
+            service.advance(); event = service.claim_continuation(sid, 'one')
+            self.assertTrue(service.ack_continuation(plan['id'], event['event_id'], 'one'))
+            service.start()
+            try:
+                time.sleep(.1)
+                self.assertEqual(service.get(sid, plan['id'])['status'], 'paused')
+                self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'pending')
+                self.assertIsNone(service.claim_continuation(sid, 'other'))
+            finally:
+                service.shutdown(); db.close()
+
+    def test_new_step_cannot_repeat_unknown_or_submitted_images(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
+            original = {'id':'images','title':'生图','tool':'start_content_run',
+                'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片'}]}}
+            plan = service.create(sid, 'no-repeat', '不重画', [original], 'http://127.0.0.1:8765')
+            with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'unknown'
+            extra = {'id':'retry-as-new','title':'另起','tool':'start_content_run',
+                     'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片'}]}}
+            with self.assertRaises(Exception): service.edit(sid, plan['id'], plan['version'], [original, extra])
+            self.assertEqual(len(service.get(sid, plan['id'])['steps']), 1)
+            with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'succeeded'
+            with self.assertRaises(Exception): service.edit(sid, plan['id'], plan['version'], [original, extra])
+            db.close()
+
+    def test_skip_is_limited_to_safe_failed_steps_and_keeps_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            db, _, _, app = make_fixture(Path(root))
+            sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
+            plan = service.create(sid, 'skip-safe', '失败处理', [
+                {'id':'read','title':'读取','tool':'get_content_run','arguments':{'run_id':'x'}},
+                {'id':'produce','title':'生产','tool':'start_content_run','arguments':{'topic_id':'x'}},
+            ], 'http://127.0.0.1:8765')
+            with db.session() as session:
+                for key in ['read', 'produce']:
+                    row = session.get(AgentPlanStep, plan['id'] + ':' + key)
+                    row.status, row.error, row.result_json = 'failed', '原始错误', {'_error_type':'studio_unavailable'}
+            service.action(sid, plan['id'], plan['version'], 'skip', 'read')
+            updated = service.get(sid, plan['id'])
+            self.assertEqual(updated['steps'][0]['status'], 'skipped')
+            self.assertEqual(updated['steps'][0]['error'], '原始错误')
+            with self.assertRaises(ValueError): service.action(sid, plan['id'], updated['version'], 'skip', 'produce')
+            db.close()
+
     def test_real_http_scoping_and_independent_failure(self):
         with tempfile.TemporaryDirectory() as root:
             db, _, _, app = make_fixture(Path(root))

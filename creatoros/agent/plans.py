@@ -30,7 +30,10 @@ ALLOWED = {
     'manage_media_collection': {'list', 'get', 'create', 'export'},
     'manage_skill_library': {'get', 'add'},
     'get_content_run': None,
+    'get_creator_tasks': None,
     'get_producer_skill': None,
+    # Host-owned checkpoint: no model call or side effect is executed here.
+    'request_review': None,
 }
 STEP_KEY = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 
@@ -61,6 +64,9 @@ def _validate_steps(steps):
             raise ValueError('该工具动作尚不支持计划执行。')
         if 'creator_id' in args:
             raise ValueError('账号由会话确定，不能在步骤中指定。')
+        if tool == 'request_review' and (set(args) != {'question'} or not isinstance(args['question'], str)
+                                         or not 1 <= len(args['question']) <= 2000):
+            raise ValueError('检查点需要一条清晰的判断问题。')
         if not isinstance(deps, list) or len(set(deps)) != len(deps) or any(dep not in known for dep in deps):
             raise ValueError('依赖必须引用前面已定义的步骤。')
         if item.get('wait_for_completion', False) and tool != 'start_content_run':
@@ -195,7 +201,13 @@ class PlanService:
         with self.db.session() as session:
             rows = session.scalars(select(AgentPlan).where(AgentPlan.session_id == sid, AgentPlan.creator_id == owner)
                                    .order_by(AgentPlan.created_at.desc())).all()
-            return {'items': [dict(id=r.id, title=r.title, status=r.status, version=r.version) for r in rows]}
+            return {'items': [dict(id=r.id, title=r.title, status=r.status, version=r.version,
+                                   continuation_state=r.continuation_state, pause_reason=self._pause_reason(r)) for r in rows]}
+
+    @staticmethod
+    def _pause_reason(plan):
+        if plan.status != 'paused': return None
+        return 'checkpoint' if plan.continuation_state in {'pending', 'claimed', 'done_checkpoint'} else 'manual'
 
     @staticmethod
     def _find(session, sid, owner, identity):
@@ -215,12 +227,22 @@ class PlanService:
             p = self._find(session, sid, owner, identity)
             rows = self._rows(session, identity)
             return dict(id=p.id, session_id=p.session_id, creator_id=p.creator_id, title=p.title,
-                version=p.version, status=p.status, continuation_state=p.continuation_state,
+                version=p.version, status=p.status, continuation_state=p.continuation_state, pause_reason=self._pause_reason(p),
                 steps=[dict(id=s.step_key, title=s.title, tool=s.tool, arguments=deepcopy(s.arguments_json),
                     depends_on=list(s.depends_on_json), wait_for_completion=s.wait_for_completion,
                     status=s.status, result=deepcopy(s.result_json), error=s.error,
                     retryable=(s.status == 'failed' and s.tool in {'get_content_run', 'get_producer_skill'}
-                               and (s.result_json or {}).get('_error_type') not in {'invalid_arguments', 'agent_scope_rejected'})) for s in rows])
+                               and (s.result_json or {}).get('_error_type') not in {'invalid_arguments', 'agent_scope_rejected'}),
+                    skippable=self._skippable(s)) for s in rows])
+
+    @staticmethod
+    def _skippable(row):
+        # Only reads and provably pre-dispatch validation failures can be skipped.
+        # A write rejected by an external API may have succeeded: do not guess.
+        if row.status != 'failed' or row.tool == 'start_content_run': return False
+        if row.result_json is None: return True  # _resolve/_validate before dispatch
+        return row.tool in {'get_content_run', 'get_producer_skill'} or (
+            (row.result_json or {}).get('_error_type') in {'invalid_arguments', 'agent_scope_rejected'})
 
     def edit(self, sid, identity, expected_version, steps):
         owner = self._owner(sid)
@@ -232,6 +254,27 @@ class PlanService:
             if p.version != expected_version: raise ContentRunError('计划已变化，请刷新。', code='plan_conflict', status_code=409)
             existing = {s.step_key:s for s in self._rows(session, identity)}
             supplied = {s['id']:s for s in normalized}
+            prior_production = [s for s in existing.values() if s.tool == 'start_content_run' and s.status not in {'pending', 'blocked'}]
+            added_production = [s for s in normalized if s['tool'] == 'start_content_run' and (
+                s['id'] not in existing or (existing[s['id']].status in {'pending', 'blocked'} and
+                (existing[s['id']].tool != s['tool'] or existing[s['id']].arguments_json != s['arguments'])))]
+            if added_production and any(s.status in {'running', 'waiting', 'failed', 'unknown'} for s in prior_production):
+                raise ContentRunError('已有生产仍在运行、失败或结果未知；请核对原任务，不能添加替代生产。', code='plan_conflict', status_code=409)
+            for new in added_production:
+                for old in prior_production:
+                    previous = old.arguments_json or {}
+                    current = new['arguments']
+                    old_topics = set(previous.get('topic_ids') or []) | ({previous['topic_id']} if previous.get('topic_id') else set())
+                    new_topics = set(current.get('topic_ids') or []) | ({current['topic_id']} if current.get('topic_id') else set())
+                    if not old_topics & new_topics: continue
+                    old_tasks, new_tasks = previous.get('tasks'), current.get('tasks')
+                    old_images = [t for t in old_tasks or [] if isinstance(t, dict) and t.get('kind', 'image') == 'image']
+                    new_images = [t for t in new_tasks or [] if isinstance(t, dict) and t.get('kind', 'image') == 'image']
+                    if (old_tasks and not old_images) or (new_tasks and not new_images): continue  # video is not image replay
+                    old_titles = {t.get('title') for t in old_images}
+                    new_titles = {t.get('title') for t in new_images}
+                    if not old_tasks or not new_tasks or None in old_titles or None in new_titles or old_titles & new_titles:
+                        raise ContentRunError('该选题的同名生图任务已有提交记录，不能另建步骤重复提交。', code='plan_conflict', status_code=409)
             for key,row in existing.items():
                 prior = dict(id=key,title=row.title,tool=row.tool,arguments=row.arguments_json,
                              depends_on=row.depends_on_json,wait_for_completion=row.wait_for_completion)
@@ -248,7 +291,7 @@ class PlanService:
                 row.arguments_json,row.depends_on_json,row.wait_for_completion = item['arguments'],item['depends_on'],item['wait_for_completion']
             p.version += 1
             if p.status in {'completed','needs_attention'}: p.status = 'running'
-            if p.continuation_state != 'claimed': p.continuation_state = 'none'
+            if p.continuation_state not in {'claimed', 'done_checkpoint'}: p.continuation_state = 'none'
         self._wake.set()
         return self.get(sid, identity)
 
@@ -263,6 +306,7 @@ class PlanService:
             elif action == 'resume':
                 if p.status != 'paused': raise ValueError('当前计划未暂停。')
                 p.status = 'running'
+                if p.continuation_state in {'pending', 'done_checkpoint'}: p.continuation_state = 'none'
             elif action == 'retry':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
                 if (not row or row.status != 'failed' or row.tool not in {'get_content_run', 'get_producer_skill'}
@@ -272,6 +316,13 @@ class PlanService:
                 for blocked in self._rows(session, identity):
                     if blocked.status == 'blocked': blocked.status, blocked.error = 'pending', None
                 p.status, p.continuation_state = 'running', 'none'
+            elif action == 'skip':
+                row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
+                if not row or not self._skippable(row):
+                    raise ValueError('该步骤不能安全跳过；请先核对原任务。')
+                # Preserve its error and result for audit. Dependants must be
+                # explicitly rerouted; skip by itself does not start work.
+                row.status = 'skipped'
             else: raise ValueError('不支持的计划操作。')
             p.version += 1
         self._wake.set()
@@ -299,7 +350,7 @@ class PlanService:
             p.continuation_state, p.continuation_token = 'claimed', worker_token
             p.continuation_until = now + timedelta(seconds=lease_seconds)
             return dict(event_id=f'{p.id}:{p.continuation_version}', plan_id=p.id, session_id=p.session_id,
-                        creator_id=p.creator_id, status=p.status, studio_url=p.studio_url,
+                        creator_id=p.creator_id, status=p.status, reason='checkpoint' if p.status == 'paused' else ('failure' if p.status == 'needs_attention' else 'completed'), studio_url=p.studio_url,
                         steps=[dict(id=s.step_key,title=s.title,status=s.status,result=deepcopy(s.result_json),error=s.error)
                                for s in self._rows(session,p.id)])
 
@@ -307,9 +358,9 @@ class PlanService:
         with self._write() as session:
             p = session.get(AgentPlan, plan_id)
             if not p or event_id != f'{p.id}:{p.continuation_version}': return False
-            if p.continuation_state == 'done': return True
+            if p.continuation_state in {'done', 'done_checkpoint'}: return True
             if p.continuation_state != 'claimed' or p.continuation_token != worker_token: return False
-            p.continuation_state, p.continuation_token, p.continuation_until = 'done', None, None
+            p.continuation_state, p.continuation_token, p.continuation_until = ('done_checkpoint' if p.status == 'paused' else 'done'), None, None
             return True
 
     def release_continuation(self, plan_id, event_id, worker_token):
@@ -374,10 +425,17 @@ class PlanService:
                 for s in rows:
                     if s.status != 'pending': continue
                     deps = [by_key[k] for k in s.depends_on_json]
-                    if any(d.status in {'failed','unknown','blocked'} for d in deps):
+                    if any(d.status in {'failed','unknown','blocked','skipped'} for d in deps):
                         s.status, s.error = 'blocked', '依赖步骤未完成。'
                         p.version += 1
                     elif all(d.status == 'succeeded' for d in deps):
+                        if s.tool == 'request_review':
+                            s.status, s.result_json = 'succeeded', {'question': s.arguments_json['question']}
+                            p.status, p.continuation_state = 'paused', 'pending'
+                            p.continuation_version += 1; p.version += 1
+                            # Already claimed independent work may finish, but no
+                            # later step is started until an explicit resume.
+                            break
                         try:
                             result_data = {key:by_key[key].result_json for key in s.depends_on_json}
                             args = _resolve(s.arguments_json,result_data,set(s.depends_on_json))
@@ -388,8 +446,8 @@ class PlanService:
                             continue
                         s.status = 'running'; p.version += 1
                         dispatch.append((p.id,s.step_key,p.session_id,p.creator_id,p.studio_url,s.tool,args))
-                if rows and all(s.status in {'succeeded','failed','blocked','unknown'} for s in rows):
-                    p.status = 'completed' if all(s.status == 'succeeded' for s in rows) else 'needs_attention'
+                if p.status == 'running' and rows and all(s.status in {'succeeded','failed','blocked','unknown','skipped'} for s in rows):
+                    p.status = 'completed' if all(s.status in {'succeeded','skipped'} for s in rows) else 'needs_attention'
                     p.continuation_state = 'pending'; p.continuation_version += 1; p.version += 1
         for item in dispatch:
             if self._pool:
@@ -422,6 +480,11 @@ class PlanService:
             if not row or not p or row.status != 'running': return
             if result.is_error:
                 unknown = result.error_type in {'studio_outcome_unknown','studio_invalid_response','tool_exception'}
+                # An HTTP error from a write can arrive after the server committed.
+                # Without a receipt it is never evidence that production did not start.
+                if row.tool == 'start_content_run' and result.error_type not in {
+                        'invalid_arguments', 'agent_scope_rejected', 'studio_unavailable'}:
+                    unknown = True
                 data['_error_type'] = result.error_type
                 row.status = 'unknown' if unknown else 'failed'
                 row.error = str(data.get('message') or result.error_type or '步骤失败')[:2000]
@@ -434,9 +497,29 @@ class PlanService:
 
     @staticmethod
     def _watch(session, plan, step):
-        data = step.result_json or {}
+        data = deepcopy(step.result_json or {})
         task_ids = [item.get('id') for item in data.get('items', []) if isinstance(item, dict) and item.get('id')]
+        if not task_ids and data.get('run_id'):
+            run = session.get(ContentRun, data['run_id'])
+            topic = session.get(Topic, run.topic_id) if run else None
+            series = session.get(Series, topic.series_id) if topic else None
+            if not series or series.creator_id != plan.creator_id:
+                return ('failed', '制作任务不存在或账号范围不符。')
+            if run.status.value in {'failed', 'interrupted', 'cancelled'}:
+                data['terminal_status'], data['error'] = run.status.value, run.error_message or '制作任务未完成。'
+                step.result_json = data
+                return ('failed', data['error'])
+            if run.status.value not in {'awaiting_approval', 'approved', 'published'}: return None
+            revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run.id,
+                ContentRevision.revision_number == run.active_revision_number))
+            if not revision or not revision.artifact_digest: return ('failed', '制作任务没有可核验产物。')
+            if data.get('revision_id') and (data['revision_id'] != revision.id or data.get('artifact_digest') != revision.artifact_digest):
+                return ('failed', '制作任务产物版本发生变化，请重新核对。')
+            data.update(revision_id=revision.id, artifact_digest=revision.artifact_digest, terminal_status='succeeded')
+            step.result_json = data
+            return ('succeeded', None)
         if not task_ids: return ('failed','未获得可等待的制作任务。')
+        pending, failed = False, []
         for identity in task_ids:
             task = session.get(ProductionTask, identity)
             topic = session.get(Topic, task.topic_id) if task else None
@@ -452,15 +535,35 @@ class PlanService:
                 item['run_id'] = run.id
                 step.result_json = deepcopy(data)
             if not run:
-                if task.dispatch_state in {'needs_attention','cancelled'}: return ('failed',task.last_error or '任务未完成。')
-                return None
-            if run.status.value in {'failed','interrupted','cancelled'}: return ('failed',run.error_message or '制作任务未完成。')
-            if run.status.value not in {'awaiting_approval','approved','published'}: return None
+                if task.dispatch_state in {'needs_attention','cancelled'}:
+                    item['terminal_status'], item['error'] = task.dispatch_state, task.last_error or '任务未完成。'
+                    failed.append(item['error'])
+                else:
+                    pending = True
+                    item.pop('terminal_status', None); item.pop('error', None)
+                continue
+            if run.status.value in {'failed','interrupted','cancelled'}:
+                item['terminal_status'], item['error'] = run.status.value, run.error_message or '制作任务未完成。'
+                failed.append(item['error'])
+                continue
+            if run.status.value not in {'awaiting_approval','approved','published'}:
+                pending = True
+                item.pop('terminal_status', None); item.pop('error', None)
+                continue
             revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id==run.id,
                 ContentRevision.revision_number==run.active_revision_number))
-            if not revision or not revision.artifact_digest: return ('failed','制作任务没有可核验产物。')
+            if not revision or not revision.artifact_digest:
+                item['terminal_status'], item['error'] = 'failed', '制作任务没有可核验产物。'
+                failed.append(item['error'])
+                continue
             if item.get('revision_id') and (item['revision_id'] != revision.id or item.get('artifact_digest') != revision.artifact_digest):
-                return ('failed','制作任务产物版本发生变化，请重新核对。')
+                item['terminal_status'], item['error'] = 'failed', '制作任务产物版本发生变化，请重新核对。'
+                failed.append(item['error'])
+                continue
             item['revision_id'], item['artifact_digest'] = revision.id, revision.artifact_digest
-            step.result_json = deepcopy(data)
+            item['terminal_status'] = 'succeeded'
+            item.pop('error', None)
+        step.result_json = data
+        if pending: return None
+        if failed: return ('failed', f'{len(failed)} 项制作未完成；其余已完成项目已保留。' + failed[0])
         return ('succeeded',None)
