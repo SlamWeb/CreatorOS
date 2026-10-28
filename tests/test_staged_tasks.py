@@ -67,6 +67,22 @@ class StagedTasksTests(unittest.TestCase):
             digest=self.video["digest"], role="primary")], inputs=dict(collection_id=image_result["collection_id"],
             bgm_material_id=self.audio["id"]), depends_on=[image["id"]])
 
+    def test_video_share_text_is_frozen_and_dispatched_without_audio_import(self):
+        images, image = self.image()
+        self.runs.execute(image["run_id"])
+        share = "复制打开抖音 https://v.douyin.com/l5keSl2qzb8/ 用这个版本的音乐"
+        payload = self.video_payload(images, image)
+        payload["depends_on"] = []
+        payload["inputs"] = {"collection_id": images["collection_id"], "bgm_reference": share}
+        result = self.tasks.create("topic", request_id="video-share-text", tasks=[payload])
+        run = self.runs.get(result["items"][0]["run_id"])
+        spec = run.input_snapshot_json["execution_spec"]
+        self.assertEqual(spec["bgm_reference"], share)
+        self.assertEqual({item["kind"] for item in spec["materials"]}, {"images_zip"})
+        replay = self.tasks.create("topic", request_id="video-share-text", tasks=[payload])
+        self.assertEqual(replay["items"][0]["run_id"], run.id)
+
+
     def test_wait_freeze_dispatch_once_and_material_collection_does_not_collect_video(self):
         images, image = self.image()
         payload = self.video_payload(images, image)

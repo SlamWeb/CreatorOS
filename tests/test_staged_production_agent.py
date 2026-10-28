@@ -27,6 +27,21 @@ from tests import test_skill_version_scope as scope_fixture
 
 
 class StagedAgentSchemaTests(unittest.TestCase):
+    def test_video_accepts_bgm_share_text_without_preimport(self):
+        share = "2.89 复制打开抖音，看看【作品】 https://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic"
+        task = {"kind": "video", "title": "剪辑", "brief": "按节拍剪辑", "skill_ids": ["video-test--" + "a" * 16],
+                "inputs": {"collection_id": "images", "bgm_reference": share}}
+        parsed = StartRunArgs(topic_id="topic", tasks=[task])
+        self.assertEqual(parsed.tasks[0].inputs.bgm_reference, share)
+        self.assertIsNone(parsed.tasks[0].inputs.bgm_material_id)
+        data = parsed.model_dump(mode="json", exclude_none=True)
+        self.assertEqual(data["tasks"][0]["inputs"]["bgm_reference"], share)
+        for inputs in ({"collection_id": "images"},
+                       {"collection_id": "images", "bgm_reference": "  "},
+                       {"collection_id": "images", "bgm_reference": share, "bgm_material_id": "c" * 64}):
+            with self.subTest(inputs=inputs), self.assertRaises(ValidationError):
+                StartRunArgs(topic_id="topic", tasks=[{**task, "inputs": inputs}])
+
     def test_task_selection_is_typed_and_contains_no_host_paths(self):
         skill = {"skill_id": "video-test--" + "a" * 16, "digest": "b" * 64, "role": "primary"}
         task = {"kind": "video", "title": "短片", "brief": "保留音乐卡点", "skills": [skill],
@@ -295,6 +310,38 @@ class StagedAgentHttpTests(unittest.TestCase):
                 "skill_id": self.legacy["id"], "digest": "0" * 64, "role": "primary"}]}])
         self.assertTrue(stale.is_error, stale.content)
         self.assertEqual(stale.error_type, "skill_digest_conflict")
+
+    def test_agent_video_accepts_original_share_text_without_import(self):
+        """Actual scoped HTTP and isolated SQLite; controlled producer, no real Codex."""
+        from tests.media_test_support import require_media
+        require_media(self)
+        context = self.context()
+        image_result = self.call("start_content_run", context, topic_id="review-1", tasks=[{
+            "title": "参考图片", "brief": "一张测试图片"}])
+        self.assertFalse(image_result.is_error, image_result.content)
+        images = json.loads(image_result.content)
+        run_id = images["items"][0]["run_id"]
+        deadline = monotonic() + 15
+        while monotonic() < deadline:
+            status = self.client.get(f"/api/runs/{run_id}").json()["status"]
+            if status == "awaiting_approval": break
+            sleep(.05)
+        self.assertEqual(status, "awaiting_approval")
+        source = self.root / "share-link-skill"
+        source.mkdir()
+        (source / "SKILL.md").write_text("---\nname: share-link-skill\ndescription: edit\ncreatoros-outputs: [video]\n---\n剪辑图片。\n", encoding="utf-8")
+        skill = self.catalog.register_local(source, role="production")
+        self.app.state.skill_library.add("review-lab", skill["id"], uuid4().hex)
+        share = "2.89 复制打开抖音，看看【作品】 https://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic"
+        task = {"kind": "video", "title": "链接剪辑", "brief": "照音乐卡点", "skill_ids": [skill["id"]],
+                "inputs": {"collection_id": images["collection_id"], "bgm_reference": share}}
+        result = self.call("start_content_run", context, topic_id="review-1", tasks=[task])
+        self.assertFalse(result.is_error, result.content)
+        item = json.loads(result.content)["items"][0]
+        with self.database.session() as session:
+            saved = session.get(ProductionTask, item["id"])
+            self.assertEqual(saved.definition_json["inputs"]["bgm_reference"], share)
+        self.assertEqual(self.app.state.materials.list("review-lab"), [])
 
 
 if __name__ == "__main__":

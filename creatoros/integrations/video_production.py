@@ -36,11 +36,39 @@ def video_skill_rules(spec):
     return "完整使用以下原始主/辅助 Skill，辅助不得替换主 Skill；不要另写融合 Skill。"
 
 
+def _video_prompt(spec, payload, directory, *, recovery=False):
+    skills = [{"role": skill.role, "skill_id": skill.skill_id,
+               "content": (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8-sig"),
+               "resource_root": str(Path(skill.path).relative_to(directory))}
+              for skill in spec.skills]
+    materials = [{**item.model_dump(exclude={"path"}), "path": str(Path(item.path).relative_to(directory))}
+                 for item in spec.materials]
+    return (PRODUCTION_RULES + "\n本次交付视频 MP4。" + video_skill_rules(spec) +
+            "所有资源路径相对当前 cwd 的父目录，按本次输入选择并剪辑。只读输入材料，输出仅写当前 work。"
+            "视频输出用 H.264 + AAC、yuv420p MP4，设置 faststart 以便网页播放。"
+            "最终返回 JSON，成功时 complete=true、video_path 为当前 work 下真实 MP4 的相对路径。不要发布。"
+            "缺失工具或素材时 complete=false、video_path=null，并在 error 中写明实际原因，不伪造文件。\n"
+            + ("用户提供的 BGM 分享原文如下，请按选中剪辑 Skill 的指引自行获取和使用音频；无需 CreatorOS 预先解析：\n"
+               + spec.bgm_reference + "\n" if spec.bgm_reference else "")
+            + ("这是同 Revision 的技术恢复，先检查已有工程和渲染文件，再继续；沿用固定素材。\n" if recovery else "")
+            + json.dumps({"task": payload, "skills": skills, "materials": materials,
+                          "tools": {name: media_tool(name) for name in ("ffmpeg", "ffprobe")}}, ensure_ascii=False))
+
+
 class VideoDelivery(ProductionModel):
     title: str = Field(min_length=1)
     text: str
-    video_path: str = Field(min_length=1, description="Relative MP4 path inside current work directory")
-    complete: Literal[True]
+    video_path: str | None = Field(default=None, description="成功时为 work 内 MP4 相对路径，失败为 null")
+    complete: bool
+    error: str | None = None
+
+
+def video_delivery_schema():
+    # Structured outputs require every property, including nullable fields.
+    # Local defaults still allow reading old successful delivery receipts.
+    schema = VideoDelivery.model_json_schema()
+    schema["required"] = list(schema["properties"])
+    return schema
 
 
 class VideoArtifact(ProductionModel):
@@ -126,7 +154,9 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
     baseline = checkpoint.usage if checkpoint else _usage_baseline(directory, thread_id)
     try:
         async with _production_client(deadline, cancel) as client:
-            options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
+            # A supplied external BGM may require browser access. Let the SDK's
+            # reviewer evaluate those requests instead of denying them outright.
+            options = dict(approval_mode=ApprovalMode.auto_review if spec.bgm_reference else ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write,
                            developer_instructions=PRODUCTION_RULES)
             thread = await _bounded_sdk(client.thread_resume(thread_id, **options) if thread_id else
@@ -138,25 +168,11 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
             record_thread(directory, thread.id)
             if request.get("on_thread_started"):
                 request["on_thread_started"](thread.id)
-            skills = [{"role": skill.role, "skill_id": skill.skill_id,
-                       "content": (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8-sig"),
-                       "resource_root": str(Path(skill.path).relative_to(directory))}
-                      for skill in spec.skills]
-            materials = [{**item.model_dump(exclude={"path"}), "path": str(Path(item.path).relative_to(directory))}
-                         for item in spec.materials]
-            skill_rules = video_skill_rules(spec)
-            prompt = (PRODUCTION_RULES + "\n本次交付视频 MP4。" + skill_rules +
-                      "所有资源路径相对当前 cwd 的父目录，按本次输入选择并剪辑。只读输入材料，输出仅写当前 work。"
-                      "视频输出用 H.264 + AAC、yuv420p MP4，设置 faststart 以便网页播放。"
-                      "最终返回 JSON，video_path 是当前 work 下真实 MP4 的相对路径。不要发布。"
-                      "如发现缺失工具或素材，明确失败，不伪造已渲染的文件。\n"
-                      + ("这是同 Revision 的技术恢复，先检查已有工程和渲染文件，再继续；沿用固定素材。\n" if checkpoint.response or thread_id else "")
-                      + json.dumps({"task": payload, "skills": skills, "materials": materials,
-                                    "tools": {name: media_tool(name) for name in ("ffmpeg", "ffprobe")}}, ensure_ascii=False))
+            prompt = _video_prompt(spec, payload, directory, recovery=bool(checkpoint.response or thread_id))
             (directory / "production_instructions.txt").write_text(prompt, encoding="utf-8")
             turn = await _bounded_sdk(thread.turn([TextInput(text=prompt)], cwd=str(directory / "work"),
                 effort=CODEX_EFFORT, model=CODEX_MODEL, sandbox=Sandbox.workspace_write,
-                output_schema=VideoDelivery.model_json_schema()), deadline, cancel)
+                output_schema=video_delivery_schema()), deadline, cancel)
             collector = asyncio.create_task(collect_observed_turn(turn, progress))
             completed = False
             try:
@@ -227,9 +243,14 @@ def _produce_video(producer, **request):
     if request.get("cancel_event") and request["cancel_event"].is_set():
         raise CodexProducerError("视频制作已取消。", error_type="codex_interrupted")
     delivery = VideoDelivery.model_validate_json(checkpoint.response or "")
+    if not delivery.complete:
+        raise CodexProducerError(delivery.error or delivery.text or "Codex 未完成视频制作。",
+                                 error_type="video_generation_failed")
+    if not delivery.video_path:
+        raise ValueError("Codex 未交付视频：" + (delivery.error or delivery.text or "缺少 MP4 路径。")[:1500])
     relative = Path(delivery.video_path)
     if relative.is_absolute() or relative.suffix.lower() != ".mp4":
-        raise ValueError("视频交付必须是 work 内 MP4 相对路径。")
+        raise ValueError("视频交付必须是 work 内 MP4 相对路径。" + (delivery.error or delivery.text or "")[:1500])
     source = safe_file(directory / "work", directory / "work" / relative)
     metadata = probe_media(source)
     decode_media(source)

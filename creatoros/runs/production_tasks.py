@@ -26,7 +26,14 @@ class SelectedTaskSkill(RunModel):
 class VideoTaskInputs(RunModel):
     collection_id: str = Field(min_length=1)
     export_id: str | None = None
-    bgm_material_id: str = Field(min_length=1)
+    bgm_material_id: str | None = Field(default=None, min_length=1)
+    bgm_reference: str | None = Field(default=None, min_length=1, max_length=10000)
+
+    @model_validator(mode="after")
+    def one_bgm(self):
+        if bool(self.bgm_material_id) == bool(self.bgm_reference):
+            raise ValueError("请选择音频文件，或提供 BGM 分享链接。")
+        return self
 
 
 class ProductionTaskInput(RunModel):
@@ -83,7 +90,11 @@ class ProductionTaskService:
             raise ContentRunError(str(error), code="invalid_request", status_code=422) from error
         request_id = request_id.strip()
         # Keep old request hashes unchanged; old callers have no skill_ids key.
-        digest = _digest(dict(topic_id=topic_id, tasks=[item.model_dump(mode="json", exclude={"skill_ids"} if item.skill_ids is None else set()) for item in inputs]))
+        canonical_tasks = [item.model_dump(mode="json", exclude={"skill_ids"} if item.skill_ids is None else set()) for item in inputs]
+        for item in canonical_tasks:
+            if item.get("inputs") is not None and item["inputs"].get("bgm_reference") is None:
+                item["inputs"].pop("bgm_reference", None)  # Keep old file-only replay hashes stable.
+        digest = _digest(dict(topic_id=topic_id, tasks=canonical_tasks))
         # Keep dispatcher and writes out until every queue authorization commits.
         with self.executor._lock:
             self.executor.start()

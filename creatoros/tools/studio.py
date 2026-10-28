@@ -87,7 +87,15 @@ class TaskInputsArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     collection_id: str = Field(min_length=1, max_length=128)
     export_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
-    bgm_material_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    bgm_material_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", description="已有音频或视频文件的素材 ID。")
+    bgm_reference: str | None = Field(default=None, min_length=1, max_length=10000,
+        description="用户给的 BGM 分享原文或链接，原样交给 Codex，不需要预解析。")
+
+    @model_validator(mode="after")
+    def one_bgm_source(self):
+        if bool(self.bgm_material_id) == bool(self.bgm_reference and self.bgm_reference.strip()):
+            raise ValueError("请选择 BGM 素材文件或提供分享文本，两者选一。")
+        return self
 
 
 class ProductionTaskArgs(BaseModel):
@@ -100,7 +108,7 @@ class ProductionTaskArgs(BaseModel):
     skills: list[TaskSkillArgs] | None = Field(default=None, min_length=1, max_length=12,
         description="本次精确版本ID与角色，恰有一个primary；其余supporting。digest通常省略由宿主读取。")
     inputs: TaskInputsArgs | None = Field(default=None,
-        description="视频图片集合/已导出ZIP与BGM素材ID；只传对象ID。")
+        description="视频图片集合/已导出ZIP，以及 BGM 素材ID或分享原文；分享链接不必提前解析。")
     depends_on: list[str] = Field(default_factory=list, max_length=100,
         description="用户明确选择的本选题生图任务ID；等待由后台推进，不轮询。")
     skill_overrides: SkillOverrides | None = Field(default=None,
@@ -120,8 +128,8 @@ class ProductionTaskArgs(BaseModel):
                 raise ValueError("每个任务必须且只能选择一个主 Skill。")
             if len({item.skill_id for item in self.skills}) != len(self.skills):
                 raise ValueError("同一任务不能重复引用 Skill。")
-        if self.kind == "video" and (not (self.skills or self.skill_ids) or not self.inputs or not self.inputs.bgm_material_id):
-            raise ValueError("视频任务需要明确的 skills 与 BGM 素材 ID。")
+        if self.kind == "video" and (not (self.skills or self.skill_ids) or not self.inputs):
+            raise ValueError("视频任务需要选择 Skill、素材集，以及 BGM 文件或分享文本。")
         if self.kind == "image" and (self.inputs is not None or self.depends_on):
             raise ValueError("图片任务不接受视频输入或等待依赖。")
         if len(set(self.depends_on)) != len(self.depends_on) or any(not value.strip() or len(value) > 80 for value in self.depends_on):

@@ -78,5 +78,5 @@ def verify_execution_spec(spec: TaskExecutionSpec, root: Path, *, ready=False) -
             raise ValueError("任务冻结素材已变化。")
     if ready and spec.kind == "video":
         kinds = {item.kind for item in spec.materials}
-        if not {"images_zip", "audio"}.issubset(kinds):
-            raise ValueError("视频制作需要已冻结的图片 ZIP 和音频文件。")
+        if "images_zip" not in kinds or ("audio" not in kinds and not spec.bgm_reference):
+            raise ValueError("视频制作需要图片 ZIP，以及音频文件或 BGM 分享链接。")

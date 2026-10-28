@@ -17,7 +17,7 @@ from creatoros.integrations.codex import CodexSdkProducer, CodexUsage, CodexProd
 from creatoros.integrations.media_tools import media_tool, probe_media
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, _digest
 from creatoros.integrations.video_production import (VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery,
-    _identity, produce_video, validate_video_artifact)
+    _identity, _video_prompt, produce_video, validate_video_artifact)
 from creatoros.integrations.visual_production import atomic_json
 from creatoros.runs.task_contracts import TaskExecutionSpec, TaskSkill, TaskMaterial
 from creatoros.runs.task_execution import file_sha256, freeze_execution_spec
@@ -68,8 +68,8 @@ class TaskVideoExecutionTests(unittest.TestCase):
         self.producer = CodexSdkProducer(project_root=self.root, generated_images_root=self.root / "generated", timeout_seconds=5)
         self.calls = []
 
-    def produce(self, attempt=1):
-        return produce_video(self.producer, directory=self.run / "revision-001" / f"attempt-{attempt:03d}",
+    def produce(self, attempt=1, revision=1):
+        return produce_video(self.producer, directory=self.run / f"revision-{revision:03d}" / f"attempt-{attempt:03d}",
             pack_id="run-r001", creator_id="creator", series_id="series", topic_id="topic", topic_title="Title",
             topic_brief="brief", series_description="", audience="", revision_instruction=None,
             execution_spec=self.spec, skills_root=self.catalog.root)
@@ -95,6 +95,27 @@ class TaskVideoExecutionTests(unittest.TestCase):
         (result.directory / "video.mp4").write_bytes(b"broken")
         with self.assertRaisesRegex(ValueError, "已变化"):
             validate_video_artifact(result.directory, self.spec)
+
+    def test_share_text_reaches_prompt_and_file_only_identity_stays_compatible(self):
+        self.assertNotIn("bgm_reference", self.spec.public_dict())
+        share = "复制打开抖音 https://v.douyin.com/l5keSl2qzb8/ 按这个版本剪辑"
+        linked = self.spec.model_copy(update={"bgm_reference": share,
+            "materials": [item for item in self.spec.materials if item.kind != "audio"]})
+        prompt = _video_prompt(linked, {"topic_title": "链接试用"}, self.run / "skill-snapshot")
+        self.assertIn(share, prompt)
+        self.assertIn("Original skill body.", prompt)
+        self.assertIn("images_zip", prompt)
+        self.assertNotEqual(_identity(self.spec, {}), _identity(linked, {}))
+
+    def test_declared_failure_preserves_actual_audio_error(self):
+        async def failed_transport(producer, directory, spec, payload, checkpoint, request):
+            return VideoCheckpoint(input_digest=_identity(spec, payload), thread_id="failed-video-thread",
+                turn_completed=True, response=VideoDelivery(title="音频不可读取", text="未渲染",
+                    complete=False, error="浏览器未授权，无法读取音轨").model_dump_json(), usage=CodexUsage())
+        with patch("creatoros.integrations.video_production._execute_video", failed_transport):
+            with self.assertRaisesRegex(CodexProducerError, "浏览器未授权"):
+                self.produce()
+        self.assertFalse((self.run / "revision-001" / "attempt-001" / "video.mp4").exists())
 
     def test_repeat_playback_checks_bytes_without_redecoding_full_video(self):
         from creatoros.integrations.video_production import _decoded_video_metadata
@@ -238,10 +259,12 @@ class TaskVideoExecutionTests(unittest.TestCase):
             async def __aexit__(self, *args):
                 closes.append(True)
             async def thread_start(self, **options):
-                starts.append(True)
+                starts.append(options["approval_mode"].value)
                 class Thread:
                     id = "video-sdk-thread"
                     async def turn(self, inputs, **controls):
+                        schema = controls["output_schema"]
+                        assert set(schema["required"]) == set(schema["properties"])
                         shutil.copyfile(clip, Path(controls["cwd"]) / "rendered.mp4")
                         return Turn(self.id, VideoDelivery(title="SDK", text="Local transport", complete=True,
                             video_path="rendered.mp4").model_dump_json())
@@ -249,9 +272,15 @@ class TaskVideoExecutionTests(unittest.TestCase):
         with patch("openai_codex.AsyncCodex", Transport):
             result = self.produce()
         self.assertEqual(result.session.thread_id, "video-sdk-thread")
-        self.assertEqual(starts, [True])
+        self.assertEqual(starts, ["deny_all"])
         self.assertEqual(closes, [True])
         validate_video_artifact(result.directory, self.spec)
+        self.spec = self.spec.model_copy(update={"bgm_reference": "https://v.douyin.com/example/",
+            "materials": [item for item in self.spec.materials if item.kind != "audio"]})
+        with patch("openai_codex.AsyncCodex", Transport):
+            linked = self.produce(revision=2)
+        self.assertEqual(starts, ["deny_all", "auto_review"])
+        validate_video_artifact(linked.directory, self.spec)
 
 
 class TaskImageExecutionTests(unittest.TestCase):

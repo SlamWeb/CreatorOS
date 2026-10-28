@@ -120,6 +120,44 @@ test("collection uploads audio and creates one video with playback, download and
   await page.reload(); await expect(video).toBeVisible(); expect(submissions).toHaveLength(1);
 });
 
+test("video accepts original BGM share text without pre-resolving it", async ({ page, request }, info) => {
+  const seeded = await post(request, "/test/staged-video", {});
+  const account = await post(request, "/api/creators", { display_name: `分享链接-${crypto.randomUUID().slice(0, 6)}` });
+  const series = (await post(request, "/api/series", { creator_id: account.id, name: "分享音乐", skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
+  await post(request, `/api/creators/${account.id}/skills`, { skill_id: seeded.skill.id, request_id: crypto.randomUUID() });
+  const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "链接剪辑", brief: "使用分享音乐" }] });
+  const topicId = queued.topic_ids[0];
+  const run = await post(request, "/api/runs", { topic_id: topicId });
+  await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
+  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(response => response.json())).status).toBe("awaiting_approval");
+  const currentPool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
+  const poolUpdate = await request.put(`/api/series/${series.id}/skills`, { data: { expected_version: currentPool.version, skill_ids: [...currentPool.items.map((item: { id: string }) => item.id), seeded.skill.id], defaults: currentPool.defaults } });
+  expect(poolUpdate.ok(), await poolUpdate.text()).toBeTruthy();
+  const collection = await post(request, `/api/creators/${account.id}/collections`, { name: "链接选片", topic_id: topicId, run_ids: [], request_id: crypto.randomUUID() });
+  const submissions: any[] = []; const materialPosts: string[] = [];
+  page.on("request", value => { const path = new URL(value.url()).pathname; if (value.method() === "POST" && path === `/api/topics/${topicId}/production-tasks`) submissions.push(value.postDataJSON()); if (value.method() === "POST" && path === `/api/creators/${account.id}/materials`) materialPosts.push(value.postData() ?? ""); });
+  await page.goto(`/?creator=${account.id}&view=materials&collection=${collection.id}`);
+  await page.getByRole("button", { name: "制作视频", exact: true }).click();
+  const form = page.getByRole("form", { name: "制作视频", exact: true });
+  await form.getByLabel("视频任务名称").fill("分享音乐剪辑");
+  await form.getByLabel("剪辑要求", { exact: true }).fill("跟音乐剪辑，竖屏。 ");
+  await form.getByRole("checkbox", { name: "staged-ui-video · v1", exact: true }).check();
+  const share = "2.89 复制打开抖音，看看作品\nhttps://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic kPx:/";
+  await form.getByLabel("BGM 分享链接").fill(share);
+  expect(await form.getByLabel("BGM 分享链接").evaluate(element => element.tagName)).toBe("TEXTAREA");
+  await page.screenshot({ path: info.outputPath("bgm-share-desktop.png"), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: info.outputPath("bgm-share-mobile.png"), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.reload(); await page.getByRole("button", { name: "制作视频", exact: true }).click();
+  await expect(form.getByLabel("BGM 分享链接")).toHaveValue(share);
+  await form.getByRole("button", { name: "提交视频制作", exact: true }).click();
+  await expect(form.getByRole("status").filter({ hasText: "视频任务已保存" })).toBeVisible();
+  expect(materialPosts).toHaveLength(0); expect(submissions).toHaveLength(1);
+  expect(submissions[0].tasks[0].inputs).toEqual({ collection_id: collection.id, bgm_reference: share });
+  await page.reload(); expect(submissions).toHaveLength(1);
+});
+
 test("new series can be created before choosing any Skill", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: `空栏目-${crypto.randomUUID().slice(0, 6)}` });
   await page.goto(`/?creator=${account.id}`);

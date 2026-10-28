@@ -36,6 +36,7 @@ class TaskExecutionSpec(TaskContract):
     kind: Literal["image", "video"]
     skills: list[TaskSkill] = Field(min_length=1, max_length=12)
     materials: list[TaskMaterial] = Field(default_factory=list, max_length=64)
+    bgm_reference: str | None = Field(default=None, min_length=1, max_length=10000)
 
     @model_validator(mode="after")
     def selections(self):
@@ -50,5 +51,9 @@ class TaskExecutionSpec(TaskContract):
         return self
 
     def public_dict(self) -> dict:
-        return self.model_dump(mode="json", exclude={"skills": {"__all__": {"path"}},
-                                                     "materials": {"__all__": {"path"}}})
+        value = self.model_dump(mode="json", exclude={"skills": {"__all__": {"path"}},
+                                                       "materials": {"__all__": {"path"}}})
+        # Preserve the identity/digest of every pre-existing file-only task.
+        if self.bgm_reference is None:
+            value.pop("bgm_reference", None)
+        return value

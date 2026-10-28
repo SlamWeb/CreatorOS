@@ -63,9 +63,12 @@ class StagedTasks:
             detail = self.collections.get(creator_id, inputs["collection_id"])
             if detail.get("topic_id") not in (None, topic.id):
                 raise ValueError("请选择当前账号的独立素材集或本选题素材集。")
-            bgm = self.materials.resolve(creator_id, inputs["bgm_material_id"])
-            spec.materials.append(TaskMaterial(id=bgm["id"], kind="audio", path=str(bgm["path"]),
-                                               sha256=bgm["sha256"], name=bgm["name"]))
+            if inputs.get("bgm_material_id"):
+                bgm = self.materials.resolve(creator_id, inputs["bgm_material_id"])
+                spec.materials.append(TaskMaterial(id=bgm["id"], kind="audio", path=str(bgm["path"]),
+                                                   sha256=bgm["sha256"], name=bgm["name"]))
+            else:
+                spec.bgm_reference = inputs["bgm_reference"]
         elif inputs or dependencies:
             raise ValueError("当前图片任务直接生产；输入素材集和阶段依赖用于视频制作。")
         # Freeze now, even if dependencies will take hours. Editing the library

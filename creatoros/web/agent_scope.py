@@ -544,7 +544,7 @@ class AgentScopeGuard:
             return False
         inputs = task.get("inputs")
         if inputs is not None:
-            if not isinstance(inputs, dict) or set(inputs) - {"collection_id", "export_id", "bgm_material_id"}:
+            if not isinstance(inputs, dict) or set(inputs) - {"collection_id", "export_id", "bgm_material_id", "bgm_reference"}:
                 return False
             if any(value is not None and (not isinstance(value, str) or not value) for value in inputs.values()):
                 return False
