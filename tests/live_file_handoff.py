@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--images", type=int, choices=[1, 2], default=1)
+    parser.add_argument("--rich-copy", action="store_true", help="Verify Chinese page text and publication copy")
     args = parser.parse_args()
     root = args.directory.resolve()
     if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()) or root.exists():
@@ -39,6 +40,16 @@ def main():
             "先生成猫，再生成狗；最终交付顺序反过来：狗是order 1，猫是order 2。"
             "每个动物生成一次，不重画，不联网；交付真实图片路径，不搬图片，不读取generated-assets.json。",
             encoding="utf-8")
+    copy_title = "猫和狗，一起学英语"
+    copy_body = "cat 是猫，dog 是狗。\n\n每天认识两个小伙伴！"
+    page_body = "左边：cat / 猫；右边：dog / 狗。"
+    if args.rich_copy:
+        assert args.images == 1, "图文保真探针使用一张图"
+        skill_file = author / "SKILL.md"
+        skill_file.write_text(skill_file.read_text(encoding="utf-8") +
+            "\n交付文案必须逐字使用以下JSON对应值，不添加解释，page_content填入artifacts[0].content：\n" +
+            json.dumps({"title": copy_title, "text": copy_body, "hashtags": ["#英语启蒙", "#猫狗"],
+                        "page_content": page_body}, ensure_ascii=False), encoding="utf-8")
     url = "sqlite:///" + (root / "trial.sqlite").as_posix()
     upgrade_database(url)
     database = Database(url)
@@ -72,6 +83,13 @@ def main():
         assert [item["order"] for item in response["artifacts"]] == list(range(1, args.images + 1))
         if args.images == 2:
             assert [p.asset_id for p in checkpoint.pages] == [a.asset_id for a in reversed(received)], "交付未按要求逆序"
+        if args.rich_copy:
+            from creatoros.content import SocialContentPack
+            pack = SocialContentPack.load(attempt)
+            assert pack.publish_copy.title == copy_title
+            assert pack.publish_copy.body == copy_body
+            assert pack.publish_copy.hashtags == ["#英语启蒙", "#猫狗"]
+            assert pack.cards[0].body == page_body
         with serve(create_app(database=database, run_service=service, chat_root=root / "chats")) as base:
             with httpx.Client(base_url=base, timeout=15) as client:
                 detail_response = client.get("/api/runs/" + run.id)
@@ -87,7 +105,7 @@ def main():
                     assert hashlib.sha256(response.content).hexdigest() == page.sha256
         report.update(status="passed", result=result.model_dump(), candidate_images=len(received),
             selected_images=len(checkpoint.pages), reversed_order_checked=args.images == 2, asset_ids=[page.asset_id for page in checkpoint.pages],
-            raw_delivery_has_image_paths=True, http_detail=detail_response.status_code,
+            raw_delivery_has_image_paths=True, rich_copy_checked=args.rich_copy, http_detail=detail_response.status_code,
             http_image=response.status_code, received_sha256=checkpoint.pages[0].sha256,
             sdk_usage=json.loads((attempt / "production_session.json").read_text(encoding="utf-8"))["usage"],
             approved=False, published=False)
