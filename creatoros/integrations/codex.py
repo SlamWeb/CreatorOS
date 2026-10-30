@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import shutil
@@ -114,6 +115,124 @@ class CodexProducerError(RuntimeError):
         self.error_type = error_type
 
 
+@dataclass(frozen=True)
+class CodexDynamicTool:
+    """One host-owned app-server tool; the callback returns a JSON object."""
+
+    name: str
+    description: str
+    input_schema: dict
+    handler: Callable
+
+
+class _DynamicToolClient:
+    """Small compatibility seam for openai-codex 0.157.1's experimental tools.
+
+    The SDK exposes the RPC transport but not dynamic tool registration. Keep
+    the private callback hook here rather than modifying the installed SDK.
+    A request arrives on its stdout reader; validation runs on the event loop
+    (or a worker for sync handlers), leaving queued image events consumable.
+    """
+
+    def __init__(self, client, tools, deadline, cancel_event):
+        self.client, self.deadline, self.cancel_event = client, deadline, cancel_event
+        self.tools = {tool.name: tool for tool in tools}
+        if len(self.tools) != len(tools) or not self.tools or any(not name for name in self.tools):
+            raise ValueError("Dynamic tool names must be unique and nonempty.")
+        self.thread_id = None
+        self.loop = asyncio.get_running_loop()
+        try:
+            self.sync = client._client._sync
+            self.previous = self.sync._approval_handler
+        except AttributeError as error:
+            raise CodexProducerError("当前 Codex SDK 不支持产物提交工具适配。",
+                                     error_type="codex_dynamic_tools_unsupported") from error
+        self.sync._approval_handler = self._handle
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
+
+    def close_handler(self):
+        self.sync._approval_handler = self.previous
+
+    @staticmethod
+    def _result(value):
+        return {"success": value.get("accepted", True) is not False and not value.get("error"),
+                "contentItems": [{"type": "inputText", "text": json.dumps(value, ensure_ascii=False)}]}
+
+    async def _invoke(self, tool, arguments):
+        # Yield to already-enqueued item/completed observers before validation.
+        await asyncio.sleep(0)
+        if inspect.iscoroutinefunction(tool.handler):
+            result = await tool.handler(arguments)
+        else:
+            result = await asyncio.to_thread(tool.handler, arguments)
+            if inspect.isawaitable(result):
+                result = await result
+        if not isinstance(result, dict):
+            raise TypeError("Dynamic tool handler must return a JSON object.")
+        return self._result(result)
+
+    def _handle(self, method, params):
+        if method != "item/tool/call":
+            return self.previous(method, params)
+        params = params or {}
+        tool = self.tools.get(params.get("tool"))
+        if (tool is None or params.get("namespace") or not self.thread_id
+                or params.get("threadId") != self.thread_id or not params.get("turnId")
+                or not params.get("callId") or not isinstance(params.get("arguments"), dict)):
+            return self._result({"accepted": False, "error": "invalid_tool_request",
+                                 "retryable": False})
+        if (self.cancel_event is not None and self.cancel_event.is_set()) or monotonic() >= self.deadline:
+            return self._result({"accepted": False, "error": "task_not_running", "retryable": False})
+        future = asyncio.run_coroutine_threadsafe(self._invoke(tool, params["arguments"]), self.loop)
+        from concurrent.futures import TimeoutError as FutureTimeout
+        try:
+            while True:
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    raise RuntimeError("Host cancelled the task.")
+                remaining = self.deadline - monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Host task deadline exceeded.")
+                try:
+                    return future.result(timeout=min(0.1, remaining))
+                except FutureTimeout:
+                    if future.done():
+                        raise
+                    continue
+        except Exception as error:
+            future.cancel()
+            # Never claim rejection rolled back an interrupted file operation.
+            return self._result({"accepted": False, "error": "host_tool_failed",
+                                 "message": str(error)[:1000], "retryable": False,
+                                 "outcome_unknown": True})
+
+    async def thread_start(self, **options):
+        from openai_codex.api import AsyncThread
+        from openai_codex._approval_mode import _approval_mode_settings
+        from openai_codex._sandbox import _sandbox_mode
+        from openai_codex import ApprovalMode
+        from openai_codex.generated.v2_all import ThreadStartParams, ThreadStartResponse
+
+        approval, reviewer = _approval_mode_settings(options.pop("approval_mode", ApprovalMode.deny_all))
+        sandbox = options.pop("sandbox", None)
+        params = ThreadStartParams(approval_policy=approval, approvals_reviewer=reviewer,
+                                   sandbox=_sandbox_mode(sandbox), **options).model_dump(
+                                       by_alias=True, exclude_none=True, mode="json")
+        params["dynamicTools"] = [{"type": "function", "name": tool.name,
+            "description": tool.description, "inputSchema": tool.input_schema} for tool in self.tools.values()]
+        started = await self.client._client.request("thread/start", params, response_model=ThreadStartResponse)
+        self.thread_id = started.thread.id
+        return AsyncThread(self.client, self.thread_id)
+
+    async def thread_resume(self, thread_id, **options):
+        # Dynamic definitions are persisted by app-server on thread/start.
+        # thread/resume has no dynamicTools parameter; bind the host callbacks.
+        thread = await self.client.thread_resume(thread_id, **options)
+        self.thread_id = thread.id
+        return thread
+
+
 async def _bounded_sdk(operation, deadline: float, cancel_event=None):
     """Bound SDK startup RPCs too, not only the completed turn's stream."""
     task = asyncio.ensure_future(operation)
@@ -134,7 +253,8 @@ async def _bounded_sdk(operation, deadline: float, cancel_event=None):
 
 @asynccontextmanager
 async def _production_client(deadline: float, cancel_event=None, *,
-                             config_overrides=PRODUCTION_CONFIG, codex_bin=None):
+                             config_overrides=PRODUCTION_CONFIG, codex_bin=None,
+                             dynamic_tools: list[CodexDynamicTool] | None = None):
     from openai_codex import AsyncCodex, CodexConfig
     from .codex_shell import codex_subprocess_env
     try:
@@ -142,13 +262,18 @@ async def _production_client(deadline: float, cancel_event=None, *,
     except RuntimeError as error:
         raise CodexProducerError(str(error), error_type="codex_environment_error") from error
     client = AsyncCodex(CodexConfig(config_overrides=config_overrides, codex_bin=codex_bin, env=child_env))
+    adapter = _DynamicToolClient(client, dynamic_tools, deadline, cancel_event) if dynamic_tools else None
     try:
         await _bounded_sdk(client.__aenter__(), deadline, cancel_event)
-        yield client
+        yield adapter or client
     finally:
         # Failed __aenter__ would not trigger a normal async-with __aexit__.
         # Close explicitly so the SDK wakes its synchronous RPC waiters.
-        await asyncio.wait_for(client.__aexit__(None, None, None), timeout=5)
+        try:
+            await asyncio.wait_for(client.__aexit__(None, None, None), timeout=5)
+        finally:
+            if adapter:
+                adapter.close_handler()
 
 
 def parse_codex_jsonl(stdout: str, *, fallback_thread_id: str = "", receipt_model=ProductionReceipt) -> CodexRun:

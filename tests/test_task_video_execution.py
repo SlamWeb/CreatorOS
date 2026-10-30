@@ -247,6 +247,7 @@ class TaskVideoExecutionTests(unittest.TestCase):
         self.assertEqual(fresh.input_snapshot_json["execution_spec"]["kind"], "video")
 
     def test_real_sdk_collector_with_local_transport(self):
+        from contextlib import asynccontextmanager
         from tests.smoke_native_production import Turn, NativeTransport
         NativeTransport.reset(self.root / "generated")
         clip = self.clip
@@ -263,13 +264,20 @@ class TaskVideoExecutionTests(unittest.TestCase):
                 class Thread:
                     id = "video-sdk-thread"
                     async def turn(self, inputs, **controls):
-                        schema = controls["output_schema"]
-                        assert set(schema["required"]) == set(schema["properties"])
                         shutil.copyfile(clip, Path(controls["cwd"]) / "rendered.mp4")
-                        return Turn(self.id, VideoDelivery(title="SDK", text="Local transport", complete=True,
-                            video_path="rendered.mp4").model_dump_json())
+                        delivery = VideoDelivery(title="SDK", text="Local transport", complete=True,
+                            video_path="rendered.mp4")
+                        accepted = await submission_tools[0].handler(delivery.model_dump())
+                        assert accepted["accepted"]
+                        return Turn(self.id, "交付已接收。")
                 return Thread()
-        with patch("openai_codex.AsyncCodex", Transport):
+        submission_tools = []
+        @asynccontextmanager
+        async def local_client(deadline, cancel, *, dynamic_tools):
+            submission_tools[:] = dynamic_tools
+            async with Transport(None) as transport:
+                yield transport
+        with patch("creatoros.integrations.video_production._production_client", local_client):
             result = self.produce()
         self.assertEqual(result.session.thread_id, "video-sdk-thread")
         self.assertEqual(starts, ["deny_all"])
@@ -277,7 +285,7 @@ class TaskVideoExecutionTests(unittest.TestCase):
         validate_video_artifact(result.directory, self.spec)
         self.spec = self.spec.model_copy(update={"bgm_reference": "https://v.douyin.com/example/",
             "materials": [item for item in self.spec.materials if item.kind != "audio"]})
-        with patch("openai_codex.AsyncCodex", Transport):
+        with patch("creatoros.integrations.video_production._production_client", local_client):
             linked = self.produce(revision=2)
         self.assertEqual(starts, ["deny_all", "auto_review"])
         validate_video_artifact(linked.directory, self.spec)
@@ -309,7 +317,8 @@ class TaskImageExecutionTests(unittest.TestCase):
             self.assertIsNone(snapshot.skill_name)
             transport = StructuredTransport(root / "generated")
             producer = CodexSdkProducer(project_root=root, generated_images_root=root / "generated", timeout_seconds=10)
-            with patch("openai_codex.AsyncCodex", transport):
+            with patch("openai_codex.AsyncCodex", transport), \
+                    patch("creatoros.integrations.native_production.DEFAULT_HANDOFF", "structured-v1"):
                 result = producer.produce_to(directory=run / "revision-001" / "attempt-001", pack_id="pack",
                     creator_id="creator", series_id="series", topic_id="topic", topic_title="Task",
                     execution_spec=spec, skills_root=catalog.root, production_protocol="task-v1")

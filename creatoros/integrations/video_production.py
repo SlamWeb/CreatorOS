@@ -36,7 +36,7 @@ def video_skill_rules(spec):
     return "完整使用以下原始主/辅助 Skill，辅助不得替换主 Skill；不要另写融合 Skill。"
 
 
-def _video_prompt(spec, payload, directory, *, recovery=False):
+def _video_prompt(spec, payload, directory, *, recovery=False, submit_tool=False):
     skills = [{"role": skill.role, "skill_id": skill.skill_id,
                "content": (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8-sig"),
                "resource_root": str(Path(skill.path).relative_to(directory))}
@@ -45,8 +45,11 @@ def _video_prompt(spec, payload, directory, *, recovery=False):
                  for item in spec.materials]
     return (PRODUCTION_RULES + "\n本次交付视频 MP4。" + video_skill_rules(spec) +
             "所有资源路径相对当前 cwd 的父目录，按本次输入选择并剪辑。只读输入材料，输出仅写当前 work。"
-            "视频输出用 H.264 + AAC、yuv420p MP4，设置 faststart 以便网页播放。"
-            "最终返回 JSON，成功时 complete=true、video_path 为当前 work 下真实 MP4 的相对路径。不要发布。"
+            "视频输出用 H.264 + AAC、yuv420p MP4，设置 faststart 以便网页播放。" +
+            ("完成后调用 submit_artifacts，参数 complete=true、video_path 为当前 work 下真实 MP4 相对路径。"
+             "必须收到 accepted=true 才能结束；工具拒绝时按具体错误修复现有交付，不要重新渲染已有合格视频。"
+             "工具返回 retryable=false 时停止并说明原因。最终回复只需简短说明，不再重复交付 JSON。不要发布。"
+             if submit_tool else "最终返回 JSON，成功时 complete=true、video_path 为当前 work 下真实 MP4 的相对路径。不要发布。") +
             "缺失工具或素材时 complete=false、video_path=null，并在 error 中写明实际原因，不伪造文件。\n"
             + ("用户提供的 BGM 分享原文如下，请按选中剪辑 Skill 的指引自行获取和使用音频；无需 CreatorOS 预先解析：\n"
                + spec.bgm_reference + "\n" if spec.bgm_reference else "")
@@ -93,6 +96,69 @@ class VideoCheckpoint(ProductionModel):
     turn_completed: bool = False
     response: str | None = None
     usage: CodexUsage = Field(default_factory=CodexUsage)
+    handoff_protocol: Literal["final-json-v1", "submit-tool-v1"] = "final-json-v1"
+    accepted_sha256: str | None = None
+    submission_digest: str | None = None
+    submission_attempts: int = 0
+
+
+def _delivery_source(directory, delivery):
+    if not delivery.complete:
+        raise ValueError(delivery.error or delivery.text or "Codex 未完成视频制作。")
+    if not delivery.video_path:
+        raise ValueError("缺少视频路径。请提交已生成的 MP4，不要重新渲染。")
+    relative = Path(delivery.video_path)
+    if relative.is_absolute() or relative.suffix.lower() != ".mp4":
+        raise ValueError("视频交付必须是 work 内 MP4 相对路径。")
+    source = safe_file(directory / "work", directory / "work" / relative)
+    metadata = probe_media(source)
+    decode_media(source)
+    _require_playable_mp4(metadata)
+    return source
+
+
+class VideoSubmission:
+    """Validate and durably acknowledge delivery while the producer is active."""
+    def __init__(self, directory, checkpoint):
+        self.directory, self.checkpoint = directory, checkpoint
+
+    def __call__(self, arguments):
+        checkpoint = self.checkpoint
+        try:
+            if not checkpoint.accepted_sha256:
+                if checkpoint.submission_attempts >= 3:
+                    return {"accepted": False, "retryable": False, "error": "交付校验已达到三次上限，文件保留。"}
+                checkpoint.submission_attempts += 1
+                atomic_json(self.directory / VIDEO_CHECKPOINT, checkpoint)
+            delivery = VideoDelivery.model_validate(arguments)
+            canonical = delivery.model_dump_json()
+            digest = hashlib.sha256(canonical.encode()).hexdigest()
+            if checkpoint.accepted_sha256:
+                if digest != checkpoint.submission_digest:
+                    return {"accepted": False, "retryable": False, "error": "已接收另一份交付，不能覆盖。"}
+                source = safe_file(self.directory, self.directory / "received-video.mp4")
+                if file_sha256(source) != checkpoint.accepted_sha256:
+                    raise ValueError("已接收视频发生变化。")
+                return {"accepted": True, "receipt_id": digest, "reused": True}
+            source = _delivery_source(self.directory, delivery)
+            received = self.directory / "received-video.mp4"
+            if received.exists() or received.is_symlink():
+                safe_file(self.directory, received)
+            shutil.copyfile(source, received)
+            accepted = checkpoint.model_copy(update={"accepted_sha256": file_sha256(received),
+                "submission_digest": digest, "response": canonical})
+            atomic_json(self.directory / VIDEO_CHECKPOINT, accepted)
+            checkpoint.accepted_sha256 = accepted.accepted_sha256
+            checkpoint.submission_digest = digest
+            checkpoint.response = canonical
+            return {"accepted": True, "receipt_id": digest, "reused": False}
+        except ValueError as error:
+            atomic_json(self.directory / VIDEO_CHECKPOINT, checkpoint)
+            return {"accepted": False, "retryable": not checkpoint.accepted_sha256 and checkpoint.submission_attempts < 3,
+                    "error": str(error), "instruction": "修正交付参数或现有文件；不要重新渲染已有合格视频。"}
+        except OSError as error:
+            return {"accepted": False, "retryable": False, "error": "宿主保存交付失败：" + str(error),
+                    "instruction": "现有视频保留；停止，不要重新渲染。"}
 
 
 @dataclass(frozen=True)
@@ -129,6 +195,11 @@ def _recover_work(directory, expected):
             if file.is_file():
                 safe_file(previous / "work", file)
         shutil.copytree(previous / "work", directory / "work", dirs_exist_ok=True)
+        if checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256:
+            accepted = safe_file(previous, previous / "received-video.mp4")
+            if file_sha256(accepted) != checkpoint.accepted_sha256:
+                raise ValueError("已接收视频发生变化。")
+            shutil.copyfile(accepted, directory / "received-video.mp4")
         return checkpoint
     return None
 
@@ -144,16 +215,38 @@ def _usage_baseline(directory, thread_id):
     return CodexUsage()
 
 
+def _thread_has_submission_tool(directory, thread_id):
+    if not thread_id:
+        return True
+    for path in sorted(directory.parent.parent.glob("revision-*/attempt-*/" + VIDEO_CHECKPOINT), reverse=True):
+        if path.parent == directory:
+            continue
+        prior = VideoCheckpoint.model_validate_json(safe_file(directory.parent.parent, path).read_text(encoding="utf-8"))
+        if prior.thread_id == thread_id:
+            return prior.handoff_protocol == "submit-tool-v1"
+    return False
+
+
 async def _execute_video(producer, directory, spec, payload, checkpoint, request):
     from openai_codex import ApprovalMode, Sandbox, TextInput
+    from .codex import CodexDynamicTool
 
     deadline = monotonic() + producer.timeout_seconds
     cancel = request.get("cancel_event")
     progress = ProgressWriter(directory, "production")
     thread_id = checkpoint.thread_id if checkpoint else request.get("thread_id")
     baseline = checkpoint.usage if checkpoint else _usage_baseline(directory, thread_id)
+    use_submit_tool = ((checkpoint is None and _thread_has_submission_tool(directory, thread_id)) or
+                       (checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1"))
+    submission_lock = asyncio.Lock()
+    async def submit(arguments):
+        async with submission_lock:
+            return await asyncio.to_thread(VideoSubmission(directory, checkpoint), arguments)
+    tools = [CodexDynamicTool("submit_artifacts", "提交已完成的 MP4 及文案，立即返回验收结果；收到 accepted=true 后才完成。",
+        video_delivery_schema(), submit)] if use_submit_tool else None
     try:
-        async with _production_client(deadline, cancel) as client:
+        client_options = {"dynamic_tools": tools} if tools else {}
+        async with _production_client(deadline, cancel, **client_options) as client:
             # A supplied external BGM may require browser access. Let the SDK's
             # reviewer evaluate those requests instead of denying them outright.
             options = dict(approval_mode=ApprovalMode.auto_review if spec.bgm_reference else ApprovalMode.deny_all, cwd=str(directory / "work"),
@@ -163,29 +256,35 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                                         client.thread_start(**options), deadline, cancel)
             if thread_id and thread.id != thread_id:
                 raise ValueError("视频恢复会话不匹配。")
-            checkpoint = checkpoint or VideoCheckpoint(input_digest=_identity(spec, payload), thread_id=thread.id)
+            checkpoint = checkpoint or VideoCheckpoint(input_digest=_identity(spec, payload), thread_id=thread.id,
+                handoff_protocol="submit-tool-v1" if use_submit_tool else "final-json-v1")
             atomic_json(directory / VIDEO_CHECKPOINT, checkpoint)
             record_thread(directory, thread.id)
             if request.get("on_thread_started"):
                 request["on_thread_started"](thread.id)
-            prompt = _video_prompt(spec, payload, directory, recovery=bool(checkpoint.response or thread_id))
+            prompt = _video_prompt(spec, payload, directory, recovery=bool(checkpoint.response or thread_id),
+                                   submit_tool=use_submit_tool)
             (directory / "production_instructions.txt").write_text(prompt, encoding="utf-8")
+            turn_options = {} if use_submit_tool else {"output_schema": video_delivery_schema()}
             turn = await _bounded_sdk(thread.turn([TextInput(text=prompt)], cwd=str(directory / "work"),
                 effort=CODEX_EFFORT, model=CODEX_MODEL, sandbox=Sandbox.workspace_write,
-                output_schema=video_delivery_schema()), deadline, cancel)
+                **turn_options), deadline, cancel)
             collector = asyncio.create_task(collect_observed_turn(turn, progress))
             completed = False
             try:
                 result = await _bounded_sdk(collector, deadline, cancel)
                 require_completed_turn(result)
                 completed = True
-                checkpoint.response = result.final_response or ""
+                if not use_submit_tool:
+                    checkpoint.response = result.final_response or ""
                 checkpoint.turn_completed = True
                 checkpoint.usage = producer._sdk_usage(result.usage) if result.usage else baseline
                 # Host receipt is saved before file validation; recovery can finish offline.
                 atomic_json(directory / VIDEO_CHECKPOINT, checkpoint)
                 progress.record_usage({key: max(0, getattr(checkpoint.usage, key) - getattr(baseline, key))
                                        for key in CodexUsage.model_fields})
+                if use_submit_tool and not checkpoint.accepted_sha256:
+                    raise ValueError("Codex 已结束但未通过 submit_artifacts 交付；现有文件保留。")
             finally:
                 if not completed:
                     interrupt_error = None
@@ -236,7 +335,9 @@ def _produce_video(producer, **request):
                 ("pack_id", "creator_id", "series_id", "topic_id")},
                 input_ref="production_request.txt", deliverable=VIDEO_MANIFEST)
     checkpoint = _recover_work(directory, _identity(spec, payload))
-    if checkpoint is None or not checkpoint.turn_completed:
+    accepted = checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
+    if not accepted and (checkpoint is None or not checkpoint.turn_completed or
+                         checkpoint.handoff_protocol == "submit-tool-v1"):
         checkpoint = asyncio.run(_execute_video(producer, directory, spec, payload, checkpoint, request))
     elif request.get("on_thread_started"):
         request["on_thread_started"](checkpoint.thread_id)
@@ -251,7 +352,10 @@ def _produce_video(producer, **request):
     relative = Path(delivery.video_path)
     if relative.is_absolute() or relative.suffix.lower() != ".mp4":
         raise ValueError("视频交付必须是 work 内 MP4 相对路径。" + (delivery.error or delivery.text or "")[:1500])
-    source = safe_file(directory / "work", directory / "work" / relative)
+    source = (safe_file(directory, directory / "received-video.mp4") if accepted or checkpoint.accepted_sha256 else
+              safe_file(directory / "work", directory / "work" / relative))
+    if checkpoint.accepted_sha256 and file_sha256(source) != checkpoint.accepted_sha256:
+        raise ValueError("已接收视频发生变化。")
     metadata = probe_media(source)
     decode_media(source)
     _require_playable_mp4(metadata)
@@ -297,16 +401,22 @@ def validate_video_artifact(root: Path, execution_spec=None):
     verify_execution_spec(spec, root, ready=True)
     payload = json.loads(safe_file(root, root / "production_request.txt").read_text(encoding="utf-8"))
     checkpoint = VideoCheckpoint.model_validate_json(safe_file(root, root / VIDEO_CHECKPOINT).read_text(encoding="utf-8"))
-    if not checkpoint.turn_completed or checkpoint.input_digest != _identity(spec, payload):
+    accepted = checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
+    if (not checkpoint.turn_completed and not accepted) or checkpoint.input_digest != _identity(spec, payload):
         raise ValueError("视频缺少完整且匹配输入的生产回执。")
     delivery = VideoDelivery.model_validate_json(checkpoint.response or "")
-    original = safe_file(root / "work", root / "work" / delivery.video_path)
+    original = (safe_file(root, root / "received-video.mp4") if accepted else
+                safe_file(root / "work", root / "work" / delivery.video_path))
+    if accepted and file_sha256(original) != checkpoint.accepted_sha256:
+        raise ValueError("已接收视频发生变化。")
     if file_sha256(original) != artifact.sha256 or delivery.title != artifact.title or delivery.text != artifact.text:
         raise ValueError("视频与 SDK 已完成回执不一致。")
     metadata = _decoded_video_metadata(str(video), artifact.sha256)
     digest = hashlib.sha256(b"creatoros-video-artifact-v1\0")
     files = [root / VIDEO_MANIFEST, root / VIDEO_CHECKPOINT, root / "production_request.txt", root / "execution_spec.json", video,
              *[file for folder in (root / "skills", root / "materials") for file in folder.rglob("*") if file.is_file()]]
+    if accepted:
+        files.append(original)
     for path in sorted(files):
         safe_file(root, path)
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")

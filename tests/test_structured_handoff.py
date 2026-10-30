@@ -187,6 +187,9 @@ class StructuredHandoffTests(unittest.TestCase):
         self.producer = CodexSdkProducer(project_root=self.root, generated_images_root=self.generated, timeout_seconds=8)
         self.transport = StructuredTransport(self.generated)
         sdk = patch("openai_codex.AsyncCodex", side_effect=self.transport)
+        legacy = patch("creatoros.integrations.native_production.DEFAULT_HANDOFF", "structured-v1")
+        legacy.start()
+        self.addCleanup(legacy.stop)
         self.sdk = sdk.start()
         self.addCleanup(sdk.stop)
 

@@ -34,7 +34,7 @@ from .production_materials import (MATERIALS, RESPONSE, FileDelivery, Structured
                                    sdk_inputs, retain_response, accept_response)
 
 CHECKPOINT = "native_checkpoint.json"
-DEFAULT_HANDOFF = "structured-v1"
+DEFAULT_HANDOFF = "tool-v1"
 
 COMPOSITION_RULES = (
     "Mind 负责内容范围、事实、解释与必须保留的教学关系；制作 Skill 负责 IP、画风与呈现方法。"
@@ -113,8 +113,10 @@ class SavedArtifact(Artifact):
 
 class Checkpoint(ProductionModel):
     protocol: Literal["native-v1"] = "native-v1"
-    handoff_protocol: Literal["file-v1", "structured-v1"] = "file-v1"
+    handoff_protocol: Literal["file-v1", "structured-v1", "tool-v1"] = "file-v1"
     response_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    submission_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    submission_failures: int = Field(default=0, ge=0, le=3)
     input_digest: str
     thread_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
     skill_digests: dict[str, str]
@@ -209,6 +211,9 @@ def native_image_source(directory: Path, generated_thread: Path, raw: str) -> Pa
 
 
 def verified_pages(directory: Path, checkpoint: Checkpoint) -> list[SavedArtifact]:
+    if checkpoint.handoff_protocol == "tool-v1" and checkpoint.submission_sha256:
+        from .artifact_submission import accepted_submission
+        accepted_submission(directory, checkpoint)
     if checkpoint.handoff_protocol == "structured-v1" and checkpoint.turn_completed:
         raw = safe_file(directory / "work", directory / "work" / RESPONSE, 8_000_000).read_bytes()
         if not checkpoint.response_sha256 or hashlib.sha256(raw).hexdigest() != checkpoint.response_sha256:
@@ -258,6 +263,10 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
         if value is None:
             raise ValueError("上次生产输入或证据变化，拒绝自动恢复。")
         ImageAssetStore(directory, generated_root or Path(), value.thread_id, digest).restore_from(previous)
+        if value.handoff_protocol == "tool-v1" and value.submission_sha256:
+            from .artifact_submission import SUBMISSION, accepted_submission
+            accepted_submission(previous, value)
+            shutil.copy2(previous / SUBMISSION, directory / SUBMISSION)
         (directory / "partial-images").mkdir(exist_ok=True)
         for page in value.pages:
             target = directory / "partial-images" / Path(page.image_path).name
@@ -278,6 +287,17 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
         prior_index = directory / "work/delivery.json"
         if prior_index.is_file():
             shutil.copy2(prior_index, directory / "work/previous-delivery.json")
+        if (value.handoff_protocol == "tool-v1" and value.submission_sha256
+                and not value.turn_completed and completed_delivery_turn(previous, value.thread_id)):
+            from .artifact_submission import accepted_submission
+            from .production_materials import accept_delivery_value
+            saved = accepted_submission(directory, value)
+            bundle = prepare_materials(directory, skill_refs(directory),
+                                       (directory / "production_request.txt").read_text(encoding="utf-8"))
+            accept_delivery_value(directory, value, generated_root or Path(), bundle, saved["submission"])
+            ingest(directory, value, generated_root or Path())
+            value.turn_completed = True
+            shutil.copy2(previous / "worker_receipt.json", directory / "worker_receipt.json")
         if (value.handoff_protocol == "structured-v1" and not value.turn_completed
                 and (directory / "work" / RESPONSE).is_file()
                 and completed_delivery_turn(previous, value.thread_id)):
@@ -425,6 +445,8 @@ def evidence_files(directory: Path, composition=None) -> list[Path]:
     # This evidence set is part of native-v1's persisted digest contract. New
     # evidence must get a versioned protocol, not invalidate completed receipts.
     return [directory / CHECKPOINT, directory / "production_request.txt",
+            *([directory / MATERIALS, directory / "artifact-submission.json"]
+              if value.handoff_protocol == "tool-v1" else []),
             *([directory / MATERIALS, directory / "work" / RESPONSE]
               if value.handoff_protocol == "structured-v1" else []),
             *([directory / INVENTORY] if (directory / INVENTORY).is_file() else []),
@@ -508,7 +530,7 @@ async def review_composition(thread, producer, directory, refs, request, progres
         raise CodexProducerError(
             "本次冻结 Skill 文件无法读取，尚未开始生图；请检查任务文件后重试，无需内容返工。",
             error_type="codex_environment_error") from error
-    structured = progress.checkpoint.handoff_protocol == "structured-v1"
+    structured = progress.checkpoint.handoff_protocol in {"structured-v1", "tool-v1"}
     prompt = ("只核对下面已完整提供的Skill正文如何配合。无需通过Shell读取SKILL.md或切换工作目录。"
               "禁止生图、联网、修改文件或另开thread，只返回约定JSON。硬冲突用needs_input，"
               "无冲突用ready，不要把旧对话中的文件错误当成本次材料缺失。\n" + composition_rules(directory)
@@ -559,6 +581,11 @@ async def review_composition(thread, producer, directory, refs, request, progres
 
 def revision_usage_baseline(directory: Path, thread_id: str) -> CodexUsage:
     """Carry accounting only, never old pages or assets, across ordinary revisions."""
+    return revision_thread_checkpoint(directory, thread_id).usage.model_copy()
+
+
+def revision_thread_checkpoint(directory: Path, thread_id: str) -> Checkpoint:
+    """Find the local evidence for a resumed thread, including its registered tools."""
     if not re.fullmatch(r"revision-\d{3}", directory.parent.name):
         raise ValueError("返工目录缺少有效 Revision，拒绝恢复会话。")
     for revision in sorted(directory.parent.parent.glob("revision-[0-9][0-9][0-9]"), reverse=True):
@@ -572,7 +599,7 @@ def revision_usage_baseline(directory: Path, thread_id: str) -> CodexUsage:
                 raise ValueError("返工会话证据目录不能为链接。")
             prior = load_checkpoint(attempt)
             if prior and prior.thread_id == thread_id:
-                return prior.usage.model_copy()
+                return prior
     raise ValueError("没有本 Run 前版本的有效会话证据，拒绝恢复其他会话。")
 
 
@@ -621,6 +648,15 @@ def structured_prompt(checkpoint, *, continuing=False, repair=False, rules=COMPO
     return text + rules
 
 
+def submission_prompt(checkpoint=None, *, rules=COMPOSITION_RULES, repair=False):
+    text = structured_prompt(checkpoint, repair=repair, rules=rules)
+    return text.replace(
+        "最终只返回output_schema规定的JSON：正文直接填content，参考素材填材料表的reference_ids编号，",
+        "最终必须调用submit_artifacts提交完整清单，不以最终回复代替提交：正文填content，参考素材填材料表的reference_ids编号，"
+    ) + ("\n提交错误会作为工具结果返回；retryable=true时依据错误修正清单并再次提交。"
+         "retryable=false时停止。只有accepted=true才能汇报交付完成；不要重新生图修复清单。")
+
+
 async def execute(producer, directory, refs, request, checkpoint, on_thread_started, cancel_event,
                   resume_thread_id=None):
     from openai_codex import ApprovalMode, LocalImageInput, Sandbox, SkillInput, TextInput
@@ -645,7 +681,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 # temporary delivery.json. Raw SDK images still trigger repair-only.
                 prior_delivery = (ingest(directory, checkpoint, producer.generated_images_root)
                                   if checkpoint.handoff_protocol == "file-v1" else checkpoint.delivery)
-                if prior_delivery.complete and checkpoint.pages:
+                if prior_delivery.complete and checkpoint.pages and checkpoint.handoff_protocol != "tool-v1":
                     raise CodexProducerError("图片索引完整，但缺少成功结束的执行回执；请核对原任务，未调用模型或重新生图。",
                                              error_type="native_delivery_failed")
                 delivery_error = ValueError("图片索引未声明完整交付。")
@@ -664,13 +700,28 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 for path, digest in thread_image_fingerprints(producer.generated_images_root,
                                                               checkpoint.thread_id).items())
             repair_only = (images_exist or bool(checkpoint.pages)) and (
-                checkpoint.handoff_protocol == "structured-v1" or not valid_partial)
+                checkpoint.handoff_protocol in {"structured-v1", "tool-v1"} or not valid_partial)
         # A same-Revision checkpoint is authoritative for technical recovery. A
         # plain revision only inherits its thread and cumulative usage, not files.
         thread_id = checkpoint.thread_id if checkpoint else resume_thread_id
+        previous_revision = revision_thread_checkpoint(directory, thread_id) if thread_id and not checkpoint else None
         baseline = (checkpoint.usage.model_copy() if checkpoint else
-                    revision_usage_baseline(directory, thread_id) if thread_id else CodexUsage())
-        async with _production_client(deadline, cancel_event) as client:
+                    previous_revision.usage.model_copy() if previous_revision else CodexUsage())
+        tool_handoff = (checkpoint.handoff_protocol == "tool-v1" if checkpoint else
+                        previous_revision.handoff_protocol == "tool-v1" if previous_revision else
+                        DEFAULT_HANDOFF == "tool-v1")
+        submission = None
+        async def submit_images(arguments):
+            if submission is None:
+                return {"accepted": False, "retryable": False, "error": "生产尚未开始，不能在组合检查时提交产物。"}
+            return await submission(arguments)
+        client_options = {}
+        if tool_handoff:
+            from .codex import CodexDynamicTool
+            from .artifact_submission import ImageSubmission, SUBMIT_DESCRIPTION
+            client_options["dynamic_tools"] = [CodexDynamicTool("submit_artifacts", SUBMIT_DESCRIPTION,
+                FileDelivery.model_json_schema(), submit_images)]
+        async with _production_client(deadline, cancel_event, **client_options) as client:
             options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write, developer_instructions=PRODUCTION_RULES)
             thread = await _bounded_sdk(client.thread_resume(thread_id, **options) if thread_id else
@@ -679,19 +730,21 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 raise ValueError("SDK恢复的会话与本次返工/恢复目标不符。")
             recovered = checkpoint
             checkpoint = checkpoint or Checkpoint(input_digest=request_digest(directory), thread_id=thread.id,
-                handoff_protocol=DEFAULT_HANDOFF,
+                handoff_protocol="tool-v1" if tool_handoff else ("structured-v1" if thread_id else DEFAULT_HANDOFF),
                 skill_digests={role: _digest(path.parent) for role, path in skill_refs(directory)}, usage=baseline,
                 preexisting_thread_images=(thread_image_fingerprints(producer.generated_images_root, thread.id)
                                            if thread_id else {}))
             progress.checkpoint = checkpoint
             progress.baseline = baseline
-            structured = checkpoint.handoff_protocol == "structured-v1"
+            structured = checkpoint.handoff_protocol in {"structured-v1", "tool-v1"}
             bundle = prepare_materials(directory, refs, request) if structured else None
             # Existing Attempts without an inventory keep their exact old protocol.
             assets = (ImageAssetStore(directory, producer.generated_images_root, thread.id, checkpoint.input_digest)
                       if recovered is None or (directory / INVENTORY).exists() else None)
             if assets:
                 assets.initialize()
+            if tool_handoff:
+                submission = ImageSubmission(directory, checkpoint, producer.generated_images_root, bundle)
             record_thread(directory, thread.id)
             atomic_json(directory / CHECKPOINT, checkpoint)
             if on_thread_started:
@@ -710,6 +763,8 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                                         continuing=bool(thread_id and not recovered), rules=composition_rules(directory)) if structured else
                       delivery_prompt(directory, refs, request, checkpoint if recovered else None,
                                       continuing_thread=bool(thread_id and not recovered)))
+            if tool_handoff:
+                prompt = submission_prompt(checkpoint if recovered else None, rules=composition_rules(directory))
             references = frozen_references(directory)
             images = [Path(item.path) for item in references.images] if references else []
             if references and not structured:
@@ -717,14 +772,15 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
             if not recovered and checkpoint.composition_review:
                 prompt += f"\n已确认的组合适配：{checkpoint.composition_review.note}\n"
             progress.page("planning", None, len(checkpoint.pages))
-            for repair in ((True,) if repair_only else (False, True)):
+            for repair in ((True,) if repair_only else ((False,) if tool_handoff else (False, True))):
                 progress.worker_phase = "delivery_repair" if repair else "production"
                 if repair:
                     if checkpoint.repair_attempted:
                         raise ValueError(f"交付索引修复次数已达上限（本版本最多1次，非账户额度）；原始验收错误：{delivery_error}")
                     checkpoint.repair_attempted = True
                     atomic_json(directory / CHECKPOINT, checkpoint)
-                    prompt = (structured_prompt(checkpoint, repair=True, rules=composition_rules(directory)) + str(delivery_error) if structured else
+                    repair_rules = submission_prompt if tool_handoff else structured_prompt
+                    prompt = (repair_rules(checkpoint, repair=True, rules=composition_rules(directory)) + str(delivery_error) if structured else
                               "只修复当前 work/delivery.json 的文件索引，不得调用生图工具，不得重新研究或重画。"
                               "根据已经产生的真实图片和实际 Prompt 补齐索引，无法恢复则说明失败。"
                               + (f"现有图片已由宿主保存；读取当前cwd的{VIEW}选择正确asset_id，"
@@ -744,7 +800,9 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     inputs[0].text, encoding="utf-8")
                 turn = await _bounded_sdk(thread.turn(inputs, cwd=str(directory / "work"), effort=CODEX_EFFORT,
                     model=CODEX_MODEL, sandbox=Sandbox.workspace_write,
-                    **({"output_schema": FileDelivery.model_json_schema()} if structured else {})), deadline, cancel_event)
+                    **({"output_schema": FileDelivery.model_json_schema()} if structured and not tool_handoff else {})), deadline, cancel_event)
+                if submission:
+                    submission.turn_id = turn.id
                 if assets:
                     assets.expected_turn_id = turn.id
                 collector = asyncio.create_task(collect_observed_turn(turn, progress,
@@ -770,7 +828,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     require_completed_turn(result)
                     if result.usage is not None:
                         progress.record_usage(producer._sdk_usage(result.usage).model_dump())
-                    if structured:
+                    if structured and not tool_handoff:
                         # Retain the completed SDK result before any host index
                         # writes, so an IO failure can be finalized offline.
                         retain_response(directory, checkpoint, result, progress.worker_phase)
@@ -794,7 +852,13 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         except (ValueError, OSError):
                             pass
                 try:
-                    if structured:
+                    if tool_handoff:
+                        from .artifact_submission import accepted_submission
+                        from .production_materials import accept_delivery_value
+                        saved = accepted_submission(directory, checkpoint)
+                        accept_delivery_value(directory, checkpoint, producer.generated_images_root, bundle,
+                                              saved["submission"])
+                    elif structured:
                         accept_response(directory, checkpoint, producer.generated_images_root, bundle)
                     delivery = ingest(directory, checkpoint, producer.generated_images_root)
                     if not delivery.complete or not checkpoint.pages:

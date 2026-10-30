@@ -167,6 +167,17 @@ def accept_response(directory: Path, checkpoint, generated_root: Path, bundle: d
             or last.get("phase") != saved["phase"] or last.get("status") != "completed"):
         raise ValueError("结构化交付缺少同一SDK回合的完成凭证。")
     response = json.loads(saved["response"])
+    return accept_delivery_value(directory, checkpoint, generated_root, bundle, response)
+
+
+def accept_delivery_value(directory: Path, checkpoint, generated_root: Path, bundle: dict, response):
+    """Validate an entire model submission before writing its host-owned index.
+
+    The caller supplies provenance: completed SDK response for legacy handoffs,
+    or the registered dynamic tool handler for tool-v1.
+    """
+    from .native_production import Artifact, Delivery, safe_file
+
     items = response.get("artifacts") if isinstance(response, dict) else None
     uses_paths = isinstance(items, list) and any(isinstance(item, dict) and "source_image_path" in item for item in items)
     schema = FileDelivery if uses_paths else StructuredDelivery

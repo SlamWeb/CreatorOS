@@ -20,6 +20,7 @@ from creatoros.runs.task_execution import file_sha256, freeze_execution_spec
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, required=True)
+    parser.add_argument("--bad-first", action="store_true", help="Ask real Codex to submit a wrong path once, then repair it")
     args = parser.parse_args()
     root = args.directory.resolve()
     if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()) or root.exists():
@@ -63,12 +64,22 @@ def main():
                                    timeout_seconds=600)
         result = produce_video(producer, directory=run / "revision-001/attempt-001", pack_id="video-trial-r001",
             creator_id="video-trial", series_id="video-series", topic_id="video-topic", topic_title="两秒蓝色画面",
-            topic_brief="用给定图片和WAV制作2秒MP4，按Skill要求交付。", series_description="", audience="",
+            topic_brief=("用给定图片和WAV制作2秒MP4，按Skill要求交付。" +
+                ("本次是交付故障验证：视频只渲染一次。第一次调用 submit_artifacts 时故意把 video_path 填为 missing.mp4，"
+                 "收到拒绝后，第二次改成实际已渲染文件路径。不创建 missing.mp4、不复制到这个名字、不重新渲染。"
+                 if args.bad_first else "")), series_description="", audience="",
             revision_instruction=None, execution_spec=spec, skills_root=catalog.root)
         checked = validate_video_artifact(result.directory, spec)
         assert 1.9 <= checked.video.duration_seconds <= 2.2
         assert (checked.video.width, checked.video.height) == (160, 240)
         assert checked.video.has_audio
+        checkpoint = json.loads((result.directory / "video_checkpoint.json").read_text(encoding="utf-8"))
+        assert checkpoint["handoff_protocol"] == "submit-tool-v1" and checkpoint["accepted_sha256"]
+        if args.bad_first:
+            assert checkpoint["submission_attempts"] == 2, checkpoint
+            assert not (result.directory / "work/missing.mp4").exists()
+        report.update(submission_attempts=checkpoint["submission_attempts"],
+                      accepted_receipt=checkpoint["submission_digest"], bad_first=args.bad_first)
         report.update(status="passed", directory=str(result.directory), thread_id=result.session.thread_id,
                       duration=checked.video.duration_seconds, width=checked.video.width, height=checked.video.height,
                       has_audio=checked.video.has_audio, sha256=checked.video.sha256,
