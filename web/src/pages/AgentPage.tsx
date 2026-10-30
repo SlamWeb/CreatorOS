@@ -21,6 +21,8 @@ import { contextFocusDraftKey, initialReasoningEffort, isReasoningEffort, parseC
 import { applySessionPatch, newestChatSession, transcriptItems, type ChatEntryData as Entry,
   type ChatSession as Session, type ChatSessionPatch } from "../components/agentTranscript";
 import "../components/chat-transcript.css";
+import { compactReplyText, compactTranscript, toolBatchStatus, type CompactTranscriptItem } from "../components/compactTranscript";
+import "../components/compact-chat.css";
 
 const tools: Record<string, string> = { list_creators: "查看账号", list_creator_series: "查看栏目",
   discuss_content_run: "讨论作品", get_content_discussion: "查看作品讨论", request_content_revision: "提出返工", get_creator_tasks: "查看账号任务",
@@ -163,7 +165,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     enabled: active && !!id, refetchInterval: q => active && !connected && q.state.data?.status === "running" ? 2000 : false,
     refetchOnWindowFocus: !connected });
   const doc = session.data;
-  const renderedEntries = useMemo(() => transcriptItems(doc?.entries ?? []), [doc?.entries]);
+  const renderedEntries = useMemo(() => compactTranscript(transcriptItems(doc?.entries ?? [])), [doc?.entries]);
   const preferenceKey = id ?? `new:${scopeKey}`;
   const storedReasoning = readSessionValue(reasoningPreferenceKey(preferenceKey));
   const pendingTurn = id ? (pendingTurns[id] === undefined
@@ -520,8 +522,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       {standalone && (!id || (doc && !doc.entries.length)) && <div className="agent-welcome"><span>✦</span><h2>{creatorId ? `从「${accountName ?? creator.data?.display_name ?? "当前账号"}」开始` : "从你已有的账号开始"}</h2>
         <button type="button" disabled={cannotSend} onClick={() => updateDraft(scopeKey, creatorId ? `看看「${accountName ?? creator.data?.display_name ?? "这个账号"}」的栏目和选题。` : "看看我有哪些账号和栏目。")}>{creatorId ? "查看这个账号的栏目与选题 ↗" : "看看我的账号和栏目 ↗"}</button></div>}
       {doc?.has_older && <p className="agent-note">显示最近记录；完整消息仍保存在本地会话中。</p>}
-      {doc && renderedEntries.map(item => <ChatEntry key={`${doc.id}:${item.key}`} entry={item.entry} sessionId={doc.id}
-        sessionStatus={doc.status} hiddenLinkUrls={item.hiddenLinkUrls} />)}
+      {doc && renderedEntries.map(item => <ChatEntryGroup key={`${doc.id}:${item.key}`} group={item} sessionId={doc.id}
+        sessionStatus={doc.status} />)}
       {doc?.error && <p className="review-warning" role="alert">{doc.error}</p>}
     </div>}
     <form className="agent-composer" onSubmit={e => { e.preventDefault(); submit(); }}>
@@ -580,10 +582,8 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hid
         : target?.kind === "external" ? <a href={target.href} target="_blank" rel="noopener noreferrer">{children}</a>
           : <span title="此地址未由工具确认；请使用回复下方的任务入口">{children}</span>;
     },
-  }}>{entry.text}</Markdown></div>
-    {!!links.length && <nav className="chat-delivery-links" aria-label="本轮任务入口">
-      {links.map(link => <NamedChatLink key={link.url} link={link} />)}
-    </nav>}
+  }}>{compactReplyText(entry.text, url => chatHref(url, links, window.location.origin)?.kind === "internal")}</Markdown></div>
+    {!!links.length && <ReplyLinks links={links} />}
     {(entry.complete || entry.terminal || (entry.complete === undefined && entry.terminal === undefined && sessionStatus !== "running")) && <div className="chat-reply-actions">
       <CopyReply text={entry.text} />
       <ChatTrace sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}
@@ -593,6 +593,41 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hid
   if (entry.kind === "tool") return <ToolEntry entry={entry} sessionId={sessionId} links={links} />;
   return <p className="agent-note">{entry.kind === "guard_stop" ? "已达到本次调用上限，请检查当前结果。" : entry.kind === "context_compacted" ? "较早消息已压缩，完整记录仍在本地。" : "上下文接近预算。"}</p>;
 });
+
+function ChatEntryGroup({ group, sessionId, sessionStatus }: {
+  group: CompactTranscriptItem; sessionId: string; sessionStatus: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const entries = group.items.map(item => <ChatEntry key={item.key} entry={item.entry} sessionId={sessionId}
+    sessionStatus={sessionStatus} hiddenLinkUrls={item.hiddenLinkUrls} />);
+  if (group.items.length === 1) return entries[0];
+  const status = toolBatchStatus(group.items);
+  return <section className="chat-tool-batch" data-attention={status.attention > 0} aria-label="执行记录">
+    <button type="button" className="chat-tool-toggle" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
+      {status.running ? <LoaderCircle size={14} className="chat-tool-spinner" aria-hidden="true" />
+        : status.attention ? <CircleAlert size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+      <span>执行记录</span><small>{status.label}</small>
+      {open ? <Minus size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
+    </button>
+    {open && <div id={detailsId} className="chat-tool-batch-body">{entries}</div>}
+  </section>;
+}
+
+function ReplyLinks({ links }: { links: ChatLink[] }) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const many = links.length > 2;
+  return <div className="chat-result-list">
+    {many && <button type="button" className="chat-tool-toggle" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)}>
+      <span>{open ? "收起结果" : "查看结果"}（{links.length}）</span>
+      {open ? <Minus size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
+    </button>}
+    {(!many || open) && <nav id={detailsId} className="chat-delivery-links" aria-label="本轮任务入口">
+      {links.map(link => <NamedChatLink key={link.url} link={link} />)}
+    </nav>}
+  </div>;
+}
 
 function NamedChatLink({ link }: { link: ChatLink }) {
   const target = chatHref(link.url, [link], window.location.origin);
@@ -630,7 +665,7 @@ function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: strin
       {open ? <Minus size={13} className="chat-tool-expand-icon" aria-hidden="true" /> : <Plus size={13} className="chat-tool-expand-icon" aria-hidden="true" />}
     </button>
     {running && entry.background?.note && <small role="status">{entry.background.note}</small>}
-    {!!navigation.length && <nav className="chat-tool-links" aria-label="工具任务入口">
+    {open && !!navigation.length && <nav className="chat-tool-links" aria-label="工具任务入口">
       {navigation.map(link => <NamedChatLink key={link.url} link={link} />)}
     </nav>}
     {open && <div id={detailsId} className="chat-tool-details" role="region" aria-label={`${tools[entry.name ?? ""] ?? entry.name ?? "工具"}详情`}>

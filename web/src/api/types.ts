@@ -96,6 +96,8 @@ export interface TopicView {
   card_count?: number | null;
   production_state?: "unproduced" | "produced";
   skill_usage?: TopicSkillUsage;
+  preview_run_id?: string | null;
+  preview_run_status?: string | null;
   production_task_count?: number;
   production_task_active_count?: number;
   production_collection_id?: string | null;

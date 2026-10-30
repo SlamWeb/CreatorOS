@@ -59,6 +59,8 @@ class TopicView(ApiModel):
     available_actions: list[str]
     edit_digest: str | None = None
     management_actions: list[str] = Field(default_factory=lambda: ["get"])
+    preview_run_id: str | None = None
+    preview_run_status: str | None = None
     production_task_count: int = 0
     production_task_active_count: int = 0
     production_collection_id: str | None = None

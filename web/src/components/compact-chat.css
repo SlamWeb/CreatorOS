@@ -1,0 +1,9 @@
+.chat-tool-batch { margin-block: 6px 14px; min-width: 0; }
+.chat-tool-batch[data-attention="true"] > .chat-tool-toggle { color: var(--danger); }
+.chat-tool-batch-body { margin: 5px 0 10px 7px; padding-left: 10px; border-left: 1px solid var(--line); }
+.chat-result-list { margin-block: 10px 8px; min-width: 0; }
+.chat-result-list > .chat-tool-toggle { color: var(--accent); padding-inline: 0; }
+.chat-result-list .chat-delivery-links { display: grid; gap: 7px; margin-top: 7px; }
+.chat-result-list .chat-delivery-links > a { max-width: 100%; }
+.chat-tool-batch .chat-tool-toggle:focus-visible,
+.chat-result-list .chat-tool-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

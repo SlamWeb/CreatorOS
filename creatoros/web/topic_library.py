@@ -32,6 +32,11 @@ def _skill_usage(snapshot, catalog, metadata, *, source):
     return {"source": source, "items": items}
 
 
+def _display_run_id(row):
+    # A preview is presentation-only; existing_run_id keeps its legacy action meaning.
+    return row.get("preview_run_id") or row.get("existing_run_id")
+
+
 def topic_library(service, queries, series_id, state="all", offset=0, limit=20, *, order="queue"):
     page = queries.list_topics(series_id, offset=0, limit=100)
     if page is None:
@@ -65,9 +70,9 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
                 "available_actions": [] if record["stale"] else ["prepare_topic_selection"],
             }
     rows = list(items.values())
-    runs = queries.topic_production_projection([row["existing_run_id"] for row in rows if row.get("existing_run_id")])
+    runs = queries.topic_production_projection([_display_run_id(row) for row in rows if _display_run_id(row)])
     for row in rows:
-        row["production_state"] = runs.get(row.get("existing_run_id"), {}).get("production_state", "unproduced")
+        row["production_state"] = runs.get(_display_run_id(row), {}).get("production_state", "unproduced")
     rows = [r for r in rows if state == "all" or r["selection_state"] == state or r["production_state"] == state]
     if order in {"recent", "created"}:
         activity = (queries.topic_creation_times(series_id) if order == "created"
@@ -77,7 +82,7 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
             row["id"],
         ))
     page_rows = rows[offset:offset + limit]
-    run_ids = [row["existing_run_id"] for row in page_rows if row.get("existing_run_id")]
+    run_ids = [_display_run_id(row) for row in page_rows if _display_run_id(row)]
     covers = queries.topic_cover_projection(run_ids)
     series = queries.get_series(series_id)
     default = {"skill_name": series.skill_name, "composition": {
@@ -85,10 +90,10 @@ def topic_library(service, queries, series_id, state="all", offset=0, limit=20, 
         "production": {"id": series.production_skill_id} if series.production_skill_id else None}}
     metadata = {}
     for row in page_rows:
-        cover = covers.get(row.get("existing_run_id"), {})
+        cover = covers.get(_display_run_id(row), {})
         row["cover_url"] = cover.get("cover_url")
         row["card_count"] = cover.get("card_count")
-        run = runs.get(row.get("existing_run_id"))
+        run = runs.get(_display_run_id(row))
         row["skill_usage"] = _skill_usage(run["input"] if run else default, service.catalog,
                                           metadata, source="run" if run else "series")
     return {"items": page_rows,

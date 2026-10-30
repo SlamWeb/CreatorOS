@@ -52,6 +52,7 @@ test("usage stays out of chat while named links and lazy tool details survive re
   await expect(page.getByRole("link", { name: "朱元璋：村口到宫殿 · 第 3 版", exact: true })).toHaveCount(1);
   await expect(page.getByRole("link", { name: "韩信：街市到高坛 · 第 2 版", exact: true })).toHaveAttribute("href", runTwo);
   expect(reads).toBe(0);
+  await page.getByRole("button", { name: /执行记录.*2 次调用.*1 次需检查/ }).click();
   const firstTool = page.locator('[data-entry-id="tool-a"]');
   const firstToggle = firstTool.getByRole("button", { name: /管理选题/ });
   await firstToggle.focus();
@@ -109,6 +110,7 @@ test("stream patches preserve expanded tools, ignore replay, and recover gaps wi
     entries: [{ id: "old-user", kind: "user", text: "历史讨论\n".repeat(65), turn_id: "older-turn" },
       { id: "user", kind: "user", text: "检查一下", turn_id: "turn" },
       { id: "tool", kind: "tool", name: "manage_topics", status: "running", turn_id: "turn", tool_call_id: "call", model_request_id: "request" },
+      { id: "tool-two", kind: "tool", name: "manage_topics", status: "done", turn_id: "turn", tool_call_id: "call-two", model_request_id: "request" },
       { id: "reply", kind: "assistant", text: "正在", turn_id: "turn", complete: false, terminal: false }] };
   let latest = initial;
   let reads = 0;
@@ -129,6 +131,8 @@ test("stream patches preserve expanded tools, ignore replay, and recover gaps wi
   await page.goto("/agent?chat=patch-chat");
   await expect(page.getByText("正在", { exact: true })).toBeVisible();
   await emit("snapshot", initial);
+  const groupToggle = page.getByRole("button", { name: /执行记录.*2 次调用/ });
+  await groupToggle.click();
   const toggle = page.locator('[data-entry-id="tool"]').getByRole("button", { name: /管理选题/ });
   await toggle.click();
   await expect(page.getByText("尚未返回结果。", { exact: true })).toBeVisible();
@@ -138,6 +142,7 @@ test("stream patches preserve expanded tools, ignore replay, and recover gaps wi
     entries_upsert: [{ id: "tool", status: "done" }], entries_text_append: [{ id: "reply", text: "核对" }] };
   await emit("patch", patch);
   await expect(page.getByText("正在核对", { exact: true })).toBeVisible();
+  await expect(groupToggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("已核对原选题", { exact: true })).toBeVisible();
   await emit("patch", patch);
@@ -155,6 +160,7 @@ test("stream patches preserve expanded tools, ignore replay, and recover gaps wi
   latest = { ...latest, stream_revision: 5, entries: latest.entries.map(entry => entry.id === "reply" ? { ...entry, text: "正在核对，完整恢复" } : entry) };
   await emit("patch", { ...patch, base_revision: 4, stream_revision: 5 });
   await expect(page.locator(".chat-answer")).toHaveText("正在核对，完整恢复");
+  await expect(groupToggle).toHaveAttribute("aria-expanded", "true");
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   expect(reads).toBe(beforeClock + 1);
   expect(writes).toBe(0);

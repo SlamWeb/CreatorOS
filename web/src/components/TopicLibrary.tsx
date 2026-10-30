@@ -258,14 +258,16 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : "还没有选题。"}</p>}
     {!query.error && <div className="content-feed">{query.data?.items.map(topic => {
       const pending = topic.selection_state === "pending";
+      const singleTaskRun = !pending && topic.production_task_count === 1 ? topic.preview_run_id : null;
+      const displayRunId = singleTaskRun || (!pending && !topic.production_task_count ? topic.existing_run_id : null);
       const content = <>{!pending && topic.cover_url && <CardCover key={topic.cover_url} url={topic.cover_url} title={topic.title} />}
         <div className="content-card-copy"><h3>{topic.title}</h3>
           {(pending ? topic.angle : topic.brief) && <p>{pending ? topic.angle : topic.brief}</p>}
         </div></>;
       return <article className={`content-card${selected.includes(topic.id) || (pending && pendingSelection.includes(topic.id)) ? " is-selected" : ""}`} key={topic.id} data-testid={`library-${topic.id}`}>
-        {!pending && topic.existing_run_id && !topic.production_task_count
+        {!pending && displayRunId
           ? <Link id={`topic-card-${topic.id}`} className="content-card-main" aria-label={`查看内容 ${topic.title}`}
-              to={`/runs/${topic.existing_run_id}?return=${encodeURIComponent(location.pathname + location.search)}`}
+              to={`/runs/${displayRunId}?return=${encodeURIComponent(location.pathname + location.search)}`}
               onClick={() => rememberReturn(topic.id)}>{content}</Link>
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
@@ -278,6 +280,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
             aria-label={`选择生产 ${topic.title}`} checked={selected.includes(topic.id)} disabled={batch.isPending || pendingQueue.isPending}
             onChange={event => { if (event.target.checked) setPendingSelection([]); setSelected(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id)); }} />}
             {pending ? <span className="library-pending">待确认</span>
+            : singleTaskRun ? <StatusPill status={topic.preview_run_status ?? topic.status} />
             : topic.production_task_count ? <button type="button" className="production-task-count" onClick={() => openDetail(topic.id)}>
                 {topic.production_task_count} 项制作{topic.production_task_active_count ? ` · ${topic.production_task_active_count} 项进行中` : ""}</button>
             : <StatusPill status={topic.production_queue_status === "pending" ? "production_pending"

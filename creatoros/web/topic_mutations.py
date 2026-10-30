@@ -87,22 +87,20 @@ def topic_view(topic: Topic, runs, *, management_actions=None) -> TopicView:
     from sqlalchemy.orm import object_session
     from creatoros.storage import ProductionTask
     session = object_session(topic)
-    hidden = set()
-    ids = {run.task_id for run in all_related if run.task_id}
-    if session is not None and ids:
-        hidden = set(session.scalars(select(ProductionTask.id).where(
-            ProductionTask.id.in_(ids), ProductionTask.archived_at.is_not(None))))
+    # Include waiting tasks too: a completed image plus a waiting video is still multi-task.
+    visible_tasks = list(session.scalars(select(ProductionTask).where(
+        ProductionTask.topic_id == topic.id, ProductionTask.archived_at.is_(None)))) if session else None
+    visible_ids = {task.id for task in visible_tasks} if visible_tasks is not None else {
+        child.task_id for child in all_related if child.task_id}
     for child in all_related:
-        if child.task_id and child.task_id not in hidden:
+        if child.task_id in visible_ids:
             task_runs.setdefault(child.task_id, child)
-    collection_id = None
-    if task_runs:
-        if session is not None:
-            task = session.get(ProductionTask, next(iter(task_runs)))
-            collection_id = task.collection_id if task else None
+    task_count = len(visible_ids)
+    collection_id = next((task.collection_id for task in visible_tasks or [] if task.collection_id), None)
+    preview = task_runs.get(next(iter(visible_ids))) if task_count == 1 else None
     run = related[0] if related else None
     if run is None:
-        actions = ["start"] if topic.status.value == "queued" and not task_runs else ["view"]
+        actions = ["start"] if topic.status.value == "queued" and not task_count else ["view"]
     elif run.status is ContentRunStatus.QUEUED:
         actions = ["start", "view"]
     elif run.status in {ContentRunStatus.INTERRUPTED, ContentRunStatus.FAILED} and (
@@ -115,7 +113,9 @@ def topic_view(topic: Topic, runs, *, management_actions=None) -> TopicView:
         existing_run_id=run.id if run else None, existing_run_status=run.status.value if run else None,
         existing_run_version=run.version if run else None, available_actions=actions,
         edit_digest=edit_digest(topic), management_actions=management_actions or ["get"],
-        production_task_count=len(task_runs), production_collection_id=collection_id,
+        production_task_count=task_count, production_collection_id=collection_id,
+        preview_run_id=preview.id if preview else None,
+        preview_run_status=preview.status.value if preview else None,
         production_task_active_count=sum(child.status in {
             ContentRunStatus.QUEUED, ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING
         } for child in task_runs.values()))
