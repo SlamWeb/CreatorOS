@@ -114,7 +114,7 @@ class ImageAssetStore:
         return self._checked(asset)
 
     def resolve_path(self, raw: str):
-        """Compatibility only: even a valid native path needs an SDK receipt."""
+        """Resolve a model file reference through this task's SDK receipts."""
         path = Path(raw)
         if not path.is_absolute():
             path = self.directory / "work" / path
@@ -127,7 +127,7 @@ class ImageAssetStore:
         for asset in state.assets:
             if asset.sha256 == sha:
                 return self._checked(asset)
-        raise ValueError(f"该图片没有本次SDK完成事件的接收记录；请按 {VIEW} 中的编号交付。")
+        raise ValueError("该图片路径没有本次SDK完成事件的接收记录；请使用实际生图工具返回的路径或宿主提供的已接收图片路径，不要重新生图。")
 
     def observe(self, event):
         if event.method != "item/completed":

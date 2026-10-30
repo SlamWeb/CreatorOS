@@ -1,4 +1,4 @@
-"""Host-owned input bundle and path-free SDK final delivery for new tasks."""
+"""Host-owned materials and SDK delivery backed by received image events."""
 from __future__ import annotations
 
 import hashlib
@@ -33,6 +33,19 @@ class StructuredDelivery(ProductionModel):
     hashtags: list[str]
     complete: Literal[True]
     artifacts: list[StructuredArtifact] = Field(min_length=1)
+
+
+class FileArtifact(ProductionModel):
+    order: int = Field(ge=1)
+    source_image_path: str = Field(min_length=1)
+    image_prompt: str = Field(min_length=1)
+    reference_ids: list[str]
+    content: str
+
+
+class FileDelivery(StructuredDelivery):
+    """Model-facing references; durable asset IDs remain host-owned."""
+    artifacts: list[FileArtifact] = Field(min_length=1)
 
 
 def _without_paths(value):
@@ -153,7 +166,11 @@ def accept_response(directory: Path, checkpoint, generated_root: Path, bundle: d
     if (receipt.get("thread_id") != checkpoint.thread_id or last.get("id") != saved["turn_id"]
             or last.get("phase") != saved["phase"] or last.get("status") != "completed"):
         raise ValueError("结构化交付缺少同一SDK回合的完成凭证。")
-    value = StructuredDelivery.model_validate_json(saved["response"])
+    response = json.loads(saved["response"])
+    items = response.get("artifacts") if isinstance(response, dict) else None
+    uses_paths = isinstance(items, list) and any(isinstance(item, dict) and "source_image_path" in item for item in items)
+    schema = FileDelivery if uses_paths else StructuredDelivery
+    value = schema.model_validate(response)
     if [item.order for item in value.artifacts] != list(range(1, len(value.artifacts) + 1)):
         raise ValueError("结构化交付图片须从1连续编号。")
     store = ImageAssetStore(directory, generated_root, checkpoint.thread_id, checkpoint.input_digest)
@@ -161,7 +178,8 @@ def accept_response(directory: Path, checkpoint, generated_root: Path, bundle: d
     artifacts, seen = [], set()
     # Validate all selected IDs before writing any content or replacing the index.
     for item in value.artifacts:
-        asset, _ = store.resolve(item.asset_id)
+        asset, _ = (store.resolve_path(item.source_image_path) if isinstance(item, FileArtifact)
+                    else store.resolve(item.asset_id))
         if asset.sha256 in seen:
             raise ValueError("结构化交付重复选择同一图片。")
         seen.add(asset.sha256)
@@ -170,7 +188,7 @@ def accept_response(directory: Path, checkpoint, generated_root: Path, bundle: d
             if identifier not in resources:
                 raise ValueError(f"未知参考素材编号：{identifier}")
             references.append(resources[identifier]["path"])
-        artifacts.append(Artifact(order=item.order, asset_id=item.asset_id, image_prompt=item.image_prompt,
+        artifacts.append(Artifact(order=item.order, asset_id=asset.asset_id, image_prompt=item.image_prompt,
                                   reference_assets=references, content_file=f"host-content-{item.order:03d}.md"))
     for item, artifact in zip(value.artifacts, artifacts):
         target = directory / "work" / artifact.content_file
