@@ -130,6 +130,18 @@ def isolated_worker(directory):
             assert background["runs"] == [] and background["images"] == [] and background["videos"] == []
             assert len(background["exports"]) == 1
             json.dumps(background)  # The collector must be serializable without an LLM run.
+            from creatoros.evaluation.benchmark.world import validated_media
+            sample = world.root / 'collector-final-file-fixture'
+            for name in ('images/final.png', 'skills/assets/reference.png', 'received-images/copy.png'):
+                path = sample / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(world.reference)
+            validation = {'images': [{'path': 'images/final.png', 'sha256': hashlib.sha256(world.reference).hexdigest()}]}
+            selected_images, selected_videos = validated_media(sample, validation, world.root)
+            assert selected_images == ['collector-final-file-fixture/images/final.png'] and selected_videos == []
+            validation['images'][0]['sha256'] = '0' * 64
+            assert validated_media(sample, validation, world.root) == [[], []]
+            assert validated_media(sample, {}, world.root) == [[], []]
             from creatoros.evaluation.benchmark.codex_evidence import collect_codex_evidence
             empty_codex = collect_codex_evidence(world)
             assert empty_codex["attempts"] == []

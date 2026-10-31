@@ -33,6 +33,20 @@ def encoded_image(color, label):
     return output.getvalue()
 
 
+def validated_media(directory, validation, world_root):
+    """Count delivered files, never reference assets or capture/work copies."""
+    directory, world_root = Path(directory).resolve(), Path(world_root).resolve()
+    groups = [validation.get("images") or [], [validation["video"]] if validation.get("video") else []]
+    result = [[], []]
+    for index, entries in enumerate(groups):
+        for item in entries:
+            path = (directory / item["path"]).resolve()
+            if (path.is_relative_to(directory) and path.is_relative_to(world_root) and path.is_file()
+                    and hashlib.sha256(path.read_bytes()).hexdigest() == item.get("sha256")):
+                result[index].append(path.relative_to(world_root).as_posix())
+    return result
+
+
 class BenchmarkWorld:
     def __init__(self, root, case, provider_factory, *, dataset_path, eval_root):
         self.root = Path(root).resolve()
@@ -201,9 +215,10 @@ class BenchmarkWorld:
             if row.get("content_run_id") in seeded_runs or not row.get("artifact_directory"):
                 continue
             directory = Path(row["artifact_directory"])
-            if directory.is_relative_to(self.root) and directory.is_dir():
-                images += [str(p.relative_to(self.root)) for p in directory.rglob("*") if p.suffix.lower() in {".png", ".jpg", ".webp"}]
-                videos += [str(p.relative_to(self.root)) for p in directory.rglob("*.mp4")]
+            if directory.is_relative_to(self.root) and directory.is_dir() and row.get("validation_json"):
+                selected_images, selected_videos = validated_media(directory, json.loads(row["validation_json"]), self.root)
+                images += selected_images
+                videos += selected_videos
         versions, texts, paths = [], {}, {}
         for path in self.catalog.root.rglob("SKILL.md"):
             if "jobs" in path.parts or "inputs" in path.parts:
