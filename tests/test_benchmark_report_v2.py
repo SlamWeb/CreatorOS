@@ -75,6 +75,15 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertIn(f"records/{directory.name}/report.json", text)
         self.assertIn(f"records/{directory.name}/requests.json", text)
         self.assertEqual(len([row for row in text.splitlines() if row.startswith("| B")]), 50)
+
+    def test_deterministic_result_is_not_hidden_by_uncalibrated_judge(self):
+        self.plan(['B01'])
+        self.record(semantic_status='failed')
+        result = self.summarize()
+        self.assertEqual(result['passed'], 0)
+        self.assertEqual(result['deterministic']['passed'], 1)
+        self.assertEqual(result['semantic']['failed'], 1)
+        self.assertIsNone(result['tool_quality']['schema_valid_rate'])
         self.assertTrue((self.root / "summary.json").is_file())
 
     def test_manifest_subset_has_explicit_scope_and_subset_denominator(self):

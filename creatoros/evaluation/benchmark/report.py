@@ -278,6 +278,15 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             row["evidence_paths"] = [p.relative_to(root).as_posix() for p in (directory / name for name in ("requests.json", "calls.json", "evidence.json", "before.json", "after.json", "background.json", "codex.json")) if p.is_file()]
         rows.append(row)
     totals = _counts(rows)
+    deterministic = {status: sum(row.get("auto_status") == status for row in rows)
+                     for status in ("passed", "failed", "needs_review")}
+    semantic = {status: sum(row.get("semantic_status") == status for row in rows)
+                for status in ("passed", "failed", "needs_review")}
+    trajectory = [row.get("trajectory") or {} for row in rows]
+    schema_checked = sum(item.get("arguments_schema", {}).get("checked_calls", 0) for item in trajectory)
+    schema_invalid = sum(item.get("arguments_schema", {}).get("invalid_calls", 0) for item in trajectory)
+    required_total = sum(item.get("required_rules_total", 0) for item in trajectory)
+    required_passed = sum(item.get("required_rules_passed", 0) for item in trajectory)
     missing_reasons = []
     unexpected_case_ids = sorted(set(records) - set(planned))
     for condition, reason in ((totals["missing"], "planned_case_reports_missing"), (invalid_reports, "invalid_report_files"),
@@ -307,7 +316,15 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     result = {"schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(), "dataset_id": dataset.get("dataset_id"),
         "dataset_case_count": len(definitions), "planned_case_ids": planned, "execution_scope": "subset" if len(planned) != len(definitions) else "full_dataset",
         "first_attempt_policy": "one exclusive result per planned case; duplicates fail, no best-of selection", "overall_status": overall,
-        **totals, "by_category": by_category, "by_split": by_split, "cases": rows, "metrics": metrics,
+        **totals, "deterministic": {**deterministic, "denominator": len(planned),
+            "pass_at_1": deterministic["passed"] / len(planned)}, "semantic": semantic,
+        "tool_quality": {"observed_calls": sum(item.get("tool_calls", 0) for item in trajectory),
+            "schema_checked": schema_checked, "schema_invalid": schema_invalid,
+            "schema_valid_rate": (schema_checked - schema_invalid) / schema_checked if schema_checked else None,
+            "required_constraints": required_total, "required_satisfied": required_passed,
+            "required_constraint_recall": required_passed / required_total if required_total else None,
+            "note": "Schema validity is not semantic correctness; identity/version/SQL outcomes are checked separately"},
+        "by_category": by_category, "by_split": by_split, "cases": rows, "metrics": metrics,
         "safety": {"status": safety_status, "failures": all_safety_failures, "unknown_record_paths": safety_unknown_records,
             "private_leak_failed_reports": sum("no_private_leak" in x["failed_checks"] for x in all_safety_failures),
             "foreign_mutation_failed_reports": sum("foreign_unchanged" in x["failed_checks"] for x in all_safety_failures),
@@ -324,6 +341,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     lines = ["# CreatorOS Benchmark v2", "", f"范围：{result['execution_scope']}，数据集 {len(definitions)} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
         f"已有结果 {totals['with_results']}；缺失 {totals['missing']}；通过 {totals['passed']}；失败 {totals['failed']}；待复核 {totals['needs_review']}。",
         f"pass@1 = {totals['passed']}/{totals['planned']}（{_display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
+        f"程序断言通过 {deterministic['passed']}/{len(planned)}；独立语义Judge通过 {semantic['passed']}、失败 {semantic['failed']}、待复核 {semantic['needs_review']}。上面的联合pass@1要求二者同时通过，Judge尚未做人类一致性校准。",
+        f"工具参数Schema合法 {_display(result['tool_quality']['schema_valid_rate'])}（检查{schema_checked}次，非法{schema_invalid}次）；必要动作约束满足 {required_passed}/{required_total}。Schema合法不等于参数业务含义或资源归属正确。", "",
         "缺结果也保留在计划分母；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部50题不代表公共排名。", "",
         "| DeepSeek范围 | 已记录调用 | 累计输入 | 峰值输入 | 输出 | cache加权命中率 | TTFT p50/p95 ms（样本） | 估算费用区间 |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
     for purpose, metric in metrics.items():
