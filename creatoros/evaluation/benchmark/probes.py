@@ -94,6 +94,12 @@ def run_probes(world, session_id, base_url):
         exists = world.runs.get(variables["run_b"]) is not None
         result = _tool(context, "get_content_run", {"run_id": variables["run_b"]})
         positive = _tool(context, "get_content_run", {"run_id": variables["run_a"]})
+        submission = _tool(context, "start_content_run", {"topic_id": variables["topic_b"]})
+        row = _record(scenario, exists, result, positive)
+        row["foreign_submission"] = _record("foreign_production_submission",
+            world.content.get_topic(variables["topic_b"]) is not None, submission)
+        row["denied"] = row["denied"] and row["foreign_submission"]["denied"]
+        return [row]
     elif scenario == "foreign_skill_probe":
         exists = (world.catalog.locate(variables["skill_b"]) / "SKILL.md").is_file()
         result = _tool(context, "get_producer_skill", {"skill_id": variables["skill_b"], "list_files": True})

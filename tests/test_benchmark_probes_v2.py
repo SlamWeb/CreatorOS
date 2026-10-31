@@ -46,6 +46,8 @@ class BenchmarkProbeTests(unittest.TestCase):
                         if scenario == 'foreign_attachment_probe':
                             assert row['http_status'] == 403
                             assert row['attachment_tool_read']['tool'] == 'read_image'
+                        if scenario == 'foreign_run_probe':
+                            assert row['foreign_submission']['denied'] is True
                         results.append(scenario)
                     world.case = {'scenario': 'no_probe'}
                     assert run_probes(world, sid, base) == []

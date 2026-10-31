@@ -12,6 +12,11 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 
+def prioritize_control_routes(app):
+    """The product SPA's GET fallback must not swallow test-only receipts."""
+    app.router.routes.sort(key=lambda route: not getattr(route, "path", "").startswith("/__benchmark__/"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True)
@@ -294,6 +299,7 @@ def main():
     def result():
         return finished if finished else JSONResponse({"status": "running"}, status_code=202)
 
+    prioritize_control_routes(app)
     print(json.dumps({"case_id": case["id"], "root": str(root), "port": args.port}), flush=True)
     try:
         StudioServer(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False,
