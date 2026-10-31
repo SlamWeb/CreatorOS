@@ -1,6 +1,6 @@
 // Opt-in paid benchmark driver. Only UI submits user turns; no routes are mocked.
 // node web/e2e/live-benchmark-v2.mjs <isolated-base-url> <case-evidence-dir>
-import { chromium } from '@playwright/test';
+import { chromium, expect } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -76,6 +76,7 @@ async function uploadReference(root, alias) {
   check(alias === 'reference', `Unsupported attachment alias: ${alias}`);
   const file = scenario.attachment_files?.[alias];
   check(typeof file === 'string' && path.isAbsolute(file), 'Scenario reference must be an isolated absolute file path');
+  await expect(root.locator('input[aria-label="选择图片文件"]')).toBeEnabled({ timeout: 30_000 });
   const responsePromise = page.waitForResponse(response => {
     const url = new URL(response.url());
     return url.origin === base && /^\/api\/agent\/sessions\/[^/]+\/attachments$/.test(url.pathname) && response.request().method() === 'POST';
@@ -220,6 +221,44 @@ async function finalRefresh() {
   save();
 }
 
+async function completedProductionViews() {
+  const deadline = Date.now() + timeoutMs;
+  let quiet = 0, state;
+  while (Date.now() < deadline) {
+    state = await readJson(await context.request.get(`${base}/__benchmark__/task-state?session_id=${report.session_id}`), 'Observe background');
+    quiet = state.busy ? 0 : quiet + 1;
+    if (quiet >= 2) break;
+    await page.waitForTimeout(1000);
+  }
+  check(quiet >= 2, 'Background tasks did not reach a stable terminal state');
+  report.background_terminal = state;
+  report.production_pages = [];
+  for (const run of state.runs.filter(item => item.status === 'awaiting_approval')) {
+    await page.goto(`${base}/runs/${run.id}`, { waitUntil: 'domcontentloaded' });
+    await page.locator('.inspector-visual').waitFor({ state: 'visible', timeout: 30_000 });
+    const video = page.locator('.run-video-artifact video');
+    const observed = { run_id: run.id, url: page.url(), images: [], video: null };
+    if (await video.count()) {
+      await expect.poll(() => video.evaluate(el => el.readyState >= 1 && el.videoWidth > 0), { timeout: 30_000 }).toBe(true);
+      observed.video = await video.evaluate(el => ({ width: el.videoWidth, height: el.videoHeight, duration: el.duration, src: el.currentSrc }));
+    } else {
+      const choices = page.locator('.carousel-thumbnails button');
+      const count = Math.max(1, await choices.count());
+      for (let n = 0; n < count; n++) {
+        if (await choices.count()) await choices.nth(n).click();
+        const picture = page.locator('.carousel-stage img');
+        await expect.poll(() => picture.evaluate(el => el.complete && el.naturalWidth > 0), { timeout: 30_000 }).toBe(true);
+        observed.images.push(await picture.evaluate(el => ({ width: el.naturalWidth, height: el.naturalHeight, src: el.currentSrc })));
+      }
+    }
+    report.production_pages.push(observed);
+    await screenshot(`produced-${run.id}.png`);
+    save();
+  }
+  await page.goto(`${base}/?creator=${encodeURIComponent(scenario.creator_id)}`, { waitUntil: 'domcontentloaded' });
+  await panel();
+}
+
 try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -244,6 +283,7 @@ try {
     else throw new Error(`Unsupported scenario step: ${step.kind}`);
   }
   check(report.turn_posts.length > 0, 'No user turn was submitted through the UI');
+  if (scenario.live_codex) await completedProductionViews();
   await finalRefresh();
   check(report.errors.length === 0, 'Browser pageerror occurred; see retained evidence');
   report.completed = true;

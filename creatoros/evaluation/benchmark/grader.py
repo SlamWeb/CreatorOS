@@ -11,7 +11,7 @@ import json
 import re
 
 
-VERSION = "benchmark-v2-deterministic-1"
+VERSION = "benchmark-v2-deterministic-2"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -107,6 +107,76 @@ def _candidates(evidence, family=None):
             and (family is None or item.get("family_id") == family or item.get("source_skill_id") == family)]
 
 
+def _frozen_skill_ids(snapshot):
+    if isinstance(snapshot, str):
+        try:
+            snapshot = json.loads(snapshot)
+        except ValueError as error:
+            raise MissingEvidence("Malformed Revision production_input_json") from error
+    if not isinstance(snapshot, Mapping):
+        raise MissingEvidence("Frozen Revision production_input_json missing")
+    spec = snapshot.get("execution_spec")
+    if isinstance(spec, Mapping):
+        skills = spec.get("skills")
+        if not isinstance(skills, list) or not skills or any(not isinstance(item, Mapping)
+                or not isinstance(item.get("skill_id"), str) for item in skills):
+            raise MissingEvidence("Frozen execution_spec Skill bindings missing")
+        return {item["skill_id"] for item in skills}
+    if isinstance(snapshot.get("skill_name"), str):
+        return {snapshot["skill_name"]}
+    pair = snapshot.get("composition")
+    if isinstance(pair, Mapping):
+        if any(not isinstance(pair.get(role), Mapping) or not isinstance(pair[role].get("id"), str)
+               for role in ("mind", "production")):
+            raise MissingEvidence("Frozen composition Skill bindings missing")
+        return {pair[role]["id"] for role in ("mind", "production")}
+    if snapshot.get("production_protocol") == "external-import":
+        return set()
+    raise MissingEvidence("Frozen production Skill bindings missing")
+
+
+def _candidate_used(exp, evidence):
+    family = exp.get("id", evidence.get("variables", {}).get("skill_a"))
+    topic = exp.get("topic_id", evidence.get("variables", {}).get("topic_a"))
+    before_files, after_files = evidence.get("before", {}).get("files"), evidence.get("after", {}).get("files")
+    if not family or not topic or not isinstance(before_files, Mapping) or not isinstance(after_files, Mapping):
+        raise MissingEvidence("Candidate family/topic identity or file snapshots missing")
+    def persisted(files, identifier):
+        return any(identifier in path.replace("\\", "/").split("/")
+                   or path.replace("\\", "/").split("/")[-1] == identifier + ".json" for path in files)
+    new_candidates = set()
+    for candidate in _candidates(evidence, family):
+        identifier = candidate.get("id")
+        if not isinstance(identifier, str) or not identifier:
+            raise MissingEvidence("Candidate identity missing")
+        if not persisted(before_files, identifier):
+            if not persisted(after_files, identifier):
+                raise MissingEvidence("New candidate registration/file existence unproven")
+            new_candidates.add(identifier)
+    if not new_candidates:
+        return False, "No newly persisted candidate in the requested Skill family"
+    before_runs = {row.get("id") for row in _rows(evidence, "before", "content_runs")}
+    new_runs = {row["id"] for row in _rows(evidence, "after", "content_runs")
+                if row.get("id") and row["id"] not in before_runs and row.get("topic_id") == topic}
+    if not new_runs:
+        return False, f"No new Run for requested topic {topic}"
+    revisions = [row for row in _rows(evidence, "after", "content_revisions")
+                 if row.get("content_run_id") in new_runs]
+    if not revisions:
+        raise MissingEvidence("New Run frozen Revision inputs missing")
+    incomplete = False
+    for revision in revisions:
+        try:
+            used = _frozen_skill_ids(revision.get("production_input_json")) & new_candidates
+            if used:
+                return True, f"New topic Run Revision {revision.get('id')} freezes candidate {sorted(used)}"
+        except MissingEvidence:
+            incomplete = True
+    if incomplete:
+        raise MissingEvidence("Some new Run Revision Skill bindings are unavailable")
+    return False, "New topic Run frozen inputs use no newly created candidate from the requested family"
+
+
 def _expectation(expectation, evidence):
     exp = _template(expectation, evidence.get("variables", {}))
     kind, value = exp.get("kind"), exp.get("value", True)
@@ -175,6 +245,8 @@ def _expectation(expectation, evidence):
         if any(not isinstance(term, str) or not term for term in terms):
             raise MissingEvidence("Candidate body terms must be nonempty strings")
         return any(all(term in body for term in terms) for body in bodies), "Requested terms occur in one candidate body"
+    if kind == "candidate_used":
+        return _candidate_used(exp, evidence)
     if kind in {"candidate_asset_exists", "candidate_asset_absent"}:
         family, asset = exp.get("id"), exp.get("field")
         paths = evidence.get("skill_paths")
@@ -257,6 +329,27 @@ def _expectation(expectation, evidence):
         items = _background(evidence, key)
         count = sum(isinstance(item, Mapping) and item.get("status") in statuses for item in items)
         return _minimum(count, value), f"{key} terminal-success count={count}"
+    if kind == "codex_threads_min":
+        threads = evidence.get("codex", {}).get("threads")
+        if not isinstance(threads, list) or any(not isinstance(thread, str) or not thread for thread in threads):
+            raise MissingEvidence("Observed Codex thread identities missing")
+        count = len(set(threads))
+        return _minimum(count, value), f"Observed distinct Codex threads={count}"
+    if kind in {"answer_contains_topic_field", "answer_equals_topic_field"}:
+        identifier = exp.get("id", evidence.get("variables", {}).get("topic_a"))
+        if not identifier:
+            raise MissingEvidence("Source Topic identity missing")
+        rows = [row for row in _rows(evidence, "before", "topics") if row.get("id") == identifier]
+        if len(rows) != 1:
+            raise MissingEvidence("Unique original Topic row missing")
+        original = _field(rows[0], exp.get("field"))
+        answer = evidence.get("final_answer")
+        if not isinstance(original, str) or not original.strip() or not isinstance(answer, str):
+            raise MissingEvidence("Nonempty original Topic field or final answer missing")
+        if kind == "answer_contains_topic_field":
+            matches = re.sub(r"\s+", "", original) in re.sub(r"\s+", "", answer)
+            return matches, f"Final answer contains complete original Topic.{exp['field']} after whitespace removal"
+        return answer.strip() == original.strip(), f"Final answer equals original Topic.{exp['field']} with only outer whitespace ignored"
     if kind in {"answer_contains", "answer_excludes"}:
         answer = evidence.get("final_answer")
         terms = value if isinstance(value, list) else [value]

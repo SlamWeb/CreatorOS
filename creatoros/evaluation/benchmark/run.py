@@ -58,7 +58,7 @@ def fallback_report(root, case, manifest, error, stage):
     stamp = now()
     write_json(root / "report.json", {"schema_version": 1, "run_id": root.name, "dataset_id": manifest["dataset_id"],
         "case_id": case["id"], "started_at": stamp, "finished_at": stamp, "elapsed_seconds": 0,
-        "git_sha": manifest["git"]["sha"], "fixture_version": "benchmark-world-v2-1", "execution_mode": "live",
+        "git_sha": manifest["git"]["sha"], "fixture_version": "benchmark-world-v2-2", "execution_mode": "live",
         "execution_status": "failed", "auto_status": "failed", "semantic_status": "needs_review", "review": None,
         "model": {"name": "deepseek-flash", "provider": "deepseek"}, "usage": None, "metrics": metrics,
         "error": {"kind": type(error).__name__, "message": str(error), "stage": stage},
@@ -113,6 +113,12 @@ def execute_case(batch, case, index, manifest, dataset_path):
                 server.kill()
                 server.wait(timeout=10)
         log.close()
+        from creatoros.evaluation.run import now, write_json
+        write_json(root / "isolation.json", {"trial_root": str(root), "isolated_server_pid": server.pid,
+            "server_stopped": server.poll() is not None, "server_exit_code": server.returncode,
+            "closed_at": now(), "world_retained_for_audit": True,
+            "teardown": "owned process stopped; independent database/files retained, never resumed automatically",
+            "external_side_effects": "API charges and shared SDK session/cache writes cannot be rolled back"})
     report = json.loads((root / "report.json").read_text(encoding="utf-8"))
     print(json.dumps({"case": case["id"], "execution": report["execution_status"], "automatic": report["auto_status"],
         "semantic": report.get("semantic_status"), "error": report.get("error"), "path": str(root)}, ensure_ascii=False), flush=True)

@@ -180,17 +180,21 @@ def freeze_manifest(path, dataset_path, *, pricing, model_configuration, case_id
         "git": _git_state(), "python_version": sys.version, "package_versions": versions,
         "pricing": pricing, "model_configuration": model_configuration, "execution_policy": {"retries": 0, "first_attempts_only": True},
         "source_selection": "default" if source_paths is None else "explicit_test_inputs", "source_hashes": source_hashes,
+        "dataset_snapshot": {"path": "frozen-cases.json", "sha256": source_hashes[dataset_name]["sha256"]},
         "source_snapshot": {"path": "source-snapshot.zip", "sha256": _digest(zipped), "size_bytes": len(zipped), "members": sorted(payloads)},
         "inputs": inputs, "human_verified": False}
     encoded = (json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
     target.parent.mkdir(parents=True, exist_ok=True)
     snapshot = target.parent / "source-snapshot.zip"
     receipt = target.with_name(target.name + ".sha256")
-    if snapshot.exists() or receipt.exists():
+    dataset_snapshot = target.parent / "frozen-cases.json"
+    if snapshot.exists() or receipt.exists() or dataset_snapshot.exists():
         raise FileExistsError("Freeze directory already contains a source snapshot or receipt")
     # Both writes are exclusive. An interrupted/orphaned freeze fails closed.
     with snapshot.open("xb") as output:
         output.write(zipped)
+    with dataset_snapshot.open("xb") as output:
+        output.write(dataset.read_bytes())
     with target.open("xb") as output:
         output.write(encoded)
     with receipt.open("x", encoding="ascii") as output:
@@ -209,6 +213,11 @@ def verify_manifest(path) -> dict:
         manifest = json.loads(encoded.decode("utf-8"))
         if manifest.get("schema_version") != 1:
             raise ValueError("Unsupported manifest schema")
+        if "dataset_snapshot" in manifest:
+            frozen = manifest["dataset_snapshot"]
+            if (frozen["path"] != "frozen-cases.json" or
+                    _digest((target.parent / frozen["path"]).read_bytes()) != frozen["sha256"]):
+                raise ValueError("Frozen dataset copy changed")
         _configuration(manifest["pricing"], manifest["model_configuration"])
         hashes = manifest["source_hashes"]
         if not isinstance(hashes, dict) or not hashes:

@@ -152,6 +152,15 @@ def isolated_worker(directory):
             "zip_images": 2, "model_calls": 0, "new_attempts": 0, "b19_artifact_target": True}))
     finally:
         world.close()
+    paged = BenchmarkWorld(root / 'paged-world', {'scenario': 'paged_list'}, None,
+        dataset_path=dataset, eval_root=root / 'eval-paged')
+    try:
+        snapshot = paged.snapshot()['database']
+        removed = {r['topic_id'] for r in snapshot['topic_removals']}
+        visible = [r for r in snapshot['topics'] if r['series_id'] == 'bench-english' and r['id'] not in removed]
+        assert len(visible) == 137 and len(visible) > 100, 'Pagination must exceed the maximum tool page size'
+    finally:
+        paged.close()
 
 
 def check_collector_component_fixture(world, collect):

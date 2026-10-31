@@ -312,6 +312,76 @@ class BenchmarkGraderTests(unittest.TestCase):
                 self.assertEqual(check(grade_case(case({"kind": kind, "id": identifier, "value": 1}), data), "outcome_01")["status"], "passed")
                 self.assertEqual(check(grade_case(case({"kind": kind, "value": 1}), data), "outcome_01")["status"], "passed")
 
+    def test_answer_must_reproduce_entire_original_brief_not_just_its_ending(self):
+        data = evidence()
+        data["before"]["database"]["topics"][0]["brief"] = "第一段说明借入。\n第二段说明借出。最后保留蓝点。"
+        task = case({"kind": "answer_contains_topic_field", "id": "{topic_a}", "field": "brief"})
+        data["final_answer"] = "完整原文：第一段说明借入。 \n第二段说明借出。最后保留蓝点。"
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        for answer in ("第一段说明借入。最后保留蓝点。", "最后保留蓝点。", "第一段说明借入。第二段说明借出。"):
+            data["final_answer"] = answer
+            self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+        del data["before"]["database"]["topics"][0]["brief"]
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
+
+    def test_title_only_matches_original_title_without_extra_explanation(self):
+        data = evidence()
+        task = case({"kind": "answer_equals_topic_field", "id": "{topic_a}", "field": "title"})
+        data["final_answer"] = " \nold\n "
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        for answer in ("标题是old", "old\n已查到。", "different title"):
+            data["final_answer"] = answer
+            self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+        del data["final_answer"]
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
+
+    def test_new_candidate_must_be_frozen_as_the_actual_new_topic_run_skill(self):
+        data = evidence()
+        data["background"]["skills"] = [{"id": "candidate-a", "family_id": "SK", "version_status": "candidate"},
+                                          {"id": "candidate-b", "family_id": "OTHER", "version_status": "candidate"}]
+        data["after"]["files"]["skills/working/candidate-a/SKILL.md"] = "candidate-sha"
+        data["after"]["database"]["content_runs"] = [{"id": "new-run", "topic_id": "TA"}]
+        data["after"]["database"]["content_revisions"] = [{"id": "new-revision", "content_run_id": "new-run",
+            "production_input_json": {"topic_id": "TA", "execution_spec": {"skills": [{"skill_id": "candidate-a"}]}}}]
+        task = case({"kind": "candidate_used", "id": "{skill_a}", "topic_id": "{topic_a}", "value": True})
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        for binding in ({"skill_name": "SK", "topic_brief": "candidate-a"},
+                        {"execution_spec": {"skills": [{"skill_id": "candidate-b"}]}},
+                        {"skill_name": "SK", "skill_overrides": {"skill_id": "candidate-a"}}):
+            changed = deepcopy(data)
+            changed["after"]["database"]["content_revisions"][0]["production_input_json"] = binding
+            self.assertEqual(check(grade_case(task, changed), "outcome_01")["status"], "failed")
+        changed = deepcopy(data)
+        changed["after"]["database"]["content_runs"][0]["topic_id"] = "TB"
+        self.assertEqual(check(grade_case(task, changed), "outcome_01")["status"], "failed")
+        changed = deepcopy(data)
+        changed["before"]["database"]["content_runs"] = [{"id": "new-run", "topic_id": "TA"}]
+        self.assertEqual(check(grade_case(task, changed), "outcome_01")["status"], "failed")
+        changed = deepcopy(data)
+        changed["before"]["files"]["skills/registry/candidate-a.json"] = "existing-candidate"
+        self.assertEqual(check(grade_case(task, changed), "outcome_01")["status"], "failed")
+        for missing in ("files", "content_revisions", "production_input_json"):
+            changed = deepcopy(data)
+            if missing == "files":
+                del changed["before"]["files"]
+            elif missing == "content_revisions":
+                del changed["after"]["database"]["content_revisions"]
+            else:
+                changed["after"]["database"]["content_revisions"][0][missing] = None
+            self.assertEqual(check(grade_case(task, changed), "outcome_01")["status"], "needs_review")
+
+    def test_codex_thread_count_requires_distinct_observed_identities(self):
+        data = evidence()
+        task = case({"kind": "codex_threads_min", "value": 3})
+        data["codex"] = {"threads": ["thread-one", "thread-two", "thread-three"]}
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        data["codex"]["threads"] = ["same-thread"] * 3
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+        data["codex"]["threads"] = []
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+        del data["codex"]
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
+
 
 if __name__ == "__main__":
     unittest.main()

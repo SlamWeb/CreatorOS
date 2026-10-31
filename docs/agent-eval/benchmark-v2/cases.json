@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "dataset_id": "creatoros-trace-benchmark-v2-20261031",
-  "status": "frozen_definition_pending_first_run",
+  "dataset_id": "creatoros-trace-benchmark-v2.1-20261031",
+  "status": "revised_definition_pending_freeze",
   "cases": [
     {
       "id": "B01",
@@ -430,11 +430,12 @@
         },
         {
           "id": "rsi_stop",
-          "question": "是否由后台等待生产完成再评审，到了1轮即停止，没有模型反复轮询或另开重复生产？"
+          "question": "是否由后台等待生产完成再评审，到了1轮即停止，且每个业务round只有一次trial/dispatch，没有模型反复轮询或重复业务派工？同一Codex turn内部多次生图item只作为生成次数/成本诊断，不直接判为另一业务trial或dispatch；不得据此放宽其他题明确的一次生图要求。"
         }
       ],
       "live_codex": true,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "Use one business trial/dispatch per RSI round; SDK image-generation item counts remain cost/diagnostic observations rather than proof of a second business dispatch."
     },
     {
       "id": "B05",
@@ -622,6 +623,11 @@
         {
           "kind": "unchanged_business",
           "value": true
+        },
+        {
+          "kind": "answer_contains_topic_field",
+          "id": "{topic_a}",
+          "field": "brief"
         }
       ],
       "trajectory": {
@@ -710,7 +716,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "Add a deterministic comparison against the complete before.topic.brief; preserve the original strict completeness requirement."
     },
     {
       "id": "B07",
@@ -762,9 +769,9 @@
         "required": [
           {
             "tool": "manage_topics",
-            "min": 1,
+            "min": 2,
             "action": "list",
-            "max": 5,
+            "max": 8,
             "arguments_contains": {
               "series_id": "{series_a}"
             }
@@ -785,7 +792,7 @@
           "manage_production_task",
           "prepare_publication"
         ],
-        "max_tool_calls": 6,
+        "max_tool_calls": 9,
         "forbidden_actions": [
           {
             "tool": "manage_topics",
@@ -844,7 +851,14 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "pagination_fixture": {
+        "visible_items": 137,
+        "maximum_page_size": 100,
+        "page_size_policy": "No exact page size imposed; 100/50/20-item pages are valid when the complete result set is covered.",
+        "coverage_note": "Unlike the 37-item v2 fixture, this fixture necessarily exercises multiple pages."
+      },
+      "revision_reason": "137 visible fixture items exceed the 100-item maximum page; require at least two list calls while permitting different page sizes and budgets for default-size pagination."
     },
     {
       "id": "B08",
@@ -890,6 +904,11 @@
         {
           "kind": "unchanged_business",
           "value": true
+        },
+        {
+          "kind": "answer_equals_topic_field",
+          "id": "{topic_a}",
+          "field": "title"
         }
       ],
       "trajectory": {
@@ -978,7 +997,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "Compare the answer against the real before.topic.title instead of asking an oracle-free Judge to infer identity from string appearance."
     },
     {
       "id": "B09",
@@ -1784,7 +1804,7 @@
         },
         {
           "kind": "topic_field",
-          "value": "",
+          "value": null,
           "id": "{topic_a}",
           "field": "brief"
         }
@@ -1823,7 +1843,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "The product normalizes an empty brief to SQL NULL; expect the legal normalized business state."
     },
     {
       "id": "B18",
@@ -2205,11 +2226,6 @@
       "trajectory": {
         "required": [
           {
-            "tool": "list_creator_series",
-            "min": 1,
-            "max": 2
-          },
-          {
             "tool": "update_series_composition",
             "min": 1,
             "max": 1,
@@ -2232,7 +2248,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "The host already supplies current series revision; direct guarded rename and optional refresh-read are both valid paths."
     },
     {
       "id": "B22",
@@ -2428,12 +2445,6 @@
           {
             "tool": "manage_skill_library",
             "min": 1,
-            "action": "get",
-            "max": 2
-          },
-          {
-            "tool": "manage_skill_library",
-            "min": 1,
             "action": "set_pool",
             "max": 1
           }
@@ -2451,7 +2462,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "The host already supplies current pool version/defaults; direct guarded set_pool and optional refresh-read are both valid paths."
     },
     {
       "id": "B25",
@@ -2900,14 +2912,6 @@
       "trajectory": {
         "required": [
           {
-            "tool": "get_producer_skill",
-            "min": 1,
-            "max": 2,
-            "arguments_contains": {
-              "skill_id": "{skill_a}"
-            }
-          },
-          {
             "tool": "read_image",
             "min": 1,
             "max": 2
@@ -2987,7 +2991,8 @@
         }
       ],
       "live_codex": false,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "The user supplies the exact asset path; direct read_image is valid without a mandatory text/tree pre-read."
     },
     {
       "id": "B30",
@@ -4576,6 +4581,10 @@
         {
           "kind": "image_min",
           "value": 3
+        },
+        {
+          "kind": "codex_threads_min",
+          "value": 3
         }
       ],
       "trajectory": {
@@ -4602,7 +4611,8 @@
         }
       ],
       "live_codex": true,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "Require at least three real distinct Codex threads, rather than inferring parallel work from delivered file count."
     },
     {
       "id": "B43",
@@ -4965,6 +4975,12 @@
         {
           "kind": "image_min",
           "value": 1
+        },
+        {
+          "kind": "candidate_used",
+          "id": "{skill_a}",
+          "topic_id": "{topic_a}",
+          "value": true
         }
       ],
       "trajectory": {
@@ -5005,7 +5021,8 @@
         }
       ],
       "live_codex": true,
-      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed"
+      "reference_status": "draft_constraints_not_unique_sequence; not human_verified; not executed",
+      "revision_reason": "Verify the newly saved candidate in the real frozen Revision binding, not a claim or ID mentioned in the answer."
     },
     {
       "id": "B47",
@@ -5427,5 +5444,33 @@
     "video_skill"
   ],
   "human_review": null,
-  "model_runs": 0
+  "model_runs": 0,
+  "revision": {
+    "version": "2.1",
+    "revised_at_utc": "2026-10-31T15:00:36.191036+00:00",
+    "parent_dataset_id": "creatoros-trace-benchmark-v2-20261031",
+    "parent_definition_sha256": "acc7f822419acba280bc954ffd9af0e457cc3e61c70ae3b299565dad3d2fa4cf",
+    "parent_definition_copy": "data/agent-benchmark-v2/baseline-v2-001/frozen-cases.json",
+    "evidence_batch": "baseline-v2-001",
+    "original_reports_and_scores_unchanged": true,
+    "reasons": {
+      "B04": "Use one business trial/dispatch per RSI round; SDK image-generation item counts remain cost/diagnostic observations rather than proof of a second business dispatch.",
+      "B06": "Add a deterministic comparison against the complete before.topic.brief; preserve the original strict completeness requirement.",
+      "B07": "137 visible fixture items exceed the 100-item maximum page; require at least two list calls while permitting different page sizes and budgets for default-size pagination.",
+      "B08": "Compare the answer against the real before.topic.title instead of asking an oracle-free Judge to infer identity from string appearance.",
+      "B17": "The product normalizes an empty brief to SQL NULL; expect the legal normalized business state.",
+      "B21": "The host already supplies current series revision; direct guarded rename and optional refresh-read are both valid paths.",
+      "B24": "The host already supplies current pool version/defaults; direct guarded set_pool and optional refresh-read are both valid paths.",
+      "B29": "The user supplies the exact asset path; direct read_image is valid without a mandatory text/tree pre-read.",
+      "B42": "Require at least three real distinct Codex threads, rather than inferring parallel work from delivered file count.",
+      "B46": "Verify the newly saved candidate in the real frozen Revision binding, not a claim or ID mentioned in the answer."
+    },
+    "unchanged_failure_requirements": [
+      "B06 strict full brief",
+      "B20 filtered output scope and consistency",
+      "B50 exactly one new image generation and same-turn delivery repair"
+    ],
+    "new_model_runs": 0,
+    "human_verified": false
+  }
 }

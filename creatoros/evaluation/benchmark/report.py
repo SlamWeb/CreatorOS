@@ -172,13 +172,20 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     include every observed trial, deduplicated by case/purpose/request identity.
     """
     root = Path(batch_root).resolve()
+    manifest = _read(root / "manifest.json", root)
+    frozen_dataset = root / "frozen-cases.json"
+    if frozen_dataset.exists():
+        import hashlib
+        expected = manifest["source_hashes"][manifest["dataset_path"]]["sha256"]
+        if hashlib.sha256(frozen_dataset.read_bytes()).hexdigest() != expected:
+            raise ValueError("Frozen dataset copy changed")
+        dataset_path = frozen_dataset
     dataset = json.loads(Path(dataset_path).read_text(encoding="utf-8"))
     definitions = {case["id"]: case for case in dataset["cases"]}
     if len(definitions) != len(dataset["cases"]):
         raise ValueError("Duplicate dataset case IDs")
     if set(definitions) != {f"B{n:02}" for n in range(1, 51)}:
         raise ValueError("This batch report requires the complete B01..B50 dataset")
-    manifest = _read(root / "manifest.json", root)
     planned = manifest.get("selected_case_ids", list(definitions))
     if not planned or len(set(planned)) != len(planned) or any(case_id not in definitions for case_id in planned):
         raise ValueError("Manifest selected_case_ids is not a valid unique dataset subset")

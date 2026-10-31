@@ -48,6 +48,21 @@ class BenchmarkReportTests(unittest.TestCase):
     def summarize(self):
         return summarize_batch(self.root, self.dataset)
 
+    def test_old_batch_uses_its_verified_definitions_after_working_dataset_changes(self):
+        import hashlib
+        original = self.dataset.read_bytes()
+        (self.root / 'frozen-cases.json').write_bytes(original)
+        manifest = json.loads((self.root / 'manifest.json').read_text(encoding='utf-8'))
+        manifest.update(dataset_path='cases.json', source_hashes={'cases.json': {'sha256': hashlib.sha256(original).hexdigest()}})
+        (self.root / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+        changed = json.loads(original)
+        changed['dataset_id'] = 'new-definition-version'
+        self.dataset.write_text(json.dumps(changed), encoding='utf-8')
+        self.assertEqual(self.summarize()['dataset_id'], 'test-only')
+        (self.root / 'frozen-cases.json').write_text('{}', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'dataset copy changed'):
+            self.summarize()
+
     def test_missing_cases_remain_in_denominator_and_links_are_written(self):
         directory = self.record(requests=[request()])
         result = self.summarize()

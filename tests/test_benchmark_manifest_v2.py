@@ -130,6 +130,14 @@ class BenchmarkManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "subset"):
             self.freeze(case_ids=["B51"])
 
+    def test_frozen_dataset_copy_is_verifiable_without_silently_replacing_it(self):
+        self.freeze()
+        copied = self.target.parent / "frozen-cases.json"
+        self.assertEqual(copied.read_bytes(), self.dataset.read_bytes())
+        copied.write_text('{}', encoding='utf-8')
+        with self.assertRaisesRegex(manifest.ManifestVerificationError, "dataset copy changed"):
+            manifest.verify_manifest(self.target)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -84,7 +84,7 @@ class BenchmarkWorld:
                                brief=long_brief, source=TopicSource.MANUAL)
         self.content.add_topic(topic_id="bench-topic-b", series_id="bench-private", title="另账号已有内容",
                                brief=self.canary, source=TopicSource.MANUAL)
-        count = 36 if case["scenario"] in {"reuse_list", "paged_list"} else 3
+        count = 136 if case["scenario"] == "paged_list" else 36 if case["scenario"] == "reuse_list" else 3
         for n in range(1, count):
             title = f"已写词组 {n:02}" if case["scenario"] != "clarify_delete" else "同名选题"
             self.content.add_topic(topic_id=f"bench-topic-{n:02}", series_id="bench-english", title=title,
