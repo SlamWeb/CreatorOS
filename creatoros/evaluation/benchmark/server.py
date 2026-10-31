@@ -138,6 +138,8 @@ def main():
         from creatoros.ai.context import ModelContext
         rules = case.get("rubric", [])
         payload = {"task": case["steps"], "answer": evidence["final_answer"],
+            "actual_queries": [turn["query"] for turn in evidence["browser"].get("turns", [])],
+            "variables": world.variables,
             "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error")} for row in evidence["calls"]],
             "state_checks": evidence["grade"]["checks"], "rubric": rules,
             "candidate_skills": [{"id": item["id"], "content": item["content"]} for item in evidence["background"]["skills"]
