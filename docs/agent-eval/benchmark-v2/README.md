@@ -14,6 +14,8 @@ python -m creatoros.evaluation.benchmark.run report --batch baseline-001
 
 每批产出在`data/agent-benchmark-v2/<batch>/`，目录被Git忽略。`manifest.json`及源码ZIP锁定运行输入，`RESULTS.md`与`summary.json`汇总固定分母，各`records/<run>/`保留浏览器截图、query/最终回答、SQL前后记录、工具参数与结果、真实模型请求和费用估算。
 
+Codex桌面中优先打开`RESULTS-LOCAL.md`：它用本机绝对路径链接逐题证据。`RESULTS.md`保留相对路径用于整体目录移动；两份展示同一组分数。
+
 同批同题不重跑、不择优。源码变化时停止该冻结版本；修复后新建批次。旧批不覆盖。业务结果、轨迹和语义Judge分开展示，缺证据为待复核，不能算通过。
 
 隔离依靠每题独立磁盘库与目录，不依靠异步任务外层事务回滚。结束后关掉本题进程并封存隔离库和产物以便复查；不会回滚外部模型费用或删除SDK自己的会话日志。正式服务和旧任务不参与启动、重启或清理。

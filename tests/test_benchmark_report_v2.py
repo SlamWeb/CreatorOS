@@ -75,6 +75,8 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertIn(f"records/{directory.name}/report.json", text)
         self.assertIn(f"records/{directory.name}/requests.json", text)
         self.assertEqual(len([row for row in text.splitlines() if row.startswith("| B")]), 50)
+        local = (self.root / 'RESULTS-LOCAL.md').read_text(encoding='utf-8')
+        self.assertIn((directory / 'report.json').as_posix(), local)
 
     def test_deterministic_result_is_not_hidden_by_uncalibrated_judge(self):
         self.plan(['B01'])

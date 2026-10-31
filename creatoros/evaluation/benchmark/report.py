@@ -368,4 +368,7 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     lines.extend(["", "失败、原始报告与重复trial全部保留。这里只记录observed_error，不自行推断模型、产品、环境或评测器根因。", ""])
     _write(root / "summary.json", json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     _write(root / "RESULTS.md", "\n".join(lines))
+    local = re.sub(r"\]\((records/[^)]+)\)",
+                   lambda match: "](" + (root / match.group(1)).as_posix() + ")", "\n".join(lines))
+    _write(root / "RESULTS-LOCAL.md", local)
     return result
