@@ -252,8 +252,11 @@ def main():
                 evidence["judge"] = judge(evidence)
             except Exception as failure:
                 evidence["judge"] = {"error": {"kind": type(failure).__name__, "message": str(failure)}, "items": []}
-            for name in ("before", "after", "foreign_before", "foreign_after", "requests", "calls", "browser", "background", "probes", "grade", "judge", "controls", "codex"):
+            for name in ("before", "after", "foreign_before", "foreign_after", "calls", "browser", "background", "probes", "grade", "judge", "controls", "codex"):
                 write_json(root / f"{name}.json", evidence[name])
+            # Keep all paid calls, including Judge/RSI. Security grading above
+            # intentionally inspects only the executing account Agent's context.
+            write_json(root / "requests.json", requests)
             write_json(root / "messages.json", messages)
             (root / "answer.txt").write_text(final, encoding="utf-8")
             grade = evidence["grade"]
