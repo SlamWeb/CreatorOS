@@ -32,9 +32,9 @@ def model_tool_schemas(schemas, context):
                 "manage_media_collection": function["description"],
                 "manage_skill_library": function["description"],
                 "manage_material": function["description"],
-                "list_creator_series": "查询当前绑定账号的栏目；账号由宿主确定。",
+                "list_creator_series": "查询当前绑定账号的栏目；已有当前账号目录且栏目未变化时复用，不为查一个已知栏目重列。账号由宿主确定。",
                 "query_feedback": "只读当前账号最近 7 天已发布笔记的本地反馈，按指标比较、分页，返回栏目与采样时间；不刷新平台。账号由宿主绑定。",
-                "get_creator_tasks": "查询当前账号任务，包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，可按栏目和状态筛选，不恢复或重新提交。",
+                "get_creator_tasks": "查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。",
                 "compose_series": "用户明确要求时为当前账号创建栏目，可仅填名称，之后配置常用池/阶段默认；也兼容旧完整Skill或Mind＋Visualize组合。账号由宿主绑定。",
             }[name]
     return result

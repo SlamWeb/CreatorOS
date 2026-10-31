@@ -107,12 +107,68 @@ def _topic(data: Any) -> Any:
     return result
 
 
+def _topic_index(data: Any) -> Any:
+    # Pending candidates cannot be read by manage_topics(get); their selection
+    # evidence must remain here. Queued topics have a complete detail endpoint.
+    if not isinstance(data, dict) or not (
+        data.get("selection_state") == "queued" or data.get("status") == "queued"
+    ):
+        return _topic(data)
+    result = _pick(data, (
+        "reference_id", "id", "series_id", "title", "source", "status", "position",
+        "selection_state", "existing_run_id", "existing_run_status", "existing_run_version",
+        "available_actions", "management_actions", "production_task_count",
+        "production_queue_status", "production_queue_position", "brief_preview", "brief_truncated",
+    ))
+    brief = data.get("brief")
+    if isinstance(brief, str):
+        result["brief_preview"] = brief[:160]
+        if len(brief) > 160:
+            result["brief_truncated"] = True
+    return result
+
+
+def _present(data: Any, fields: tuple[str, ...]) -> Any:
+    """Only optional index fields: retain false/zero, omit absent information."""
+    result = _pick(data, fields)
+    if isinstance(result, dict):
+        return {key: value for key, value in result.items()
+                if value is not None and value != [] and value != {}}
+    return result
+
+
+def _task_index(data: Any) -> Any:
+    result = _present(data, _TASK)
+    if not isinstance(result, dict):
+        return result
+    if result.get("id") is not None and any(
+        result["id"] == result.get(key) for key in ("run_id", "task_id", "iteration_id")
+    ):
+        result.pop("id")
+    if result.get("last_activity_at") == result.get("updated_at"):
+        result.pop("last_activity_at", None)
+    if result.get("url") == result.get("topic_url"):
+        result.pop("url", None)
+    return result
+
+
 def _production_tasks(data: dict) -> dict:
-    return _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated")) | {
-        "items": _list(data.get("items", []), lambda item: _pick(item, (
+    result = _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated", "skill_summary")) | {
+        "items": _list(data.get("items", []), lambda item: _present(item, (
             "id", "topic_id", "title", "position", "run_id", "run_version", "status", "skill_summary", "url",
             "kind", "dispatch_state", "last_error", "depends_on")))
     }
+    rows = result["items"]
+    if isinstance(rows, list) and rows and all(isinstance(row, dict) for row in rows):
+        common_skill = rows[0].get("skill_summary")
+        if common_skill and all(row.get("skill_summary") == common_skill for row in rows):
+            result["skill_summary"] = common_skill
+            for row in rows:
+                row.pop("skill_summary")
+        for row in rows:
+            if "topic_id" in result and row.get("topic_id") == result["topic_id"]:
+                row.pop("topic_id", None)
+    return result
 
 
 def _run(data: dict) -> dict:
@@ -203,7 +259,8 @@ PROJECTED_TOOLS = frozenset({
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS | _EXTRACTION_WRITES
 
 
-def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> Any:
+def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
+                       arguments: dict | None = None) -> Any:
     """Copy the next-step facts, never overwrite or reinterpret the source DTO."""
     if tool_name not in PROJECTED_TOOLS or not isinstance(data, dict):
         return deepcopy(data)
@@ -231,6 +288,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "message", "pause_reason", "continuation_state")
         def step(item):
             result = _pick(item, ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
+            if isinstance(result, dict) and (arguments or {}).get("action") in {"create", "update"}:
+                result.pop("arguments", None)
             if isinstance(item, dict) and isinstance(item.get("result"), dict):
                 value = item["result"]
                 result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url", "question"))
@@ -283,7 +342,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
         if "topic" in data:
             result["topic"] = _topic(data["topic"])
         if "items" in data:
-            result.update(_items(data, _TOPIC, item_projector=_topic))
+            result.update(_items(data, _TOPIC, item_projector=_topic_index if data.get("action") == "list" else _topic))
         if "production_tasks" in data:
             result["production_tasks"] = _production_tasks(data["production_tasks"])
         return result
@@ -313,7 +372,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     if tool_name == "list_creator_series":
         return _pick(data, ("creator_id", "creator_name")) | _items(data, _SERIES)
     if tool_name == "list_series_topics":
-        return _items(data, _TOPIC, item_projector=_topic) | _pick(data, ("series_id", "url"))
+        return _items(data, _TOPIC, item_projector=_topic_index) | _pick(data, ("series_id", "url"))
     if tool_name == "list_producer_skills":
         return _items(data, _SKILL + (("digest",) if data.get("include_versions") else ()))
     if tool_name in {"get_producer_skill", "update_producer_skill_file"}:
@@ -364,7 +423,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
             result.update(_error(data))
         return result
     if tool_name == "get_creator_tasks":
-        result = _items(data, _TASK) | _pick(data, ("as_of", "filter"))
+        result = _items(data, _TASK, item_projector=_task_index) | _pick(data, ("as_of", "filter"))
         if "summary" in data:
             result["summary"] = _pick(data["summary"], ("active", "awaiting_approval", "failed", "needs_attention"))
         return result
@@ -392,13 +451,14 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False) -> 
     return result
 
 
-def project_model_content(tool_name: str, content: str, *, is_error: bool = False) -> str:
+def project_model_content(tool_name: str, content: str, *, is_error: bool = False,
+                          arguments: dict | None = None) -> str:
     """Project JSON only; plain text and unhandled tools remain byte-for-byte."""
     if tool_name not in PROJECTED_TOOLS:
         return content
     try:
         data = json.loads(content)
-        return json.dumps(project_model_data(tool_name, data, is_error=is_error), ensure_ascii=False)
+        return json.dumps(project_model_data(tool_name, data, is_error=is_error, arguments=arguments), ensure_ascii=False)
     except (ValueError, TypeError, KeyError, AttributeError):
         # Unexpected DTO shapes must not invalidate an already completed action.
         return content
@@ -431,7 +491,9 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
         if content.startswith("[tool_error type=") and "\n" in content:
             prefix, body = content.split("\n", 1)
             prefix += "\n"
-        message["content"] = prefix + project_model_content(name, body, is_error=bool(prefix))
+        call_args = arguments.get(message.get("tool_call_id"))
+        message["content"] = prefix + project_model_content(
+            name, body, is_error=bool(prefix), arguments=call_args if isinstance(call_args, dict) else None)
         if name in {"get_producer_skill", "get_skill_extraction"} and not prefix:
             try:
                 if call_ids[message.get("tool_call_id")] != 1:

@@ -46,7 +46,7 @@ CASES = [
     ("chat_stream", ["-m", "unittest", "tests.test_chat_stream", "tests.test_chat_links", "-v"]),
     ("skill_trial_paths", ["-m", "unittest", "tests.test_skill_trial_paths", "-v"]),
     ("skill_assets", ["-m", "unittest", "tests.test_skill_assets", "tests.test_skill_asset_tools", "-v"]),
-    ("skill_context", ["-m", "unittest", "tests.test_model_projection", "tests.test_skill_context_projection",
+    ("skill_context", ["-m", "unittest", "tests.test_model_projection", "tests.test_tool_index_context", "tests.test_skill_context_projection",
                        "tests.test_skill_edit_batch", "tests.test_saved_skill_routing", "-v"]),
     ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "tests.test_staged_task_visibility", "-v"]),
     ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_batch_production", "-v"]),

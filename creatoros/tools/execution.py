@@ -57,7 +57,8 @@ def execute_tool_call(
             from .model_projection import project_model_content
             # Formatting must never turn a completed write into a failed action.
             try:
-                result.model_content = project_model_content(tool_name, result.content, is_error=result.is_error)
+                result.model_content = project_model_content(
+                    tool_name, result.content, is_error=result.is_error, arguments=arguments)
             except (TypeError, ValueError, KeyError, AttributeError) as error:
                 result.details["projection_error"] = type(error).__name__
         return result

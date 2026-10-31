@@ -20,7 +20,7 @@ class ModelProjectionTests(unittest.TestCase):
             }],
         })
 
-    def test_topic_page_retains_complete_sources_and_actions(self):
+    def test_topic_index_previews_brief_and_keeps_actions(self):
         source = {"title": "Oxford", "url": "https://example.com/dictionary"}
         topic = {"id": "topic-a", "title": "四个词", "brief": "切入点", "status": "queued",
                  "position": 2, "selection_state": "queued", "batch_id": "a" * 32,
@@ -30,7 +30,8 @@ class ModelProjectionTests(unittest.TestCase):
         page = {"offset": 20, "limit": 20, "total": 43}
         result = project_model_data("list_series_topics", {"items": [topic], "page": page})
         self.assertEqual(result["page"], page)
-        self.assertEqual(result["items"][0]["sources"], [source])
+        self.assertEqual(result["items"][0]["brief_preview"], "切入点")
+        self.assertNotIn("sources", result["items"][0])
         self.assertEqual(result["items"][0]["existing_run_version"], 5)
         self.assertEqual(result["items"][0]["available_actions"], ["view_run"])
         self.assertNotIn("cover_url", result["items"][0])
