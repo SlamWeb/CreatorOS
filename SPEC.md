@@ -1,5 +1,11 @@
 # CreatorOS Runtime SPEC
 
+## 当前阅读入口（2026-11-01）
+
+本文后续日期章节主要是演进与验证历史，不能把旧“下一步”、旧参数或当时部署状态当作当前约束。按改动领域查阅：[工具契约](creatoros/tools/SPEC.md)、[持久计划](creatoros/agent/SPEC.md)、[生产Runtime](creatoros/runs/SPEC.md)、[Web](creatoros/web/SPEC.md)、[前端](web/SPEC.md)。只在追溯原因时展开相关历史。
+
+本轮计划编辑重构仅为[Draft](creatoros/agent/PLAN_EDIT_SPEC.md)，尚未实现。[文档审计](docs/architecture-guide/DOCUMENTATION_AUDIT_2026-11-01.md)区分已确认的旧要求、历史证据和仍有效规则；不重写旧测试分数或任务记录。
+
 ## 多阶段作品制作（2026-10-27）
 
 账号可用 Skill 库、栏目常用池/图片与视频默认、一选题多独立制作任务现已接通。图片并行生成后由持久任务收图打包，结合 BGM 和剪辑 Skill 新开 Codex thread 制作 MP4；仍使用现有 Run/Revision/Attempt 与队列，不让聊天模型轮询。真实前端已完成一条人类消息 → DeepSeek → 两个 Codex 生图线程 → 后台续接第三个剪辑线程 → 六秒成片与浏览器播放。详细契约、兼容边界、验证及使用入口见 [多阶段制作](docs/staged-production/SPEC.md)。
@@ -203,7 +209,7 @@
 
 Progressive SPEC, not a form.
 
-## 当前理解
+## 早期 Runtime 学习记录（原“当前理解”，历史）
 
 - CreatorOS 是面向创作者 / MCN 场景的长期项目；当前阶段只从零学习并手写极简 Python Agent Runtime。
 - 用户具备 Python 基础和简单 Agent Loop 经验，希望逐层理解 Agent Harness / Runtime，并能在求职和面试中讲清工程取舍。

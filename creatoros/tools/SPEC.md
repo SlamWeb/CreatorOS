@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## 当前契约与历史记录
+
+模型生产参数以 `production_arguments.py` 的四种显式action和skill_ids为准；下方旧topic_id/skill_overrides/主辅选择示例只解释旧实现，不能作为新工具调用格式。内部HTTP及冻结历史的旧字段仍可能用于现存网页和历史读取。
+
+作品提炼上限由 `integrations/skill_extraction.py:MAX_REFERENCE_IMAGES` 定义（当前20）；普通聊天由 `web/chat_attachments.py:MAX_IMAGES` 定义（当前6），两者不同。各日期段落中的“未部署/不重启”是当轮事实，实际加载状态查Web SPEC的后续部署记录。计划编辑Draft见 [../agent/PLAN_EDIT_SPEC.md](../agent/PLAN_EDIT_SPEC.md)，不改变当前工具。
+
 ## 2026-11-01 工具参数契约一次切换（隔离验证通过，未重启正式服务）
 
 - Skill 库操作及生产入口使用动作联合声明，同源生成模型 Schema 与宿主解析，移除旧工具参数组合和旧 Skill 主辅/二元选择入口，不提供兼容解析。
