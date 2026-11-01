@@ -1,15 +1,17 @@
 import asyncio
 import json
 from uuid import UUID
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request, HTTPException, Query, Response
+from fastapi import APIRouter, Request, HTTPException, Query, Response, Path
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .chat_attachments import MAX_IMAGES, MAX_ENCODED
 from .chat_stream import session_patch
 from .chat_focus import ChatContextTarget
+
+TraceTurnId = Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 
 
 class ChatTurnRequest(BaseModel):
@@ -68,12 +70,12 @@ def chat_routes(service):
         return service.context_trace(str(session_id), after, limit)
 
     @router.get("/{session_id}/turn-trace/{turn_id}")
-    def turn_trace(session_id: UUID, turn_id: UUID, response: Response):
+    def turn_trace(session_id: UUID, turn_id: TraceTurnId, response: Response):
         response.headers['Cache-Control'] = 'no-store'
         return service.turn_trace(str(session_id), str(turn_id))
 
     @router.get("/{session_id}/turn-trace/{turn_id}/requests/{request_id}")
-    def request_snapshot(session_id: UUID, turn_id: UUID, response: Response,
+    def request_snapshot(session_id: UUID, turn_id: TraceTurnId, response: Response,
                          request_id: str):
         response.headers['Cache-Control'] = 'no-store'
         return service.request_snapshot(str(session_id), str(turn_id), request_id)

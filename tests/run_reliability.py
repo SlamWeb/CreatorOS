@@ -14,6 +14,7 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("background_trace_routes", ["-m", "unittest", "tests.test_background_trace_routes", "-v"]),
     ("image_result_recovery", ["-m", "unittest", "tests.test_received_image_handoff", "-v"]),
     ("media_export_recovery", ["-m", "unittest", "tests.test_media_export_recovery", "-v"]),
     ("safe_maintenance", ["-m", "unittest", "tests.test_maintenance_state",
