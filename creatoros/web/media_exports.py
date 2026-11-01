@@ -3,16 +3,35 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from tempfile import SpooledTemporaryFile, mkdtemp
+from time import sleep
 from urllib.parse import quote, urlencode
 from zipfile import BadZipFile, ZipFile
 
 from creatoros.integrations.atomic_file import atomic_write_text
 from creatoros.storage import ContentRevision
 from .media_collections import _digest, _error
+
+
+LOG = logging.getLogger(__name__)
+RETRY_DELAYS = (0.01, 0.02, 0.04)
+
+
+def _log_failure(export_id, stage, error, *, attempt=None):
+    # No exception messages, paths or tracebacks: OS text can contain secrets.
+    chain, seen = [], set()
+    while error is not None and id(error) not in seen and len(chain) < 8:
+        seen.add(id(error))
+        chain.append(dict(type=type(error).__name__, **{
+            key: value if isinstance(value := getattr(error, key, None), int) else None
+            for key in ("errno", "winerror")}))
+        error = error.__cause__ or (None if error.__suppress_context__ else error.__context__)
+    LOG.warning("Media export failure export_id=%s stage=%s attempt=%s chain=%s",
+                export_id, stage, attempt, json.dumps(chain))
 
 
 class _SeekableArchive:
@@ -139,20 +158,27 @@ class MediaExportStore:
     def create(self, creator_id, identifier, version, snapshot):
         export_id = _digest([creator_id, identifier, snapshot])
         with self.service.lock:
-            detail = self.service.get(creator_id, identifier)
-            self.service._snapshot(detail, version, snapshot)
-            directory = self._directory(export_id, create_root=True)
-            if directory.exists():
-                return self.get(creator_id, identifier, export_id)
-            archive = self.service.download(creator_id, identifier, version=version, snapshot=snapshot)
-            temporary = None
+            archive = temporary = None
+            stage = "snapshot"
             try:
+                detail = self.service.get(creator_id, identifier)
+                self.service._snapshot(detail, version, snapshot)
+                stage = "export_directory"
+                directory = self._directory(export_id, create_root=True)
+                if directory.exists():
+                    stage = "readback"
+                    return self.get(creator_id, identifier, export_id)
+                stage = "build_archive"
+                archive = self.service.download(creator_id, identifier, version=version, snapshot=snapshot)
                 with ZipFile(_SeekableArchive(archive)) as bundle:
                     manifest = json.loads(bundle.read("manifest.json"))
+                stage = "source_bindings"
                 bindings = self._bindings(creator_id, identifier, manifest)
+                stage = "staging_directory"
                 temporary = Path(mkdtemp(prefix=f".{export_id}-", dir=self.root))
                 checksum, size = hashlib.sha256(), 0
                 archive.seek(0)
+                stage = "zip_write"
                 with (temporary / "images.zip").open("xb") as stream:
                     while chunk := archive.read(64 * 1024):
                         stream.write(chunk)
@@ -163,28 +189,64 @@ class MediaExportStore:
                 metadata = dict(schema_version=1, export_id=export_id, creator_id=creator_id,
                     collection_id=identifier, name=manifest["name"], selected_count=manifest["selected_count"],
                     size_bytes=size, checksum=checksum.hexdigest(), manifest=manifest, bindings=bindings)
+                stage = "metadata_write"
                 atomic_write_text(temporary / "metadata.json", json.dumps(metadata, ensure_ascii=False))
+                stage = "snapshot_recheck"
                 self.service._snapshot(self.service.get(creator_id, identifier), version, snapshot)
-                try:
-                    # Atomic, complete directory publication; existing nonempty exports cannot be replaced.
-                    temporary.rename(directory)
-                except OSError:
-                    if not directory.exists():
-                        raise
+                stage = "publish"
+                for attempt in range(len(RETRY_DELAYS) + 1):
+                    try:
+                        # Complete, atomic publication; never replace an existing export.
+                        temporary.rename(directory)
+                        break
+                    except OSError as error:
+                        _log_failure(export_id, stage, error, attempt=attempt + 1)
+                        # A rename can complete before its caller observes an error.
+                        # Validate the exact winner before retrying any publication.
+                        if directory.exists():
+                            stage = "readback"
+                            return self.get(creator_id, identifier, export_id)
+                        if (getattr(error, "winerror", None) not in {32, 33}
+                                or attempt == len(RETRY_DELAYS)):
+                            raise
+                        sleep(RETRY_DELAYS[attempt])
+                stage = "readback"
                 return self.get(creator_id, identifier, export_id)
             except OSError as error:
+                _log_failure(export_id, stage, error)
                 raise _error("导出保存失败，请核对导出状态。", "export_unavailable") from error
+            except Exception as error:
+                _log_failure(export_id, stage, error)
+                raise
             finally:
-                archive.close()
-                if temporary is not None and temporary.exists():
-                    for name in ("images.zip", "metadata.json"):
-                        (temporary / name).unlink(missing_ok=True)
-                    temporary.rmdir()
+                try:
+                    if archive is not None:
+                        archive.close()
+                    if temporary is not None and temporary.exists():
+                        for name in ("images.zip", "metadata.json"):
+                            (temporary / name).unlink(missing_ok=True)
+                        temporary.rmdir()
+                except OSError as error:
+                    # Cleanup must not mask a failure or invalidate a saved receipt.
+                    _log_failure(export_id, "cleanup", error)
 
     def get(self, creator_id, identifier, export_id):
-        metadata, archive = self._load(creator_id, identifier, export_id)
-        archive.close()
-        return self._receipt(metadata)
+        for attempt in range(len(RETRY_DELAYS) + 1):
+            try:
+                metadata, archive = self._load(creator_id, identifier, export_id)
+                archive.close()
+                return self._receipt(metadata)
+            except ValueError as error:
+                # _load wraps filesystem failures; ownership/content errors must
+                # still fail immediately. Readback never rebuilds the archive.
+                cause = error.__cause__
+                if (not isinstance(cause, OSError)
+                        or getattr(cause, "winerror", None) not in {32, 33}):
+                    raise
+                _log_failure(export_id, "readback", error, attempt=attempt + 1)
+                if attempt == len(RETRY_DELAYS):
+                    raise
+                sleep(RETRY_DELAYS[attempt])
 
     def download(self, creator_id, identifier, export_id):
         _metadata, archive = self._load(creator_id, identifier, export_id)
