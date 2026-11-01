@@ -23,7 +23,7 @@ export function HomePage() {
 
     <main id="home-main">
       <section className="home-hero" aria-labelledby="home-title">
-        <h1 id="home-title"><span>从一个好作品，</span><span>到一百个。</span></h1>
+        <h1 id="home-title"><span>每个好作品，</span><span>都不止于一次。</span></h1>
         <p>把这一次的创作经验，变成下一次的起点。</p>
         <div className="home-actions">
           <Button asChild size="lg"><Link to="/workspace">进入工作台</Link></Button>

@@ -7,7 +7,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET" && req.url().includes("/api/")) writes.push(req.url()); });
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: /从一个好作品，\s*到一百个。/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /每个好作品，\s*都不止于一次。/ })).toBeVisible();
   await expect(page.locator(".home-hero > p")).toHaveText("把这一次的创作经验，变成下一次的起点。");
   await expect(page.locator(".home-hero h1")).toHaveCSS("color", "rgb(29, 29, 31)");
   await expect(page.getByRole("link", { name: "进入工作台", exact: true })).toHaveCount(1);
@@ -39,7 +39,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await page.reload();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await page.getByRole("link", { name: "CreatorOS 首页", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: /从一个好作品/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /每个好作品/ })).toBeVisible();
   await account.click();
   expect(new URL(page.url()).searchParams.get("creator")).toBe(fixture.creator_id);
   await expect(page.getByRole("navigation", { name: "账号工作区" })).toBeVisible();
