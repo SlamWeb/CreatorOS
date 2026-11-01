@@ -9,7 +9,7 @@
 | 层 | 当前采用 | 使用边界 |
 | --- | --- | --- |
 | 应用 | React + TypeScript + Vite；Python/FastAPI | 不为换皮迁移 Next.js；业务状态仍以现有服务为准 |
-| UI | 现有 CSS 与组件，逐步整理设计 tokens | Tailwind/shadcn 可单独评估，不批量安装或整站替换；组件库不能决定产品设计 |
+| UI | Tailwind v4 + 本地 shadcn/ui 组件；旧 CSS 按页面迁移 | 共用现有 theme.css；新通用控件优先 src/components/ui，不套默认主题、不启用全局 Preflight；组件库不能决定产品设计 |
 | 探索操作 | 当前可用浏览器自动化工具 | 实际点击、输入、导航、刷新；遵守宿主浏览器工具规则，不另开绕过工具的控制通道 |
 | 诊断 | 浏览器日志、网络观察、必要时性能记录 | DevTools MCP 是可选诊断手段，不是必须安装的前提；工具缺失时明确替代证据 |
 | 可重复回归 | 仓库已有 Playwright Test | 自动断言用户可见状态与业务状态；必要时建立受审查的截图基线 |

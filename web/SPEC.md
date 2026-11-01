@@ -1,5 +1,14 @@
 # CreatorOS Studio Web SPEC
 
+## Tailwind / shadcn 基础接入（2026-11-01，首批已验证）
+
+- 保留 React/TypeScript/Vite、现有配色/Logo、页面布局和 API；引入 Tailwind v4 Vite 插件与本地 shadcn 组件源码，先迁移产物页动作和表单及公共错误重试按钮，不整站重写。
+- 组件位置 `src/components/ui`，辅助函数 `src/lib/utils.ts`，`@/` 指向 `src`。颜色映射现有 theme.css；不引入另一套主题或全局 Preflight，避免影响未迁移页面。
+- Given 当前产物 When 查看/下载/讨论/返工 Then 原操作与请求不变；Given 提交冲突 When 重试核对 Then 不假成功或自动重发；Given 刷新/返回 Then 保持原任务和版本。
+- Given 手机/桌面 When 看动作和表单 Then 无横向溢出、焦点可见、删除保持红色；链接仍为链接，表单提交与非提交按钮类型明确。
+- 验证：迁移前构建和截图基线；隔离 SQLite/HTTP + 受控 Producer 的浏览器路径、桌面/手机截图；TypeScript/生产构建。此轮不测试模型能力，不覆盖正式 dist、不重启正式服务。
+- 最终专项 1/1（25.1 秒）：409/503 恢复、删除确认/取消、ZIP 下载、返回/刷新，实际保存返工→新版本尚无执行→显式开始受控生产→批准并刷新，均核对真实 HTTP/持久状态；原版三张图保留。TypeScript/构建、桌面/手机截图和一次机械检测通过。未迁移全站；过程缺陷/失败夹具和既有依赖提醒见 [验证记录](UI_FOUNDATION_VERIFICATION.md)。
+
 ## 批量聊天收起与单任务封面（2026-10-30，已验证）
 
 - 用户目标：批量生产后先看到结果摘要，不被重复调用和链接淹没；单任务选题直接看到图片和打开产物。

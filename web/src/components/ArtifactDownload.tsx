@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { downloadRunImages } from "../api/client";
@@ -36,9 +37,9 @@ export function ArtifactDownload({ runId, title, revision }: { runId: string; ti
   }
 
   return <div className="artifact-download">
-    <button type="button" className="button button-secondary" onClick={() => void download()} disabled={busy} aria-busy={busy}>
+    <Button type="button" variant="secondary" onClick={() => void download()} disabled={busy} aria-busy={busy}>
       <Download size={16} aria-hidden="true" />{busy ? "正在准备…" : revision.cards.length === 1 ? "下载图片" : `下载全部（${revision.cards.length}）`}
-    </button>
+    </Button>
     {error ? <p className="form-error" role="alert">{error}</p> : null}
   </div>;
 }

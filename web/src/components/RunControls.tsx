@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router-dom";
@@ -53,8 +54,8 @@ export function RunControls({ run, compact = false }: { run: RunDetail; compact?
       </div>
     </div> : active ? <p className="muted">未记录阶段进度</p> : null}
     <div className="form-actions">
-      {canStart ? <button className="button button-primary" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" && run.production_queue?.status !== "needs_attention" ? "开始生产" : "恢复生产"}</button> : null}
-      {run.allowed_actions.includes("cancel") ? <button className="button button-quiet" disabled={mutation.isPending || stopping} onClick={() => mutation.mutate("cancel")}>{stopping ? "正在停止…" : run.status === "producing" ? "停止" : "取消此任务"}</button> : null}
+      {canStart ? <Button type="button" variant="default" disabled={mutation.isPending} onClick={() => mutation.mutate("execute")}>{mutation.isPending ? "正在提交…" : run.status === "queued" && run.production_queue?.status !== "needs_attention" ? "开始生产" : "恢复生产"}</Button> : null}
+      {run.allowed_actions.includes("cancel") ? <Button type="button" variant="ghost" disabled={mutation.isPending || stopping} onClick={() => mutation.mutate("cancel")}>{stopping ? "正在停止…" : run.status === "producing" ? "停止" : "取消此任务"}</Button> : null}
     </div>
     {mutation.isError ? <p className="form-error" role="alert">{mutation.error.message} {mutation.error instanceof ApiError && mutation.error.runId ? <Link to={`/runs/${mutation.error.runId}`}>查看当前运行 →</Link> : null}</p> : null}
   </div>;

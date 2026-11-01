@@ -1,0 +1,24 @@
+/* No Preflight: legacy pages keep their native headings, fields and media. */
+@layer theme;
+@import "tailwindcss/theme.css" layer(theme);
+/* Unlayered utilities deliberately coexist with the existing unlayered CSS. */
+@import "tailwindcss/utilities.css";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #e8e8ed;
+  --color-secondary-foreground: var(--ink);
+  --color-accent: var(--surface);
+  --color-accent-foreground: var(--ink);
+  --color-muted: var(--surface);
+  --color-muted-foreground: #62626b;
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--line);
+  --color-input: var(--line);
+  --color-ring: var(--accent);
+}

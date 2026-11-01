@@ -8,5 +8,6 @@ import "./theme.css";
 import "./styles.css";
 import "./agent.css";
 import "./components/creative-studio.css";
+import "./ui.css";
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

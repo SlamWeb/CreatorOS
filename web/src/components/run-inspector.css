@@ -16,21 +16,22 @@
 .run-review-console:has(form, .fresh-production-confirm, .form-error) { position:static; }
 .run-review-console h2 { margin:0 0 12px; font-size:16px; font-weight:600; }
 .run-primary-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.run-primary-actions > .button { flex:1; min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap; }
+.run-primary-actions > :is(.button, [data-slot="button"]) { flex:1; min-height:44px; display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap; }
 .run-rework-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 .run-rework-actions .fresh-production { display:contents; }
-.run-rework-actions > .button, .run-rework-actions .fresh-production > .button { display:inline-flex; align-items:center; justify-content:center; flex:1; gap:6px; min-height:40px; white-space:nowrap; }
+.run-rework-actions > :is(.button, [data-slot="button"]), .run-rework-actions .fresh-production > :is(.button, [data-slot="button"]) { display:inline-flex; align-items:center; justify-content:center; flex:1; gap:6px; min-height:40px; white-space:nowrap; }
 .run-workbench .review-actions { display:block; margin:0; }
-.run-workbench .review-actions > .button { margin: 0; }
+.run-workbench .review-actions > :is(.button, [data-slot="button"]) { margin: 0; }
 .run-workbench .review-actions .approve-button { width: auto; display: inline-flex; padding: .65rem 1rem; font-size: .85rem; position: static; box-shadow: none; }
 .run-workbench .review-actions > form, .run-workbench .review-actions > .form-error { margin:12px 0 0; }
 .run-workbench .review-actions .approval-receipt { margin:8px 0 0; padding:0; font-size:12px; background:transparent; }
 .run-removal { margin-left: auto; }
 .run-removal > button { display: inline-flex; align-items: center; gap: .4rem; color: #62626b; }
 .run-removal > button:hover { color: var(--danger); background: var(--danger-soft); }
+.run-removal > button[data-variant="destructive"] { color: var(--danger); background: var(--danger-soft); }
 .run-remove-confirm { padding: 1rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); margin-top: .5rem; max-width: 25rem; }
 .run-remove-confirm > p { margin: 0; font-size: .85rem; line-height: 1.6; }
-.run-remove-confirm .button-danger { color: var(--danger); background: var(--danger-soft); }
+.run-remove-confirm :is(.button-danger, [data-slot="button"][data-variant="destructive"]) { color: var(--danger); background: var(--danger-soft); }
 .fresh-production-confirm { flex:1 0 100%; padding:12px; background:var(--surface); border-radius:var(--radius-sm); margin-top:4px; min-width:0; }
 .fresh-production-confirm p { margin: 0 0 .75rem; font-size: .85rem; line-height: 1.6; overflow-wrap: anywhere; }
 .run-workbench .run-controls { display:block; margin:12px 0 0; }
@@ -42,7 +43,7 @@
 .run-progress-toggle { padding:4px 0; border:0; background:transparent; }
 .run-workbench .inspector-grid { grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); gap: 2rem; }
 .artifact-download { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin:0; max-width:100%; }
-.artifact-download > .button { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; }
+.artifact-download > :is(.button, [data-slot="button"]) { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; }
 .artifact-download > .form-error { flex-basis: 100%; margin: 0; }
 .run-workbench .carousel-stage { border-radius: 12px; min-height: 0; background: var(--surface); }
 .run-workbench .image-open { padding: 1rem; }
