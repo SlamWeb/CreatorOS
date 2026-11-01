@@ -6,7 +6,7 @@ import { AgentChatProvider } from "./AgentChatHost";
 import { TaskInbox, UnseenDot, useWorkInbox, WorkInboxProvider } from "./TaskInbox";
 
 const navItems = [
-  { to: "/", label: "账号与栏目", icon: LayoutGrid },
+  { to: "/workspace", label: "账号与栏目", icon: LayoutGrid },
   { to: "/skills", label: "Skill", icon: Layers },
   { to: "/agent", label: "Agent", icon: Sparkles },
   { to: "/observation", label: "Observation", icon: Activity },
@@ -23,14 +23,14 @@ function LayoutContent() {
   const [, setParams] = useSearchParams();
   const section = location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
   return (
-    <AgentChatProvider><div className={`studio-shell ${location.pathname === "/" ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
+    <AgentChatProvider><div className={`studio-shell ${["/", "/workspace"].includes(location.pathname) ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <aside className="sidebar">
         <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
         <nav className="primary-nav" aria-label="主导航">
           {navItems.map((item) => (
-            <NavLink key={item.to} to={item.to} aria-label={item.label} end={item.to === "/"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/creators" && location.pathname.startsWith("/series/")) ? "active" : ""}`}>
+            <NavLink key={item.to} to={item.to} aria-label={item.label} end={item.to === "/workspace"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/workspace" && location.pathname === "/") ? "active" : ""}`}>
               <span className="nav-icon" aria-hidden="true"><item.icon size={17} strokeWidth={1.8} /></span><span>{item.label}</span>
-              {((item.to === "/skills" && inbox.skillUnread) || (item.to === "/" && inbox.seriesUnread)) && <UnseenDot />}
+              {((item.to === "/skills" && inbox.skillUnread) || (item.to === "/workspace" && inbox.seriesUnread)) && <UnseenDot />}
             </NavLink>
           ))}
         </nav>

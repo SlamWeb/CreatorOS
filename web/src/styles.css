@@ -62,10 +62,10 @@ details[open] > summary:not(:has(svg))::after { content: "−"; }
 .button:not(:disabled):active { transform: scale(.98); }
 .button-primary { color: #fff; background: var(--accent); font-weight: 550; }
 .button-primary:hover { background: var(--accent-strong); }
-.button-secondary { color: var(--ink); background: #e8e8ed; }
-.button-secondary:hover { background: #dedee3; }
+.button-secondary { color: var(--accent); background: var(--canvas); border: 1px solid #cbdff7; }
+.button-secondary:hover { color: var(--accent-strong); background: #f4f8ff; border-color: var(--accent); }
 .button-quiet { color: var(--accent); background: transparent; border: 0; }
-.button-quiet:hover { text-decoration: underline; }
+.button-quiet:hover { color: var(--accent-strong); background: var(--accent-soft); text-decoration: none; }
 .studio-shell .button-danger { color: var(--danger); background: var(--danger-soft); }
 .studio-shell .button-danger:hover:not(:disabled) { color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, var(--canvas)); }
 .studio-shell button.action-danger { color: var(--danger); }
@@ -104,7 +104,7 @@ details[open] > summary:not(:has(svg))::after { content: "−"; }
 .section-title h2 { font-size: 19px; font-weight: 650; margin: 0; letter-spacing: -.015em; }
 .count-badge { color: var(--muted); font: 450 13px var(--font-mono); margin-left: 8px; }
 .text-link { color: var(--accent); font-size: 13px; font-weight: 450; }
-.text-link:hover { text-decoration: underline; }
+.text-link:hover { color: var(--accent-strong); text-decoration: none; }
 .text-link span { margin-left: 4px; }
 
 /* Cards — 无描边灰卡 */

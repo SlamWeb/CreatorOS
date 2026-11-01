@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-01T13:31:30.396809+00:00",
+  "title": "Design System: CreatorOS",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "白色画布",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(26% 0.0000 0.00)",
+          "oklch(38% 0.0000 0.00)",
+          "oklch(49% 0.0000 0.00)",
+          "oklch(61% 0.0000 0.00)",
+          "oklch(72% 0.0000 0.00)",
+          "oklch(84% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "既有浅灰表面",
+        "tonalRamp": [
+          "oklch(15% 0.0027 286.35)",
+          "oklch(26% 0.0027 286.35)",
+          "oklch(38% 0.0027 286.35)",
+          "oklch(49% 0.0027 286.35)",
+          "oklch(61% 0.0027 286.35)",
+          "oklch(72% 0.0027 286.35)",
+          "oklch(84% 0.0027 286.35)",
+          "oklch(95% 0.0027 286.35)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "石墨正文",
+        "tonalRamp": [
+          "oklch(15% 0.0038 286.10)",
+          "oklch(26% 0.0038 286.10)",
+          "oklch(38% 0.0038 286.10)",
+          "oklch(49% 0.0038 286.10)",
+          "oklch(61% 0.0038 286.10)",
+          "oklch(72% 0.0038 286.10)",
+          "oklch(84% 0.0038 286.10)",
+          "oklch(95% 0.0038 286.10)"
+        ]
+      },
+      "supporting-text": {
+        "role": "neutral",
+        "displayName": "辅助文字",
+        "tonalRamp": [
+          "oklch(15% 0.0142 285.88)",
+          "oklch(26% 0.0142 285.88)",
+          "oklch(38% 0.0142 285.88)",
+          "oklch(49% 0.0142 285.88)",
+          "oklch(61% 0.0142 285.88)",
+          "oklch(72% 0.0142 285.88)",
+          "oklch(84% 0.0142 285.88)",
+          "oklch(95% 0.0142 285.88)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "分隔线",
+        "tonalRamp": [
+          "oklch(15% 0.0068 286.26)",
+          "oklch(26% 0.0068 286.26)",
+          "oklch(38% 0.0068 286.26)",
+          "oklch(49% 0.0068 286.26)",
+          "oklch(61% 0.0068 286.26)",
+          "oklch(72% 0.0068 286.26)",
+          "oklch(84% 0.0068 286.26)",
+          "oklch(95% 0.0068 286.26)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "动作蓝",
+        "tonalRamp": [
+          "oklch(15% 0.1933 256.16)",
+          "oklch(26% 0.1933 256.16)",
+          "oklch(38% 0.1933 256.16)",
+          "oklch(49% 0.1933 256.16)",
+          "oklch(61% 0.1933 256.16)",
+          "oklch(72% 0.1933 256.16)",
+          "oklch(84% 0.1933 256.16)",
+          "oklch(95% 0.1933 256.16)"
+        ]
+      },
+      "accent-strong": {
+        "role": "primary",
+        "displayName": "深动作蓝",
+        "tonalRamp": [
+          "oklch(15% 0.1804 257.08)",
+          "oklch(26% 0.1804 257.08)",
+          "oklch(38% 0.1804 257.08)",
+          "oklch(49% 0.1804 257.08)",
+          "oklch(61% 0.1804 257.08)",
+          "oklch(72% 0.1804 257.08)",
+          "oklch(84% 0.1804 257.08)",
+          "oklch(95% 0.1804 257.08)"
+        ]
+      },
+      "secondary-line": {
+        "role": "neutral",
+        "displayName": "次级描边",
+        "tonalRamp": [
+          "oklch(15% 0.0394 253.02)",
+          "oklch(26% 0.0394 253.02)",
+          "oklch(38% 0.0394 253.02)",
+          "oklch(49% 0.0394 253.02)",
+          "oklch(61% 0.0394 253.02)",
+          "oklch(72% 0.0394 253.02)",
+          "oklch(84% 0.0394 253.02)",
+          "oklch(95% 0.0394 253.02)"
+        ]
+      },
+      "action-hover": {
+        "role": "neutral",
+        "displayName": "浅蓝悬浮底",
+        "tonalRamp": [
+          "oklch(15% 0.0103 261.79)",
+          "oklch(26% 0.0103 261.79)",
+          "oklch(38% 0.0103 261.79)",
+          "oklch(49% 0.0103 261.79)",
+          "oklch(61% 0.0103 261.79)",
+          "oklch(72% 0.0103 261.79)",
+          "oklch(84% 0.0103 261.79)",
+          "oklch(95% 0.0103 261.79)"
+        ]
+      },
+      "brand-blue": {
+        "role": "primary",
+        "displayName": "C 标主体蓝",
+        "tonalRamp": [
+          "oklch(15% 0.2051 259.11)",
+          "oklch(26% 0.2051 259.11)",
+          "oklch(38% 0.2051 259.11)",
+          "oklch(49% 0.2051 259.11)",
+          "oklch(61% 0.2051 259.11)",
+          "oklch(72% 0.2051 259.11)",
+          "oklch(84% 0.2051 259.11)",
+          "oklch(95% 0.2051 259.11)"
+        ]
+      },
+      "brand-light": {
+        "role": "primary",
+        "displayName": "C 标折面蓝",
+        "tonalRamp": [
+          "oklch(15% 0.1246 251.36)",
+          "oklch(26% 0.1246 251.36)",
+          "oklch(38% 0.1246 251.36)",
+          "oklch(49% 0.1246 251.36)",
+          "oklch(61% 0.1246 251.36)",
+          "oklch(72% 0.1246 251.36)",
+          "oklch(84% 0.1246 251.36)",
+          "oklch(95% 0.1246 251.36)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "首页大标题",
+        "purpose": "首页桌面角色；700px 以下有独立字号覆盖。"
+      },
+      "headline": {
+        "displayName": "首页区标题",
+        "purpose": "账号入口区标题。"
+      },
+      "body": {
+        "displayName": "首页说明",
+        "purpose": "首页 hero 说明；不覆盖业务页字号。"
+      },
+      "label": {
+        "displayName": "公共控件文字",
+        "purpose": "本地 Button 默认文字。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 2px rgb(29 29 31 / .05)",
+        "purpose": "既有主题小阴影；首页不使用。"
+      },
+      {
+        "name": "shadow-md",
+        "value": "0 4px 16px rgb(29 29 31 / .08)",
+        "purpose": "既有主题中阴影；首页不使用。"
+      },
+      {
+        "name": "shadow-lg",
+        "value": "0 8px 32px rgb(29 29 31 / .12)",
+        "purpose": "既有主题大阴影；首页不使用。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "home-feedback",
+        "value": "color .16s / background .16s",
+        "purpose": "首页导航与账号行悬浮反馈；源码依据。"
+      },
+      {
+        "name": "home-arrow",
+        "value": "transform .18s; translateX(2px)",
+        "purpose": "首页 CTA 悬浮时箭头轻移；源码依据。"
+      },
+      {
+        "name": "home-reduced-motion",
+        "value": "transition: none",
+        "purpose": "首页 reduced-motion 覆盖后代 transition；未逐项实测。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "home-mobile",
+        "value": "700px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "现有本地 Button 的默认尺寸；首页大 CTA 另有尺寸覆盖。",
+      "html": "<button type=\"button\" class=\"ds-button ds-primary\">进入工作台</button>",
+      "css": ".ds-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:8px 18px; border:0 solid transparent; border-radius:calc(infinity * 1px); font-family:var(--font-sans, sans-serif); font-size:13px; font-weight:500; white-space:nowrap; cursor:pointer; text-decoration:none; transition:color .15s, background-color .15s, border-color .15s; outline:none; } .ds-button:focus-visible { box-shadow:0 0 0 3px rgb(0 113 227 / .30); } .ds-button:disabled { opacity:.5; cursor:not-allowed; } .ds-primary { background:var(--accent); color:var(--canvas); } .ds-primary:enabled:hover { background:var(--accent-strong); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "现有本地 Button 的默认尺寸；首页大 CTA 另有尺寸覆盖。",
+      "html": "<button type=\"button\" class=\"ds-button ds-secondary\">打开 Skill 库</button>",
+      "css": ".ds-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:8px 18px; border:0 solid transparent; border-radius:calc(infinity * 1px); font-family:var(--font-sans, sans-serif); font-size:13px; font-weight:500; white-space:nowrap; cursor:pointer; text-decoration:none; transition:color .15s, background-color .15s, border-color .15s; outline:none; } .ds-button:focus-visible { box-shadow:0 0 0 3px rgb(0 113 227 / .30); } .ds-button:disabled { opacity:.5; cursor:not-allowed; } .ds-secondary { border:1px solid #cbdff7; background:var(--canvas); color:var(--accent); } .ds-secondary:enabled:hover { background:#f4f8ff; color:var(--accent-strong); border-color:var(--accent); }"
+    },
+    {
+      "name": "Link Button",
+      "kind": "button",
+      "refersTo": "button-link",
+      "description": "现有本地 Button 的默认尺寸；首页大 CTA 另有尺寸覆盖。",
+      "html": "<button type=\"button\" class=\"ds-button ds-link\">查看详情</button>",
+      "css": ".ds-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:8px 18px; border:0 solid transparent; border-radius:calc(infinity * 1px); font-family:var(--font-sans, sans-serif); font-size:13px; font-weight:500; white-space:nowrap; cursor:pointer; text-decoration:none; transition:color .15s, background-color .15s, border-color .15s; outline:none; } .ds-button:focus-visible { box-shadow:0 0 0 3px rgb(0 113 227 / .30); } .ds-button:disabled { opacity:.5; cursor:not-allowed; } .ds-link { background:transparent; color:var(--accent); text-decoration:none; } .ds-link:enabled:hover { background:var(--surface); color:var(--accent-strong); text-decoration:none; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "本地通用单行输入框；错误和禁用样式为源码已有状态。",
+      "html": "<input class=\"ds-input\" aria-label=\"名称\" placeholder=\"输入名称\" />",
+      "css": ".ds-input { display:block; min-width:0; width:100%; height:44px; padding:8px 12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--canvas); color:var(--ink); font-family:var(--font-sans, sans-serif); font-size:13px; outline:none; transition:color .15s, box-shadow .15s; } .ds-input::placeholder { color:#62626b; } .ds-input:focus-visible { border-color:var(--accent); box-shadow:0 0 0 3px rgb(0 113 227 / .5); } .ds-input:disabled { cursor:not-allowed; opacity:.5; } .ds-input[aria-invalid=\"true\"] { border-color:var(--danger); box-shadow:0 0 0 3px rgb(196 66 59 / .2); }"
+    },
+    {
+      "name": "Home Navigation",
+      "kind": "nav",
+      "description": "首页文字导航；工作台侧栏保留原布局。",
+      "html": "<nav class=\"ds-nav\" aria-label=\"首页导航\"><a href=\"/workspace\">工作台</a><a href=\"/skills\">Skill 库</a></nav>",
+      "css": ".ds-nav { display:flex; align-items:center; gap:30px; font-family:var(--font-sans, sans-serif); color:var(--ink); } .ds-nav a { display:inline-flex; align-items:center; min-height:40px; font-size:14px; font-weight:500; color:inherit; text-decoration:none; transition:color .16s; } .ds-nav a:hover { color:var(--accent); text-decoration:none; } .ds-nav a:focus-visible { outline:2px solid var(--accent); outline-offset:5px; } @media (max-width:700px) { .ds-nav { justify-content:center; gap:28px; } .ds-nav a { font-size:13px; min-height:36px; } } @media (prefers-reduced-motion:reduce) { .ds-nav a { transition:none; } }"
+    },
+    {
+      "name": "Home Account Row",
+      "kind": "custom",
+      "description": "首页真实账号入口的展示结构；预览文案仅为组件占位。",
+      "html": "<a class=\"ds-account\" href=\"/workspace\"><span class=\"ds-avatar\" aria-hidden=\"true\">账</span><span class=\"ds-account-copy\"><strong>账号名称</strong><span>栏目名称</span></span><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M7 7h10v10M7 17 17 7\"/></svg></a>",
+      "css": ".ds-account { display:flex; align-items:center; min-width:0; gap:16px; padding:25px 10px; border-bottom:1px solid var(--line); color:var(--accent); text-decoration:none; font-family:var(--font-sans, sans-serif); transition:background .16s; } .ds-account:hover { background:#f4f8ff; text-decoration:none; } .ds-account:focus-visible { outline:2px solid var(--accent); outline-offset:5px; } .ds-avatar { display:grid; place-items:center; flex:0 0 44px; height:44px; border:1px solid #cbdff7; border-radius:12px; font-size:17px; font-weight:600; } .ds-account-copy { display:grid; min-width:0; flex:1; gap:6px; } .ds-account-copy strong { color:var(--ink); font-size:16px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .ds-account-copy > span { color:#62626b; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .ds-account > svg { flex-shrink:0; } @media (max-width:700px) { .ds-account { padding:22px 4px; gap:12px; } } @media (prefers-reduced-motion:reduce) { .ds-account { transition:none; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "留白中的创作入口",
+    "overview": "白底、石墨文字与既有蓝色 C 标构成当前视觉身份。中文入口主页采用用户确认的大留白和大标题，让主动作清楚、账号入口可读；此构图属于首页，不规定所有业务页都使用大标题。\n\n通用次级动作采用白底蓝边。工作台继续使用现有浅灰容器和旧 CSS，按页面迁移到本地 UI 组件；本文记录已实现的入口和公共控件增量，不代表全站完成重设计。",
+    "keyCharacteristics": [
+      "白色画布、石墨正文和少量蓝色动作。",
+      "既有 C 标保留自己的双蓝色，不替换为另一套品牌图形。",
+      "首页疏朗，业务工作台按真实内容保持所需密度。",
+      "次级按钮白底蓝边，按钮和首页链接悬浮无下划线。"
+    ],
+    "rules": [
+      {
+        "name": "The Action Blue Rule",
+        "body": "主次动作以蓝色建立可辨识性；不要把通用次级按钮恢复成灰底。",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** 复用主题变量和既有 C 标；公共控件沿用本地 UI 组件。",
+      "**Do** 用白底蓝边表达通用次级动作，并保留可见键盘焦点。",
+      "**Do** 按页面迁移旧 CSS，保持现有工作台容器与真实状态可读。"
+    ],
+    "donts": [
+      "**Don't** 为按钮或首页导航添加悬浮下划线，或恢复通用灰底次级按钮。",
+      "**Don't** 把首页的大留白构图推广为业务页必须遵守的密度规则。",
+      "**Don't** 将既有灰色卡片全部视为缺陷，或把局部验收写成全站验证。"
+    ]
+  }
+}

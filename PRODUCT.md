@@ -1,0 +1,29 @@
+# Product
+
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
+## Users
+
+需要管理多个自有内容账号、反复制作图文和视频的创作者。当前主要用户是项目作者本人。
+
+## Product Purpose
+
+将参考作品沉淀为可复用 Skill，在账号和栏目中组织选题、制作任务、素材、验收及后续发布。
+
+## Capabilities and Constraints
+
+CreatorOS 负责业务对象、任务调度与产物管理；DeepSeek 为账号 Agent，Codex 执行委派的创作任务。数据以现有本地服务为准，界面不能用口头状态替代真实业务结果。
+
+## Brand Commitments
+
+保留 CreatorOS 名称、当前蓝色 C 标和蓝色主动作。用户于 2026-11-01 确认：中文入口主页参考 Mobbin 的大留白和大标题；首页进入工作台，已有直达链接保留；不喜欢灰底按钮、悬浮下划线或拥挤的设置页面。
+
+## Product Principles
+
+- 打开工作页面能看到当前对象、真实状态和下一步动作。
+- 首页为入口，不能妨碍老用户直接返回账号、栏目或产物。
+- 复杂运行信息按需查看，旧产物和记录保留。
