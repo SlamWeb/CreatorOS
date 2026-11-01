@@ -166,6 +166,8 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
             return client.request("GET", path)
         if action == "update":
             normalized = [PlanStepArgs.model_validate(item).model_dump(mode="json") for item in steps]
+            if len({item["id"] for item in normalized}) != len(normalized):
+                raise StudioClientError("步骤 ID 不能重复；请为每一步使用唯一 ID。", code="invalid_arguments")
             if continuation:
                 current = client.request("GET", path)
                 if current.get('read_only'):
