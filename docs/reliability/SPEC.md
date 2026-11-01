@@ -1,5 +1,9 @@
 # Reliability Baseline
 
+## 2026-11-01 生图结果恢复小回归
+
+- 显式零付费runner新增image_result_recovery，仅4项本地隔离SDK事件/文件回归，不自动调用模型。与原图片交付相关检查联合54项通过；真实Codex两图另在隔离目录显式执行，不与本地测试混计，不重跑50题或改旧分数。
+
 ## 选题生产分组/版本展示门禁（2026-10-23）
 
 - 既有topic_library_order组补入test_topic_library_production，不扩展组数；CI显式浏览器列表加入topic-production.spec.ts。定向11项API和20项指定版本/宿主检查通过；首批浏览器9/10、修fixture响应字段后原路径1/1，原失败保留，详见web/API SPEC。

@@ -84,15 +84,15 @@ class NativeImageAssetTests(unittest.TestCase):
         self.assertEqual(received.read_bytes(), source.read_bytes())
         self.assertTrue((self.directory / "native_image_assets.json").is_file())
 
-    def test_model_view_has_identifiers_and_no_absolute_source_paths(self):
+    def test_model_view_has_identifiers_and_receipt_backed_submission_paths(self):
         asset, source = self.receive()
         raw = (self.directory / "work" / "generated-assets.json").read_text(encoding="utf-8")
         view = json.loads(raw)
         self.assertIn(asset.asset_id, raw)
-        self.assertNotIn(str(source), raw)
-        self.assertNotIn(str(self.directory), raw)
-        self.assertNotIn("source_image_path", raw)
-        self.assertIsInstance(view, (dict, list))
+        self.assertEqual(view["images"][0]["source_image_path"], str(source))
+        self.assertEqual(view["images"][0]["asset_id"], asset.asset_id)
+        self.assertEqual(len(view["images"]), 1)
+        self.assertNotIn("thread_id", view["images"][0])
 
     def test_duplicate_completed_notification_is_idempotent(self):
         asset, source = self.receive()

@@ -90,7 +90,8 @@ class FileDeliveryTests(unittest.TestCase):
         self.assertFalse(artifact["additionalProperties"])
         prompt = structured_prompt(None)
         self.assertIn("source_image_path", prompt)
-        self.assertIn("不需要读取generated-assets.json", prompt)
+        self.assertIn("正常取得结果时无需额外读取目录", prompt)
+        self.assertIn("若结果为空或没有图片路径", prompt)
         self.assertIn("order从1连续编号", prompt)
 
     def test_recovery_uses_received_copy_after_original_is_gone(self):

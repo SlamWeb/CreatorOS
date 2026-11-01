@@ -9,6 +9,7 @@ import httpx
 from creatoros.config import PROJECT_ROOT
 from creatoros.integrations.native_image_assets import ImageAssetStore
 from creatoros.integrations.native_production import load_checkpoint
+from creatoros.integrations.artifact_submission import accepted_submission
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
 from creatoros.runs import ContentRunService
 from creatoros.storage import ContentRepository, CreatorPlatform, Database, TopicSource, upgrade_database
@@ -21,6 +22,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--images", type=int, choices=[1, 2], default=1)
     parser.add_argument("--rich-copy", action="store_true", help="Verify Chinese page text and publication copy")
+    parser.add_argument("--received-paths", action="store_true", help="Exercise received-image fallback instead of copying tool output paths")
     args = parser.parse_args()
     root = args.directory.resolve()
     if not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()) or root.exists():
@@ -50,6 +52,12 @@ def main():
             "\n交付文案必须逐字使用以下JSON对应值，不添加解释，page_content填入artifacts[0].content：\n" +
             json.dumps({"title": copy_title, "text": copy_body, "hashtags": ["#英语启蒙", "#猫狗"],
                         "page_content": page_body}, ensure_ascii=False), encoding="utf-8")
+    if args.received_paths:
+        skill_file = author / "SKILL.md"
+        text = skill_file.read_text(encoding="utf-8").replace("不读取generated-assets.json", "不额外扫描目录")
+        skill_file.write_text(text + "\n这是交付恢复验证：生成后只从当前工作目录generated-assets.json读取"
+            "images[].source_image_path作为交付路径，并保留原生成顺序和要求的展示顺序。"
+            "即使原工具路径可见，也按这条库存恢复路径交付；没有要求新增图片，不要重画。", encoding="utf-8")
     url = "sqlite:///" + (root / "trial.sqlite").as_posix()
     upgrade_database(url)
     database = Database(url)
@@ -62,8 +70,10 @@ def main():
         repository.create_creator(creator_id="asset-trial", display_name="收图隔离验证", platform=CreatorPlatform.XIAOHONGSHU)
         repository.create_series(series_id="asset-series", creator_id="asset-trial", name="收图验证",
             description="验证图片由宿主接收、由模型按真实路径交付。", audience="儿童", skill_name=skill["id"])
+        handoff = ("本次专门验证结果缺失后的库存恢复，生成后读取generated-assets.json的source_image_path交付。"
+                   if args.received_paths else "用实际工具返回的source_image_path交付，不额外读取库存。")
         repository.add_topic(topic_id="asset-topic", series_id="asset-series", source=TopicSource.MANUAL,
-            title="cat与dog", brief=f"制作{args.images}张图，严格按Skill中的数量、生成与交付顺序。用实际工具返回的source_image_path交付，不读取generated-assets.json。不要重画。")
+            title="cat与dog", brief=f"制作{args.images}张图，严格按Skill中的数量、生成与交付顺序。{handoff}不要重画。")
         run = service.create("asset-topic")
         report["run_id"] = run.id
         (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -77,10 +87,18 @@ def main():
         delivery = json.loads((attempt / "work/delivery.json").read_text(encoding="utf-8-sig"))
         assert len(received) == args.images and len(checkpoint.pages) == args.images, "接收和交付数量不符合要求"
         assert all(item.get("asset_id") and not item.get("source_image_path") for item in delivery["artifacts"]), "宿主未转换为内部图片编号"
-        envelope = json.loads((attempt / "work/structured-response.json").read_text(encoding="utf-8"))
-        response = json.loads(envelope["response"])
+        if checkpoint.handoff_protocol == "tool-v1":
+            response = accepted_submission(attempt, checkpoint)["submission"]
+        else:
+            envelope = json.loads((attempt / "work/structured-response.json").read_text(encoding="utf-8"))
+            response = json.loads(envelope["response"])
         assert all(item.get("source_image_path") and "asset_id" not in item for item in response["artifacts"])
         assert [item["order"] for item in response["artifacts"]] == list(range(1, args.images + 1))
+        if args.received_paths:
+            assert "generated-assets.json" in (attempt / "production_request.txt").read_text(encoding="utf-8")
+            events = [json.loads(line) for line in (attempt / "codex_public_events.jsonl").read_text(encoding="utf-8").splitlines()]
+            commands = [event.get("payload", {}).get("item", {}).get("command", "") for event in events]
+            assert any("generated-assets.json" in str(command) for command in commands), "模型未实际读取库存"
         if args.images == 2:
             assert [p.asset_id for p in checkpoint.pages] == [a.asset_id for a in reversed(received)], "交付未按要求逆序"
         if args.rich_copy:
@@ -106,6 +124,7 @@ def main():
         report.update(status="passed", result=result.model_dump(), candidate_images=len(received),
             selected_images=len(checkpoint.pages), reversed_order_checked=args.images == 2, asset_ids=[page.asset_id for page in checkpoint.pages],
             raw_delivery_has_image_paths=True, rich_copy_checked=args.rich_copy, http_detail=detail_response.status_code,
+            received_path_recovery_checked=args.received_paths, handoff_protocol=checkpoint.handoff_protocol,
             http_image=response.status_code, received_sha256=checkpoint.pages[0].sha256,
             sdk_usage=json.loads((attempt / "production_session.json").read_text(encoding="utf-8"))["usage"],
             approved=False, published=False)

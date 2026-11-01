@@ -92,7 +92,8 @@ class ImageAssetStore:
     def _view(self, state):
         # This model-readable projection is not an authority or an input path.
         path = _within(self.directory / "work", self.directory / "work" / VIEW)
-        value = {"images": [{"asset_id": a.asset_id, "source_file": Path(a.source_image_path).name,
+        value = {"images": [{"asset_id": a.asset_id, "source_image_path": a.source_image_path,
+            "source_file": Path(a.source_image_path).name,
             "preview_file": f"../received-images/{a.file_name}", "width": a.width, "height": a.height,
             "revised_prompt": a.revised_prompt} for a in state.assets]}
         atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2))
