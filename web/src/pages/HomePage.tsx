@@ -1,11 +1,12 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Images, Layers3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { request } from "../api/client";
 import type { CreatorView, PageResponse } from "../api/types";
 import { BrandMark } from "../components/BrandMark";
 import { Button } from "../components/ui/button";
+import workImage from "../assets/fluent/work-image.svg";
+import skillLibrary from "../assets/fluent/skill-library.svg";
 import "./home.css";
 
 export function HomePage() {
@@ -50,8 +51,8 @@ export function HomePage() {
     <main id="home-main">
       <section className="home-hero" aria-labelledby="home-title">
         <h1 id="home-title" aria-label="每个好作品，都不止于一次。">
-          <span>每个好作品<span className="home-icon-mark home-icon-work" aria-hidden="true"><Images /></span>，</span>
-          <span>都不止于一次<span className="home-icon-mark home-icon-reuse" aria-hidden="true"><Layers3 /></span>。</span>
+          <span>每个好作品<span className="home-icon-mark home-icon-work" aria-hidden="true"><img src={workImage} alt="" /></span>，</span>
+          <span>都不止于一次<span className="home-icon-mark home-icon-reuse" aria-hidden="true"><img src={skillLibrary} alt="" /></span>。</span>
         </h1>
         <p>把这一次的创作经验，变成下一次的起点。</p>
         <div className="home-actions">

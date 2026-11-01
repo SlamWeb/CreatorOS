@@ -11,7 +11,10 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.locator(".home-hero > p")).toHaveText("把这一次的创作经验，变成下一次的起点。");
   await expect(page.locator(".home-hero h1")).toHaveCSS("color", "rgb(29, 29, 31)");
   await expect(page.getByRole("link", { name: "进入工作台", exact: true })).toHaveCount(1);
-  await expect(page.locator(".home-page svg")).toHaveCount(3);
+  await expect(page.locator(".home-page svg")).toHaveCount(1);
+  await expect(page.locator(".home-icon-mark img")).toHaveCount(2);
+  await expect.poll(() => page.locator(".home-icon-mark img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  await expect(page.locator(".home-icon-mark").first()).toHaveCSS("border-top-width", "0px");
   await expect(page.locator(".home-page footer")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "主导航" })).toHaveCount(0);
   const account = page.locator(".home-account").filter({ hasText: "[隔离验证] 校准账号" });
@@ -68,7 +71,7 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
   await expect(line).toHaveCSS("filter", "blur(0px)");
   const icon = page.locator(".home-icon-work");
   await icon.hover();
-  await expect(icon.locator("svg")).toHaveCSS("animation-name", "home-icon-work");
+  await expect(icon.locator("img")).toHaveCSS("animation-name", "home-icon-work");
   const hit = page.locator(".home-action-hit");
   const primary = page.locator(".home-cta");
   const box = (await hit.boundingBox())!;
@@ -82,7 +85,7 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(line).toHaveCSS("animation-name", "none");
   await icon.hover();
-  await expect(icon.locator("svg")).toHaveCSS("animation-name", "none");
+  await expect(icon.locator("img")).toHaveCSS("animation-name", "none");
   await primary.press("Enter");
   await expect(page).toHaveURL(/\/workspace$/);
   const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 }, baseURL: "http://127.0.0.1:8877" });
