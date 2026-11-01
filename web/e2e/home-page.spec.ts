@@ -11,7 +11,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.locator(".home-hero > p")).toHaveText("把这一次的创作经验，变成下一次的起点。");
   await expect(page.locator(".home-hero h1")).toHaveCSS("color", "rgb(29, 29, 31)");
   await expect(page.getByRole("link", { name: "进入工作台", exact: true })).toHaveCount(1);
-  await expect(page.locator(".home-page svg")).toHaveCount(1);
+  await expect(page.locator(".home-page svg")).toHaveCount(3);
   await expect(page.locator(".home-page footer")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "主导航" })).toHaveCount(0);
   const account = page.locator(".home-account").filter({ hasText: "[隔离验证] 校准账号" });
@@ -27,6 +27,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await primary.focus();
   await expect(primary).toBeFocused();
   await page.locator("#home-title").click();
+  await expect(page.locator("#home-title > span").last()).toHaveCSS("filter", "blur(0px)");
   await page.screenshot({ path: testInfo.outputPath("home-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 2550, height: 1292 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(2550);
@@ -50,6 +51,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await page.goto("/");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(primary).toBeVisible();
+  await expect(page.locator("#home-title > span").last()).toHaveCSS("filter", "blur(0px)");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath("home-mobile.png"), fullPage: true });
   await secondary.click();
@@ -57,6 +59,44 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   const evidence = await (await page.request.get("/test/calibration-evidence")).json();
   expect(evidence.protected_records).toEqual(fixture.baseline_records);
+});
+
+test("home motion is bounded and respects keyboard, touch and reduced motion", async ({ page, browser }) => {
+  await page.goto("/");
+  const line = page.locator("#home-title > span").first();
+  await expect(line).toHaveCSS("animation-name", "home-title-reveal");
+  await expect(line).toHaveCSS("filter", "blur(0px)");
+  const icon = page.locator(".home-icon-work");
+  await icon.hover();
+  await expect(icon.locator("svg")).toHaveCSS("animation-name", "home-icon-work");
+  const hit = page.locator(".home-action-hit");
+  const primary = page.locator(".home-cta");
+  const box = (await hit.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 3, box.y + box.height / 2);
+  await expect.poll(() => hit.evaluate(el => el.style.getPropertyValue("--magnet-x"))).not.toBe("");
+  expect(Math.abs(await hit.evaluate(el => parseFloat(el.style.getPropertyValue("--magnet-x"))))).toBeLessThanOrEqual(5);
+  await page.mouse.move(0, 0);
+  await expect.poll(() => hit.evaluate(el => el.style.getPropertyValue("--magnet-x"))).toBe("");
+  await primary.focus();
+  await expect(primary).toHaveCSS("translate", "0px");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(line).toHaveCSS("animation-name", "none");
+  await icon.hover();
+  await expect(icon.locator("svg")).toHaveCSS("animation-name", "none");
+  await primary.press("Enter");
+  await expect(page).toHaveURL(/\/workspace$/);
+  const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 }, baseURL: "http://127.0.0.1:8877" });
+  try {
+    const mobile = await touch.newPage();
+    await mobile.goto("/");
+    await expect(mobile.locator(".home-cta")).toBeVisible();
+    await expect(mobile.locator("#home-title > span").first()).toHaveCSS("animation-name", "none");
+    expect(await mobile.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await mobile.locator(".home-action-hit").dispatchEvent("pointermove", { pointerType: "touch", clientX: 200, clientY: 400 });
+    await expect(mobile.locator(".home-cta")).toHaveCSS("translate", "0px");
+    await mobile.locator(".home-cta").tap();
+    await expect(mobile).toHaveURL(/\/workspace$/);
+  } finally { await touch.close(); }
 });
 
 test("empty and unavailable accounts never block entry or fake content", async ({ page }, testInfo) => {

@@ -146,11 +146,17 @@ components:
 
 首页行展示真实账号名和栏目摘要，长内容截断；无账号、读取中和失败状态使用文字及可用入口，不填假内容。工作台既有浅灰容器未在本次删除或重新定为首页组件。
 
+### Homepage Motion
+
+标题首次挂载时以 650ms 柔焦显现，两行相隔 90ms，默认内容可见。标题内用现有 Lucide Images / Layers3 表达作品与复用；图标悬浮轻动，不伪装成无功能按钮。唯一黑色入口磁吸最多水平 5px、垂直 3px，移出、键盘聚焦或页面转后台归位。只用 CSS 和局部指针事件，不新增动效依赖；触屏保持静态，减少动态效果模式取消位移动画。工作台不套用这套动效。
+
 ### Evidence Boundary
 
 记录依据：`theme.css`、`ui.css`、`styles.css` 按钮区、本地 Button/Input/Textarea、`BrandMark`、`HomePage.tsx` 和 `home.css`，产品确认见 `PRODUCT.md`。入口隔离浏览器回归两项通过；已有产物链路另有三项通过，均不证明模型产出质量。
 
 首页截图覆盖桌面（1440×900）、手机（390×844）及宽屏（2550×1292）。浏览器断言覆盖主/次按钮默认颜色、次按钮 hover 无下划线，以及主动作聚焦和 Enter 导航；外轮廓另有聚焦截图证据。hover 的全部色值、所有按钮变体、disabled 和 reduced-motion 未逐项实测：这些仅有源码依据。首页 reduced-motion 会关闭其后代 transition，不能据此宣称全站动效均已验收。截图和操作证据位于 `tmp/entry-home-20261101/final-results/`，测试入口为 `web/e2e/home-page.spec.ts`。
+
+后续动效接入专项 3/3（31.2s）：新增实际悬浮图标/按钮、位移归位、键盘导航、减少动态效果和 320px 触屏点按断言，桌面/手机/宽屏截图已查看；上述 reduced-motion 未测描述仅适用于上一轮。证据独立存于 `tmp/home-motion-20261101/final-results/`，没有覆盖工作台或真实模型生产。
 
 ## Do's and Don'ts
 
