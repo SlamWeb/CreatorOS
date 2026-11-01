@@ -1,5 +1,11 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-01 工具动作契约接合（隔离验证通过）
+
+- 账号 Agent 提示同步显式生产 action 和唯一 Skill ID 列表；网页仍直接使用业务接口，不经过模型工具。
+- 干净重做接口接受本次精确 skill_ids，校验归属并交由现有 Run 冻结/幂等路径处理。此轮不调整页面布局，也不重启正式服务。
+- 两次原前端用户输入经真实DeepSeek完成新工具调用；确认点计划暂停、制作项尚未派发，刷新后同会话回复存在。原数据与正式服务未写入/重启；不是完整生图E2E或整批Benchmark成绩。
+
 ## 单制作任务选题封面（2026-10-30，已验证）
 
 - 只读复现：正式 council/counsel/consul/console Run 已 awaiting_approval，但 Topic Library 为 task_count=1、existing_run_id=null、cover_url=null。原因是制作任务 Run 未参与原封面投影，不是缺少生成产物。

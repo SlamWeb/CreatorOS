@@ -72,7 +72,7 @@ class BatchProductionTests(unittest.TestCase):
                 self.assertEqual(transaction.scalar(select(func.count()).select_from(ContentRun)), 0)
             context = RuntimeContext(Path.cwd(), creator_id='creator', agent_session_id=sid, studio_url=base)
             result = execute_tool_call(ToolCall('batch', 'start_content_run', json.dumps(
-                {'topic_ids': ['topic-0', 'topic-1']})), context, model_requested=True)
+                {'action': 'start', 'topic_ids': ['topic-0', 'topic-1']})), context, model_requested=True)
             self.assertFalse(result.is_error, result.content)
             data = json.loads(result.content)
             self.assertEqual(data['accepted_count'], 2)
@@ -112,12 +112,13 @@ class BatchProductionTests(unittest.TestCase):
             self.assertEqual(client.get(f'/api/runs/{run.id}').json()['production_queue']['status'], 'needs_attention')
             self.assertEqual(producer.calls, [])
 
-    def test_schema_requires_single_or_batch_not_both(self):
-        self.assertEqual(StartRunArgs(topic_id='one').topic_id, 'one')
-        self.assertEqual(StartRunArgs(topic_ids=['one', 'two']).topic_ids, ['one', 'two'])
-        for args in ({}, {'topic_id': 'one', 'topic_ids': ['two']}, {'topic_ids': []}):
+    def test_schema_requires_explicit_start_and_topic_list(self):
+        self.assertEqual(StartRunArgs.model_validate({'action': 'start', 'topic_ids': ['one']}).topic_ids, ['one'])
+        self.assertEqual(StartRunArgs.model_validate({'action': 'start', 'topic_ids': ['one', 'two']}).topic_ids, ['one', 'two'])
+        for args in ({}, {'topic_ids': ['one']}, {'action': 'start', 'topic_id': 'one'},
+                     {'action': 'start', 'topic_id': 'one', 'topic_ids': ['two']}, {'action': 'start', 'topic_ids': []}):
             with self.assertRaises(ValueError):
-                StartRunArgs(**args)
+                StartRunArgs.model_validate(args)
 
 
 if __name__ == '__main__':

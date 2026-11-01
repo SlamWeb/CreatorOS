@@ -285,7 +285,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
             result["task"] = _pick(data["task"], fields)
         return result
     if tool_name == "manage_plan":
-        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "message", "pause_reason", "continuation_state")
+        fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "message", "pause_reason", "continuation_state", "tool_contract_version", "read_only")
         def step(item):
             result = _pick(item, ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
             if isinstance(result, dict) and (arguments or {}).get("action") in {"create", "update"}:

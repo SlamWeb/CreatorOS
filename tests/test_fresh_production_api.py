@@ -87,7 +87,7 @@ class FreshProductionAPITests(unittest.TestCase):
                 self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), 2)
             context = RuntimeContext(Path.cwd(), creator_id='creator', agent_session_id=sid,
                                      studio_url=base, user_request_id='one-user-turn')
-            args = dict(topic_id='topic-0', mode='fresh', source_run_id=source.id, expected_version=version)
+            args = dict(action='fresh', source_run_id=source.id, expected_version=version)
             call = ToolCall('fresh-1', 'start_content_run', json.dumps(args))
             first = execute_tool_call(call, context, model_requested=True)
             self.assertFalse(first.is_error, first.content)
@@ -101,9 +101,10 @@ class FreshProductionAPITests(unittest.TestCase):
     def test_modes_are_explicit_and_cannot_bypass_batch_validation(self):
         from pydantic import ValidationError
         from creatoros.web.schemas import RunStartRequest
-        for data in ({'topic_id': 'x', 'mode': 'fresh'},
-                     {'topic_ids': ['x'], 'mode': 'fresh', 'source_run_id': 'r', 'expected_version': 1},
-                     {'topic_id': 'x', 'source_run_id': 'r'}):
+        for data in ({'action': 'fresh', 'source_run_id': 'r'},
+                     {'action': 'fresh', 'topic_ids': ['x'], 'source_run_id': 'r', 'expected_version': 1},
+                     {'action': 'fresh', 'topic_id': 'x', 'source_run_id': 'r', 'expected_version': 1},
+                     {'topic_id': 'x', 'mode': 'fresh', 'source_run_id': 'r', 'expected_version': 1}):
             with self.assertRaises(ValidationError):
                 StartRunArgs.model_validate(data)
         with self.assertRaises(ValidationError):

@@ -136,7 +136,7 @@ class PlanContinuationTests(unittest.TestCase):
                     denied = [
                         execute('manage_plan', {'action':'get', 'plan_id':'f' * 64}),
                         execute('manage_plan', {'action':'create', 'title':'重复生产', 'steps':[
-                            {'id':'read', 'title':'读取', 'tool':'get_producer_skill', 'arguments':{'skill_id':'missing'}}]}),
+                            {'id':'read', 'title':'读取', 'tool':'get_producer_skill', 'arguments':{'skill_id':'missing--0000000000000000'}}]}),
                         execute('manage_topics', {'action':'remove', 'topic_id':'not-owned'}),
                         execute('manage_material', {'action':'import_link', 'source_url':'https://example.com/a.mp3'}),
                         execute('manage_skill_library', {'action':'add', 'skill_id':'unrelated'}),

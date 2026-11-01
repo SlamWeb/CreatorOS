@@ -1,14 +1,91 @@
 """Generic account-scoped plans, executed by the host using existing tools."""
 from hashlib import sha256
 import json
-from typing import Any, Literal
+import re
+from typing import Annotated, Any, Literal, Union
 from urllib.parse import quote
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from creatoros.integrations.studio import StudioClientError
+from .argument_contract import ActionContract
 from .studio import _call
+
+
+def _has_reference(value):
+    if isinstance(value, dict):
+        return '$ref' in value or any(_has_reference(item) for item in value.values())
+    return isinstance(value, list) and any(_has_reference(item) for item in value)
+
+
+def _validate_argument_shape(value, schema, root):
+    """Check the generated contract's fixed structure; refs defer value checks."""
+    if isinstance(value, dict) and '$ref' in value:
+        if set(value) != {'$ref'} or not isinstance(value['$ref'], str):
+            raise ValueError('步骤引用格式无效。')
+        return
+    if '$ref' in schema:
+        schema = root['$defs'][schema['$ref'].rsplit('/', 1)[-1]]
+    for keyword in ('oneOf', 'anyOf'):
+        if keyword in schema:
+            for branch in schema[keyword]:
+                try:
+                    _validate_argument_shape(value, branch, root)
+                    break
+                except ValueError:
+                    continue
+            else:
+                raise ValueError('参数不符合当前工具的任何动作或输入分支。')
+    if 'const' in schema and value != schema['const']:
+        raise ValueError('工具动作或任务类型无效。')
+    if 'enum' in schema and value not in schema['enum']:
+        raise ValueError('参数不在允许范围内。')
+    expected = schema.get('type')
+    matches = {'object': isinstance(value, dict), 'array': isinstance(value, list),
+               'string': isinstance(value, str), 'integer': type(value) is int,
+               'number': type(value) in (int, float), 'boolean': type(value) is bool,
+               'null': value is None}
+    if expected and not matches.get(expected, True):
+        raise ValueError(f'参数类型必须为 {expected}。')
+    if isinstance(value, dict):
+        properties = schema.get('properties', {})
+        if any(key not in value for key in schema.get('required', [])):
+            raise ValueError('缺少当前工具契约要求的字段。')
+        if schema.get('additionalProperties') is False and set(value) - set(properties):
+            raise ValueError('包含当前工具契约不接受的旧字段或额外字段。')
+        for key, item in value.items():
+            if key in properties:
+                _validate_argument_shape(item, properties[key], root)
+    elif isinstance(value, list):
+        if len(value) < schema.get('minItems', 0) or len(value) > schema.get('maxItems', len(value)):
+            raise ValueError('参数列表长度不符合当前工具契约。')
+        for item in value:
+            _validate_argument_shape(item, schema.get('items', {}), root)
+    elif isinstance(value, str):
+        if len(value) < schema.get('minLength', 0) or len(value) > schema.get('maxLength', len(value)):
+            raise ValueError('参数文本长度不符合当前工具契约。')
+        if 'pattern' in schema and not re.search(schema['pattern'], value):
+            raise ValueError('参数文本格式不符合当前工具契约。')
+    elif type(value) in (int, float):
+        if (('minimum' in schema and value < schema['minimum'])
+                or ('maximum' in schema and value > schema['maximum'])
+                or ('exclusiveMinimum' in schema and value <= schema['exclusiveMinimum'])
+                or ('exclusiveMaximum' in schema and value >= schema['exclusiveMaximum'])):
+            raise ValueError('参数数值不符合当前工具契约。')
+
+
+def validate_plan_arguments(tool, arguments, context, *, allow_references=False):
+    """Resolve-free checks and dispatch share the registered tool contract."""
+    from .definitions import tool_registry
+    from .host_contract import bind_account_arguments
+    definition = tool_registry[tool]
+    raw = bind_account_arguments(tool, json.dumps(arguments, ensure_ascii=False), context)
+    if allow_references and _has_reference(arguments):
+        schema = definition.to_schema()['function']['parameters']
+        _validate_argument_shape(json.loads(raw), schema, schema)
+        return arguments
+    return definition.parse_arguments(raw)
 
 
 class PlanStepArgs(BaseModel):
@@ -17,34 +94,53 @@ class PlanStepArgs(BaseModel):
     title: str = Field(min_length=1, max_length=240, description="用户能理解的步骤目标。")
     tool: Literal["request_review", "start_content_run", "manage_topics", "manage_material", "manage_media_collection",
                   "manage_skill_library", "get_content_run", "get_creator_tasks", "get_producer_skill"]
-    arguments: dict[str, Any] = Field(description="该工具的结构化参数；依赖结果可用 {$ref: '步骤ID.字段'}。")
+    arguments: dict[str, Any] = Field(description="对应工具当前契约的参数；生产必须明确action与任务kind，仅用skill_ids。依赖结果可用 {$ref: '步骤ID.字段'}，保存前检查固定字段、执行前完整校验。")
     depends_on: list[str] = Field(default_factory=list, max_length=100)
     wait_for_completion: bool = Field(default=False, description="提交长任务后等待其真实终态，再解锁依赖步骤。")
 
 
-class ManagePlanArgs(BaseModel):
+class PlanArguments(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    action: Literal["create", "list", "get", "update", "pause", "resume", "retry", "skip"]
-    plan_id: str | None = Field(default=None, min_length=1, max_length=128)
-    title: str | None = Field(default=None, min_length=1, max_length=240)
-    steps: list[PlanStepArgs] | None = Field(default=None, min_length=1, max_length=100)
-    expected_version: int | None = Field(default=None, ge=0)
-    step_id: str | None = Field(default=None, min_length=1, max_length=64)
 
-    @model_validator(mode="after")
-    def fields_for_action(self):
-        required, optional = {
-            "create": ({"title", "steps"}, set()), "list": (set(), set()),
-            "get": ({"plan_id"}, set()), "update": ({"plan_id", "expected_version", "steps"}, set()),
-            "pause": ({"plan_id", "expected_version"}, set()),
-            "resume": ({"plan_id", "expected_version"}, set()),
-            "retry": ({"plan_id", "expected_version", "step_id"}, set()),
-            "skip": ({"plan_id", "expected_version", "step_id"}, set()),
-        }[self.action]
-        present = {key for key in self.model_fields_set if key != "action" and getattr(self, key) is not None}
-        if not required <= present or present - required - optional:
-            raise ValueError("计划操作的参数不完整或混用。")
-        return self
+
+class CreatePlanArgs(PlanArguments):
+    action: Literal["create"]
+    title: str = Field(min_length=1, max_length=240)
+    steps: list[PlanStepArgs] = Field(min_length=1, max_length=100)
+
+
+class ListPlansArgs(PlanArguments):
+    action: Literal["list"]
+
+
+class GetPlanArgs(PlanArguments):
+    action: Literal["get"]
+    plan_id: str = Field(min_length=1, max_length=128)
+
+
+class UpdatePlanArgs(PlanArguments):
+    action: Literal["update"]
+    plan_id: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=0)
+    steps: list[PlanStepArgs] = Field(min_length=1, max_length=100)
+
+
+class PlanVersionActionArgs(PlanArguments):
+    action: Literal["pause", "resume"]
+    plan_id: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=0)
+
+
+class PlanStepActionArgs(PlanArguments):
+    action: Literal["retry", "skip"]
+    plan_id: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=0)
+    step_id: str = Field(min_length=1, max_length=64)
+
+
+ManagePlanArgs = ActionContract(Annotated[Union[
+    CreatePlanArgs, ListPlansArgs, GetPlanArgs, UpdatePlanArgs, PlanVersionActionArgs, PlanStepActionArgs,
+], Field(discriminator="action")])
 
 
 def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=None, step_id=None, context=None):
@@ -72,6 +168,8 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
             normalized = [PlanStepArgs.model_validate(item).model_dump(mode="json") for item in steps]
             if continuation:
                 current = client.request("GET", path)
+                if current.get('read_only'):
+                    raise StudioClientError('历史计划使用旧工具契约，仅供查看。', code='plan_contract_conflict')
                 if current["version"] != expected_version:
                     raise StudioClientError("计划已变化，请重新读取。", code="plan_conflict")
                 old = {item["id"]: item for item in current["steps"]}
@@ -97,6 +195,7 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                         if old_args != new_args:
                             def without_video_inputs(value):
                                 data = json.loads(json.dumps(value))
+                                if data.get('action') != 'tasks': return None
                                 tasks = data.get("tasks")
                                 if not isinstance(tasks, list) or not tasks or any(t.get("kind") != "video" for t in tasks):
                                     return None

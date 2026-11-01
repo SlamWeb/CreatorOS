@@ -11,8 +11,8 @@ from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
 from .research_wait import observe_research
-from ..runs.models import SkillOverrides
 from .skill_edit_batch import SkillEditChangeArgs, apply_skill_edit_batch
+from .production_arguments import ProductionTaskArgs, StartRunArgs, TaskInputsArgs
 
 
 class ResearchTopicsArgs(BaseModel):
@@ -73,121 +73,6 @@ class CreatorArgs(BaseModel):
 class TopicsArgs(PageArgs):
     series_id: str = Field(min_length=1, description="从 list_creator_series 取得的真实栏目 ID。")
     state: Literal["all", "pending", "queued"] = Field(default="all", description="all 全部；pending 调研待选；queued 已确认入队。待选不可直接生产。")
-
-
-class TaskSkillArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-    skill_id: str = Field(pattern=r"^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$")
-    digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$",
-        description="通常省略，由宿主读取此精确ID的当前摘要；显式提供时按真实内容校验。")
-    role: Literal["primary", "supporting"]
-
-
-class TaskInputsArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-    collection_id: str = Field(min_length=1, max_length=128)
-    export_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
-    bgm_material_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", description="已有音频或视频文件的素材 ID。")
-    bgm_reference: str | None = Field(default=None, min_length=1, max_length=10000,
-        description="用户给的 BGM 分享原文或链接，原样交给 Codex，不需要预解析。")
-
-    @model_validator(mode="after")
-    def one_bgm_source(self):
-        if bool(self.bgm_material_id) == bool(self.bgm_reference and self.bgm_reference.strip()):
-            raise ValueError("请选择 BGM 素材文件或提供分享文本，两者选一。")
-        return self
-
-
-class ProductionTaskArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
-    title: str = Field(min_length=1, max_length=240, description="同一选题内该制作任务的简短名称。")
-    brief: str = Field(min_length=1, max_length=10_000, description="本项独立画面的具体文案/场景和制作要求；理由图默认只交付这一张，25张独立理由图应填25项tasks，不在此写‘做25张’。")
-    kind: Literal["image", "video"] = "image"
-    skill_ids: list[str] | None = Field(default=None, min_length=1, max_length=12,
-        description="本栏目中本次使用的 Skill 精确版本 ID，可选多项；宿主冻结各版本。")
-    skills: list[TaskSkillArgs] | None = Field(default=None, min_length=1, max_length=12,
-        description="本次精确版本ID与角色，恰有一个primary；其余supporting。digest通常省略由宿主读取。")
-    inputs: TaskInputsArgs | None = Field(default=None,
-        description="视频图片集合/已导出ZIP，以及 BGM 素材ID或分享原文；分享链接不必提前解析。")
-    depends_on: list[str] = Field(default_factory=list, max_length=100,
-        description="用户明确选择的本选题生图任务ID；等待由后台推进，不轮询。")
-    skill_overrides: SkillOverrides | None = Field(default=None,
-        description="本任务选择的完整Skill或Mind/Visualize版本及真实expected_digests；省略使用提交时栏目默认。")
-
-    @model_validator(mode="after")
-    def typed_selection(self):
-        if self.skill_ids is not None:
-            if self.skills is not None or self.skill_overrides is not None:
-                raise ValueError("请只使用一种 Skill 选择方式。")
-            if any(not item.strip() or len(item) > 120 for item in self.skill_ids) or len(set(self.skill_ids)) != len(self.skill_ids):
-                raise ValueError("Skill 选择不能为空或重复。")
-        if self.skills is not None:
-            if self.skill_overrides is not None:
-                raise ValueError("skills 不能与旧 skill_overrides 混用。")
-            if sum(item.role == "primary" for item in self.skills) != 1:
-                raise ValueError("每个任务必须且只能选择一个主 Skill。")
-            if len({item.skill_id for item in self.skills}) != len(self.skills):
-                raise ValueError("同一任务不能重复引用 Skill。")
-        if self.kind == "video" and (not (self.skills or self.skill_ids) or not self.inputs):
-            raise ValueError("视频任务需要选择 Skill、素材集，以及 BGM 文件或分享文本。")
-        if self.kind == "image" and (self.inputs is not None or self.depends_on):
-            raise ValueError("图片任务不接受视频输入或等待依赖。")
-        if len(set(self.depends_on)) != len(self.depends_on) or any(not value.strip() or len(value) > 80 for value in self.depends_on):
-            raise ValueError("depends_on 必须为不重复的真实任务 ID。")
-        return self
-
-
-class StartRunArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-    topic_id: str | None = Field(default=None, min_length=1, max_length=80,
-        description="单个真实选题 ID；与 topic_ids 二选一。")
-    topic_ids: list[str] | None = Field(default=None, min_length=1, max_length=100,
-        description="用户明确要求批量生产的真实选题 ID 列表；后台排队、最多30个选题并行，不批准或发布。")
-    mode: Literal["start", "fresh"] = Field(default="start",
-        description="start 普通提交；用户明确要求清空旧上下文、按最新 Skill 从头重做时用 fresh，仅支持单选题。")
-    source_run_id: str | None = Field(default=None, min_length=1, max_length=80,
-        description="fresh 模式的原 Run ID，先查 get_content_run 确认。")
-    expected_version: int | None = Field(default=None, gt=0, description="fresh 模式所见原 Run version。")
-    series_id: str | None = Field(default=None, min_length=1, description="按用户给的参考作品直接制作时的目标栏目；不要先另调候选调研。")
-    title: str | None = Field(default=None, min_length=1, max_length=240, description="直接制作的简短选题名称，仅用于展示，不替代原始要求。")
-    instructions: str = Field(default="", max_length=3000, description="参考制作的完整要求；使用 tasks 时作为每个制作任务的共同要求。")
-    attachment_ids: list[str] = Field(default_factory=list, max_length=20, description="当前会话参考图片的已有ID，直接制作必须提供。")
-    reference_presentation: bool = Field(default=False, description="默认只借鉴内容，用户明确要求同时参考呈现才为true。")
-    skill_overrides: SkillOverrides | None = Field(default=None,
-        description="仅本次单选题选择完整 Skill 或内容/呈现版本，允许候选；每个指定ID须提供读取时expected_digests。可只换双Skill一边，不改栏目默认。")
-    tasks: list[ProductionTaskArgs] | None = Field(default=None, min_length=1, max_length=100,
-        description="同一选题的独立制作单位，一项对应一个Codex thread。独立理由图/场景图默认一张一项；25张=25项并行，先写好各自内容。返回同一collection_id；剪辑由计划等待图片完成再执行，分享文本直接放inputs.bgm_reference，无需先解析。不能混用其他生产模式。")
-
-    @model_validator(mode="after")
-    def exactly_one(self):
-        if self.tasks is not None:
-            if (not self.topic_id or self.topic_ids is not None or self.mode != "start"
-                    or self.source_run_id is not None or self.expected_version is not None
-                    or self.series_id is not None or self.title is not None
-                    or self.attachment_ids or self.reference_presentation or self.skill_overrides is not None):
-                raise ValueError("制作任务仅接受一个topic_id和tasks，各任务内指定Skill；不能混用其他生产模式。")
-            if self.instructions.strip() and any(len(task.brief) + len(self.instructions.strip()) + len('共同要求：\n\n\n本任务：\n') > 10_000 for task in self.tasks):
-                raise ValueError("共同要求与单项制作要求合并后不能超过 10000 字。")
-            return self
-        if self.attachment_ids:
-            if self.skill_overrides is not None:
-                raise ValueError("指定版本目前使用已有单选题；参考图直接制作不能混用版本覆盖。")
-            if not self.series_id or not self.title or self.topic_id or self.topic_ids or self.mode != "start" or self.source_run_id or self.expected_version:
-                raise ValueError("参考作品直接制作需要series_id、title和attachment_ids，不能混用已有选题/重做参数。")
-            return self
-        if self.series_id or self.title or self.instructions or self.reference_presentation:
-            raise ValueError("参考制作参数必须与当前会话图片一起提供。")
-        if (self.topic_id is None) == (self.topic_ids is None):
-            raise ValueError("topic_id 与 topic_ids 必须二选一。")
-        if self.topic_ids and any(not value.strip() or len(value) > 80 for value in self.topic_ids):
-            raise ValueError("请选择有效选题。")
-        if self.topic_ids and self.skill_overrides is not None:
-            raise ValueError("指定版本仅支持单选题，不混用批量生产。")
-        if self.mode == "fresh" and (self.topic_id is None or self.source_run_id is None or self.expected_version is None):
-            raise ValueError("从头重做仅支持单选题，且需要来源 Run 和当前版本。")
-        if self.mode == "start" and (self.source_run_id is not None or self.expected_version is not None):
-            raise ValueError("普通生产不接受从头重做参数。")
-        return self
 
 
 class GetRunArgs(BaseModel):
@@ -525,15 +410,19 @@ def _prepare_task_reference(client, context, series_id, attachment_ids, instruct
     return ref["id"]
 
 
-def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start", source_run_id=None, expected_version=None,
-                      series_id=None, title=None, instructions="", attachment_ids=None, reference_presentation=False,
-                      skill_overrides=None, tasks=None):
-    if tasks is not None:
-        selected = [ProductionTaskArgs.model_validate(task).model_dump(mode="json", exclude_none=True)
-                    for task in tasks]
-        if instructions.strip():
+def start_content_run(action, context=None, **arguments):
+    """Translate only the current action contract to the shared Studio HTTP API."""
+    request = StartRunArgs.model_validate({"action": action, **arguments})
+    if action == "tasks":
+        topic_id = request.topic_id
+        selected = [task.model_dump(mode="json", exclude_none=True) for task in request.tasks]
+        if request.instructions:
             for task in selected:
-                task["brief"] = f"共同要求：\n{instructions.strip()}\n\n本任务：\n{task['brief']}"
+                task["brief"] = f"共同要求：\n{request.instructions}\n\n本任务：\n{task['brief']}"
+                if len(task["brief"]) > 10000:
+                    return ToolResult(content="共同要求与单项制作要求合并后不能超过 10000 字。",
+                                      is_error=True, error_type="invalid_arguments", retryable=True,
+                                      details={"pre_dispatch": True})
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
         # One user turn may authorize image tasks and then their dependent video.
@@ -544,17 +433,6 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
             request_id = None
             try:
                 tasks_to_submit = json.loads(json.dumps(selected))
-                digests = {}
-                for task in tasks_to_submit:
-                    for skill in task.get("skills", []):
-                        skill_id = skill["skill_id"]
-                        if skill_id not in digests:
-                            digests[skill_id] = client.request("GET", f"/api/producer-skills/{quote(skill_id, safe='')}/files")["digest"]
-                        actual = digests[skill_id]
-                        if skill.get("digest") is not None and skill["digest"] != actual:
-                            raise StudioClientError("所选 Skill 内容已变化，请核对后再提交。", code="skill_digest_conflict",
-                                details={"skill_id": skill_id, "current_digest": actual})
-                        skill["digest"] = actual
                 identity = ["production-tasks-v2", session, turn, getattr(context, "creator_id", None), topic_id, tasks_to_submit]
                 request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
                     separators=(",", ":")).encode()).hexdigest() if turn else uuid4().hex
@@ -566,19 +444,11 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
                 raise
             return production_tasks_receipt(data, context)
         return _call(submit_tasks, context)
-    if skill_overrides is not None:
-        selected = SkillOverrides.model_validate(skill_overrides).model_dump(mode="json", exclude_none=True)
-        turn = getattr(context, "user_request_id", None)
-        session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
-        identity = ["selected-production-v1", session, turn, mode, source_run_id, topic_id]
-        if not turn:
-            identity.append(selected)
-        request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        return _call(lambda client: client.start(topic_id, mode=mode, source_run_id=source_run_id,
-            expected_version=expected_version, request_id=request_id, skill_overrides=selected), context)
-    if attachment_ids:
+    if action == "reference":
+        series_id, title = request.series_id, request.title
         def direct(client):
-            ref = _prepare_task_reference(client, context, series_id, attachment_ids, instructions, reference_presentation)
+            ref = _prepare_task_reference(client, context, series_id, request.attachment_ids,
+                                          request.instructions, request.reference_presentation)
             # The same reference brief in this conversation is the same request,
             # including a later turn asking about an unknown response. Deliberate
             # regeneration uses the explicit fresh-Run path, not a new hidden key.
@@ -595,18 +465,42 @@ def start_content_run(topic_id=None, context=None, topic_ids=None, mode="start",
             queue = result.get("production_queue") or {}
             return client.run_summary(result, accepted=queue.get("status") in {"pending", "running"})
         return _call(direct, context)
-    if topic_ids is not None:
-        return _call(lambda client: client.start_batch(topic_ids), context)
-    if mode == "fresh":
+    if action == "start":
+        return _call(lambda client: client.start_batch(request.topic_ids), context)
+    if action == "fresh":
         # Host-owned identity is stable across repeated tool calls in one user turn.
         # A new user turn is a new request, still guarded by the source version/latest Run.
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
-        identity = json.dumps(["fresh-production-v1", session, turn, source_run_id], ensure_ascii=False)
+        identity = json.dumps(["fresh-production-v1", session, turn, request.source_run_id], ensure_ascii=False)
         request_id = sha256(identity.encode()).hexdigest() if turn else uuid4().hex
-        return _call(lambda client: client.start(topic_id, mode=mode, source_run_id=source_run_id,
-            expected_version=expected_version, request_id=request_id), context)
-    return _call(lambda client: client.start(topic_id), context)
+        def fresh(client):
+            source = client.get_run(request.source_run_id)
+            payload = {"topic_id": source["topic_id"], "mode": "fresh", "source_run_id": request.source_run_id,
+                       "expected_version": request.expected_version, "request_id": request_id}
+            if request.skill_ids is not None:
+                payload["skill_ids"] = request.skill_ids
+            try:
+                run = client.request("POST", "/api/runs", payload=payload)
+            except StudioClientError as error:
+                error.details.update(request_id=request_id, topic_id=source["topic_id"],
+                                     source_run_id=request.source_run_id)
+                raise
+            revisions = run["revisions"]
+            unattempted = (run["status"] == "queued" and run["active_revision_number"] == 1
+                           and len(revisions) == 1 and not revisions[0]["attempts"])
+            if not unattempted:
+                return client.run_summary(run)
+            try:
+                result = client.request("POST", f"/api/runs/{quote(run['id'], safe='')}/execute",
+                                        payload={"expected_version": run["version"]})
+            except StudioClientError as error:
+                error.run_id = run["id"]
+                error.details.update(request_id=request_id, topic_id=source["topic_id"],
+                                     source_run_id=request.source_run_id)
+                raise
+            return client.run_summary(result, accepted=True)
+        return _call(fresh, context)
 
 
 def get_content_run(run_id, context=None):

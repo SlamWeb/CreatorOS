@@ -563,6 +563,10 @@ class AgentScopeGuard:
         return isinstance(dependencies, list) and all(self._owns_task(value, creator_id, topic_id) for value in dependencies)
 
     def _owns_overrides(self, payload, creator_id):
+        skill_ids = payload.get("skill_ids") if isinstance(payload, dict) else None
+        if skill_ids is not None and (not isinstance(skill_ids, list) or not skill_ids or any(
+                not isinstance(value, str) or not self._owns_skill(value, creator_id) for value in skill_ids)):
+            return False
         overrides = payload.get("skill_overrides") if isinstance(payload, dict) else None
         if overrides is None:
             return True

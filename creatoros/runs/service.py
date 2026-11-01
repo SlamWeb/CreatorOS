@@ -161,6 +161,7 @@ class ContentRunService:
         origin_session_id: str | None = None,
         context_snapshot_ref: str | None = None,
         skill_overrides: SkillOverrides | dict | None = None,
+        skill_ids: list[str] | None = None,
     ) -> ContentRun:
         """Start the same Topic from current Skills, never from the old Run's history."""
         token = request_id.strip()
@@ -169,11 +170,31 @@ class ContentRunService:
         source = self.get(source_run_id)
         frozen = (ContentRunInput.model_validate(source.input_snapshot_json)
                   if source.input_snapshot_json.get("production_protocol") != "external-import" else None)
+        selected_spec = None
+        if skill_ids is not None:
+            if skill_overrides is not None or not skill_ids or len(skill_ids) > 12:
+                raise ContentRunError("请选择一份明确的 Skill ID 列表。", code="invalid_skill_selection", status_code=422)
+            from creatoros.integrations.skill_library import SkillLibraryService
+            catalog = ProducerSkillCatalog(skills_root_for(self.database))
+            library = SkillLibraryService(self.database, catalog)
+            with self.database.session() as session:
+                topic = session.get(Topic, source.topic_id)
+                creator_id = topic.series.creator_id if topic else None
+            if not creator_id or source.input_snapshot_json.get("creator_id") != creator_id:
+                raise ContentRunError("来源任务与当前账号不一致。", code="scope_conflict", status_code=403)
+            if any(not isinstance(value, str) or not library.can_use(creator_id, value) for value in skill_ids):
+                raise ContentRunError("所选 Skill 不在当前账号可用库中。", code="scope_conflict", status_code=403)
+            previous = frozen.execution_spec if frozen else None
+            selected_spec = TaskExecutionSpec(kind=previous.kind if previous else "image",
+                skills=[dict(skill_id=value, digest=library.describe(value)["digest"], role="selected")
+                        for value in skill_ids],
+                materials=[item for item in previous.materials if item.id != "previous-video"] if previous else [],
+                bgm_reference=previous.bgm_reference if previous else None)
         if (frozen is not None and frozen.execution_spec is not None
                 and frozen.execution_spec.kind == "video" and skill_overrides is not None):
             raise ContentRunError("视频重做不能使用图片 Skill 覆盖；如需更换剪辑 Skill，请新建视频制作任务。",
                                   code="invalid_skill_selection", status_code=422)
-        if source.task_id is not None and skill_overrides is None and frozen is not None and frozen.execution_spec is None:
+        if source.task_id is not None and skill_overrides is None and skill_ids is None and frozen is not None and frozen.execution_spec is None:
             if frozen.composition is not None:
                 skill_overrides = SkillOverrides(mind_skill_id=frozen.composition.mind.id,
                     production_skill_id=frozen.composition.production.id,
@@ -184,7 +205,7 @@ class ContentRunService:
                     expected_digests={frozen.skill_name: frozen.skill_digest})
         # Independent tasks retain their explicit selection. A plain image Run
         # uses today's stage defaults when starting fresh, just as legacy Runs do.
-        preserved_spec = (frozen.execution_spec if frozen is not None and skill_overrides is None
+        preserved_spec = selected_spec or (frozen.execution_spec if frozen is not None and skill_overrides is None
                           and frozen.execution_spec is not None
                           and (source.task_id is not None or frozen.execution_spec.kind == "video") else None)
         return self._create(

@@ -21,6 +21,7 @@ from creatoros.config import PROJECT_ROOT
 from creatoros.storage.models import AgentPlan, AgentPlanStep, ContentRun, ContentRevision, ProductionTask, Topic, Series, MediaCollection
 from creatoros.runs.service import ContentRunError
 from creatoros.tools.execution import execute_tool_call
+from creatoros.tools.plans import validate_plan_arguments
 
 # Only allow actions whose API scope and write replay semantics are known.
 ALLOWED = {
@@ -36,6 +37,7 @@ ALLOWED = {
     'request_review': None,
 }
 STEP_KEY = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
+CONTRACT_PREFIX = 'v2:'
 
 
 def _hash(value):
@@ -46,10 +48,59 @@ def _spec(step):
     return {key: step[key] for key in ('id', 'title', 'tool', 'arguments', 'depends_on', 'wait_for_completion')}
 
 
-def _has_reference(value):
+def _validate_references(value, dependencies):
     if isinstance(value, dict):
-        return '$ref' in value or any(_has_reference(item) for item in value.values())
-    return isinstance(value, list) and any(_has_reference(item) for item in value)
+        if '$ref' in value:
+            reference = value['$ref']
+            if (set(value) != {'$ref'} or not isinstance(reference, str)
+                    or '.' not in reference or reference.split('.')[0] not in dependencies
+                    or any(not part for part in reference.split('.'))):
+                raise ValueError('步骤引用必须指向已声明的依赖字段。')
+        else:
+            for item in value.values(): _validate_references(item, dependencies)
+    elif isinstance(value, list):
+        for item in value: _validate_references(item, dependencies)
+
+
+def _current_contract(plan):
+    return (getattr(plan, 'request_digest', None) or '').startswith(CONTRACT_PREFIX)
+
+
+def _require_current_contract(plan):
+    if not _current_contract(plan):
+        raise ContentRunError('历史计划使用旧工具契约，仅供查看；不能修改、恢复或重放。',
+                              code='plan_contract_conflict', status_code=409)
+
+
+def _production_scope(session, arguments, result=None):
+    action = arguments.get('action')
+    if action == 'reference':
+        series, title = arguments.get('series_id'), arguments.get('title')
+        scope = {('reference', series, title)} if isinstance(series, str) and isinstance(title, str) else None
+    elif action == 'fresh':
+        source_id = arguments.get('source_run_id')
+        source = session.get(ContentRun, source_id) if isinstance(source_id, str) else None
+        scope = {source.topic_id} if source else None
+    else:
+        topics = arguments.get('topic_ids') if action == 'start' else [arguments.get('topic_id')]
+        scope = set(topics) if isinstance(topics, list) and all(isinstance(t, str) for t in topics) else None
+    if scope is not None:
+        receipts = (result or {}).get('items', [(result or {})])
+        for item in receipts:
+            run = session.get(ContentRun, item.get('run_id')) if isinstance(item, dict) and item.get('run_id') else None
+            if run: scope.add(run.topic_id)
+    return scope
+
+
+def _image_titles(arguments):
+    tasks = arguments.get('tasks')
+    if arguments.get('action') != 'tasks' or not isinstance(tasks, list): return None
+    titles = set()
+    for task in tasks:
+        if task.get('kind') == 'image':
+            if not isinstance(task.get('title'), str): return None
+            titles.add(task['title'])
+    return titles
 
 
 def _validate_steps(steps, owner):
@@ -66,7 +117,7 @@ def _validate_steps(steps, owner):
             raise ValueError('请为每步填写名称。')
         if tool not in ALLOWED or not isinstance(args, dict):
             raise ValueError('该步骤不是支持的工具。')
-        if ALLOWED[tool] is not None and args.get('action') not in ALLOWED[tool]:
+        if ALLOWED[tool] is not None and args.get('action') not in tuple(ALLOWED[tool]):
             raise ValueError('该工具动作尚不支持计划执行。')
         if 'creator_id' in args:
             raise ValueError('账号由会话确定，不能在步骤中指定。')
@@ -75,17 +126,19 @@ def _validate_steps(steps, owner):
             raise ValueError('检查点需要一条清晰的判断问题。')
         if not isinstance(deps, list) or len(set(deps)) != len(deps) or any(dep not in known for dep in deps):
             raise ValueError('依赖必须引用前面已定义的步骤。')
+        _validate_references(args, set(deps))
         if item.get('wait_for_completion', False) and tool != 'start_content_run':
             raise ValueError('当前仅支持等待生产任务完成。')
-        if tool != 'request_review' and not _has_reference(args):
-            from creatoros.tools.definitions import tool_registry
-            from creatoros.tools.host_contract import bind_account_arguments
-            from pydantic import ValidationError
+        if tool == 'start_content_run' and args.get('action') not in ('start', 'tasks', 'fresh', 'reference'):
+            raise ValueError('生产步骤需要明确当前契约的 action。')
+        if tool == 'start_content_run' and args.get('action') == 'tasks' and isinstance(args.get('tasks'), list):
+            if any(not isinstance(task, dict) or task.get('kind') not in ('image', 'video') for task in args['tasks']):
+                raise ValueError('制作步骤中的每项任务需要明确 kind。')
+        if tool != 'request_review':
             context = RuntimeContext(project_root=PROJECT_ROOT, creator_id=owner)
             try:
-                raw = bind_account_arguments(tool, json.dumps(args, ensure_ascii=False), context)
-                tool_registry[tool].parse_arguments(raw)
-            except (ValidationError, ValueError) as error:
+                validate_plan_arguments(tool, args, context, allow_references=True)
+            except ValueError as error:
                 raise ValueError(f'步骤「{item["title"]}」参数无效：{str(error)[:1200]}') from error
         known.add(key)
 
@@ -139,6 +192,7 @@ def _validate_plan_inputs(session, step, args, by_key):
     if step.tool == 'start_content_run':
         raw_tasks = (step.arguments_json or {}).get('tasks') or []
         tasks = args.get('tasks') or []
+        if not isinstance(raw_tasks, list): raw_tasks = [{} for task in tasks]
         for original, task in zip(raw_tasks, tasks):
             if task.get('kind', 'image') != 'video':
                 continue
@@ -193,11 +247,13 @@ class PlanService:
         normalized = [dict(id=item['id'], title=item['title'], tool=item['tool'],
                            arguments=item.get('arguments', {}), depends_on=item.get('depends_on', []),
                            wait_for_completion=item.get('wait_for_completion', False)) for item in steps]
-        _validate_steps(normalized, owner)
-        signature = _hash({'title': title, 'steps': normalized})
+        signature = CONTRACT_PREFIX + _hash({'title': title, 'steps': normalized})[:61]
         identity = _hash({'session_id': sid, 'request_id': request_id})
         with self._write() as session:
             old = session.get(AgentPlan, identity)
+            if old:
+                _require_current_contract(old)
+            _validate_steps(normalized, owner)
             if old:
                 if old.request_digest != signature or old.creator_id != owner:
                     raise ContentRunError('同一请求的计划内容已变化。', code='idempotency_conflict', status_code=409)
@@ -220,6 +276,8 @@ class PlanService:
             rows = session.scalars(select(AgentPlan).where(AgentPlan.session_id == sid, AgentPlan.creator_id == owner)
                                    .order_by(AgentPlan.created_at.desc())).all()
             return {'items': [dict(id=r.id, title=r.title, status=r.status, version=r.version,
+                                   tool_contract_version=2 if _current_contract(r) else None,
+                                   read_only=not _current_contract(r),
                                    continuation_state=r.continuation_state, pause_reason=self._pause_reason(r)) for r in rows]}
 
     @staticmethod
@@ -245,12 +303,13 @@ class PlanService:
             p = self._find(session, sid, owner, identity)
             rows = self._rows(session, identity)
             return dict(id=p.id, session_id=p.session_id, creator_id=p.creator_id, title=p.title,
+                tool_contract_version=2 if _current_contract(p) else None, read_only=not _current_contract(p),
                 version=p.version, status=p.status, continuation_state=p.continuation_state, pause_reason=self._pause_reason(p),
                 steps=[dict(id=s.step_key, title=s.title, tool=s.tool, arguments=deepcopy(s.arguments_json),
                     depends_on=list(s.depends_on_json), wait_for_completion=s.wait_for_completion,
                     status=s.status, result=deepcopy(s.result_json), error=s.error,
-                    retryable=self._retryable(s),
-                    skippable=self._skippable(s)) for s in rows])
+                    retryable=_current_contract(p) and self._retryable(s),
+                    skippable=_current_contract(p) and self._skippable(s)) for s in rows])
 
     @staticmethod
     def _safe_production_validation_failure(row):
@@ -278,9 +337,10 @@ class PlanService:
         owner = self._owner(sid)
         normalized = [dict(id=x['id'],title=x['title'],tool=x['tool'],arguments=x.get('arguments',{}),
             depends_on=x.get('depends_on',[]),wait_for_completion=x.get('wait_for_completion',False)) for x in steps]
-        _validate_steps(normalized, owner)
         with self._write() as session:
             p = self._find(session, sid, owner, identity)
+            _require_current_contract(p)
+            _validate_steps(normalized, owner)
             if p.version != expected_version: raise ContentRunError('计划已变化，请刷新。', code='plan_conflict', status_code=409)
             existing = {s.step_key:s for s in self._rows(session, identity)}
             supplied = {s['id']:s for s in normalized}
@@ -294,16 +354,12 @@ class PlanService:
                 for old in prior_production:
                     previous = old.arguments_json or {}
                     current = new['arguments']
-                    old_topics = set(previous.get('topic_ids') or []) | ({previous['topic_id']} if previous.get('topic_id') else set())
-                    new_topics = set(current.get('topic_ids') or []) | ({current['topic_id']} if current.get('topic_id') else set())
-                    if not old_topics & new_topics: continue
-                    old_tasks, new_tasks = previous.get('tasks'), current.get('tasks')
-                    old_images = [t for t in old_tasks or [] if isinstance(t, dict) and t.get('kind', 'image') == 'image']
-                    new_images = [t for t in new_tasks or [] if isinstance(t, dict) and t.get('kind', 'image') == 'image']
-                    if (old_tasks and not old_images) or (new_tasks and not new_images): continue  # video is not image replay
-                    old_titles = {t.get('title') for t in old_images}
-                    new_titles = {t.get('title') for t in new_images}
-                    if not old_tasks or not new_tasks or None in old_titles or None in new_titles or old_titles & new_titles:
+                    old_topics = _production_scope(session, previous, old.result_json)
+                    new_topics = _production_scope(session, current)
+                    if old_topics is not None and new_topics is not None and not old_topics & new_topics: continue
+                    old_titles, new_titles = _image_titles(previous), _image_titles(current)
+                    if old_titles == set() or new_titles == set(): continue  # video is not image replay
+                    if old_titles is None or new_titles is None or old_titles & new_titles:
                         raise ContentRunError('该选题的同名生图任务已有提交记录，不能另建步骤重复提交。', code='plan_conflict', status_code=409)
             for key,row in existing.items():
                 prior = dict(id=key,title=row.title,tool=row.tool,arguments=row.arguments_json,
@@ -336,6 +392,7 @@ class PlanService:
         owner = self._owner(sid)
         with self._write() as session:
             p = self._find(session, sid, owner, identity)
+            _require_current_contract(p)
             if p.version != expected_version: raise ContentRunError('计划已变化，请刷新。', code='plan_conflict', status_code=409)
             if action == 'pause':
                 if p.status != 'running': raise ValueError('当前计划不在运行。')
@@ -378,6 +435,7 @@ class PlanService:
         now = datetime.now(timezone.utc)
         with self.db.session() as session:
             return list(dict.fromkeys(session.scalars(select(AgentPlan.session_id).where(
+                AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
                 (AgentPlan.continuation_state == 'pending') |
                 ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now))))))
 
@@ -385,6 +443,7 @@ class PlanService:
         now = datetime.now(timezone.utc)
         with self._write() as session:
             p = session.scalar(select(AgentPlan).where(AgentPlan.session_id == session_id,
+                AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
                 (AgentPlan.continuation_state == 'pending') |
                 ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now)))
                 .order_by(AgentPlan.updated_at))
@@ -399,7 +458,7 @@ class PlanService:
     def ack_continuation(self, plan_id, event_id, worker_token):
         with self._write() as session:
             p = session.get(AgentPlan, plan_id)
-            if not p or event_id != f'{p.id}:{p.continuation_version}': return False
+            if not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}': return False
             if p.continuation_state in {'done', 'done_checkpoint'}: return True
             if p.continuation_state != 'claimed' or p.continuation_token != worker_token: return False
             p.continuation_state, p.continuation_token, p.continuation_until = ('done_checkpoint' if p.status == 'paused' else 'done'), None, None
@@ -408,7 +467,7 @@ class PlanService:
     def release_continuation(self, plan_id, event_id, worker_token):
         with self._write() as session:
             p = session.get(AgentPlan, plan_id)
-            if not p or event_id != f'{p.id}:{p.continuation_version}' or p.continuation_token != worker_token:
+            if not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}' or p.continuation_token != worker_token:
                 return False
             p.continuation_state, p.continuation_token, p.continuation_until = 'pending', None, None
         self._wake.set()
@@ -422,7 +481,9 @@ class PlanService:
             # are replayed with the same host-owned idempotency identity.
             with self._write() as session:
                 for row in session.scalars(select(AgentPlanStep).where(AgentPlanStep.status == 'running')):
-                    if row.tool == 'start_content_run' and isinstance(row.arguments_json.get('tasks'), list):
+                    if not _current_contract(session.get(AgentPlan, row.plan_id)): continue
+                    if (row.tool == 'start_content_run' and row.arguments_json.get('action') == 'tasks'
+                            and isinstance(row.arguments_json.get('tasks'), list)):
                         row.status = 'pending'
                     else:
                         row.status, row.error = 'unknown', '服务中断时步骤结果未知，请先核对。'
@@ -454,7 +515,8 @@ class PlanService:
         dispatch = []
         with self._write() as session:
             if not self.start_gate(): return
-            plans = list(session.scalars(select(AgentPlan).where(AgentPlan.status == 'running')))
+            plans = list(session.scalars(select(AgentPlan).where(AgentPlan.status == 'running',
+                AgentPlan.request_digest.startswith(CONTRACT_PREFIX))))
             for p in plans:
                 rows = self._rows(session, p.id)
                 by_key = {s.step_key:s for s in rows}
@@ -481,9 +543,14 @@ class PlanService:
                         try:
                             result_data = {key:by_key[key].result_json for key in s.depends_on_json}
                             args = _resolve(s.arguments_json,result_data,set(s.depends_on_json))
+                            validate_plan_arguments(s.tool, args,
+                                RuntimeContext(project_root=PROJECT_ROOT, creator_id=p.creator_id))
                             _validate_plan_inputs(session, s, args, by_key)
                         except ValueError as error:
                             s.status, s.error = 'failed', str(error)
+                            history = (s.result_json or {}).get('_repair_history')
+                            s.result_json = {'_error_type': 'invalid_arguments', '_pre_dispatch': True,
+                                            **({'_repair_history': history} if history else {})}
                             p.version += 1
                             continue
                         s.status = 'running'; p.version += 1
@@ -548,49 +615,41 @@ class PlanService:
     @staticmethod
     def _watch(session, plan, step):
         data = deepcopy(step.result_json or {})
-        task_ids = [item.get('id') for item in data.get('items', []) if isinstance(item, dict) and item.get('id')]
-        if not task_ids and data.get('run_id'):
-            run = session.get(ContentRun, data['run_id'])
-            topic = session.get(Topic, run.topic_id) if run else None
-            series = session.get(Series, topic.series_id) if topic else None
-            if not series or series.creator_id != plan.creator_id:
-                return ('failed', '制作任务不存在或账号范围不符。')
-            if run.status.value in {'failed', 'interrupted', 'cancelled'}:
-                data['terminal_status'], data['error'] = run.status.value, run.error_message or '制作任务未完成。'
-                step.result_json = data
-                return ('failed', data['error'])
-            if run.status.value not in {'awaiting_approval', 'approved', 'published'}: return None
-            revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run.id,
-                ContentRevision.revision_number == run.active_revision_number))
-            if not revision or not revision.artifact_digest: return ('failed', '制作任务没有可核验产物。')
-            if data.get('revision_id') and (data['revision_id'] != revision.id or data.get('artifact_digest') != revision.artifact_digest):
-                return ('failed', '制作任务产物版本发生变化，请重新核对。')
-            data.update(revision_id=revision.id, artifact_digest=revision.artifact_digest, terminal_status='succeeded')
-            step.result_json = data
-            return ('succeeded', None)
-        if not task_ids: return ('failed','未获得可等待的制作任务。')
+        action = step.arguments_json.get('action')
+        items = data.get('items', []) if action in {'start', 'tasks'} else [data]
+        if not items or not isinstance(items, list): return ('failed','未获得可等待的制作任务。')
         pending, failed = False, []
-        for identity in task_ids:
-            task = session.get(ProductionTask, identity)
-            topic = session.get(Topic, task.topic_id) if task else None
-            series = session.get(Series, topic.series_id) if topic else None
-            if not series or series.creator_id != plan.creator_id:
-                return ('failed','制作任务不存在或账号范围不符。')
-            item = next(x for x in data['items'] if x.get('id') == identity)
+        for item in items:
+            if not isinstance(item, dict): return ('failed', '制作回执格式无效。')
+            identity, task = item.get('id'), None
             expected_run = item.get('run_id')
-            run = session.get(ContentRun, expected_run) if expected_run else session.scalar(
-                select(ContentRun).where(ContentRun.task_id == identity).order_by(ContentRun.created_at).limit(1))
-            if run and run.task_id != identity: return ('failed','制作任务与产物不匹配。')
-            if run and not expected_run:
-                item['run_id'] = run.id
-                step.result_json = deepcopy(data)
+            run = session.get(ContentRun, expected_run) if expected_run else None
+            if action == 'tasks':
+                task = session.get(ProductionTask, identity) if identity else None
+                if (not task or (expected_run and not run)
+                        or (run and (run.task_id != identity or run.topic_id != task.topic_id))):
+                    return ('failed', '制作任务与产物不匹配。')
+                if not run:
+                    run = session.scalar(select(ContentRun).where(ContentRun.task_id == identity)
+                                         .order_by(ContentRun.created_at).limit(1))
+                if run and not expected_run: item['run_id'] = run.id
+            topic = session.get(Topic, run.topic_id if run else task.topic_id) if run or task else None
+            series = session.get(Series, topic.series_id) if topic else None
+            if (run or task) and (not series or series.creator_id != plan.creator_id):
+                return ('failed', '制作任务不存在或账号范围不符。')
+            if (action == 'start' and run and run.topic_id != item.get('topic_id')) or (
+                    action == 'tasks' and isinstance(step.arguments_json.get('topic_id'), str)
+                    and task.topic_id != step.arguments_json['topic_id']):
+                return ('failed', '制作任务与选题不匹配。')
             if not run:
-                if task.dispatch_state in {'needs_attention','cancelled'}:
-                    item['terminal_status'], item['error'] = task.dispatch_state, task.last_error or '任务未完成。'
-                    failed.append(item['error'])
-                else:
+                if task and task.dispatch_state not in {'needs_attention', 'cancelled'}:
                     pending = True
                     item.pop('terminal_status', None); item.pop('error', None)
+                else:
+                    state = task.dispatch_state if task else 'failed'
+                    message = task.last_error if task else item.get('message')
+                    item['terminal_status'], item['error'] = state, message or '未获得可等待的制作任务。'
+                    failed.append(item['error'])
                 continue
             if run.status.value in {'failed','interrupted','cancelled'}:
                 item['terminal_status'], item['error'] = run.status.value, run.error_message or '制作任务未完成。'

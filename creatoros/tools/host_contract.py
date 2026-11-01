@@ -10,6 +10,19 @@ class AccountArgumentRejected(ValueError):
     pass
 
 
+def _hide_account_field(schema):
+    """Hide internal ownership fields inside referenced action branches as well."""
+    if isinstance(schema, dict):
+        schema.get("properties", {}).pop("creator_id", None)
+        if "required" in schema:
+            schema["required"] = [key for key in schema["required"] if key != "creator_id"]
+        for value in schema.values():
+            _hide_account_field(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            _hide_account_field(value)
+
+
 def model_tool_schemas(schemas, context):
     allowed = context.allowed_tools
     result = deepcopy([schema for schema in schemas
@@ -26,8 +39,7 @@ def model_tool_schemas(schemas, context):
             function["parameters"]["properties"]["path"]["description"] = "当前会话归档结果中提供的路径。"
         if context.creator_id and name in ACCOUNT_BOUND_TOOLS:
             parameters = function["parameters"]
-            parameters["properties"].pop("creator_id", None)
-            parameters["required"] = [key for key in parameters.get("required", []) if key != "creator_id"]
+            _hide_account_field(parameters)
             function["description"] = {
                 "manage_media_collection": function["description"],
                 "manage_skill_library": function["description"],

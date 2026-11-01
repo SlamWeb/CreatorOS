@@ -1,51 +1,50 @@
 """Object-level Skill references and source media, using guarded Studio HTTP."""
 from hashlib import sha256
 import json
-from typing import Literal
+from typing import Annotated, Literal, Union
 from urllib.parse import quote
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.integrations.studio import StudioClientError
+from .argument_contract import ActionContract
 from .studio import _call
 
 
-class StageSkillArgs(BaseModel):
+class _SkillLibraryAction(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
+    creator_id: str | None = Field(default=None, min_length=1, max_length=80,
+                                   description="内部宿主绑定账号；模型不传。")
+
+
+class GetSkillLibraryArgs(_SkillLibraryAction):
+    action: Literal["get"]
+    series_id: str | None = Field(default=None, min_length=1, max_length=80,
+                                  description="省略读取账号库；指定时读取此栏目池。")
+
+
+class AddSkillLibraryArgs(_SkillLibraryAction):
+    action: Literal["add"]
     skill_id: str = Field(min_length=1, max_length=120)
-    role: Literal["primary", "supporting"]
+
+class RemoveSkillLibraryArgs(_SkillLibraryAction):
+    action: Literal["remove"]
+    skill_id: str = Field(min_length=1, max_length=120)
+    expected_version: int = Field(ge=0)
 
 
-class StageDefaultsArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-    image: list[StageSkillArgs] = Field(max_length=12)
-    video: list[StageSkillArgs] = Field(max_length=12)
+class SetSkillPoolArgs(_SkillLibraryAction):
+    action: Literal["set_pool"]
+    series_id: str = Field(min_length=1, max_length=80)
+    expected_version: int = Field(ge=0)
+    skill_ids: list[str] = Field(max_length=100)
 
 
-class ManageSkillLibraryArgs(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid")
-    action: Literal["get", "add", "remove", "set_pool"]
-    creator_id: str | None = Field(default=None, min_length=1, max_length=80, description="省略用当前账号。")
-    series_id: str | None = Field(default=None, min_length=1, max_length=80, description="get读取栏目池；set_pool更新此栏目。")
-    skill_id: str | None = Field(default=None, min_length=1, max_length=120)
-    expected_version: int | None = Field(default=None, ge=0)
-    skill_ids: list[str] | None = Field(default=None, max_length=100)
-    defaults: StageDefaultsArgs | None = None
-
-    @model_validator(mode="after")
-    def action_fields(self):
-        required, optional = {
-            "get": (set(), {"series_id"}),
-            "add": ({"skill_id"}, set()),
-            "remove": ({"skill_id", "expected_version"}, set()),
-            "set_pool": ({"series_id", "expected_version", "skill_ids"}, {"defaults"}),
-        }[self.action]
-        present = {key for key in self.model_fields_set if key not in {"action", "creator_id"}
-                   and getattr(self, key) is not None}
-        if not required <= present or present - required - optional:
-            raise ValueError(f"{self.action} 的对象字段不完整或混用。")
-        return self
+ManageSkillLibraryArgs = ActionContract(Annotated[
+    Union[GetSkillLibraryArgs, AddSkillLibraryArgs, RemoveSkillLibraryArgs, SetSkillPoolArgs],
+    Field(discriminator="action"),
+])
 
 
 class ManageMaterialArgs(BaseModel):
@@ -102,7 +101,7 @@ def _preserve_defaults(column, account, selected_ids):
 
 
 def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
-                         expected_version=None, skill_ids=None, defaults=None, context=None):
+                         expected_version=None, skill_ids=None, context=None):
     def invoke(client):
         owner = _creator(creator_id, context)
         account = f"/api/creators/{quote(owner, safe='')}/skills"
@@ -115,12 +114,9 @@ def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
         elif action == "remove":
             data = client.request("DELETE", account + "/" + quote(skill_id, safe=""), params={"expected_version": expected_version})
         else:
-            if defaults is None:
-                current = client.request("GET", column)
-                account_skills = client.request("GET", account)
-                stage_defaults = _preserve_defaults(current, account_skills, skill_ids)
-            else:
-                stage_defaults = StageDefaultsArgs.model_validate(defaults).model_dump()
+            current = client.request("GET", column)
+            account_skills = client.request("GET", account)
+            stage_defaults = _preserve_defaults(current, account_skills, skill_ids)
             data = client.request("PUT", column, payload={"expected_version": expected_version,
                 "skill_ids": skill_ids, "defaults": stage_defaults})
         return {**data, "action": action}

@@ -20,10 +20,11 @@ class PlanTests(unittest.TestCase):
             try:
                 sid = app.state.chat.create('review-lab')['id']
                 service = app.state.agent_plans
+                # Keep this deliberately invalid: the current task contract requires brief.
                 with self.assertRaisesRegex(ValueError, '参数无效'):
                     service.create(sid, 'invalid', '测试', [{'id':'images','title':'生图',
-                        'tool':'start_content_run','arguments':{'topic_id':'review-1',
-                        'tasks':[{'title':'缺少 brief'}]}}], 'http://127.0.0.1:8765')
+                        'tool':'start_content_run','arguments':{'action':'tasks','topic_id':'review-1',
+                        'tasks':[{'kind':'image','title':'缺少 brief'}]}}], 'http://127.0.0.1:8765')
                 self.assertEqual(service.list(sid)['items'], [])
             finally: db.close()
 
@@ -33,7 +34,7 @@ class PlanTests(unittest.TestCase):
             try:
                 sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
                 step = {'id':'images','title':'生图','tool':'start_content_run',
-                    'arguments':{'topic_id':'review-1','tasks':[{'title':'图','brief':'画一张'}]}}
+                    'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'图','brief':'画一张'}]}}
                 plan = service.create(sid, 'pre-dispatch', '测试', [step], 'http://127.0.0.1:8765')
                 self.assertIn('是否提交', plan['message'])
                 with db.session() as session:
@@ -90,7 +91,8 @@ class PlanTests(unittest.TestCase):
         class Session:
             def get(self, cls, key): return refs.get((cls, key))
             def scalar(self, query): return SimpleNamespace(id='rev', artifact_digest='digest')
-        step = SimpleNamespace(result_json={'items':[{'id':'one','run_id':'r1'}, {'id':'two','run_id':'r2'}]})
+        step = SimpleNamespace(arguments_json={'action':'tasks','topic_id':'t'},
+                               result_json={'items':[{'id':'one','run_id':'r1'}, {'id':'two','run_id':'r2'}]})
         self.assertIsNone(PlanService._watch(Session(), SimpleNamespace(creator_id='a'), step))
         self.assertEqual(step.result_json['items'][0]['terminal_status'], 'failed')
         running.status.value = 'awaiting_approval'
@@ -122,11 +124,11 @@ class PlanTests(unittest.TestCase):
             db, _, _, app = make_fixture(Path(root))
             sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
             original = {'id':'images','title':'生图','tool':'start_content_run',
-                'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片','brief':'制作该图片'}]}}
+                'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'同一图片','brief':'制作该图片'}]}}
             plan = service.create(sid, 'no-repeat', '不重画', [original], 'http://127.0.0.1:8765')
             with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'unknown'
             extra = {'id':'retry-as-new','title':'另起','tool':'start_content_run',
-                     'arguments':{'topic_id':'review-1','tasks':[{'title':'同一图片','brief':'制作该图片'}]}}
+                     'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'同一图片','brief':'制作该图片'}]}}
             with self.assertRaises(Exception): service.edit(sid, plan['id'], plan['version'], [original, extra])
             self.assertEqual(len(service.get(sid, plan['id'])['steps']), 1)
             with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'succeeded'
@@ -139,7 +141,7 @@ class PlanTests(unittest.TestCase):
             sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
             plan = service.create(sid, 'skip-safe', '失败处理', [
                 {'id':'read','title':'读取','tool':'get_content_run','arguments':{'run_id':'x'}},
-                {'id':'produce','title':'生产','tool':'start_content_run','arguments':{'topic_id':'x'}},
+                {'id':'produce','title':'生产','tool':'start_content_run','arguments':{'action':'start','topic_ids':['x']}},
             ], 'http://127.0.0.1:8765')
             with db.session() as session:
                 for key in ['read', 'produce']:
@@ -196,8 +198,8 @@ class PlanTests(unittest.TestCase):
                 path = f'/api/agent/sessions/{sid}/plans'
                 spec = {'request_id':'precise', 'title':'产图收集', 'steps':[
                     {'id':'images','title':'产图','tool':'start_content_run',
-                     'arguments':{'topic_id':'review-1','instructions':'共同风格','tasks':[
-                         {'title':'图片一','brief':'测试图片一'}, {'title':'图片二','brief':'测试图片二'}]},
+                     'arguments':{'action':'tasks','topic_id':'review-1','instructions':'共同风格','tasks':[
+                         {'kind':'image','title':'图片一','brief':'测试图片一'}, {'kind':'image','title':'图片二','brief':'测试图片二'}]},
                      'wait_for_completion':True},
                     {'id':'collect','title':'收图','tool':'manage_media_collection',
                      'arguments':{'action':'create','name':'本轮','run_ids':{'$ref':'images.items.*.run_id'}},
@@ -228,7 +230,9 @@ class PlanTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '整个选题'):
             _validate_plan_inputs(None, node, {'action':'create','topic_id':'old', 'run_ids':['r1']}, {'images':source})
         video = SimpleNamespace(tool='start_content_run', depends_on_json=['images'],
-                                arguments_json={'tasks':[{'kind':'video','inputs':{'collection_id':'old'}}]})
+                                arguments_json={'action':'tasks','topic_id':'t','tasks':[{'kind':'video',
+                                    'title':'视频','brief':'剪辑本次图片',
+                                    'inputs':{'collection_id':'old','bgm_reference':'用户音乐分享原文'}}]})
         with self.assertRaisesRegex(ValueError, '精确素材集'):
             _validate_plan_inputs(None, video, video.arguments_json, {'images':source})
         ordinary = SimpleNamespace(tool='manage_media_collection', depends_on_json=[], arguments_json={})

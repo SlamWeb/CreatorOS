@@ -80,7 +80,7 @@ class MaintenanceStateTests(unittest.TestCase):
     def test_running_plans_and_pending_continuations_block_restart(self):
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("INSERT INTO agent_plans (id,session_id,creator_id,request_id,request_digest,title,status,version,studio_url,continuation_state,continuation_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                       ('plan','session','owner','req','digest','plan','running',1,'http://127.0.0.1:8765','none',0,'2026-01-01','2026-01-01'))
+                       ('plan','session','owner','req','v2:' + 'a' * 61,'plan','running',1,'http://127.0.0.1:8765','none',0,'2026-01-01','2026-01-01'))
         report = inspect_idle(self.layout)
         self.assertFalse(report['idle'])
         self.assertTrue(any(x['source']=='agent_plans' for x in report['busy']))
@@ -90,6 +90,14 @@ class MaintenanceStateTests(unittest.TestCase):
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE agent_plans SET continuation_state='done'")
         self.assertTrue(inspect_idle(self.layout)['idle'])
+
+    def test_retired_plan_is_read_only_history_not_pending_work(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("INSERT INTO agent_plans (id,session_id,creator_id,request_id,request_digest,title,status,version,studio_url,continuation_state,continuation_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       ('old-plan','session','owner','old-req','a' * 64,'old','running',1,'http://127.0.0.1:8765','pending',0,'2026-01-01','2026-01-01'))
+        before = self.path.read_bytes()
+        self.assertTrue(inspect_idle(self.layout)['idle'])
+        self.assertEqual(self.path.read_bytes(), before)
 
     def test_missing_database_is_not_created(self):
         layout = Layout.from_paths(self.root / "missing.db", self.root / "out")

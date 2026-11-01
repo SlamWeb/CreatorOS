@@ -28,51 +28,64 @@ from tests import test_skill_version_scope as scope_fixture
 
 class StagedAgentSchemaTests(unittest.TestCase):
     def test_shared_task_instructions_validate_before_dispatch(self):
-        task = {'title':'图片','brief':'具体画面'}
-        parsed = StartRunArgs(topic_id='topic', instructions='共用风格', tasks=[task])
+        task = {'kind':'image','title':'图片','brief':'具体画面'}
+        parsed = StartRunArgs.model_validate({
+            'action':'tasks', 'topic_id':'topic', 'instructions':'共用风格', 'tasks':[task]})
         self.assertEqual(parsed.instructions, '共用风格')
         with self.assertRaises(ValidationError):
-            StartRunArgs(topic_id='topic', instructions='风格', tasks=[{'title':'图片','brief':'x'*10000}])
+            StartRunArgs.model_validate({'action':'tasks', 'topic_id':'topic', 'instructions':'风格',
+                                         'tasks':[{'kind':'image','title':'图片','brief':'x'*10001}]})
         context = RuntimeContext(Path.cwd(), creator_id='a', allowed_tools=ACCOUNT_TOOLS)
         result = execute_tool_call(ToolCall('bad', 'start_content_run', json.dumps({
-            'topic_id':'topic', 'tasks':[{'title':'缺少描述'}]})), context, model_requested=True)
+            'action':'tasks', 'topic_id':'topic', 'tasks':[{'kind':'image','title':'缺少描述'}]})),
+            context, model_requested=True)
         self.assertEqual(result.error_type, 'invalid_arguments')
         self.assertTrue(result.details['pre_dispatch'])
+        merged = execute_tool_call(ToolCall('too-long', 'start_content_run', json.dumps({
+            'action':'tasks', 'topic_id':'topic', 'instructions':'共用风格',
+            'tasks':[{'kind':'image', 'title':'图片', 'brief':'x'*10000}]})),
+            context, model_requested=True)
+        self.assertEqual(merged.error_type, 'invalid_arguments')
+        self.assertTrue(merged.details['pre_dispatch'])
 
     def test_video_accepts_bgm_share_text_without_preimport(self):
         share = "2.89 复制打开抖音，看看【作品】 https://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic"
         task = {"kind": "video", "title": "剪辑", "brief": "按节拍剪辑", "skill_ids": ["video-test--" + "a" * 16],
                 "inputs": {"collection_id": "images", "bgm_reference": share}}
-        parsed = StartRunArgs(topic_id="topic", tasks=[task])
+        parsed = StartRunArgs.model_validate({"action": "tasks", "topic_id": "topic", "tasks": [task]})
         self.assertEqual(parsed.tasks[0].inputs.bgm_reference, share)
-        self.assertIsNone(parsed.tasks[0].inputs.bgm_material_id)
         data = parsed.model_dump(mode="json", exclude_none=True)
+        self.assertNotIn("bgm_material_id", data["tasks"][0]["inputs"])
         self.assertEqual(data["tasks"][0]["inputs"]["bgm_reference"], share)
         for inputs in ({"collection_id": "images"},
                        {"collection_id": "images", "bgm_reference": "  "},
                        {"collection_id": "images", "bgm_reference": share, "bgm_material_id": "c" * 64}):
             with self.subTest(inputs=inputs), self.assertRaises(ValidationError):
-                StartRunArgs(topic_id="topic", tasks=[{**task, "inputs": inputs}])
+                StartRunArgs.model_validate({"action": "tasks", "topic_id": "topic",
+                                             "tasks": [{**task, "inputs": inputs}]})
 
     def test_task_selection_is_typed_and_contains_no_host_paths(self):
         skill = {"skill_id": "video-test--" + "a" * 16, "digest": "b" * 64, "role": "primary"}
-        task = {"kind": "video", "title": "短片", "brief": "保留音乐卡点", "skills": [skill],
+        task = {"kind": "video", "title": "短片", "brief": "保留音乐卡点", "skill_ids": [skill["skill_id"]],
                 "inputs": {"collection_id": "images", "bgm_material_id": "c" * 64}, "depends_on": ["task-one"]}
-        value = StartRunArgs(topic_id="topic", tasks=[task])
+        value = StartRunArgs.model_validate({"action": "tasks", "topic_id": "topic", "tasks": [task]})
         self.assertEqual(value.tasks[0].kind, "video")
+        self.assertEqual(value.tasks[0].skill_ids, [skill["skill_id"]])
         omitted = deepcopy(task)
-        omitted["skills"][0].pop("digest")
-        self.assertIsNone(StartRunArgs(topic_id="topic", tasks=[omitted]).tasks[0].skills[0].digest)
+        omitted.pop("skill_ids")
+        self.assertIsNone(StartRunArgs.model_validate({
+            "action": "tasks", "topic_id": "topic", "tasks": [omitted]}).tasks[0].skill_ids)
         for change in ({"skills": [{**skill, "path": "D:/private"}]}, {"skills": [{**skill, "digest": "unknown"}]},
                        {"skills": [{**skill, "role": "mind"}]}, {"skills": [skill, skill]},
-                       {"kind": "image"}, {"inputs": {"bgm_material_id": "c" * 64}}, {"depends_on": ["same", "same"]}):
+                       {"skill_ids": ["D:/private"]}, {"kind": "image"},
+                       {"inputs": {"bgm_material_id": "c" * 64}}, {"depends_on": [""]}):
             with self.subTest(change=change), self.assertRaises(ValidationError):
-                StartRunArgs(topic_id="topic", tasks=[{**task, **change}])
+                StartRunArgs.model_validate({"action": "tasks", "topic_id": "topic", "tasks": [{**task, **change}]})
         context = RuntimeContext(Path.cwd(), creator_id="a", allowed_tools=ACCOUNT_TOOLS)
         schemas = {item["function"]["name"]: item["function"] for item in model_tool_schemas(tools, context)}
         for name in ("manage_skill_library", "manage_material"):
             self.assertIn(name, schemas)
-            self.assertNotIn("creator_id", schemas[name]["parameters"]["properties"])
+            self.assertNotIn('"creator_id"', json.dumps(schemas[name]["parameters"]))
         self.assertEqual(schemas["manage_material"]["parameters"]["properties"]["action"]["enum"], ["list", "get", "analyze", "analysis", "analysis_status"])
         self.assertNotIn("source_url", schemas["manage_material"]["parameters"]["properties"])
 
@@ -156,10 +169,9 @@ class StagedAgentHttpTests(unittest.TestCase):
         before = json.loads(result.content)
         candidate = self.candidate(self.legacy)
         changed = self.call("manage_skill_library", context, action="set_pool", series_id="agent-notes",
-            expected_version=before["version"], skill_ids=[candidate["skill_id"], self.mind["id"]],
-            defaults={"image": [{"skill_id": candidate["skill_id"], "role": "primary"},
-                                {"skill_id": self.mind["id"], "role": "supporting"}], "video": []})
+            expected_version=before["version"], skill_ids=[candidate["skill_id"], self.mind["id"]])
         self.assertFalse(changed.is_error, changed.content)
+        self.assertEqual(json.loads(changed.content)["defaults"], before["defaults"])
         self.app.state.skill_library.add("review-lab", self.mind["id"], uuid4().hex)
         tree = CreatorContextBuilder(self.database, self.catalog, self.app.state.skill_library).build("review-lab")
         column = next(row for row in tree["series"] if row["id"] == "agent-notes")
@@ -269,7 +281,7 @@ class StagedAgentHttpTests(unittest.TestCase):
         pool = library.get_series(series_id)
         library.set_series(series_id, pool["version"], [self.legacy["id"]], {
             "image": [{"skill_id": self.legacy["id"], "role": "primary"}], "video": []})
-        result = self.call("start_content_run", topic_id="review-1")
+        result = self.call("start_content_run", action="start", topic_ids=["review-1"])
         self.assertFalse(result.is_error, result.content)
         from creatoros.storage import ContentRun
         with self.database.session() as session:
@@ -281,7 +293,8 @@ class StagedAgentHttpTests(unittest.TestCase):
         from tests.media_test_support import require_media
         require_media(self)
         context = self.context()
-        image_arguments = {"topic_id": "review-1", "tasks": [{"title": "同轮图片", "brief": "独立图片"}]}
+        image_arguments = {"action": "tasks", "topic_id": "review-1",
+                           "tasks": [{"kind": "image", "title": "同轮图片", "brief": "独立图片"}]}
         image_result = self.call("start_content_run", context, **image_arguments)
         self.assertFalse(image_result.is_error, image_result.content)
         images = json.loads(image_result.content)
@@ -306,8 +319,8 @@ class StagedAgentHttpTests(unittest.TestCase):
         precise = self.app.state.media_collections.create("review-lab", name="本轮精确收图",
             request_id=uuid4().hex, run_ids=[item["run_id"] for item in images["items"]])
         self.assertIsNone(precise["topic_id"])
-        video_arguments = {"topic_id": "review-1", "tasks": [{"kind": "video", "title": "同轮视频", "brief": "承接这些图片与音乐",
-            "skills": [{"skill_id": skill["id"], "role": "primary"}],
+        video_arguments = {"action": "tasks", "topic_id": "review-1", "tasks": [{"kind": "video", "title": "同轮视频", "brief": "承接这些图片与音乐",
+            "skill_ids": [skill["id"]],
             "inputs": {"collection_id": precise["id"], "bgm_material_id": bgm["id"]},
             "depends_on": [item["id"] for item in images["items"]]}]}
         video_result = self.call("start_content_run", context, **video_arguments)
@@ -317,11 +330,11 @@ class StagedAgentHttpTests(unittest.TestCase):
         replay = self.call("start_content_run", context, **video_arguments)
         self.assertFalse(replay.is_error, replay.content)
         self.assertEqual([item["id"] for item in json.loads(replay.content)["items"]], [item["id"] for item in videos["items"]])
-        explicit = deepcopy(video_arguments)
-        explicit["tasks"][0]["skills"][0]["digest"] = skill["digest"]
-        explicit_replay = self.call("start_content_run", context, **explicit)
-        self.assertFalse(explicit_replay.is_error, explicit_replay.content)
-        self.assertEqual(json.loads(explicit_replay.content)["items"][0]["id"], videos["items"][0]["id"])
+        legacy = deepcopy(video_arguments)
+        legacy["tasks"][0]["skills"] = [{"skill_id": skill["id"], "digest": skill["digest"], "role": "primary"}]
+        legacy_rejected = self.call("start_content_run", context, **legacy)
+        self.assertEqual(legacy_rejected.error_type, "invalid_arguments", legacy_rejected.content)
+        self.assertTrue(legacy_rejected.details["pre_dispatch"])
         repeated_images = self.call("start_content_run", context, **image_arguments)
         self.assertFalse(repeated_images.is_error, repeated_images.content)
         self.assertEqual(json.loads(repeated_images.content)["items"][0]["id"], images["items"][0]["id"])
@@ -329,19 +342,22 @@ class StagedAgentHttpTests(unittest.TestCase):
             self.assertEqual(session.query(ProductionTask).count(), 2)
             video_task = session.get(ProductionTask, videos["items"][0]["id"])
             self.assertEqual(video_task.definition_json["execution_spec"]["skills"][0]["digest"], skill["digest"])
-        stale = self.call("start_content_run", self.context(), topic_id="review-1", tasks=[{
-            "title": "过期摘要不得提交", "brief": "reject", "skills": [{
+        stale = self.call("start_content_run", self.context(), action="tasks", topic_id="review-1", tasks=[{
+            "kind": "image", "title": "旧摘要入口不得提交", "brief": "reject", "skills": [{
                 "skill_id": self.legacy["id"], "digest": "0" * 64, "role": "primary"}]}])
         self.assertTrue(stale.is_error, stale.content)
-        self.assertEqual(stale.error_type, "skill_digest_conflict")
+        self.assertEqual(stale.error_type, "invalid_arguments")
+        self.assertTrue(stale.details["pre_dispatch"])
+        with self.database.session() as session:
+            self.assertEqual(session.query(ProductionTask).count(), 2)
 
     def test_agent_video_accepts_original_share_text_without_import(self):
         """Actual scoped HTTP and isolated SQLite; controlled producer, no real Codex."""
         from tests.media_test_support import require_media
         require_media(self)
         context = self.context()
-        image_result = self.call("start_content_run", context, topic_id="review-1", tasks=[{
-            "title": "参考图片", "brief": "一张测试图片"}])
+        image_result = self.call("start_content_run", context, action="tasks", topic_id="review-1", tasks=[{
+            "kind": "image", "title": "参考图片", "brief": "一张测试图片"}])
         self.assertFalse(image_result.is_error, image_result.content)
         images = json.loads(image_result.content)
         run_id = images["items"][0]["run_id"]
@@ -359,7 +375,7 @@ class StagedAgentHttpTests(unittest.TestCase):
         share = "2.89 复制打开抖音，看看【作品】 https://v.douyin.com/l5keSl2qzb8/ 07/01 :4pm C@H.ic"
         task = {"kind": "video", "title": "链接剪辑", "brief": "照音乐卡点", "skill_ids": [skill["id"]],
                 "inputs": {"collection_id": images["collection_id"], "bgm_reference": share}}
-        result = self.call("start_content_run", context, topic_id="review-1", tasks=[task])
+        result = self.call("start_content_run", context, action="tasks", topic_id="review-1", tasks=[task])
         self.assertFalse(result.is_error, result.content)
         item = json.loads(result.content)["items"][0]
         with self.database.session() as session:

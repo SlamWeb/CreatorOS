@@ -29,7 +29,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                     sid = client.post('/api/agent/sessions', json={'creator_id': 'review-lab'}).json()['id']
                     path = f'/api/agent/sessions/{sid}/plans'
                     bad = {'id': 'bad', 'title': '读取不存在的 Skill', 'tool': 'get_producer_skill',
-                           'arguments': {'skill_id': 'missing'}}
+                           'arguments': {'skill_id': 'missing--0000000000000000'}}
                     pending = {'id': 'list', 'title': '读取栏目选题', 'tool': 'manage_topics',
                                'arguments': {'action': 'list', 'series_id': 'agent-notes'}, 'depends_on': ['bad']}
                     created = client.post(path, json={'request_id': str(uuid4()), 'title': '故障后调整',
@@ -70,7 +70,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                     self.assertEqual([s['id'] for s in completed['steps']], ['bad', 'list'])
                     self.assertEqual([s['status'] for s in completed['steps']], ['skipped', 'succeeded'])
                     self.assertEqual(completed['steps'][0]['error'], skipped_view['steps'][0]['error'])
-                    self.assertEqual(completed['steps'][0]['arguments']['skill_id'], 'missing')
+                    self.assertEqual(completed['steps'][0]['arguments']['skill_id'], 'missing--0000000000000000')
                     self.assertEqual(producer.calls, 0)
             finally:
                 app.state.agent_plans.shutdown()
@@ -78,6 +78,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                 db.close()
 
     def test_model_projection_keeps_replanning_facts(self):
+        # Historical arguments are opaque facts: preserve unknown fields without revalidating them.
         arguments = {'topic_id': 't1', 'tasks': [{'title': '图片 A', 'kind': 'image',
                      'brief': '原始要求', 'skill_ids': ['skill-a']}], 'custom': {'key': [1, 2]}}
         step = {'id': 'images', 'title': '并行出图', 'tool': 'start_content_run',
@@ -111,10 +112,11 @@ class ReplanningSafetyTests(unittest.TestCase):
                     sid = client.post('/api/agent/sessions', json={'creator_id': 'review-lab'}).json()['id']
                     path = f'/api/agent/sessions/{sid}/plans'
                     image = {'id': 'images', 'title': '出图', 'tool': 'start_content_run',
-                        'arguments': {'topic_id': 'review-1', 'tasks': [{'title': '图片 A'}]},
+                        'arguments': {'action': 'tasks', 'topic_id': 'review-1',
+                            'tasks': [{'kind': 'image', 'title': '图片 A', 'brief': '制作图片 A'}]},
                         'depends_on': [], 'wait_for_completion': True}
                     read = {'id': 'read', 'title': '读取资料', 'tool': 'get_producer_skill',
-                        'arguments': {'skill_id': 'missing'}, 'depends_on': []}
+                        'arguments': {'skill_id': 'missing--0000000000000000'}, 'depends_on': []}
                     def create(name, steps):
                         response = client.post(path, json={'request_id': str(uuid4()), 'title': name, 'steps': steps})
                         self.assertEqual(response.status_code, 200, response.text)
@@ -137,7 +139,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                         call('manage_plan', {'action': 'create', 'title': '换计划重画', 'steps': [read]}),
                         call('manage_topics', {'action': 'remove', 'topic_id': 'review-1'}),
                         call('manage_media_collection', {'action': 'create', 'name': '不应创建'}),
-                        call('start_content_run', {'topic_id': 'review-1', 'tasks': [{'title': '图片 A'}]}),
+                        call('start_content_run', image['arguments']),
                     ]
                     for result in denied:
                         self.assertTrue(result.is_error, result)
@@ -155,7 +157,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                         'expected_version': latest['version'], 'step_id': 'images'})
                     self.assertTrue(retried.is_error, retried)
                     # Replanning a never-started read is allowed and keeps the unknown step intact.
-                    changed_read = {**read, 'title': '读取另一份资料', 'arguments': {'skill_id': 'another'}}
+                    changed_read = {**read, 'title': '读取另一份资料', 'arguments': {'skill_id': 'another--0000000000000000'}}
                     result = call('manage_plan', {'action': 'update', 'plan_id': pid,
                         'expected_version': latest['version'], 'steps': [image, changed_read]})
                     self.assertFalse(result.is_error, result)
@@ -171,8 +173,8 @@ class ReplanningSafetyTests(unittest.TestCase):
                     # Once images have succeeded, the already planned video may
                     # change only its inputs; this does not submit a new task.
                     video = {'id': 'video', 'title': '剪辑', 'tool': 'start_content_run',
-                        'arguments': {'topic_id': 'review-1', 'tasks': [{'kind': 'video', 'title': '视频',
-                            'inputs': {'collection_id': 'old', 'bgm_material_id': 'music'}}]},
+                        'arguments': {'action': 'tasks', 'topic_id': 'review-1', 'tasks': [{'kind': 'video', 'title': '视频',
+                            'brief': '剪辑本次图片', 'inputs': {'collection_id': 'old', 'bgm_material_id': 'a' * 64}}]},
                         'depends_on': [], 'wait_for_completion': True}
                     with db.session() as session:
                         session.get(AgentPlanStep, pid + ':images').status = 'succeeded'

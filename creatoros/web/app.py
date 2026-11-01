@@ -647,14 +647,15 @@ def create_app(
             source = runs.get(payload.source_run_id)
             if source.topic_id != payload.topic_id:
                 raise ContentRunError("来源任务与选题不匹配。", status_code=409, code="source_mismatch")
-            if (not payload.skill_overrides and source.task_id is None
+            if (not payload.skill_overrides and not payload.skill_ids and source.task_id is None
                     and (source.input_snapshot_json.get("execution_spec") or {}).get("kind") != "video"
                     and session_id and chat.get(session_id).get("scope_kind") == "creator"):
                 topic = ContentRepository(db).get_topic(payload.topic_id)
                 if topic is not None:
                     account_context.require_series_skills(topic.series_id)
             content_run = runs.restart_fresh(payload.source_run_id, expected_version=payload.expected_version,
-                request_id=payload.request_id, origin_session_id=session_id, skill_overrides=payload.skill_overrides)
+                request_id=payload.request_id, origin_session_id=session_id, skill_overrides=payload.skill_overrides,
+                skill_ids=payload.skill_ids)
             result = queries.get_run(content_run.id)
             if result is None:
                 raise HTTPException(status_code=503, detail="新任务已创建，请使用同一请求标识核对。")

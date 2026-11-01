@@ -49,7 +49,8 @@ jobs:
           python -m unittest tests.test_benchmark_metrics_v2
           tests.test_benchmark_grader_v2 tests.test_benchmark_manifest_v2
           tests.test_benchmark_report_v2 tests.test_benchmark_server_v2
-          tests.test_benchmark_cases_v2 tests.test_benchmark_capture_v2 -q
+          tests.test_benchmark_cases_v2 tests.test_benchmark_capture_v2
+          tests.test_action_contract tests.test_production_contract -q
       - name: Frontend types, build and local state tests
         if: ${{ !cancelled() }}
         run: |

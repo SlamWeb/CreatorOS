@@ -30,24 +30,26 @@ class ProductionTaskToolContractTests(unittest.TestCase):
         context = RuntimeContext(Path.cwd(), creator_id="review-lab", allowed_tools=ACCOUNT_TOOLS)
         schema = next(row["function"] for row in model_tool_schemas(tools, context)
                       if row["function"]["name"] == "start_content_run")
-        self.assertIn("tasks", schema["parameters"]["properties"])
-        self.assertNotIn("request_id", schema["parameters"]["properties"])
-        args = {"topic_id": "review-1", "tasks": [{"title": " A ", "brief": " 全文 "}]}
+        branch = schema["parameters"]["$defs"]["StartProductionTasksArgs"]
+        self.assertIn("tasks", branch["properties"])
+        self.assertNotIn("request_id", branch["properties"])
+        args = {"action": "tasks", "topic_id": "review-1", "tasks": [{"kind": "image", "title": " A ", "brief": " 全文 "}]}
         parsed = tool_registry["start_content_run"].parse_arguments(json.dumps(args))
         self.assertEqual(parsed["tasks"][0]["title"], "A")
         self.assertEqual(parsed["tasks"][0]["brief"], "全文")
 
     def test_invalid_task_modes_never_reach_transport(self):
-        valid = {"topic_id": "review-1", "tasks": [{"title": "A", "brief": "完整要求"}]}
+        valid = {"action": "tasks", "topic_id": "review-1", "tasks": [{"kind": "image", "title": "A", "brief": "完整要求"}]}
         invalid = [{"tasks": valid["tasks"]}, {**valid, "tasks": []},
             {**valid, "topic_ids": ["review-2"]}, {**valid, "mode": "fresh"},
             {**valid, "source_run_id": "old"}, {**valid, "expected_version": 1},
             {**valid, "series_id": "s"}, {**valid, "attachment_ids": ["image"]},
-            {**valid, "instructions": "other"}, {**valid, "reference_presentation": True},
+            {**valid, "skill_ids": ["knowledge-to-carousel"]}, {**valid, "reference_presentation": True},
             {**valid, "request_id": "model-picked"},
-            {**valid, "tasks": [{"title": " ", "brief": "full"}]},
-            {**valid, "tasks": [{"title": "x", "brief": " "}]},
-            {**valid, "tasks": [{"title": "x", "brief": "full", "run_id": "forged"}]},
+            {**valid, "tasks": [{"kind": "image", "title": " ", "brief": "full"}]},
+            {**valid, "tasks": [{"kind": "image", "title": "x", "brief": " "}]},
+            {**valid, "tasks": [{"kind": "image", "title": "x", "brief": "full", "run_id": "forged"}]},
+            {**valid, "tasks": [{"title": "x", "brief": "full"}]},
             {**valid, "skill_overrides": {"skill_id": "knowledge-to-carousel",
                 "expected_digests": {"knowledge-to-carousel": "a" * 64}}}]
         context = RuntimeContext(Path.cwd(), creator_id="review-lab", allowed_tools=ACCOUNT_TOOLS)
@@ -99,9 +101,10 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
 
     def test_real_tool_replay_readback_and_distinct_payload_receipts(self):
         context = self.context()
-        tasks = [{"title": "第一组", "brief": "第一组独立完整要求"}, {"title": "第二组", "brief": "第二组要求"}]
+        tasks = [{"kind": "image", "title": "第一组", "brief": "第一组独立完整要求"},
+                 {"kind": "image", "title": "第二组", "brief": "第二组要求"}]
         original = self.counts()
-        created = self.call(context, topic_id="review-1", tasks=tasks)
+        created = self.call(context, action="tasks", topic_id="review-1", tasks=tasks)
         self.assertFalse(created.is_error, created.content)
         receipt = json.loads(created.content)
         self.assertEqual(self.counts(), (original[0], original[1] + 2, original[2] + 2))
@@ -110,11 +113,12 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
             f"/?creator=review-lab&view=materials&collection={receipt['collection_id']}")
         for item in receipt["items"]:
             self.assertEqual(item["url"], f"/runs/{item['run_id']}")
-        replay = self.call(context, topic_id="review-1", tasks=tasks)
+        replay = self.call(context, action="tasks", topic_id="review-1", tasks=tasks)
         self.assertFalse(replay.is_error, replay.content)
         self.assertEqual([item["id"] for item in json.loads(replay.content)["items"]],
                          [item["id"] for item in receipt["items"]])
-        different = self.call(context, topic_id="review-1", tasks=[{"title": "另一次", "brief": "same turn changed"}])
+        different = self.call(context, action="tasks", topic_id="review-1", tasks=[{
+            "kind": "image", "title": "另一次", "brief": "same turn changed"}])
         self.assertFalse(different.is_error, different.content)
         self.assertEqual(self.counts(), (original[0], original[1] + 3, original[2] + 3))
         read = execute_tool_call(ToolCall("read", "manage_topics", json.dumps({"action": "get", "topic_id": "review-1"})),
@@ -146,14 +150,15 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
 
     def test_owned_candidate_can_be_selected_per_task_without_rebinding(self):
         candidate = self.candidate(self.legacy)
-        result = self.call(self.context(), topic_id="review-1", tasks=[{
-            "title": "候选试做", "brief": "仅本次候选", "skill_overrides": {
-                "skill_id": candidate["skill_id"], "expected_digests": {candidate["skill_id"]: candidate["digest"]}}}])
+        result = self.call(self.context(), action="tasks", topic_id="review-1", tasks=[{
+            "kind": "image", "title": "候选试做", "brief": "仅本次候选", "skill_ids": [candidate["skill_id"]]}])
         self.assertFalse(result.is_error, result.content)
         item = json.loads(result.content)["items"][0]
         with self.database.session() as db:
             run = db.get(ContentRun, item["run_id"])
-            self.assertEqual(run.input_snapshot_json["skill_overrides"]["skill_id"], candidate["skill_id"])
+            selected = run.input_snapshot_json["execution_spec"]["skills"]
+            self.assertEqual([(skill["skill_id"], skill["digest"], skill["role"]) for skill in selected],
+                             [(candidate["skill_id"], candidate["digest"], "selected")])
             self.assertEqual(db.get(Series, "agent-notes").skill_name, self.legacy["id"])
 
     def test_removed_parent_and_frozen_foreign_run_are_denied(self):
@@ -186,7 +191,8 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
                 return data
             return actual(client, method, path, **kwargs)
         with patch.object(StudioClient, "request", new=request):
-            args = {"topic_id": "review-1", "tasks": [{"title": "已落库", "brief": "仅响应丢失"}]}
+            args = {"action": "tasks", "topic_id": "review-1", "tasks": [{
+                "kind": "image", "title": "已落库", "brief": "仅响应丢失"}]}
             first = self.call(context, **args)
             self.assertTrue(first.is_error)
             after = self.counts()

@@ -1,5 +1,12 @@
 # ContentRun SPEC
 
+## 2026-11-01 干净重做的精确 Skill 列表（隔离验证通过）
+
+- 工具新契约的 fresh 支持 skill_ids，宿主核对账号可用性并读取当前版本摘要，构造 selected Skill 执行规范。保留原选题和视频所需素材，不继承旧 thread 或旧产物。
+- 历史冻结输入及产物不迁移，重做仍要求来源版本和稳定请求身份；真实运行任务不停止、不重启。
+- 真实loopback HTTP/SQLite验证多Skill selected快照、同请求复用、外账号Skill拒绝、原输入保持；此验证不执行生产者、不调用模型，不能代表新生图质量。
+
+
 ## BGM 分享输入（2026-10-28）
 
 - 视频任务 inputs 接受 bgm_material_id 或 bgm_reference（二选一）。分享原文直接冻结在执行输入，并与素材 ZIP、所选 Skill 和剪辑要求一起交给 Codex；提交前不下载、不解析，不要求已有音频 ID。

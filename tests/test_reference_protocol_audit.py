@@ -77,7 +77,7 @@ class ReferenceProtocolAudit(unittest.TestCase):
                 "name": "参考.png", "data_base64": base64.b64encode(reference_fixture.picture("blue")).decode()}).json()["id"]
             context = RuntimeContext(Path.cwd(), creator_id="creator", agent_session_id=sid,
                                      studio_url=base, user_request_id="turn-one")
-            arguments = dict(series_id="series", title="同一参考请求", instructions="完整要求不丢失。",
+            arguments = dict(action="reference", series_id="series", title="同一参考请求", instructions="完整要求不丢失。",
                              attachment_ids=[attachment], context=context)
             def losing_client(url, *, agent_session_id=None):
                 return StudioClient(url, agent_session_id=agent_session_id,

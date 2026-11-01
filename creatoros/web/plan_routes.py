@@ -2,6 +2,7 @@
 from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from creatoros.runs import ContentRunError
 
 class Step(BaseModel):
     id: str
@@ -29,6 +30,8 @@ def routes(service):
     router = APIRouter(prefix='/api/agent/sessions/{session_id}/plans')
     def call(fn, *args):
         try: return fn(*args)
+        except ContentRunError as exc:
+            raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
         except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
     @router.get('')
     def listing(session_id: str): return service.list(session_id)

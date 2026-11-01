@@ -189,11 +189,11 @@ def inspect_idle(layout):
                     except (OSError, ValueError, TypeError, MaintenanceError):
                         busy.append(dict(source="skill_iterations/" + identifier, reason="试产证据不可读，拒绝猜测"))
             if "agent_plans" in tables:
-                count = db.execute("SELECT count(*) FROM agent_plans WHERE status='running' OR continuation_state IN ('pending','claimed')").fetchone()[0]
+                count = db.execute("SELECT count(*) FROM agent_plans WHERE request_digest LIKE 'v2:%' AND (status='running' OR continuation_state IN ('pending','claimed'))").fetchone()[0]
                 if count:
                     busy.append(dict(source="agent_plans", reason="存在运行或等待续接的计划", count=count))
             if "agent_plan_steps" in tables:
-                count = db.execute("SELECT count(*) FROM agent_plan_steps WHERE status IN ('running','waiting')").fetchone()[0]
+                count = db.execute("SELECT count(*) FROM agent_plan_steps AS s JOIN agent_plans AS p ON p.id=s.plan_id WHERE p.request_digest LIKE 'v2:%' AND s.status IN ('running','waiting')").fetchone()[0]
                 if count:
                     busy.append(dict(source="agent_plan_steps", reason="存在正在执行或等待结果的计划步骤", count=count))
             if "production_tasks" in tables:

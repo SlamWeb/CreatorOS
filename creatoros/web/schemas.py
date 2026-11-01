@@ -330,9 +330,12 @@ class RunStartRequest(WriteRequest):
     expected_version: int | None = Field(default=None, gt=0)
     request_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
     skill_overrides: SkillOverrides | None = None
+    skill_ids: list[str] | None = Field(default=None, min_length=1, max_length=12)
 
     @model_validator(mode="after")
     def valid_mode(self):
+        if self.skill_ids is not None and (self.mode != "fresh" or self.skill_overrides is not None):
+            raise ValueError("Skill ID 列表只用于从头重做，不能混用其他选择方式。")
         fields = (self.source_run_id, self.expected_version, self.request_id)
         if self.mode == "fresh" and any(value is None for value in fields):
             raise ValueError("从头重做需要原任务、当前版本与请求标识。")

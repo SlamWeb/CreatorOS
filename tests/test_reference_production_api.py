@@ -197,7 +197,7 @@ class ReferenceProductionAPITests(unittest.TestCase):
             context = RuntimeContext(Path.cwd(), creator_id='creator', agent_session_id=sid,
                                      studio_url=base, user_request_id='one-reference-user-turn')
             before = self.counts()
-            arguments = {'series_id': 'series', 'title': '这篇直接制作', 'instructions': '两张图共同借鉴，保留完整中文要求。',
+            arguments = {'action': 'reference', 'series_id': 'series', 'title': '这篇直接制作', 'instructions': '两张图共同借鉴，保留完整中文要求。',
                          'attachment_ids': ids, 'reference_presentation': True}
             results = []
             for call_id in ('reference-one', 'reference-repeated'):

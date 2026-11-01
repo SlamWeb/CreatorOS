@@ -1,10 +1,5 @@
-"""Explicit per-run versions over isolated SQLite/files; no paid model calls.
-
-The real HTTP adapter test injects a producer failure after receiving its frozen
-input. It checks submission/replay, not generated-image quality or a model Eval.
-"""
+"""Existing per-run REST versions and current tool rejection, without paid calls."""
 from concurrent.futures import ThreadPoolExecutor
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -15,7 +10,6 @@ from PIL import Image
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
-from creatoros.context import RuntimeContext
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, _digest, skills_root_for
 from creatoros.integrations.skill_pair import snapshot_pair
 from creatoros.runs import ContentRunError, ContentRunService
@@ -25,8 +19,6 @@ from creatoros.storage import (ContentRepository, ContentRun, ContentRunStatus, 
 from creatoros.tools.studio import StartRunArgs, start_content_run
 from creatoros.web import create_app
 from creatoros.web.schemas import RunStartRequest
-from tests.agent_studio_support import serve
-from tests.test_production_queue import wait
 
 
 class SelectedSkillRunTests(unittest.TestCase):
@@ -272,9 +264,10 @@ class SelectedSkillRunTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             RunStartRequest(topic_id="topic", skill_overrides=choice)
         with self.assertRaises(ValidationError):
-            StartRunArgs(topic_ids=["topic"], skill_overrides=choice)
+            StartRunArgs.model_validate({"action": "start", "topic_ids": ["topic"], "skill_overrides": choice})
         with self.assertRaises(ValidationError):
-            StartRunArgs(series_id="single", title="direct", attachment_ids=["image"], skill_overrides=choice)
+            StartRunArgs.model_validate({"action": "reference", "series_id": "single", "title": "direct",
+                                        "attachment_ids": ["image"], "skill_overrides": choice})
         self.assertIsNotNone(RunStartRequest(topic_id="topic", request_id="stable", skill_overrides=choice).skill_overrides)
 
     def test_http_create_selected_version_replays_and_reports_conflict(self):
@@ -310,36 +303,18 @@ class SelectedSkillRunTests(unittest.TestCase):
             with self.db.session() as db:
                 self.assertEqual(db.get(Series, "single").skill_name, self.base["id"])
 
-    def test_agent_http_adapter_uses_stable_identity_and_exact_frozen_candidate(self):
-        class ReceiveThenFail:
-            def __init__(self):
-                self.calls = []
-
-            def produce_to(self, **request):
-                self.calls.append(request)
-                raise RuntimeError("isolated failure after receiving the selected input")
-
-        producer = ReceiveThenFail()
-        self.runs.producer_factory = lambda: producer
+    def test_current_tool_rejects_legacy_skill_overrides_before_http(self):
         candidate = self.candidate()
-        app = create_app(database=self.db, run_service=self.runs)
-        with serve(app) as base:
-            context = RuntimeContext(self.root, studio_url=base, user_request_id="same-user-turn",
-                                     session_file=self.root / "session.json")
-            result = start_content_run(topic_id="topic", skill_overrides=self.selection(candidate), context=context)
-            self.assertFalse(result.is_error, result.content)
-            identifier = json.loads(result.content)["run_id"]
-            wait(lambda: self.runs.get(identifier).status is ContentRunStatus.FAILED)
-            self.assertEqual(len(producer.calls), 1)
-            request = producer.calls[0]
-            self.assertEqual(request["skill_name"], candidate["id"])
-            self.assertEqual(_digest(request["skill_directory"]), candidate["digest"])
-            replay = start_content_run(topic_id="topic", skill_overrides=self.selection(candidate), context=context)
-            self.assertFalse(replay.is_error, replay.content)
-            self.assertEqual(json.loads(replay.content)["run_id"], identifier)
-            conflict = start_content_run(topic_id="topic", skill_overrides=self.selection(self.base), context=context)
-            self.assertTrue(conflict.is_error)
-            self.assertEqual(len(producer.calls), 1)
+        old_selection = self.selection(candidate)
+        with patch("creatoros.tools.studio._call") as dispatch:
+            with self.assertRaises(ValidationError):
+                start_content_run(action="tasks", topic_id="topic", tasks=[{
+                    "kind": "image", "title": "候选试做", "brief": "仅本次候选", "skill_overrides": old_selection}])
+            with self.assertRaises(ValidationError):
+                start_content_run(action="start", topic_ids=["topic"], skill_overrides=old_selection)
+        dispatch.assert_not_called()
+        with self.db.session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), 0)
 
 
 if __name__ == "__main__":
