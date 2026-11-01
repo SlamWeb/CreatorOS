@@ -5,8 +5,8 @@ import { request } from "../api/client";
 import type { CreatorView, PageResponse } from "../api/types";
 import { BrandMark } from "../components/BrandMark";
 import { Button } from "../components/ui/button";
-import workImage from "../assets/fluent/work-image.svg";
-import skillLibrary from "../assets/fluent/skill-library.svg";
+import workImage from "../assets/home/work-artwork-3d.png";
+import skillLibrary from "../assets/home/reusable-skill-3d.png";
 import "./home.css";
 
 export function HomePage() {
