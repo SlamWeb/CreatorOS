@@ -83,6 +83,33 @@ class TopicProductionViewTests(unittest.TestCase):
         self.assertNotIn("local_path", repr(result))
         self.assertNotIn("skill_digest", repr(result))
 
+    def test_task_spec_skill_is_visible_on_topic_and_uses_frozen_run(self):
+        added = self.client.post("/api/creators/review-lab/skills", json={
+            "skill_id": "knowledge-to-carousel", "request_id": "library-skill-visible"})
+        self.assertIn(added.status_code, (200, 201), added.text)
+        pool = self.client.get("/api/series/agent-notes/skills").json()
+        updated = self.client.put("/api/series/agent-notes/skills", json={
+            "expected_version": pool["version"], "skill_ids": ["knowledge-to-carousel"],
+            "defaults": {"image": [{"skill_id": "knowledge-to-carousel", "role": "primary"}], "video": []}})
+        self.assertEqual(updated.status_code, 200, updated.text)
+        run = self.runs.create("review-1")
+        frozen = self.runs.get(run.id).input_snapshot_json
+        self.assertEqual(frozen["execution_spec"]["skills"][0]["skill_id"], "knowledge-to-carousel")
+        row = next(item for item in self.library()["items"] if item["id"] == "review-1")
+        self.assertEqual(row["skill_usage"]["source"], "run")
+        self.assertEqual([item["id"] for item in row["skill_usage"]["items"]], ["knowledge-to-carousel"])
+        self.assertEqual(self.runs.get(run.id).input_snapshot_json, frozen)
+
+    def test_task_spec_multiple_skills_keep_selected_order_without_hashing_assets(self):
+        from creatoros.web.topic_library import _skill_usage
+        first, second = self.make_skill("first"), self.make_skill("second")
+        frozen = {"execution_spec": {"skills": [
+            {"skill_id": second["id"]}, {"skill_id": first["id"]}]}}
+        with patch("creatoros.integrations.producer_skills._digest", side_effect=AssertionError("unexpected asset hash")):
+            result = _skill_usage(frozen, self.catalog, {}, source="run")
+        self.assertEqual([item["id"] for item in result["items"]], [second["id"], first["id"]])
+        self.assertEqual([item["version_number"] for item in result["items"]], [1, 1])
+
     def test_two_skill_task_uses_both_original_ids_after_column_changes(self):
         mind = self.make_skill("mind", "mind")
         visual = self.make_skill("visual", "production")

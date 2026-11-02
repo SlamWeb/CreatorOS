@@ -31,6 +31,7 @@ CASES = [
     ("topic_management", ["-m", "unittest", "tests.test_topic_management_http",
                           "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
                           "tests.test_host_tool_contract", "-v"]),
+    ("reference_skill_boundary", ["-m", "unittest", "tests.test_reference_skill_boundary", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),

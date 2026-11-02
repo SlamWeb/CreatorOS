@@ -43,17 +43,6 @@ def reference_routes(database, writes, runs, executor, queries):
         creator = repository.get_creator(series.creator_id) if series.creator_id else None
         if (series.creator_id and (not creator or not creator.is_active)) or (production and not creator):
             raise HTTPException(409, "请先为栏目分配有效账号。")
-        if production:
-            from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
-            from creatoros.integrations.skill_pair import snapshot_pair
-            catalog = ProducerSkillCatalog(skills_root_for(database))
-            try:
-                if series.skill_name:
-                    catalog.resolve(series.skill_name)
-                else:
-                    snapshot_pair(catalog, series.mind_skill_id, series.production_skill_id, native=True)
-            except (ValueError, OSError) as error:
-                raise HTTPException(422, "栏目Skill暂不可用于生产，请先检查配置。") from error
 
     def checked(action):
         try:
@@ -91,6 +80,9 @@ def reference_routes(database, writes, runs, executor, queries):
         origin = request.headers.get("x-creatoros-origin", "web")
         try:
             with runs._write_lock:
+                # Check the same selection as ordinary Run creation before the
+                # reference path commits its Topic and write receipt.
+                runs.preflight_series_image(series_id)
                 writes.pending_operations.execute_direct(
                     "按参考作品与用户要求直接制作，不生成候选。", plan, scope_series_id=series_id,
                     request_id=payload.request_id, origin=origin if origin in {"web", "agent", "cli"} else "web")

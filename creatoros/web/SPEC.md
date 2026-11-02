@@ -1,5 +1,9 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-03 · 选题卡片的实际 Skill
+
+- 选题卡片读取已冻结 Run 的 `execution_spec.skills` 显示实际 Skill 版本；单项制作直接预览时也展示，多个制作任务不合并成误导性的单一版本。旧单 Skill、旧双 Skill 和外部导入仍按原格式显示，不更改快照。
+
 ## 2026-11-01 后台回复Trace编号对齐（隔离验证通过）
 
 - Trace列表及请求正文读取接受有界的不透明回复编号，覆盖普通UUID与plan-摘要；session_id仍为UUID。入口限制字符与长度，实际权限仍由会话requests及该turn的request索引核对。

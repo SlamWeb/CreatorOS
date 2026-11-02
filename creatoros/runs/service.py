@@ -16,7 +16,7 @@ from sqlalchemy import select, update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill, inherit_copy_permissions
-from creatoros.integrations.skill_pair import snapshot_pair, prepare_run_pair, freeze_pair
+from creatoros.integrations.skill_pair import prepare_run_pair, freeze_pair
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -25,6 +25,7 @@ from creatoros.storage import (
     ContentRunEventType,
     ContentRunStatus,
     Database,
+    Series,
     Topic,
     TopicRemoval,
     TopicStatus,
@@ -40,6 +41,7 @@ from .repository import ContentRunRepository
 from .ownership import LocalExecutionGuard
 from .task_contracts import TaskExecutionSpec, TaskMaterial
 from .task_execution import freeze_execution_spec, verify_execution_spec
+from .skill_selection import resolve_image_skills
 
 
 def _serialized(method):
@@ -131,6 +133,16 @@ class ContentRunService:
             topic_id, idempotency_key=idempotency_key, origin_session_id=origin_session_id,
             context_snapshot_ref=context_snapshot_ref, skill_overrides=skill_overrides,
         )
+
+    def preflight_series_image(self, series_id: str) -> None:
+        """Validate the same Skill selection as a normal Run before creating its Topic."""
+        with self.database.session() as session:
+            series = session.get(Series, series_id)
+            if series is None or not series.is_active:
+                raise ContentRunError("栏目不存在或已停用。", code="not_found", status_code=404)
+            if not series.creator_id or series.creator is None or not series.creator.is_active:
+                raise ContentRunError("账号或栏目未启用。")
+            resolve_image_skills(self.database, session, series, protocol=self.production_protocol)
 
     @_serialized
     def restart_fresh(
@@ -295,55 +307,14 @@ class ContentRunService:
                 if latest is not None:
                     raise ContentRunError("该选题已有生产记录；请查看原任务，结束后用从头重做选择新版。",
                                           code="run_exists", run_id=latest.id)
-            pair_fields = {}
             catalog = ProducerSkillCatalog(skills_root_for(self.database))
-            if execution_spec is None and selected is None:
-                from creatoros.storage import SeriesSkillRef
-                from creatoros.integrations.skill_library import SkillLibraryService
-                pool = session.get(SeriesSkillRef, series.id)
-                defaults = (pool.defaults_json or {}).get("image", []) if pool else []
-                if defaults:
-                    library = SkillLibraryService(self.database, catalog)
-                    if any(not library.can_use(series.creator_id, item["skill_id"]) for item in defaults):
-                        raise ContentRunError("栏目默认 Skill 不在当前账号可用库中，请重新选择。", code="scope_conflict", status_code=403)
-                    execution_spec = TaskExecutionSpec(kind="image", skills=[{
-                        **item, "digest": library.describe(item["skill_id"])["digest"]} for item in defaults])
-                elif pool is not None or not any((series.skill_name, series.mind_skill_id, series.production_skill_id)):
-                    raise ContentRunError("请选择本次制作的主 Skill，或先设置栏目图片阶段默认。",
-                                          code="skill_selection_required", status_code=422)
-            if execution_spec is not None:
-                single_id = None
-                pair_fields = {"execution_spec": execution_spec}
+            if execution_spec is None:
+                selection = resolve_image_skills(
+                    self.database, session, series, protocol=self.production_protocol, selected=selected,
+                    topic_source=topic.source.value, catalog=catalog)
+                execution_spec, single_id, pair_fields = selection.execution_spec, selection.single_id, selection.input_fields
             else:
-                single_id = selected.skill_id if selected and selected.skill_id else (
-                    None if selected and (selected.mind_skill_id or selected.production_skill_id) else series.skill_name)
-                catalog = ProducerSkillCatalog(skills_root_for(self.database))
-                if single_id is None:
-                    mind_id = (selected.mind_skill_id if selected else None) or series.mind_skill_id
-                    production_id = (selected.production_skill_id if selected else None) or series.production_skill_id
-                    if not mind_id or not production_id:
-                        raise ContentRunError("双 Skill 制作需要完整的内容与呈现选择。", code="invalid_skill_selection", status_code=422)
-                    try:
-                        pair = snapshot_pair(
-                            catalog,
-                            mind_id,
-                            production_id,
-                            native=self.production_protocol == "native-v1",
-                            selected_digests=selected.expected_digests if selected else None,
-                        )
-                    except ValueError as error:
-                        raise ContentRunError(f"双 Skill 不可用：{error}", code="unsupported_skill_pair") from error
-                    pair_fields = dict(composition=pair, creator_name=creator.display_name,
-                                       creator_platform=creator.platform.value,
-                                       series_revision=series.revision, topic_source=topic.source.value)
-                else:
-                    try:
-                        directory = (catalog.resolve_selected_version(single_id, expected_digest=selected.expected_digests[single_id])
-                                     if selected else catalog.resolve(single_id))
-                        pair_fields = dict(skill_path=str(directory), skill_digest=(
-                            selected.expected_digests[single_id] if selected else _digest(directory)))
-                    except (ValueError, OSError) as error:
-                        raise ContentRunError(str(error), code="invalid_skill") from error
+                single_id, pair_fields = None, {"execution_spec": execution_spec}
             if topic.reference_id:
                 from creatoros.integrations.topic_references import TopicReferenceStore
                 try:

@@ -271,7 +271,7 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
               onClick={() => rememberReturn(topic.id)}>{content}</Link>
           : <button id={`topic-card-${topic.id}`} type="button" className="content-card-main" aria-label={`查看选题 ${topic.title}`}
               onClick={() => openDetail(topic.id)}>{content}</button>}
-        {!(topic.selection_state === "queued" && topic.production_task_count) && <TopicSkills topic={topic} defaultSkills={defaultSkills} />}
+        {(!topic.production_task_count || singleTaskRun) && <TopicSkills topic={topic} defaultSkills={defaultSkills} />}
         <footer className="content-card-footer">
           {pending && !topic.stale && topic.available_actions.includes("prepare_topic_selection") && <input className="content-card-select" type="checkbox"
             aria-label={`选择入队 ${topic.title}`} checked={pendingSelection.includes(topic.id)} disabled={pendingQueue.isPending || batch.isPending}

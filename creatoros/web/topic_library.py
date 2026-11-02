@@ -15,7 +15,9 @@ def _skill_usage(snapshot, catalog, metadata, *, source):
     if snapshot.get("production_protocol") == "external-import":
         return {"source": "external", "items": []}
     composition = snapshot.get("composition") or {}
-    references = ([{"id": snapshot["skill_name"]}] if snapshot.get("skill_name") else
+    execution_skills = (snapshot.get("execution_spec") or {}).get("skills") or []
+    references = ([{"id": item.get("skill_id")} for item in execution_skills] if execution_skills else
+                  [{"id": snapshot["skill_name"]}] if snapshot.get("skill_name") else
                   [composition[role] for role in ("mind", "production") if composition.get(role)])
     items = []
     for reference in references:
