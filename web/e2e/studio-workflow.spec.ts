@@ -290,7 +290,9 @@ test("workspace first use to revision and approval survives refresh", async ({ p
     await page.setViewportSize(viewport);
     for (const route of ["/workspace", "/skills", "/agent"]) {
       await page.goto(route);
-      await expect(page.locator("h1").first()).toBeVisible();
+      // This checks page behavior, not a five-second performance target. Skill
+      // catalog reads were observed to take longer during the full run.
+      await expect(page.locator("h1").first()).toBeVisible({ timeout: 20_000 });
       await expect(page.locator(".studio-shell")).toHaveCSS("background-color", "rgb(255, 255, 255)");
       const overflow = await page.evaluate(() => [...document.querySelectorAll("main *")].filter(el => el.getBoundingClientRect().right > innerWidth + 1).map(el => ({ tag: el.tagName, cls: el.className, right: el.getBoundingClientRect().right })));
       expect(overflow, route).toEqual([]);
