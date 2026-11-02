@@ -1,5 +1,18 @@
 # Reliability Baseline
 
+## 当前 CI 门禁（2026-11-03）
+
+- 后端显式 allowlist 拆为两个不重叠分片；Benchmark 契约、前端类型/构建/本地状态、完整受控浏览器和 Chrome 刷新回归分别执行，不再共用一个 35 分钟任务。浏览器直接使用 `web/e2e-all.mjs --group` 的 general、agent-plan、staged、compact、media 五组，继续拒绝未分类 spec；真实模型探针不加入 CI。
+- 每个任务在安装依赖、加载测试前，将 TEMP/TMP/TMPDIR 设为 `Path.resolve()` 后的工作区 `tmp/ci-<job>`。Windows 的 8.3 短名 TEMP 会与实现返回的规范长路径混用，导致真实相等/relative_to 检查失败；仅修测试运行环境，不修改产品冻结、链接或越界校验。
+- 同步清空模型/发布密钥，隔离 CODEX_HOME、发布 token/staging 路径，将显式外部 API 端点设为不可连接的 loopback `:1` 并禁用 dotenv；这不是网络沙箱，未审查测试仍不能自动执行。
+- 媒体任务安装固定月末 BtbN Windows GPL 构建，验证已固定的上游归档 SHA-256；再实际编码 H264/AAC、调用 ffprobe 核验音视频、尺寸和时长，保存两个可执行文件的版本与 SHA-256。固定源为 2026-10-31 月末构建，上游保留两年，需要在其到期前明确更新；缺失、校验失败或运行失败均不降级为跳过。
+- `tests.reliability_unittest` 保存发现数、执行数、跳过数/理由、失败、错误及预期失败。后端汇总将任何跳过、零测试、缺失计数或未完整执行记为 incomplete，并返回非零；独立 assertion smoke 与 unittest 覆盖分开标注。`--shard 1/2` 的通过只代表该分片，不宣称整个 allowlist 已通过。
+- `node --test web/e2e/benchmark-refresh.test.mjs` 是独立 Chrome + loopback HTTP 门禁，8项要求均执行，缺 Chrome 直接失败；不调用产品服务器、数据库或模型。任务保留本轮 JSON、截图、Trace、日志和媒体预检证据，旧批次与旧评分不改。
+- CI 配置合入不代表远端工作流已通过；本地定向验证与 GitHub runner 的实际执行结果分别交付。
+- 后端和 Benchmark 的显式模块清单共同用于逐模块库存；`python -m tests.run_reliability --inventory` 只读取 `tests/test_*.py` 文件名，不导入、不 discovery 执行。报告列出本次未运行、任何 Python 门禁都未声明及当前 checkout 缺失的模块，不能将 allowlist 或浏览器分组通过写成全仓全量通过。含 8765、真实 SDK 或外部依赖的未审查模块继续不运行，先修为随机端口/独立服务夹具再单独纳入。
+- 已安全审查的8个受控交付模块归为 native_delivery_protocol（动态工具、artifact/file submission、native recovery/assets/thread continuity、graphic contract、structured handoff），组预算600秒；真实SDK事件是受控传输，不调用真实模型。
+- 已隔离验证的6个计划/后台模块归为 plan_workflows，预算600秒。旧 checkout 中 test_agent_plans/test_plan_tool_contract 的硬编码 operational URL 会在子进程启动前被拒绝并保留失败日志；必须合入对应隔离夹具修复后才能运行，不能把拒绝记为通过。
+
 ## 2026-11-01 生图结果恢复小回归
 
 - 显式零付费runner新增image_result_recovery，仅4项本地隔离SDK事件/文件回归，不自动调用模型。与原图片交付相关检查联合54项通过；真实Codex两图另在隔离目录显式执行，不与本地测试混计，不重跑50题或改旧分数。

@@ -2,18 +2,20 @@
 
 Run: python -m tests.run_reliability
 Each test has its own process and timeout. Failures do not skip the remainder.
-Optional audio/video checks use existing ffmpeg/ffprobe on PATH or executable
-paths in CREATOROS_FFMPEG / CREATOROS_FFPROBE; without them codec cases report
-skipped while library, schema, scope and read-only visibility cases still run.
+Requires working ffmpeg/ffprobe on PATH or CREATOROS_FFMPEG / CREATOROS_FFPROBE.
+Missing codecs or skipped unittest cases are never reported as full coverage.
 """
+import argparse
 import json
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
+from tests.ci_environment import verify_media
 
 CASES = [
+    ("reliability_runner", ["-m", "unittest", "tests.test_reliability_runner", "tests.test_ci_environment", "-v"]),
     ("plan_capabilities", ["-m", "unittest", "tests.test_plan_capabilities", "-v"]),
     ("plan_duplicate_steps", ["-m", "unittest", "tests.test_plan_duplicate_steps", "-v"]),
     ("production_observation", ["-m", "unittest", "tests.test_production_observation", "-v"]),
@@ -39,7 +41,7 @@ CASES = [
     ("topic_library_order", ["-m", "unittest", "tests.test_topic_library_order", "tests.test_topic_library_production", "-v"]),
     ("auxiliary_job_queues", ["-m", "unittest", "tests.test_auxiliary_job_queues", "-v"]),
     ("skill_job_queue", ["-m", "unittest", "tests.test_skill_job_queue", "-v"]),
-    ("topic_research_queue", ["-m", "unittest", "tests.test_topic_research_queue", "-v"]),
+    ("topic_research_queue", ["-m", "unittest", "tests.test_topic_research_queue", "tests.test_topic_research_skill_context", "-v"]),
     ("skill_calibration", ["-m", "unittest", "tests.test_skill_calibration", "-v"]),
     ("skill_version_catalog", ["-m", "unittest", "tests.test_skill_versions", "-v"]),
     ("skill_version_lifecycle", ["-m", "unittest", "tests.test_skill_version_service", "-v"]),
@@ -63,6 +65,14 @@ CASES = [
     ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
+    # Controlled transport + real isolated files; reviewed and run without model credentials.
+    ("native_delivery_protocol", ["-m", "unittest", "tests.test_codex_dynamic_tools",
+        "tests.test_artifact_submission", "tests.test_file_delivery", "tests.test_native_delivery_recovery",
+        "tests.test_native_image_assets", "tests.test_native_thread_continuity",
+        "tests.test_graphic_delivery_contract", "tests.test_structured_handoff", "-v"]),
+    ("plan_workflows", ["-m", "unittest", "tests.test_agent_plans", "tests.test_plan_tool_contract",
+        "tests.test_plan_replanning_safety", "tests.test_plan_continuation", "tests.test_background_agent",
+        "tests.test_background_wait", "-v"]),
     *[(name, ["-m", "tests." + name]) for name in (
         "smoke_codex_completed_turn", "smoke_production_progress", "smoke_extraction_activity",
         "smoke_codex_public_events", "smoke_skill_extraction", "smoke_skill_draft_files",
@@ -73,30 +83,126 @@ CASES = [
     )],
 ]
 
+BENCHMARK_CASES = [("benchmark_contracts", ["-m", "unittest", *[
+    "tests." + name for name in (
+        "test_benchmark_metrics_v2", "test_benchmark_grader_v2", "test_benchmark_manifest_v2",
+        "test_benchmark_report_v2", "test_benchmark_server_v2", "test_benchmark_cases_v2",
+        "test_benchmark_capture_v2", "test_benchmark_isolation", "test_benchmark_probes_v2",
+        "test_benchmark_scoring", "test_benchmark_store_v3", "test_benchmark_media_oracles_v3",
+        "test_benchmark_oracle_revision", "test_action_contract", "test_production_contract",
+    )], "-q"])]
 
-def main():
+
+def module_inventory(workspace, selected):
+    def modules(cases):
+        return {arg for _, command in cases for arg in command if arg.startswith("tests.test_")}
+    all_modules = {"tests." + path.stem for path in (Path(workspace) / "tests").glob("test_*.py")}
+    backend, benchmark, current = modules(CASES), modules(BENCHMARK_CASES), modules(selected)
+    return {"all_test_modules": sorted(all_modules), "declared_backend_modules": sorted(backend),
+            "declared_benchmark_modules": sorted(benchmark), "selected_modules": sorted(current),
+            "not_run_in_this_invocation": sorted(all_modules - current),
+            "not_in_any_python_gate": sorted(all_modules - backend - benchmark),
+            "declared_modules_missing_from_checkout": sorted((backend | benchmark) - all_modules),
+            "note": "Inventory reads filenames only; unreviewed modules are never imported or executed."}
+
+
+def select_cases(cases, shard):
+    if shard is None:
+        return list(cases)
+    try:
+        index, total = map(int, shard.split("/"))
+    except (ValueError, AttributeError) as error:
+        raise ValueError("Shard must be index/total") from error
+    if not 1 <= index <= total or total > len(cases):
+        raise ValueError("Shard must select a nonempty part of the allowlist")
+    return list(cases)[index - 1::total]
+
+
+def classify_unittest(returncode, receipt):
+    if returncode != 0:
+        return "failed"
+    required = {"discovered", "run", "skipped", "failures", "errors", "expected_failures", "unexpected_successes"}
+    if not isinstance(receipt, dict) or any(type(receipt.get(key)) is not int or receipt[key] < 0 for key in required):
+        return "incomplete"
+    if receipt["failures"] or receipt["errors"] or receipt["unexpected_successes"]:
+        return "failed"
+    if not receipt["discovered"] or receipt["run"] != receipt["discovered"] or receipt["skipped"] or receipt["expected_failures"]:
+        return "incomplete"
+    return "passed"
+
+
+def reject_operational_plan_fixture(workspace, command):
+    # These two historical modules could dispatch tools to the operational port.
+    # Never execute their old checkout versions before the fixture fix is integrated.
+    for module in {"tests.test_agent_plans", "tests.test_plan_tool_contract"}.intersection(command):
+        source = (Path(workspace) / Path(*module.split("."))).with_suffix(".py")
+        if "http://127.0.0.1:8765" in source.read_text(encoding="utf-8"):
+            raise ValueError(f"Unsafe operational URL in {module}; integrate the isolated plan fixture before running it")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--shard", help="Deterministic nonoverlapping allowlist partition, e.g. 1/2")
+    parser.add_argument("--suite", choices=("backend", "benchmark"), default="backend")
+    parser.add_argument("--inventory", action="store_true", help="Read-only module inventory; no tests or media tools run")
+    args = parser.parse_args(argv)
+    suite = CASES if args.suite == "backend" else BENCHMARK_CASES
+    selected = select_cases(suite, args.shard)
     workspace = Path(__file__).resolve().parents[1]
+    inventory = module_inventory(workspace, selected)
+    if args.inventory:
+        print(json.dumps(inventory, indent=2), flush=True)
+        return 0
     at = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     evidence = workspace / "tmp" / ("reliability-" + at)
     evidence.mkdir(parents=True)
     results = []
-    for name, args in CASES:
+    try:
+        verify_media(evidence / "media")
+    except Exception as error:
+        report = {"paid_calls": False, "all_passed": False, "status": "failed", "results": [],
+                  "preflight_error": f"{type(error).__name__}: {error}", "shard": args.shard,
+                  "unrun_groups": [name for name, _ in selected], "module_inventory": inventory}
+        (evidence / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(json.dumps(report), flush=True)
+        return 1
+    for name, command in selected:
         started = monotonic()
+        receipt_path = evidence / (name + ".unittest.json")
+        is_unittest = command[:2] == ["-m", "unittest"]
+        if is_unittest:
+            command = ["-m", "tests.reliability_unittest", "--result", str(receipt_path), *command[2:]]
+        receipt = None
         # Stream to disk while running: a slow/hung group can be inspected before
         # its deadline, and timeout never discards the last completed test name.
         with (evidence / (name + ".log")).open("wb") as output:
             try:
+                reject_operational_plan_fixture(workspace, command)
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
-                process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
-                status = "passed" if process.returncode == 0 else "failed"
+                if is_unittest:
+                    try:
+                        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        pass
+                    status = classify_unittest(process.returncode, receipt)
+                else:
+                    status = "passed" if process.returncode == 0 else "failed"
             except subprocess.TimeoutExpired:
                 status = "timeout"
-        results.append({"name": name, "status": status, "seconds": round(monotonic() - started, 2)})
+            except ValueError as error:
+                output.write((str(error) + "\n").encode("utf-8"))
+                status = "failed"
+        results.append({"name": name, "status": status, "seconds": round(monotonic() - started, 2),
+                        "coverage_kind": "unittest" if is_unittest else "assertion_script", "unittest": receipt})
         print(json.dumps(results[-1]), flush=True)
-    report = {"paid_calls": False, "all_passed": all(r["status"] == "passed" for r in results), "results": results}
+    report = {"paid_calls": False, "all_passed": bool(results) and all(r["status"] == "passed" for r in results), "results": results,
+              "scope": "full_allowlist" if args.shard is None else "allowlist_shard", "shard": args.shard,
+              "suite": args.suite, "coverage_claim": "selected_allowlist_only", "module_inventory": inventory,
+              "selected_groups": [name for name, _ in selected], "allowlist_groups": len(suite)}
     (evidence / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"report={evidence / 'report.json'}", flush=True)
     return 0 if report["all_passed"] else 1
