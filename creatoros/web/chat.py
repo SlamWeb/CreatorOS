@@ -368,14 +368,19 @@ class AgentChatService:
                                            and e.get('turn_id') == doc['requests'][-1]['id']), None)
                             if answer is not None:
                                 answer['terminal'] = True
-                        self._repair(doc["id"])
+                        try:
+                            self._repair(doc["id"])
+                        except (OSError, ValueError, TypeError, KeyError):
+                            import logging
+                            logging.getLogger(__name__).exception("对话历史检查失败，已保留原文件")
+                            doc["error"] = "对话历史暂不可读取或格式异常；原文件保留，请先检查。"
                         self._save(doc)
                 finally:
                     guard.release()
 
     def _repair(self, session_id):
         path = self._path(session_id).with_name("messages.json")
-        messages = load_messages(path)
+        messages = load_messages(path, require_existing=True)
         pending = {}
         for message in messages:
             for call in message.get("tool_calls", []):
@@ -883,6 +888,7 @@ class AgentChatService:
 
     def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None, before_continuation_output=None):
         status, error = "idle", None
+        history_read_failed = False
         continuation = next((item for item in doc["requests"] if item["id"] == request_id), None) if host_observation else None
         if continuation is not None:
             def update_attempt(**fields):
@@ -892,7 +898,7 @@ class AgentChatService:
             provider = ContinuationProvider(provider, continuation, update_attempt, before_continuation_output)
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
-            messages = load_messages(session_file)
+            messages = load_messages(session_file, require_existing=True)
             instructions = new_messages()[0]["content"] + "\n\n" + self._instructions(doc)
             if iteration_mode:
                 instructions += ("\n宿主确认：本条用户请求开启RSI，仅授权对其明确目标进行最多3轮候选试产；"
@@ -929,7 +935,7 @@ class AgentChatService:
                       user_attachments=attachments,
                       host_observation=host_observation,
                       **({"request_context": focus, "user_context_ref": context_target} if focus else {}),
-                      session_file=session_file,
+                      session_file=session_file, require_existing_session=True,
                       user_request_id=request_id, capture_request_trace=True,
                       runtime_context=ChatRuntimeContext(project_root=PROJECT_ROOT, studio_url=studio_url,
                                                      allowed_tools=permitted_tools,
@@ -957,7 +963,8 @@ class AgentChatService:
             status = "failed"
             error = ("选中的作品资料不可读取或归属已变化，请返回选题重新选择；未自动重试或生产。" if context_target
                      else "图片附件不可读取，请重新上传原图后再发送；未自动重试。")
-        except Exception:
+        except Exception as caught:
+            history_read_failed = bool(getattr(caught, "creatoros_history_read_error", False))
             import logging
             logging.getLogger(__name__).exception("Agent 请求未完整结束")
             status, error = "failed", "Agent 请求未完整结束。请先查看已有任务，再决定下一步；未自动重试。"
@@ -976,7 +983,20 @@ class AgentChatService:
                             error = "计划续接在收到首次模型输出前连接失败，未执行工具；30秒后在同一请求内有限重试。"
                         elif outcome == "unknown":
                             error = "计划续接未完整结束，已有输出或执行结果可能生效；需核对原任务，不自动重放。"
-                    self._repair(doc["id"])
+                    if not history_read_failed:
+                        try:
+                            self._repair(doc["id"])
+                        except (OSError, ValueError, TypeError, KeyError):
+                            import logging
+                            logging.getLogger(__name__).exception("对话历史检查失败，已保留原文件")
+                            history_read_failed = True
+                    if history_read_failed:
+                        # Do not attempt to repair a ledger that just failed to
+                        # load or acknowledge a continuation without a ledger.
+                        status, error = "failed", "对话历史暂不可读取或格式异常；原文件保留，请先检查。"
+                        if continuation is not None:
+                            continuation["continuation_outcome"] = (
+                                "unknown" if continuation.get("continuation_stage") == "output_seen" else "failed")
                     doc.update(status=status, error=error, version=doc["version"] + 1)
                     if doc['requests'] and doc['requests'][-1]['id'] == request_id:
                         doc['requests'][-1]['status'] = status

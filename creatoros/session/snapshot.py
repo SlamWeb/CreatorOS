@@ -7,23 +7,27 @@ def new_messages():
     return [{"role": "system", "content": SYSTEM_PROMPT}]
 
 
-def load_messages(session_file=None):
+def load_messages(session_file=None, *, require_existing=False):
     path = session_file or SESSION_FILE
-    if not path.exists():
-        return new_messages()
-
     try:
-        messages = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(messages, list) or not all(
-            isinstance(message, dict) for message in messages
-        ):
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            if require_existing:
+                raise
+            return new_messages()
+        # An unreadable or malformed existing file is not an empty conversation.
+        messages = json.loads(contents)
+        if not isinstance(messages, list) or not all(isinstance(message, dict) for message in messages):
             raise ValueError("会话文件必须是消息对象列表。")
         if not messages or messages[0].get("role") != "system":
             messages.insert(0, new_messages()[0])
         return messages
-    except (OSError, ValueError, json.JSONDecodeError):
-        print("[Session] 会话文件无效，将从新会话开始。")
-        return new_messages()
+    except (OSError, ValueError) as error:
+        # Keep the original exception while allowing the Web host to avoid
+        # automatically repairing a ledger that it just failed to read.
+        error.creatoros_history_read_error = True
+        raise
 
 
 def save_messages(messages, session_file=None):
