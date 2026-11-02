@@ -1,9 +1,16 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 async function create(request: APIRequestContext, path: string, data: object) {
   const response = await request.post(path, { data });
   expect(response.ok(), await response.text()).toBeTruthy();
   return response.json();
+}
+
+async function openSettings(page: Page) {
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "栏目设置", exact: true });
+  await expect(drawer).toBeVisible();
+  return drawer;
 }
 
 async function workspaceFixture(request: APIRequestContext, topicCount = 0, includePair = false) {
@@ -70,11 +77,12 @@ test("workspace tree keeps empty columns manageable, Skill links inspect real fi
 test("empty columns delete immediately; nonempty columns require the stated confirmation and retain their topics", async ({ page, request }) => {
   const data = await workspaceFixture(request, 1);
   await page.goto(`/?creator=${data.account.id}&series=${data.empty.id}`);
+  const emptySettings = await openSettings(page);
   let confirmCalls = 0;
   const autoAccept = (dialog: import("@playwright/test").Dialog) => { confirmCalls++; void dialog.accept(); };
   page.on("dialog", autoAccept);
   const emptyDelete = page.waitForResponse(response => response.request().method() === "DELETE" && response.url().endsWith(`/api/series/${data.empty.id}`));
-  await page.getByRole("button", { name: `删除栏目 ${data.empty.name}` }).click();
+  await emptySettings.getByRole("button", { name: `删除栏目 ${data.empty.name}` }).click();
   const emptyResponse = await emptyDelete;
   expect(emptyResponse.ok()).toBeTruthy();
   expect(confirmCalls).toBe(0);
@@ -82,17 +90,20 @@ test("empty columns delete immediately; nonempty columns require the stated conf
   await expect(page.locator(".workspace-rail").getByRole("button", { name: data.empty.name })).toHaveCount(0);
 
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  const settings = await openSettings(page);
   let confirmationText = "";
   page.once("dialog", async dialog => { confirmationText = dialog.message(); await dialog.dismiss(); });
-  await page.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
+  await settings.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
   expect(confirmationText).toBe("从工作区移除，保留选题、图片与记录");
+  await settings.getByRole("button", { name: "关闭栏目设置", exact: true }).click();
   await expect(page.getByRole("heading", { name: "长栏目滚动验收选题 1" })).toBeVisible();
   expect((await request.get(`/api/series/${data.series.id}/topics`).then(response => response.json())).items)
     .toEqual(expect.arrayContaining([expect.objectContaining({ id: data.topicIds[0] })]));
 
   page.once("dialog", dialog => { void dialog.accept(); });
+  await openSettings(page);
   const archived = page.waitForResponse(response => response.request().method() === "DELETE" && response.url().endsWith(`/api/series/${data.series.id}`));
-  await page.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
+  await settings.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
   const archivedResponse = await archived;
   const result = await archivedResponse.json();
   expect(result.status).toBe("archived");
@@ -104,15 +115,17 @@ test("empty columns delete immediately; nonempty columns require the stated conf
 test("delete conflicts remain visible and do not trigger cancel or other writes", async ({ page, request }) => {
   const data = await workspaceFixture(request, 1);
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  const settings = await openSettings(page);
   const writes: string[] = [];
   page.on("request", event => { if (event.method() !== "GET") writes.push(new URL(event.url()).pathname); });
   await page.route(`**/api/series/${data.series.id}`, route => route.request().method() === "DELETE"
     ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { message: "栏目仍有后台任务，稍后重试。" } }) })
     : route.continue());
   page.once("dialog", dialog => { void dialog.accept(); });
-  await page.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
-  await expect(page.getByRole("alert")).toContainText("栏目仍有后台任务");
+  await settings.getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
+  await expect(settings.getByRole("alert")).toContainText("栏目仍有后台任务");
   expect(writes).toEqual([`/api/series/${data.series.id}`]);
+  await settings.getByRole("button", { name: "关闭栏目设置", exact: true }).click();
   await expect(page.getByRole("heading", { name: "长栏目滚动验收选题 1" })).toBeVisible();
   await page.locator(".rail-series").filter({ hasText: data.empty.name }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -120,7 +133,9 @@ test("delete conflicts remain visible and do not trigger cancel or other writes"
 
 test("a delayed deletion cannot clear the newly selected series", async ({ page, request }) => {
   const data = await workspaceFixture(request);
-  await page.goto(`/?creator=${data.account.id}&series=${data.empty.id}`);
+  await page.goto(`/?creator=${data.account.id}`);
+  await page.locator(".rail-series").filter({ hasText: data.empty.name }).click();
+  const settings = await openSettings(page);
   let release!: () => void;
   const barrier = new Promise<void>(resolve => { release = resolve; });
   await page.route(`**/api/series/${data.empty.id}`, async route => {
@@ -130,8 +145,12 @@ test("a delayed deletion cannot clear the newly selected series", async ({ page,
   const sent = page.waitForRequest(event => event.method() === "DELETE" && event.url().endsWith(`/api/series/${data.empty.id}`));
   const completed = page.waitForResponse(response => response.request().method() === "DELETE"
     && response.url().endsWith(`/api/series/${data.empty.id}`));
-  await page.getByRole("button", { name: `删除栏目 ${data.empty.name}` }).click();
+  await settings.getByRole("button", { name: `删除栏目 ${data.empty.name}` }).click();
   await sent;
+  // The pending modal intentionally disables closing. Browser Back leaves the
+  // column without cancelling its write, then the rail selects the next one.
+  await page.goBack();
+  await expect(page).toHaveURL(url => !url.searchParams.has("series"));
   await page.locator(".rail-series").filter({ hasText: data.series.name }).click();
   release();
   expect((await completed).status()).toBe(200);
@@ -142,6 +161,15 @@ test("a delayed deletion cannot clear the newly selected series", async ({ page,
 
 test("isolated API rejects deleting an actively producing series without cancelling its run", async ({ request }) => {
   const data = await workspaceFixture(request, 1);
+  await create(request, `/api/creators/${data.account.id}/skills`, {
+    skill_id: "knowledge-to-carousel", request_id: crypto.randomUUID(),
+  });
+  const pool = await request.get(`/api/series/${data.series.id}/skills`).then(response => response.json());
+  const configured = await request.put(`/api/series/${data.series.id}/skills`, { data: {
+    expected_version: pool.version, skill_ids: ["knowledge-to-carousel"],
+    defaults: { image: [{ skill_id: "knowledge-to-carousel", role: "primary" }], video: [] },
+  } });
+  expect(configured.ok(), await configured.text()).toBeTruthy();
   const run = await create(request, "/api/runs", { topic_id: data.topicIds[0] });
   const started = await request.post(`/api/runs/${run.id}/execute`, { data: { expected_version: run.version } });
   expect(started.status()).toBe(202);

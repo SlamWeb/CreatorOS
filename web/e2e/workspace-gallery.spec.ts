@@ -1,4 +1,12 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+async function switchAccount(page: Page, name: string) {
+  await page.getByRole("button", { name: "切换账号", exact: true }).click();
+  const switcher = page.getByRole("dialog", { name: "切换账号", exact: true });
+  await switcher.getByLabel("搜索账号", { exact: true }).fill(name);
+  await switcher.getByRole("button", { name: `切换到账号 ${name}`, exact: true }).click();
+  await expect(switcher).toBeHidden();
+}
 
 async function fixture(request: APIRequestContext) {
   const create = async (url: string, data: object) => {
@@ -10,6 +18,15 @@ async function fixture(request: APIRequestContext) {
   const account = await create("/api/creators", { display_name: `内容流验收甲 ${suffix}` });
   const other = await create("/api/creators", { display_name: `内容流验收乙 ${suffix}` });
   const series = await create(`/api/creators/${account.id}/series`, { name: "有图与草稿" });
+  // New columns start without a production default. Configure the current
+  // account-library/series-stage contract before asking E2EProducer for images.
+  await create(`/api/creators/${account.id}/skills`, { skill_id: "knowledge-to-carousel", request_id: crypto.randomUUID() });
+  const pool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
+  const configured = await request.put(`/api/series/${series.id}/skills`, { data: {
+    expected_version: pool.version, skill_ids: ["knowledge-to-carousel"],
+    defaults: { image: [{ skill_id: "knowledge-to-carousel", role: "primary" }], video: [] },
+  } });
+  expect(configured.ok(), await configured.text()).toBeTruthy();
   const second = await create(`/api/creators/${account.id}/series`, { name: "同账号第二栏目" });
   const external = await create(`/api/creators/${other.id}/series`, { name: "另一个账号的栏目" });
   const topics = await create(`/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [
@@ -38,8 +55,19 @@ test("account gallery uses validated covers; detail return preserves filter and 
     if (url.pathname.endsWith("/topic-library")) reads.library++;
   });
   await page.goto(`/?creator=${data.account.id}&topics=queued`);
-  await expect(page.locator(".content-card")).toHaveCount(3);
+  const columns = page.getByRole("region", { name: "栏目", exact: true });
+  await expect(columns.getByRole("button")).toHaveCount(2);
+  await expect(columns).toContainText("同账号第二栏目");
+  const recent = page.getByRole("region", { name: "近期作品", exact: true });
+  await expect(recent.getByRole("img")).toHaveCount(1);
+  await expect(recent).not.toContainText("还没有生产的文字草稿");
   await expect(page.locator(".workspace-main").getByText("乙账号私有选题")).toHaveCount(0);
+  await columns.getByRole("button", { name: "进入栏目 有图与草稿", exact: true }).click();
+  // The account overview no longer renders a combined topic gallery. Exercise
+  // the current column gallery with an explicit durable filter for return links.
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=queued`);
+  const returnUrl = new URL(page.url()).pathname + new URL(page.url()).search;
+  await expect(page.locator(".content-card")).toHaveCount(2);
   const produced = page.getByTestId(`library-${data.topicIds[0]}`);
   const cover = produced.getByRole("img");
   await expect(cover).toBeVisible();
@@ -64,7 +92,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await page.getByRole("button", { name: "技术记录", exact: true }).click();
   await expect(page.getByText("文件检查通过", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "返回栏目", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued`));
+  await expect(page).toHaveURL(url => url.pathname + url.search === returnUrl);
   await expect(page.locator(`#topic-card-${data.topicIds[0]}`)).toBeFocused();
   await page.reload();
   await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
@@ -72,11 +100,15 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await produced.getByRole("button", {name:"详情与编辑"}).click();
   await page.getByRole("link", {name:"查看内容与生产记录"}).click();
   await page.getByRole("link", {name:"返回栏目", exact:true}).click();
-  await expect(page).toHaveURL(new RegExp(`creator=${data.account.id}&topics=queued$`));
+  await expect(page).toHaveURL(url => url.pathname + url.search === returnUrl);
   await expect(page.getByRole("dialog", {name:"选题详情"})).toHaveCount(0);
   await expect(page.locator(`#topic-card-${data.topicIds[0]}`)).toBeFocused();
   expect(writes).toEqual([]);
 
+  await page.locator(".rail-series").filter({ hasText: "同账号第二栏目" }).click();
+  await expect(page.locator(".content-card")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "同账号另一个选题" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "已经完成的真实文件卡片" })).toHaveCount(0);
   await page.locator(".rail-series").filter({ hasText: "有图与草稿" }).click();
   await expect(page.locator(".content-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "同账号另一个选题" })).toHaveCount(0);
@@ -123,6 +155,7 @@ test("explicit assignment follows the confirmed owner and does not reuse another
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   await page.getByRole("combobox", { name: "归属账号" }).selectOption(data.other.id);
   await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(data.other.id);
+  await expect(page.getByRole("dialog", { name: "栏目设置", exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "同账号第二栏目", level: 1 })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
   const stored = await request.get(`/api/series/${data.second.id}`).then(r => r.json());
@@ -208,12 +241,14 @@ test("topic focus stays with its account and rejected draft, and can be removed 
   await draft.getByRole("button", { name: "与 Agent 讨论" }).click();
   await expect(focus).toContainText("已经完成的真实文件卡片");
   await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("已经完成的图需要简化背景");
-  await page.getByRole("button", { name: `查看账号 ${data.other.display_name}` }).click();
+  await switchAccount(page, data.other.display_name);
   await expect(panel.getByRole("heading", { name: data.other.display_name, exact: true })).toBeVisible();
   await expect(focus).toHaveCount(0);
   await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
-  await page.getByRole("button", { name: `查看账号 ${data.account.display_name}` }).click();
+  await switchAccount(page, data.account.display_name);
   await expect(focus).toContainText("已经完成的真实文件卡片");
+  await page.getByRole("navigation", { name: "当前账号的栏目", exact: true })
+    .getByRole("button", { name: data.series.name, exact: true }).click();
   await page.screenshot({ path: info.outputPath("topic-focus-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(panel.getByRole("button", { name: "移除选题焦点" })).toBeVisible();
@@ -227,7 +262,10 @@ test("topic focus stays with its account and rejected draft, and can be removed 
   await page.setViewportSize({ width: 1440, height: 900 });
   await panel.getByRole("button", { name: "关闭账号对话" }).click();
   await produced.locator("summary").click();
+  let replacementConfirmation = "";
+  page.once("dialog", dialog => { replacementConfirmation = dialog.message(); void dialog.accept(); });
   await produced.getByRole("button", { name: "与 Agent 讨论" }).click();
+  expect(replacementConfirmation).toBe("输入框已有未发送的文字。替换为本次请求？取消会保留原草稿。");
   await expect(focus).toBeVisible();
   await panel.getByRole("button", { name: "新对话", exact: true }).click();
   await expect(focus).toHaveCount(0);
