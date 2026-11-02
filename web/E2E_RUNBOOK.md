@@ -1,5 +1,29 @@
 # 浏览器回归入口
 
+## Skill 六图换两图的独立真实评测
+
+`web/media-agent-tests/skill-edit-batch.spec.ts` 只由专属配置发现，不再混入旧素材集 Agent 配置。入口每次创建当前工作树 `tmp/skill-edit-batch-*` 下的新数据库、两个随机 ID 账号、两个 Skill、六张不同旧 PNG、两张新 PNG、独立 Vite 构建、系统分配的非 8765 端口、聊天和浏览器结果。它不读取历史账号、图片或 Skill，也不启动生产/发布/研究消费者；live 模式只启账号聊天，使用真实 DeepSeek，Codex 和其他外部执行器被禁用。这不是操作系统网络沙箱。
+
+在当前工作树根目录的 PowerShell 中先做不调用模型的准备检查：
+
+```powershell
+$env:CREATOROS_PYTHON = 'D:\Anaconda4.7g\envs\deepcode\python.exe'
+npm --prefix web run e2e:skill-edit-live -- --prepare-only
+```
+
+准备只证明隔离库和夹具可建立；`summary.json` 为 `prepared_not_run`、通过数为零，不启动浏览器或付费请求。真实执行需要已在环境变量中配置 `DEEPSEEK_API_KEY`，并显式打开 live：
+
+```powershell
+$env:CREATOROS_SKILL_EDIT_LIVE = '1'
+npm --prefix web run e2e:skill-edit-live -- --live
+```
+
+live 会另建一套全新环境，不复用准备目录。测试在任何会话/上传/发送写入前，向专属服务取得独占 claim，服务用 `execution-started.json` 排他落盘；会话创建和唯一用户 turn 另有排他标记。失败、超时或响应丢失都不移除标记、不重发、不重试 Playwright。已有浏览器 owner、结果或服务目录均拒绝复用，不能通过改输出目录重跑同一账号。先检查 `summary.json`、`server/chats`、`server/*-started.json`、`frontend-batch-*.json` 与 `playwright.json`；另一套全新目录意味着新实验，不是对未知结果的自动恢复。
+
+成功断言保留一次批量工具调用、仅一个候选、两张新图字节和 Markdown 引用、六旧图移除、原 Skill 正文/图片摘要、栏目归属及零 Run/禁止调用不变；刷新仍保留原回复。不用本地受控测试代替真实模型成绩。原 `tests.live_skill_assets_server` 仍是旧手动探针，本入口不调用它或其固定默认数据。
+
+## 受控全量回归
+
 在仓库根目录的 PowerShell 中设置项目 Python，并运行受控全量回归：
 
 ```powershell

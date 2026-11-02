@@ -4,17 +4,34 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 test("real DS replaces six references and Markdown in one Skill edit batch", async ({ page, request }) => {
-  const root = path.resolve(process.env.CREATOROS_MEDIA_AGENT_ROOT!);
+  if (process.env.CREATOROS_SKILL_EDIT_LIVE !== "1" || !process.env.CREATOROS_SKILL_EDIT_ROOT) {
+    throw new Error("Use the explicit fresh-only skill-edit-batch-live.mjs entrypoint");
+  }
+  const root = path.resolve(process.env.CREATOROS_SKILL_EDIT_ROOT);
+  const plan = JSON.parse(readFileSync(path.join(root, "run.json"), "utf8"));
   const before = await request.get("/api/skill-assets-probe/evidence").then(r => r.json());
+  expect(before.setup.fixture_id).toBe(plan.fixture_id);
+  expect(before.setup.root).toBe(plan.server);
+  expect(before.setup.live_models).toBe(true);
+  expect(before.workers_started).toBe(false);
+  expect(before.chat_started).toBe(true);
   expect(before.setup.old_reference_count).toBe(6);
   const originalId = before.setup.skill_ids["asset-live-main"];
   const filesUrl = (id: string) => `/api/producer-skills/${id}/files`;
   const original = await request.get(filesUrl(originalId)).then(r => r.json());
+  expect(original.files.filter((item: { kind: string }) => item.kind === "image")).toHaveLength(6);
   const images = before.setup.input_pngs.map((item: { path: string }) => item.path);
-  await page.goto("/?creator=skill-assets-a&series=skill-assets-series-a");
+  // The server writes this exclusive marker before any session, upload or turn
+  // mutation. It refuses a second claim even if the first result is unknown.
+  const claim = await request.post("/test/skill-edit-batch/claim");
+  expect(claim.status(), await claim.text()).toBe(201);
+  expect((await claim.json()).fixture_id).toBe(plan.fixture_id);
+  await page.goto(`/?creator=${before.setup.creator_a}&series=${before.setup.series_a}`);
   await page.getByRole("button", { name: "打开账号对话", exact: true }).click();
   const panel = page.locator(".account-chat-panel");
-  await panel.locator('input[type=file][aria-label="选择图片文件"]').setInputFiles(images);
+  const picker = panel.locator('input[type=file][aria-label="选择图片文件"]');
+  await expect(picker).toBeEnabled();
+  await picker.setInputFiles(images);
   await expect(panel.locator('.chat-images[aria-label="待发送图片"] img')).toHaveCount(2);
   const query = "把这两张作为「参考图栏目」的 asset-live-main Skill 新参考图，分别存成assets/new-one.png和assets/new-two.png。删掉原来的六张reference-01.png到reference-06.png，SKILL.md里的旧引用一起换成这两张，其他规则原样保留。保存候选即可，不切栏目、不入新选题、不生产。";
   await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill(query);
@@ -26,7 +43,7 @@ test("real DS replaces six references and Markdown in one Skill edit batch", asy
   await expect.poll(async () => (await request.get(`/api/agent/sessions/${accepted.id}`).then(r => r.json())).status,
     { timeout: 180_000 }).toBe("idle");
   const view = await request.get(`/api/agent/sessions/${accepted.id}`).then(r => r.json());
-  writeFileSync(path.join(root, "frontend-batch-result.json"), JSON.stringify({ query, ...view }, null, 2));
+  writeFileSync(path.join(root, "frontend-batch-result.json"), JSON.stringify({ query, ...view }, null, 2), { flag: "wx" });
   expect(view.error).toBeNull();
   const calls = view.entries.filter((item: { kind: string }) => item.kind === "tool");
   expect(calls.every((item: { status: string }) => item.status === "done")).toBe(true);
@@ -43,6 +60,7 @@ test("real DS replaces six references and Markdown in one Skill edit batch", asy
   expect(text.content).toContain("assets/new-one.png");
   expect(text.content).toContain("assets/new-two.png");
   expect(text.content).not.toMatch(/reference-0[1-6]\.png/);
+  expect(text.content).toContain("保留规则：只保存候选，不生产、不发布。");
   for (const [index, name] of ["new-one.png", "new-two.png"].entries()) {
     const image = await request.get(`/api/producer-skills/${candidate.id}/files/content?path=assets/${name}`);
     expect(image.ok()).toBe(true);
@@ -54,7 +72,7 @@ test("real DS replaces six references and Markdown in one Skill edit batch", asy
   expect(after.runs_count).toBe(0);
   expect(after.forbidden_calls).toEqual([]);
   for (const file of before.files) expect(after.files).toContainEqual(file);
-  writeFileSync(path.join(root, "frontend-batch-evidence.json"), JSON.stringify({ original, candidate, afterFiles, before, after }, null, 2));
+  writeFileSync(path.join(root, "frontend-batch-evidence.json"), JSON.stringify({ original, candidate, afterFiles, before, after }, null, 2), { flag: "wx" });
   await expect(panel.locator(".chat-reply-actions")).toHaveCount(1);
   await page.reload();
   await expect(page.locator(".account-chat-panel .chat-reply-actions")).toHaveCount(1);
