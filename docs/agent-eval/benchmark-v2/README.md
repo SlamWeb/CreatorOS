@@ -1,25 +1,29 @@
-# 运行 Trace Benchmark v2
+# 运行当前50题 Agent Benchmark
 
-题集见 [cases.json](cases.json)，方法见 [METHODOLOGY.md](METHODOLOGY.md)，历史扫描边界见 [TRACE_COVERAGE.md](TRACE_COVERAGE.md)。
+唯一现行题目为 [cases.json](cases.json)（creatoros-trace-benchmark-v3-20261102），逐题意图、预期结果和程序/语义规则见 [CASE_STANDARDS.md](CASE_STANDARDS.md)，现行契约见 [SPEC](SPEC.md)。
 
-从仓库根目录，用已安装产品依赖的Python执行。凭证从本地环境或忽略的`.env`加载；下面的`run`会真实消耗DeepSeek及Codex额度。
+每题有自己的程序检查和语义问题，不统一凑条数。两类分数分开；集合按题分别取均值，暂不设综合权重。未知结果留null并报覆盖率，关键错误独立阻止通过。工具Schema、Token/缓存/延迟和成本单列诊断。
+
+## 真实运行（会消耗额度）
+
+从仓库根目录，用已安装产品依赖的Python执行；凭证从环境或忽略的.env读取。
 
 ```powershell
-python -m creatoros.evaluation.benchmark.run freeze --batch pilot-001 --cases B01
-python -m creatoros.evaluation.benchmark.run run --batch pilot-001 --workers 1
-python -m creatoros.evaluation.benchmark.run freeze --batch baseline-001
-python -m creatoros.evaluation.benchmark.run run --batch baseline-001 --workers 3
-python -m creatoros.evaluation.benchmark.run report --batch baseline-001
+python -m creatoros.evaluation.benchmark.run freeze --batch rubric-v3-pilot --cases B11
+python -m creatoros.evaluation.benchmark.run run --batch rubric-v3-pilot --workers 1
+python -m creatoros.evaluation.benchmark.run freeze --batch rubric-v3-baseline
+python -m creatoros.evaluation.benchmark.run run --batch rubric-v3-baseline --workers 3
 ```
 
-每批产出在`data/agent-benchmark-v2/<batch>/`，目录被Git忽略。`manifest.json`及源码ZIP锁定运行输入，`RESULTS.md`与`summary.json`汇总固定分母，各`records/<run>/`保留浏览器截图、query/最终回答、SQL前后记录、工具参数与结果、真实模型请求和费用估算。
+运行前先冻结全部定义、所选题、产品/判分源码与配置。每批每题仅首尝试，不择优；变化后另建批次。数据在data/agent-benchmark-v2/<batch>/；summary.json和RESULTS.md/RESULTS-LOCAL.md含逐题分数、原始证据入口及成本。没有重复独立trial时不计算pass^k。
 
-Codex桌面中优先打开`RESULTS-LOCAL.md`：它用本机绝对路径链接逐题证据。`RESULTS.md`保留相对路径用于整体目录移动；两份展示同一组分数。
+每题独立进程、磁盘SQLite、会话和文件目录，从真实前端发送；真实DeepSeek，必要时真实Codex。测试世界封存供审计，不靠生产库外层事务回滚；费用和SDK全局日志不能回滚。正式服务不参与启动、重启或清理。
 
-同批同题不重跑、不择优。源码变化时停止该冻结版本；修复后新建批次。旧批不覆盖。业务结果、轨迹和语义Judge分开展示，缺证据为待复核，不能算通过。
+## 查看与回归
 
-隔离依靠每题独立磁盘库与目录，不依靠异步任务外层事务回滚。结束后关掉本题进程并封存隔离库和产物以便复查；不会回滚外部模型费用或删除SDK自己的会话日志。正式服务和旧任务不参与启动、重启或清理。
+- /eval只读当前50题和已保存批次；新协议每题可展开程序/语义逐项依据。历史批按自己的冻结定义和原分展示，不自动重判；旧批未保存新分数时明确缺失。
+- 组件回归：python -m unittest tests.test_benchmark_cases_v2 tests.test_benchmark_scoring tests.test_benchmark_media_oracles_v3 tests.test_benchmark_manifest_v2 tests.test_benchmark_report_v2 tests.test_benchmark_store_v3
+- CI只做无付费模型的组件/HTTP/受控浏览器检查；真实50题Live另行显式运行。
+- 本轮验证见 [VERIFICATION-20261102.md](VERIFICATION-20261102.md)。没有按新标准运行的成绩，不冒称完成新基线。
 
-当前结果见 [ROUND-002.md](ROUND-002.md)，首轮原始失败见 [ROUND-001.md](ROUND-001.md)。各批保存自己的`frozen-cases.json`，新版定义不会用于重算旧批。`isolation.json`记录本题服务已停止，隔离世界留作复查。
-
-自动CI只跑76项无模型/媒体依赖的契约测试，不偷偷消耗API或Codex额度；本机另跑2项真实HTTP/媒体夹具，共78项。真实模型的50题是单独的Live benchmark，报告同时列程序断言、未人工校准的语义Judge与联合结果，三者不能互称。
+历史真实批次见ROUND-001/002/003-FOUR；旧12/20题规范已退役，历史文档在../archive，不是现行标准。方法来源见METHODOLOGY.md，Trace扫描边界见TRACE_COVERAGE.md。

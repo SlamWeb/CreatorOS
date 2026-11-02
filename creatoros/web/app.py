@@ -109,7 +109,7 @@ from .worker_tasks import worker_task_routes
 from .observation import ObservationService
 from .observation_routes import observation_routes
 from .eval_routes import eval_routes
-from creatoros.evaluation.store import EvalStore
+from creatoros.evaluation.benchmark.store import BenchmarkStore
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
 
@@ -262,7 +262,7 @@ def create_app(
     feedback.start_gate = lambda: not (getattr(app.state, "maintenance", None)
                                       and app.state.maintenance.held)
     app.state.observation = observations
-    app.state.evaluation = EvalStore(eval_root, cases_path=eval_cases_path)
+    app.state.evaluation = BenchmarkStore(eval_root, cases_path=eval_cases_path)
     app.include_router(eval_routes(app.state.evaluation))
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))

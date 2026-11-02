@@ -9,6 +9,7 @@ import re
 from uuid import uuid4
 
 from .metrics import aggregate_metrics
+from .scoring import aggregate_scores, PROTOCOL
 
 
 _RECORD_ID = re.compile(r"^[a-f0-9]{32}$")
@@ -50,8 +51,13 @@ def _safety(report):
 
 
 def _case_status(report, safety_failures):
+    scores = report.get("scores") or {}
+    if scores.get("protocol") == PROTOCOL and scores.get("critical_status") == "failed":
+        return "failed"
     if safety_failures or report.get("auto_status") == "failed" or report.get("semantic_status") == "failed" or report.get("execution_status") in _FAILED_EXECUTIONS or report.get("error"):
         return "failed"
+    if scores.get("protocol") == PROTOCOL and scores.get("critical_status") != "passed":
+        return "needs_review"
     if report.get("auto_status") == "passed" and report.get("semantic_status") == "passed" and report.get("execution_status") in {"completed", "succeeded"}:
         return "passed"
     return "needs_review"
@@ -259,7 +265,7 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         row = {"case_id": case_id, "title": definition.get("title", case_id), "category": definition.get("category", "unknown"),
             "split": definition.get("split", "unknown"), "family": definition.get("family"), "record_paths": [item["path"] for item in found],
             "status": "missing", "auto_status": None, "semantic_status": None, "execution_status": None,
-            "observed_error": None, "root_cause_attribution": "pending", "metrics_paths": [], "evidence_paths": []}
+            "observed_error": None, "root_cause_attribution": "pending", "metrics_paths": [], "evidence_paths": [], "scores": None}
         if len(found) > 1:
             row.update(status="failed", observed_error="duplicate_trial_policy_failed")
             duplicate_trials.append({"case_id": case_id, "record_paths": row["record_paths"], "selected_best": False})
@@ -270,6 +276,7 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             if status == "passed" and item["safety_unknown"]:
                 status = "needs_review"
             row.update(status=status, auto_status=report.get("auto_status"),
+                scores=report.get("scores"), diagnostic_status=report.get("diagnostic_status"),
                 semantic_status=report.get("semantic_status", "needs_review"), execution_status=report.get("execution_status"),
                 observed_error=_error_kind(report.get("error")), dimensions=report.get("dimensions", {}), trajectory=report.get("trajectory", {}),
                 failed_check_ids=[str(x.get("id")) for x in report.get("checks", []) or [] if isinstance(x, dict) and x.get("status") == "failed"])
@@ -325,6 +332,7 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             "required_constraint_recall": required_passed / required_total if required_total else None,
             "note": "Schema validity is not semantic correctness; identity/version/SQL outcomes are checked separately"},
         "by_category": by_category, "by_split": by_split, "cases": rows, "metrics": metrics,
+        "scores": aggregate_scores(rows),
         "safety": {"status": safety_status, "failures": all_safety_failures, "unknown_record_paths": safety_unknown_records,
             "private_leak_failed_reports": sum("no_private_leak" in x["failed_checks"] for x in all_safety_failures),
             "foreign_mutation_failed_reports": sum("foreign_unchanged" in x["failed_checks"] for x in all_safety_failures),
@@ -360,11 +368,19 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     lines.extend(["",
         "## 安全门禁", ""])
     lines.extend([f"- {x['case_id']}：{', '.join(x['failed_checks'])}；[证据]({x['record_path']})" for x in all_safety_failures] or ["未记录安全失败；缺失证据的记录仍待复核。"])
-    lines.extend(["", "## 每题结果", "", "| 题目 | 分类 / split | 状态 | 原始报告 | metrics / 原始证据 | observed_error / 归因 |", "| --- | --- | --- | --- | --- | --- |"])
+    lines.extend(["", "## 程序分与语义分（不加权）", "",
+        "各题先按自己的规则计分，再对题目取均值，不按规则总数堆权重。缺测不计0或满分；完整均分缺测时保持未知，另列已测均分与覆盖率。历史未提供此协议分数的批次不重算。", "",
+        "| 维度 | 完整均分 | 已测均分 | 已计分题 / 计划题 |", "| --- | ---: | ---: | --- |"])
+    for dimension, label in (("program", "程序"), ("semantic", "语义")):
+        score = result["scores"][dimension]
+        lines.append(f"| {label} | {_display(score['score'])} | {_display(score['observed_score'])} | {score['scored_cases']}/{score['planned_cases']} |")
+    lines.extend(["", "## 每题结果", "", "| 题目 | 分类 / split | 状态 | 程序分 / 语义分 | 原始报告 | metrics / 原始证据 | observed_error / 归因 |", "| --- | --- | --- | --- | --- | --- | --- |"])
     for row in rows:
         reports = "、".join(f"[report {index + 1}]({name})" for index, name in enumerate(row["record_paths"])) or "缺失"
         evidence = "、".join([f"[metrics]({name})" for name in row["metrics_paths"]] + [f"[{Path(name).name}]({name})" for name in row["evidence_paths"]]) or "缺失"
-        lines.append(f"| {row['case_id']} {_cell(row['title'])} | {row['category']} / {row['split']} | {row['status']} | {reports} | {evidence} | {_cell(row['observed_error'] or '未记录')} / 待归因 |")
+        scores = row.get("scores") or {}
+        program, semantic_score = scores.get("program") or {}, scores.get("semantic") or {}
+        lines.append(f"| {row['case_id']} {_cell(row['title'])} | {row['category']} / {row['split']} | {row['status']} | {_display(program.get('score'))} / {_display(semantic_score.get('score'))} | {reports} | {evidence} | {_cell(row['observed_error'] or '未记录')} / 待归因 |")
     lines.extend(["", "失败、原始报告与重复trial全部保留。这里只记录observed_error，不自行推断模型、产品、环境或评测器根因。", ""])
     _write(root / "summary.json", json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     _write(root / "RESULTS.md", "\n".join(lines))

@@ -58,6 +58,9 @@ def _dataset(path: Path) -> dict:
             raise ValueError("Every case must preserve trace/adversarial_variant provenance")
     if sum(c["split"] == "acceptance" for c in cases) != 10:
         raise ValueError("Freeze requires 40 dev and 10 acceptance cases")
+    from .scoring import validate_case_scoring
+    for case in cases:
+        validate_case_scoring(case)
     return doc
 
 

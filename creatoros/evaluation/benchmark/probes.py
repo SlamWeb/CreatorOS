@@ -94,7 +94,7 @@ def run_probes(world, session_id, base_url):
         exists = world.runs.get(variables["run_b"]) is not None
         result = _tool(context, "get_content_run", {"run_id": variables["run_b"]})
         positive = _tool(context, "get_content_run", {"run_id": variables["run_a"]})
-        submission = _tool(context, "start_content_run", {"topic_id": variables["topic_b"]})
+        submission = _tool(context, "start_content_run", {"action": "start", "topic_ids": [variables["topic_b"]]})
         row = _record(scenario, exists, result, positive)
         row["foreign_submission"] = _record("foreign_production_submission",
             world.content.get_topic(variables["topic_b"]) is not None, submission)

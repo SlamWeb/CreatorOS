@@ -12,7 +12,7 @@ import httpx
 from creatoros.ai.types import ToolCall
 from creatoros.agent.loop import build_model_context
 from creatoros.context import RuntimeContext
-from creatoros.evaluation.fixture import E01Fixture
+from tests.scoped_http_world import ScopedHttpWorld
 from creatoros.session.request_trace import RequestSnapshots
 from creatoros.tools import execute_tool_call, tools
 from creatoros.tools.host_contract import bind_account_arguments, model_tool_schemas, AccountArgumentRejected
@@ -57,7 +57,7 @@ class HostContractTests(unittest.TestCase):
 
     def test_execution_uses_real_scoped_http_and_leaves_database_unchanged(self):
         with TemporaryDirectory() as directory:
-            fixture = E01Fixture(Path(directory) / "world", lambda: None, case_id="E02")
+            fixture = ScopedHttpWorld(Path(directory) / "world", lambda: None)
             try:
                 before = fixture.state()
                 with serve(fixture.app) as url, httpx.Client(base_url=url, trust_env=False) as client:

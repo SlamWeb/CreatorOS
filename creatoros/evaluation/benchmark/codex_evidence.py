@@ -53,7 +53,7 @@ def collect_codex_evidence(world) -> dict:
               "parse_errors": [], "excluded": [], "submit_artifacts": [], "image_assets": [],
               "event_counts": {}, "threads": [], "usage": {}, "nested_constraints": {}}
     seeded = {world.variables.get("run_a"), world.variables.get("run_b")}
-    thread_ids, completed_turns, generated = set(), set(), set()
+    thread_ids, completed_turns, generated, logged_completed_turns = set(), set(), set(), set()
     generation_events = []
     observations = defaultdict(list)
     call_names = {}
@@ -182,6 +182,7 @@ def collect_codex_evidence(world) -> dict:
                                 observe_usage(thread, usage.get("total"), f"{rel}:{line_number}", definitive=True)
                             if method == "turn/completed" and (payload.get("turn") or {}).get("status") == "completed":
                                 completed_turns.add((thread, turn or payload["turn"].get("id")))
+                                logged_completed_turns.add((thread, turn or payload["turn"].get("id")))
                             item = payload.get("item") or value.get("item") or {}
                             kind = item.get("type") or value.get("item_type")
                             item_id = item.get("id") or value.get("item_id")
@@ -213,6 +214,14 @@ def collect_codex_evidence(world) -> dict:
 
     result["event_counts"] = dict(event_counts)
     result["threads"] = sorted(thread_ids)
+    completed_threads = {thread for thread, _turn in logged_completed_turns if thread}
+    event_files = [item for item in result["files"] if item["path"].endswith(".jsonl") and item["parsed"] > 0]
+    no_execution = not thread_ids and not result["attempts"] and not result["files"]
+    complete = bool(thread_ids and event_files and thread_ids <= completed_threads) and not result["parse_errors"]
+    result["generation_coverage"] = {
+        "status": "no_execution_observed" if no_execution else "complete" if complete else "partial",
+        "completed_threads": sorted(completed_threads), "event_files": [item["path"] for item in event_files],
+        "scope": "isolated run/extraction/research event files; absent logs are not proof of zero generation"}
     per_thread = []
     for thread in sorted(thread_ids):
         observed = observations[thread]

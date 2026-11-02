@@ -129,6 +129,11 @@ def isolated_worker(directory):
             background = world.background()  # Same read contract used by server.finalize.
             assert background["runs"] == [] and background["images"] == [] and background["videos"] == []
             assert len(background["exports"]) == 1
+            from creatoros.evaluation.benchmark.grader import _expectation
+            rule = {"kind": "zip_contents", "source": "initial_collection",
+                    "collection_id": "{collection_a}", "count": 2}
+            passed, detail = _expectation(rule, {"background": background, "variables": world.variables})
+            assert passed, detail
             json.dumps(background)  # The collector must be serializable without an LLM run.
             from creatoros.evaluation.benchmark.world import validated_media
             sample = world.root / 'collector-final-file-fixture'
@@ -181,6 +186,8 @@ def check_collector_component_fixture(world, collect):
     ]
     rows = [{"method": "item/completed", "thread_id": "component-thread", "turn_id": "component-turn",
              "status": item.get("status", "completed"), "payload": {"item": item}} for item in events]
+    rows.append({"method": "turn/completed", "thread_id": "component-thread", "turn_id": "component-turn",
+                 "payload": {"turn": {"id": "component-turn", "status": "completed"}}})
     for number, directory in enumerate(directories, 1):
         directory.mkdir(parents=True)
         (directory / "received-images").mkdir()
@@ -199,11 +206,13 @@ def check_collector_component_fixture(world, collect):
         evidence = collect(world)
         assert evidence["usage"]["total"]["input_tokens"] == 150, "Copied cumulative usage must not sum to 250"
         assert evidence["images"]["received_unique"] == 1 and evidence["images"]["completed_generation_items"] == 1
+        assert evidence["generation_coverage"]["status"] == "complete"
         assert evidence["nested_constraints"]["status"] == "passed", evidence["nested_constraints"]
         for directory in directories:
             # Keep final accepted receipt and real bytes, but remove public acceptance proof.
             (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in rows[:2]) + "\n", encoding="utf-8")
         missing = collect(world)
+        assert missing["generation_coverage"]["status"] == "partial"
         assert missing["nested_constraints"]["status"] == "needs_review", missing["nested_constraints"]
         for directory in directories:
             value = json.loads((directory / "native_checkpoint.json").read_text(encoding="utf-8"))
