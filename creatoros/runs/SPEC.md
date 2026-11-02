@@ -1,5 +1,12 @@
 # ContentRun SPEC
 
+## 2026-11-03 参考图制作应用服务
+
+- 公开入口为 `creatoros.runs.ReferenceProductionService.submit(series_id, ReferenceProductionInput, creator_id=..., origin=..., origin_session_id=...)`。调用者提供已建立的账号身份；服务先校验归属，再在原子授权事务中复核。它不读取 HTTP 对象，也不返回 Web 查询 DTO。
+- 服务集中稳定 Topic 身份、旧回执兼容/请求冲突、已接收 Skill 版本重放、参考原图与 Skill 冻结，以及 Topic/Run/写回执/首次队列授权的同事务提交。执行器→Run 写锁顺序、SQLite BEGIN IMMEDIATE、提交后唤醒及已有 Attempt 不重入队保持原有语义。
+- Web 参考图端点和 Agent `start_content_run(reference)` 共用装配的同一服务；路由只处理 HTTP 请求、入口权限和 Run 响应投影。直接调用者也必须通过相同账号、参考组和 Skill 作用域校验。账号作用域仍不等同于完整身份认证。
+- 定向后端53项通过（含6项公开服务直接调用/共享实例证明，最终独立重跑6项通过）；新参考图选择浏览器2项与完整旧 topic-references 浏览器4项通过。制作请求 JSON Schema 与功能提交一致；验证使用隔离 SQLite/HTTP/文件、受控生产边界，不调用真实模型，也不代表全仓回归已完成。
+
 ## 2026-11-02 完成视频回执的离线纠正
 
 - 对已完成但路径无效的旧视频回执，新增需要明确选择文件、先检查再显式执行的本地纠正；新 Attempt、双阶段归属复核及失败队列回执更新沿用 Run 的租约和事务边界，不重写旧回执，不调用 Codex。操作入口、前置条件、fingerprint、v2 摘要与证据局限见 [交付 SPEC](../delivery/SPEC.md)。`submit-tool-v1` 已完成但没有接收回执时禁止自动重试，保留现场核查。

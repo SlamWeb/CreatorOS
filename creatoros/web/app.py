@@ -23,7 +23,7 @@ from creatoros.operations.models import OperationPlan
 from creatoros.operations.parser import LazyOperationParser, OperationParserUnavailable, OperationParseError, OperationScopeError
 from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRepository
-from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor
+from creatoros.runs import ContentRunError, ContentRunService, ManagedRunExecutor, ReferenceProductionService
 from creatoros.publication import ManualPublicationService, PublicationService
 from creatoros.publication.feedback import FeedbackService
 from creatoros.publication.mcp_client import XhsMcpClient, XhsMcpError
@@ -248,6 +248,8 @@ def create_app(
     app.state.materials = MaterialStore(db)
     app.state.production_tasks = ProductionTaskService(db, runs, executor, library=skill_library,
         collections=app.state.media_collections, materials=app.state.materials)
+    app.state.reference_production = ReferenceProductionService(db, runs, executor, writes.pending_operations,
+                                                               library=skill_library)
     app.state.writes = writes
     app.state.executor = executor
     app.state.chat = chat
@@ -272,7 +274,7 @@ def create_app(
     app.include_router(calibration_routes(calibrations))
     app.include_router(work_inbox_routes(db, research, extractions))
     app.include_router(research_routes(research, queries))
-    app.include_router(reference_routes(db, writes, runs, executor, queries))
+    app.include_router(reference_routes(db, app.state.reference_production, queries))
     app.include_router(skill_routes(db, skill_installs))
     app.include_router(skill_version_routes(skill_versions))
     app.include_router(skill_iteration_routes(iterations, chat))

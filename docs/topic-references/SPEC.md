@@ -1,5 +1,9 @@
 # 任务专属图文参考
 
+## 2026-11-03 · 共用应用服务
+
+- Topic、Run、回执与首次入队的原子编排由公开 `ReferenceProductionService` 承担；HTTP 表单和 Agent 工具经过同一实例，直接非 HTTP 调用也需提供账号身份并经过相同归属、去重和冻结规则。原 URL、请求字段、响应、参考图顺序、历史回执与默认 Skill 行为不变。
+
 ## 2026-11-03 · 本次精确 Skill
 
 - Web 在原参考图表单从栏目池勾选一份或多份精确版本；reference-production 与既有 Agent start_content_run(action=reference) 可选 skill_ids（1～12份互不重复）。宿主复用制作任务的账号可用权限与 TaskExecutionSpec 冻结，省略沿用旧默认，不改栏目绑定、不增加工具。
