@@ -78,6 +78,7 @@ CASES = [
         "tests.test_graphic_delivery_contract", "tests.test_structured_handoff", "-v"]),
     ("plan_workflows", ["-m", "unittest", "tests.test_agent_plans", "tests.test_plan_tool_contract",
         "tests.test_plan_replanning_safety", "tests.test_plan_continuation", "tests.test_plan_continuation_recovery",
+        "tests.test_plan_unknown_edit",
         "tests.test_background_agent", "tests.test_background_wait", "-v"]),
     ("media_task_lifecycle", ["-m", "unittest", "tests.test_bgm_analysis", "tests.test_media_collection_agent",
         "tests.test_media_collections", "tests.test_production_task_collections", "tests.test_production_tasks",
