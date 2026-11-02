@@ -1,5 +1,6 @@
 """Isolated catalog, binding and production-input regression; no model calls."""
 from pathlib import Path
+import os
 import subprocess
 from tempfile import TemporaryDirectory
 
@@ -20,7 +21,8 @@ def fixture(workspace, compatible=True):
     (source / "SKILL.md").write_text("---\nname: test-carousel\ndescription: Test image carousel\ncreatoros-output: social-content-pack.image-carousel\n---\nSPECIAL_SKILL_MARKER\n", encoding="utf-8")
     for args in [("init",), ("add", "."), ("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"),
                  ("remote", "add", "origin", "https://github.com/example/test")]:
-        subprocess.run(["git", "-C", str(source), *args], check=True, capture_output=True)
+        options = ["-c", "core.longpaths=true"] if os.name == "nt" else []
+        subprocess.run(["git", *options, "-C", str(source), *args], check=True, capture_output=True)
     return InstallReceipt(skill_path=".", carousel_compatible=compatible, compatibility_note="Local test fixture")
 
 

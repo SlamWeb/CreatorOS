@@ -92,6 +92,8 @@ def github_url(value: str) -> str:
             or len(parts) < 2 or any(not re.fullmatch(r"[\w.\-]+", s) or s in {".", ".."} for s in parts)
             or (len(parts) > 2 and (len(parts) < 4 or parts[2] != "tree"))):
         raise ValueError("请提供 https://github.com/owner/repo 或 /tree/ref/skill-path 链接。")
+    if len(parts) > 3 and parts[3].startswith("-"):
+        raise ValueError("Git ref 不能以 - 开头。")
     return value
 
 
@@ -172,6 +174,12 @@ class InstallReceipt(BaseModel):
     compatibility_note: str = Field(min_length=1)
 
 
+def _git_command(*args: str) -> list[str]:
+    # Git for Windows otherwise rejects deep Skill workspaces even when
+    # Python can access them. Scope this to the child process only.
+    return ["git", *(["-c", "core.longpaths=true"] if os.name == "nt" else []), *args]
+
+
 def _inspect_checkout(source: Path, requested_path: str | None) -> InstallReceipt:
     if requested_path:
         candidates = [source / requested_path / "SKILL.md"]
@@ -202,7 +210,7 @@ class GitSkillInstaller:
 
     def _git(self, args: list[str], cwd: Path | None = None):
         try:
-            subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True,
+            subprocess.run(_git_command(*args), cwd=cwd, check=True, capture_output=True,
                            text=True, encoding="utf-8", errors="replace", timeout=self.timeout_seconds)
         except FileNotFoundError as error:
             raise ValueError("未找到 git CLI。") from error
@@ -213,6 +221,7 @@ class GitSkillInstaller:
             raise ValueError(detail) from error
 
     def install(self, url: str, directory: Path, cancel: Event) -> InstallReceipt:
+        url = github_url(url)
         parts = url.split("/")
         repo_url = "/".join(parts[:5])
         ref = parts[6] if len(parts) > 5 else None
@@ -220,14 +229,12 @@ class GitSkillInstaller:
         source = directory / "source"
         if cancel.is_set():
             raise ValueError("安装已中断。")
-        if ref:
-            source.mkdir()
-            self._git(["init", str(source)])
-            self._git(["remote", "add", "origin", repo_url], cwd=source)
-            self._git(["fetch", "--depth", "1", "origin", ref], cwd=source)
-            self._git(["checkout", "--detach", "FETCH_HEAD"], cwd=source)
-        else:
-            self._git(["clone", "--depth", "1", repo_url, str(source)])
+        source.mkdir()
+        self._git(["init", str(source)])
+        self._git(["remote", "add", "origin", repo_url], cwd=source)
+        requested = f"+{ref}:refs/remotes/origin/{ref}" if ref else "HEAD"
+        self._git(["fetch", "--depth", "1", "origin", requested], cwd=source)
+        self._git(["checkout", "--detach", "FETCH_HEAD"], cwd=source)
         if cancel.is_set():
             raise ValueError("安装已中断。")
         return _inspect_checkout(source, requested_path)
@@ -823,7 +830,7 @@ class ProducerSkillCatalog:
             raise ValueError(f"Skill 角色必须是 {sorted(self.ROLES)} 之一，或省略表示暂不分类。")
         source = workspace / "source"
         def git(*args, binary=False):
-            result = subprocess.run(["git", "-C", str(source), *args], check=True,
+            result = subprocess.run(_git_command("-C", str(source), *args), check=True,
                                     capture_output=True, timeout=30)
             return result.stdout if binary else result.stdout.decode("utf-8").strip()
         expected = "/".join(url.split("/")[:5]).removesuffix(".git")
@@ -840,9 +847,10 @@ class ProducerSkillCatalog:
         if len(parts) > 5:
             ref = parts[6]
             try:
-                requested_commit = git("rev-parse", "--verify", f"{ref}^{{commit}}")
+                requested_commit = git("rev-parse", "--verify", f"refs/remotes/origin/{ref}^{{commit}}")
             except subprocess.CalledProcessError:
-                requested_commit = git("rev-parse", "--verify", f"origin/{ref}^{{commit}}")
+                # Historical checked-out workspaces may have only a local ref.
+                requested_commit = git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}")
             if requested_commit != commit or (len(parts) > 7 and path != "/".join(parts[7:])):
                 raise ValueError("安装回执与指定 Git ref/Skill 路径不一致。")
         # Use committed bytes, never modified working-tree content or model-provided source code.

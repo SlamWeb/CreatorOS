@@ -42,6 +42,7 @@ CASES = [
     ("skill_extraction_delivery", ["-m", "unittest", "tests.test_extraction_batch",
         "tests.test_extraction_host_delivery", "-v"]),
     ("windows_skill_publication", ["-m", "unittest", "tests.test_freeze_skill_windows", "-v"]),
+    ("skill_git_install", ["-m", "unittest", "tests.test_git_skill_installer_longpaths", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning",
                                 "tests.test_session_snapshot_io", "-v"]),
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),

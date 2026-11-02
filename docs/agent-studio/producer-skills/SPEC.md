@@ -1,5 +1,11 @@
 # Codex 安装与栏目 Skill 绑定
 
+## Git 安装和 ref 核验（2026-11-03，隔离本地 Git 验证）
+
+- Windows 的下载与登记核验在每个 Git 子进程临时启用 `core.longpaths=true`，不修改系统或用户 Git 配置。默认分支和指定 ref 均采用 init、fetch、detach checkout；指定 ref 写入对应远程跟踪引用，登记时仍用 Git 核对原始远端、精确 ref、HEAD 与归档内容。引用不能以 `-` 开头，Git 无效 ref 等原错误保留。
+- 在实际 checkout 路径长 240 字符的隔离目录，使用禁止网络的本地 Git 验证默认 HEAD、分支、tag、完整提交 SHA、嵌套 Skill 和 assets；包含后台安装队列、错误 ref、篡改引用拒绝及工作区未提交修改不进入归档。测试不访问真实 GitHub；包含 `/` 的分支名与 Skill 子目录目前不能由现有链接解析器无歧义区分。更深 checkout（如 247 字符）仍可能受 Git 本身限制，不能声称任意路径都可用。
+- 旧 `smoke_producer_skills` 的 Git fixture 同样按次启用 longpaths，现用的独立 fixture 已在 240 字符 checkout 测试；旧 smoke 主流程仍假设新栏目自动绑定旧 Skill，当前不在门禁中，也没有被本轮计为通过。原历史记录保持原样。
+
 ## Windows Skill 快照目录交付（2026-11-03）
 
 - 仅在 `freeze_skill` 把已核验的临时副本重命名为快照时，Windows 返回 `ERROR_ACCESS_DENIED`（5）且目标不存在，才等待 50/100/200 毫秒并有界重试。等待后若目标仍不存在，重新核对源和暂存副本的完整摘要；目标若已出现，仅允许复用摘要相同的普通目录，冲突版本不覆盖。持续拒绝保留系统错误；其他平台和错误码不重试，也不重试模型或生产。
