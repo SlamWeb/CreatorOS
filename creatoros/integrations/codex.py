@@ -15,7 +15,9 @@ from tempfile import TemporaryDirectory, TemporaryFile
 from time import monotonic
 from typing import Callable, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from creatoros.delivery.models import CodexUsage, ProductionModel
 
 from ..content import CarouselCard, PublicationCopy, SocialContentPack, SourceRef
 from ..content.models import MANIFEST_FILENAME
@@ -34,10 +36,6 @@ PRODUCTION_RULES = (
     "不要读取全局记忆、其他任务的会话/产物或项目开发资料。"
 )
 CardKind = Literal["cover", "content", "summary", "sources", "cta"]
-
-
-class ProductionModel(BaseModel):
-    model_config = ConfigDict(strict=True, extra="forbid", str_strip_whitespace=True)
 
 
 class ProducedCard(ProductionModel):
@@ -75,15 +73,6 @@ class ProductionReceipt(ProductionModel):
         if [card.order for card in self.cards] != list(range(1, len(self.cards) + 1)):
             raise ValueError("cards 必须按列表顺序从 1 连续编号。")
         return self
-
-
-class CodexUsage(ProductionModel):
-    model_config = ConfigDict(strict=True, extra="ignore")
-
-    input_tokens: int = Field(default=0, ge=0)
-    cached_input_tokens: int = Field(default=0, ge=0)
-    output_tokens: int = Field(default=0, ge=0)
-    reasoning_output_tokens: int = Field(default=0, ge=0)
 
 
 class ProductionSession(ProductionModel):

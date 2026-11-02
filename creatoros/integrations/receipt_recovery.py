@@ -32,7 +32,7 @@ from creatoros.integrations.skill_pair import (
 )
 from creatoros.integrations.visual_production import build_receipt, normalize_refs
 from creatoros.runs import ContentRunError, ContentRunService
-from creatoros.runs.artifacts import validate_artifact
+from creatoros.delivery import validate_artifact
 from creatoros.runs.models import ContentRunInput
 from creatoros.storage import ContentAttemptStatus, ContentRunStatus, Database
 

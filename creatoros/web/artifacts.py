@@ -10,7 +10,7 @@ from PIL import Image
 
 from creatoros.content import SocialContentPack
 from creatoros.runs import ContentRunError
-from creatoros.runs.artifacts import validate_artifact
+from creatoros.delivery import validate_artifact
 from creatoros.runs.models import ContentRunInput
 from creatoros.storage import ContentAttempt, ContentRevision, ContentRun
 from sqlalchemy import select
@@ -63,7 +63,7 @@ class StudioArtifacts:
             if checked.artifact_digest != digest:
                 raise ValueError("产物已变化。")
             if checked.video is not None:
-                from creatoros.integrations.video_production import VideoArtifact, VIDEO_MANIFEST
+                from creatoros.delivery.video import VideoArtifact, VIDEO_MANIFEST
                 artifact = VideoArtifact.model_validate_json((root / VIDEO_MANIFEST).read_text(encoding="utf-8"))
                 if (artifact.creator_id, artifact.series_id, artifact.topic_id) != (data.creator_id, data.series_id, data.topic_id):
                     raise ValueError("视频身份与 Run 不一致。")
@@ -77,7 +77,7 @@ class StudioArtifacts:
             prefix = f"/api/runs/{run_id}/revisions/{revision_id}/cards"
             pages = {}
             if native_image:
-                from creatoros.integrations.native_production import load_checkpoint, verified_pages
+                from creatoros.delivery.image import load_checkpoint, verified_pages
 
                 checkpoint = load_checkpoint(root)
                 if checkpoint is None:
@@ -275,7 +275,7 @@ class StudioArtifacts:
     @staticmethod
     def _verified_partial_pages(directory: Path, checkpoint, production_protocol: str):
         if production_protocol in {"native-v1", "task-v1"}:
-            from creatoros.integrations.native_production import verified_pages
+            from creatoros.delivery.image import verified_pages
         else:
             from creatoros.integrations.visual_production import verified_pages
         return verified_pages(directory, checkpoint)
@@ -326,7 +326,7 @@ class StudioArtifacts:
         if prompt_path.is_symlink() or not prompt_path.is_file() or prompt_path.stat().st_size > prompt_limit:
             return None
         if production_protocol == "native-v1":
-            from creatoros.integrations.native_production import load_checkpoint
+            from creatoros.delivery.image import load_checkpoint
 
             checkpoint = load_checkpoint(directory)
         else:

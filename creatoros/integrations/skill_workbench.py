@@ -231,7 +231,7 @@ def run_trial(service, job_id, key):
         if service.cancel_event.is_set():
             raise ExtractionError("试用已取消。")
         trial_cards(directory, job_id, key, complete=True)
-        from ..runs.artifacts import validate_artifact
+        from creatoros.delivery import validate_artifact
         composition = kwargs.get("composition")
         checked = validate_artifact(directory, composition=composition,
             production_protocol="native-v1") if job.get("task_kind") in {"calibrate", "skill_version"} else None
@@ -265,7 +265,7 @@ def trial_directory(service, job_id, key):
 
 def trial_cards(directory, job_id, key, complete=False):
     from ..content import SocialContentPack
-    from .native_production import load_checkpoint, safe_file
+    from creatoros.delivery.image import load_checkpoint, safe_file
     cards = []
     checkpoint = load_checkpoint(directory)
     if (directory / "native_checkpoint.json").exists() and checkpoint is None:
@@ -306,7 +306,7 @@ def project_trial(service, job_id, trial):
 
 def trial_image(service, job_id, key, order):
     from ..content import SocialContentPack
-    from .native_production import load_checkpoint, safe_file
+    from creatoros.delivery.image import load_checkpoint, safe_file
     with service.lock:
         trial = next((t for t in service._read(job_id).get("trials", []) if t["id"] == key), None)
         if trial is None:

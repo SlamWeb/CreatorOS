@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from creatoros.delivery.models import ArtifactValidation, ValidatedImage, ValidatedVideo
+
 from creatoros.integrations.skill_pair import SkillPair
 from creatoros.integrations.topic_references import TaskReferences
 from .task_contracts import TaskExecutionSpec
@@ -73,35 +75,6 @@ class ContentRunInput(RunModel):
         if (self.skill_name is None) == (self.composition is None):
             raise ValueError("Run 必须有单 Skill 或完整双 Skill 快照，不能同时存在。")
         return self
-
-
-class ValidatedImage(RunModel):
-    order: int = Field(ge=1)
-    path: str = Field(min_length=1)
-    width: int = Field(gt=0)
-    height: int = Field(gt=0)
-    byte_size: int = Field(gt=0)
-    sha256: str | None = None
-
-
-class ValidatedVideo(RunModel):
-    path: str
-    width: int = Field(gt=0)
-    height: int = Field(gt=0)
-    duration_seconds: float = Field(gt=0)
-    byte_size: int = Field(gt=0)
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    has_audio: bool
-    video_codec: str
-    audio_codec: str | None = None
-
-
-class ArtifactValidation(RunModel):
-    artifact_digest: str = Field(min_length=64, max_length=64)
-    card_count: int = Field(ge=0)
-    total_image_bytes: int = Field(ge=0)
-    images: list[ValidatedImage]
-    video: ValidatedVideo | None = None
 
 
 class RunExecutionResult(RunModel):

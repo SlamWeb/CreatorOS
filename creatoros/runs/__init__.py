@@ -1,9 +1,8 @@
-from .artifacts import validate_artifact
-from .cli import ContentRunCLI
-from .executor import ManagedRunExecutor, RunSubmission
-from .models import ArtifactValidation, ContentRunInput, RunExecutionResult, ValidatedImage
-from .repository import ContentRunRepository
-from .service import ContentRunError, ContentRunExecutionError, ContentRunLeaseError, ContentRunService
+"""Public production API; load implementation only when a caller needs it."""
+
+from importlib import import_module
+
+from .errors import ContentRunError, ContentRunExecutionError, ContentRunLeaseError
 
 __all__ = [
     "ArtifactValidation",
@@ -20,3 +19,29 @@ __all__ = [
     "ValidatedImage",
     "validate_artifact",
 ]
+
+_EXPORT_MODULE = {
+    "ArtifactValidation": ".models",
+    "ContentRunInput": ".models",
+    "ContentRunCLI": ".cli",
+    "ContentRunRepository": ".repository",
+    "ContentRunService": ".service",
+    "ManagedRunExecutor": ".executor",
+    "RunExecutionResult": ".models",
+    "RunSubmission": ".executor",
+    "ValidatedImage": ".models",
+    "validate_artifact": ".artifacts",
+}
+
+
+def __getattr__(name: str):
+    module_name = _EXPORT_MODULE.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

@@ -15,7 +15,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from creatoros.runs import ContentRunError
-from creatoros.runs.artifacts import validate_artifact
+from creatoros.delivery import validate_artifact
 from creatoros.storage import ContentAttempt, ContentRun, ContentRunStatus, Series, Topic
 from .codex import CODEX_MODEL, PRODUCTION_CONFIG, _bounded_sdk, _production_client
 from .codex_turn_guard import require_completed_turn

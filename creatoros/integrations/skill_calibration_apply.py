@@ -100,7 +100,7 @@ def apply(service, identifier, request_id, expected_digest, expected_skill_diges
     from .skill_calibration import signature
     from .skill_workbench import require_draft, trial_cards, trial_directory
     from .skill_pair import SkillPair
-    from ..runs.artifacts import validate_artifact
+    from creatoros.delivery import validate_artifact
 
     if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128:
         raise ExtractionError("请提供有效的保存请求 ID。")

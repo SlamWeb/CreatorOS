@@ -329,7 +329,7 @@ class SkillExtractionService:
             if job.get("error") and (not job.get("error_type") or (
                     job["error_type"] == "codex_sdk_failed" and "[WinError" in job["error"])):
                 try:
-                    from .native_production import safe_file
+                    from creatoros.delivery.files import safe_file
                     error_path = safe_file(directory, directory / job.get("progress_directory", ".") / "error.txt", 65536)
                     job["error_type"], job["error"] = extraction_failure(RuntimeError(error_path.read_text(encoding="utf-8")),
                                                                        job["status"] == "interrupted")
@@ -358,7 +358,7 @@ class SkillExtractionService:
             directory = self._path("jobs", job_id)
             stream = job.get("progress_directory", ".")
             try:
-                from .native_production import safe_file
+                from creatoros.delivery.files import safe_file
                 path = safe_file(directory, directory / stream / "public_events/index.json", 8 * 1024 * 1024)
                 doc = json.loads(path.read_text(encoding="utf-8"))
                 items = [item for item in doc["items"] if not before_id or item["id"] < before_id]
@@ -374,7 +374,7 @@ class SkillExtractionService:
                 raise ExtractionError("执行记录已切换，请刷新。", 404)
             directory = self._path("jobs", job_id)
             try:
-                from .native_production import safe_file
+                from creatoros.delivery.files import safe_file
                 path = safe_file(directory, directory / stream_id / f"public_events/{event_id}.json", 512 * 1024)
                 return json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -397,7 +397,7 @@ class SkillExtractionService:
         return result
 
     def file(self, job_id, role, relative):
-        from .native_production import safe_file
+        from creatoros.delivery.files import safe_file
         with self.lock:
             job = self._read(job_id)
             if not any(s["role"] == role for s in job["skills"]):

@@ -61,7 +61,7 @@ class VideoSubmitTests(unittest.TestCase):
         self.assertEqual((self.directory / "received-video.mp4").read_bytes(), self.fixture.clip.read_bytes())
 
     def test_receipt_write_failure_never_acknowledges_acceptance(self):
-        with patch("creatoros.integrations.video_production.atomic_json", side_effect=OSError("disk full")):
+        with patch("creatoros.delivery.video_receipt.atomic_json", side_effect=OSError("disk full")):
             result = self.submit(self.arguments)
         self.assertFalse(result["accepted"])
         self.assertFalse(result["retryable"])

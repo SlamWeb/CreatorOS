@@ -178,7 +178,7 @@ class SkillVersionService:
     def checked_trial(self, skill_id, expected_digest, job_id, trial_id, series=None):
         from .skill_workbench import trial_cards, trial_directory
         from .skill_pair import SkillPair
-        from ..runs.artifacts import validate_artifact
+        from creatoros.delivery import validate_artifact
         job = self.extractions._read(job_id)
         if (job.get("task_kind") != "skill_version" or job.get("version_candidate_id") != skill_id
                 or job.get("version_candidate_digest") != expected_digest):

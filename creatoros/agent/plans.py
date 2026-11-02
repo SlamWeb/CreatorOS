@@ -20,7 +20,7 @@ from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
 from creatoros.storage.models import AgentPlan, AgentPlanStep, MediaCollection
 from creatoros.runs.observation import observe_production, only_revision_matches, run_topic_id
-from creatoros.runs.service import ContentRunError
+from creatoros.runs.errors import ContentRunError
 from creatoros.tools.execution import execute_tool_call
 from creatoros.tools.plans import validate_plan_arguments
 

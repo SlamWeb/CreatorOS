@@ -140,7 +140,7 @@ class SkillCalibrationService:
         return [self.get(identifier) for identifier in identifiers]
 
     def _artifact(self, entry, series):
-        from ..runs.artifacts import validate_artifact
+        from creatoros.delivery import validate_artifact
         from ..runs import ContentRunError
         try:
             with self.database.session() as session:
@@ -361,7 +361,7 @@ class SkillCalibrationService:
         return apply(self, identifier, request_id, expected_digest, expected_skill_digest, trial_id)
 
     def evidence_image(self, identifier, image_index):
-        from .native_production import safe_file
+        from creatoros.delivery.files import safe_file
         row = self._row(identifier)
         root = self.extractions._path("jobs", row.job_id)
         context = json.loads((root / "calibration_context.json").read_text(encoding="utf-8"))

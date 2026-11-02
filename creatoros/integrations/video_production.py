@@ -2,32 +2,29 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import shutil
-from functools import lru_cache
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Literal
 
-from pydantic import Field
+from creatoros.delivery.files import safe_file
+from creatoros.delivery.task_contracts import TaskExecutionSpec
+from creatoros.delivery.task_execution import file_sha256, freeze_execution_spec, verify_execution_spec
+from creatoros.delivery.video import (VIDEO_MANIFEST, VIDEO_CHECKPOINT, VideoArtifact, VideoCheckpoint,
+    VideoDelivery, _decoded_video_metadata, _identity, _require_playable_mp4,
+    validate_video_artifact, video_delivery_schema)
+from creatoros.delivery.video_receipt import VideoSubmission, _delivery_source, _recover_work
 
 from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAME,
-                    CodexProducerError, CodexUsage, ProductionModel, ProductionSession,
+                    CodexProducerError, CodexUsage, ProductionSession,
                     _bounded_sdk, _production_client)
 from .codex_turn_guard import require_completed_turn
-from .native_production import safe_file
+from .media_tools import media_tool, probe_media, decode_media
 from .production_progress import ProgressWriter, collect_observed_turn
 from .visual_production import atomic_json
 from .worker_protocol import record_task, record_thread
-from .media_tools import media_tool, probe_media, decode_media
-from creatoros.runs.task_contracts import TaskExecutionSpec
-from creatoros.runs.task_execution import file_sha256, freeze_execution_spec, verify_execution_spec
-
-VIDEO_MANIFEST = "video_artifact.json"
-VIDEO_CHECKPOINT = "video_checkpoint.json"
 
 
 def video_skill_rules(spec):
@@ -58,150 +55,11 @@ def _video_prompt(spec, payload, directory, *, recovery=False, submit_tool=False
                           "tools": {name: media_tool(name) for name in ("ffmpeg", "ffprobe")}}, ensure_ascii=False))
 
 
-class VideoDelivery(ProductionModel):
-    title: str = Field(min_length=1)
-    text: str
-    video_path: str | None = Field(default=None, description="成功时为 work 内 MP4 相对路径，失败为 null")
-    complete: bool
-    error: str | None = None
-
-
-def video_delivery_schema():
-    # Structured outputs require every property, including nullable fields.
-    # Local defaults still allow reading old successful delivery receipts.
-    schema = VideoDelivery.model_json_schema()
-    schema["required"] = list(schema["properties"])
-    return schema
-
-
-class VideoArtifact(ProductionModel):
-    schema_version: Literal[1] = 1
-    kind: Literal["video"] = "video"
-    pack_id: str
-    creator_id: str
-    series_id: str
-    topic_id: str
-    topic_title: str
-    title: str
-    text: str
-    generated_at: str
-    video_path: str
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class VideoCheckpoint(ProductionModel):
-    protocol: Literal["task-video-v1"] = "task-video-v1"
-    input_digest: str
-    thread_id: str
-    turn_completed: bool = False
-    response: str | None = None
-    usage: CodexUsage = Field(default_factory=CodexUsage)
-    handoff_protocol: Literal["final-json-v1", "submit-tool-v1"] = "final-json-v1"
-    accepted_sha256: str | None = None
-    submission_digest: str | None = None
-    submission_attempts: int = 0
-
-
-def _delivery_source(directory, delivery):
-    if not delivery.complete:
-        raise ValueError(delivery.error or delivery.text or "Codex 未完成视频制作。")
-    if not delivery.video_path:
-        raise ValueError("缺少视频路径。请提交已生成的 MP4，不要重新渲染。")
-    relative = Path(delivery.video_path)
-    if relative.is_absolute() or relative.suffix.lower() != ".mp4":
-        raise ValueError("视频交付必须是 work 内 MP4 相对路径。")
-    source = safe_file(directory / "work", directory / "work" / relative)
-    metadata = probe_media(source)
-    decode_media(source)
-    _require_playable_mp4(metadata)
-    return source
-
-
-class VideoSubmission:
-    """Validate and durably acknowledge delivery while the producer is active."""
-    def __init__(self, directory, checkpoint):
-        self.directory, self.checkpoint = directory, checkpoint
-
-    def __call__(self, arguments):
-        checkpoint = self.checkpoint
-        try:
-            if not checkpoint.accepted_sha256:
-                if checkpoint.submission_attempts >= 3:
-                    return {"accepted": False, "retryable": False, "error": "交付校验已达到三次上限，文件保留。"}
-                checkpoint.submission_attempts += 1
-                atomic_json(self.directory / VIDEO_CHECKPOINT, checkpoint)
-            delivery = VideoDelivery.model_validate(arguments)
-            canonical = delivery.model_dump_json()
-            digest = hashlib.sha256(canonical.encode()).hexdigest()
-            if checkpoint.accepted_sha256:
-                if digest != checkpoint.submission_digest:
-                    return {"accepted": False, "retryable": False, "error": "已接收另一份交付，不能覆盖。"}
-                source = safe_file(self.directory, self.directory / "received-video.mp4")
-                if file_sha256(source) != checkpoint.accepted_sha256:
-                    raise ValueError("已接收视频发生变化。")
-                return {"accepted": True, "receipt_id": digest, "reused": True}
-            source = _delivery_source(self.directory, delivery)
-            received = self.directory / "received-video.mp4"
-            if received.exists() or received.is_symlink():
-                safe_file(self.directory, received)
-            shutil.copyfile(source, received)
-            accepted = checkpoint.model_copy(update={"accepted_sha256": file_sha256(received),
-                "submission_digest": digest, "response": canonical})
-            atomic_json(self.directory / VIDEO_CHECKPOINT, accepted)
-            checkpoint.accepted_sha256 = accepted.accepted_sha256
-            checkpoint.submission_digest = digest
-            checkpoint.response = canonical
-            return {"accepted": True, "receipt_id": digest, "reused": False}
-        except ValueError as error:
-            atomic_json(self.directory / VIDEO_CHECKPOINT, checkpoint)
-            return {"accepted": False, "retryable": not checkpoint.accepted_sha256 and checkpoint.submission_attempts < 3,
-                    "error": str(error), "instruction": "修正交付参数或现有文件；不要重新渲染已有合格视频。"}
-        except OSError as error:
-            return {"accepted": False, "retryable": False, "error": "宿主保存交付失败：" + str(error),
-                    "instruction": "现有视频保留；停止，不要重新渲染。"}
-
-
 @dataclass(frozen=True)
 class ProducedVideo:
     directory: Path
     pack: VideoArtifact
     session: ProductionSession
-
-
-def _identity(spec, payload):
-    return hashlib.sha256(json.dumps({"spec": spec.public_dict(), "request": payload},
-                                    ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-
-
-def _require_playable_mp4(metadata):
-    if (not metadata["has_video"] or not metadata["has_audio"]
-            or "mp4" not in metadata["format"].split(",")):
-        raise ValueError("视频必须为真实 MP4，含可解码画面与音轨。")
-    if metadata.get("video_codec") != "h264" or metadata.get("audio_codec") != "aac":
-        raise ValueError("页面视频交付需要 H.264 画面与 AAC 音轨，请转换编码后交付。")
-
-
-def _recover_work(directory, expected):
-    for previous in sorted(directory.parent.glob("attempt-*"), reverse=True):
-        if previous.name >= directory.name or previous.is_symlink() or getattr(previous, "is_junction", lambda: False)():
-            continue
-        path = previous / VIDEO_CHECKPOINT
-        if not path.is_file():
-            continue
-        checkpoint = VideoCheckpoint.model_validate_json(safe_file(previous, path).read_text(encoding="utf-8"))
-        if checkpoint.input_digest != expected:
-            raise ValueError("视频恢复输入与本 Revision 固定输入不同。")
-        for file in (previous / "work").rglob("*"):
-            if file.is_file():
-                safe_file(previous / "work", file)
-        shutil.copytree(previous / "work", directory / "work", dirs_exist_ok=True)
-        if checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256:
-            accepted = safe_file(previous, previous / "received-video.mp4")
-            if file_sha256(accepted) != checkpoint.accepted_sha256:
-                raise ValueError("已接收视频发生变化。")
-            shutil.copyfile(accepted, directory / "received-video.mp4")
-        return checkpoint
-    return None
 
 
 def _usage_baseline(directory, thread_id):
@@ -284,7 +142,8 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                 progress.record_usage({key: max(0, getattr(checkpoint.usage, key) - getattr(baseline, key))
                                        for key in CodexUsage.model_fields})
                 if use_submit_tool and not checkpoint.accepted_sha256:
-                    raise ValueError("Codex 已结束但未通过 submit_artifacts 交付；现有文件保留。")
+                    raise CodexProducerError("Codex 已结束但未确认视频交付；现有文件保留，请核对原任务，不会自动重启。",
+                                             error_type="video_delivery_unconfirmed")
             finally:
                 if not completed:
                     interrupt_error = None
@@ -336,6 +195,9 @@ def _produce_video(producer, **request):
                 input_ref="production_request.txt", deliverable=VIDEO_MANIFEST)
     checkpoint = _recover_work(directory, _identity(spec, payload))
     accepted = checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
+    if checkpoint is not None and checkpoint.turn_completed and checkpoint.handoff_protocol == "submit-tool-v1" and not accepted:
+        raise CodexProducerError("视频回合已结束但未确认交付；现有文件保留，请核对原任务，不会自动重启。",
+                                 error_type="video_delivery_unconfirmed")
     if not accepted and (checkpoint is None or not checkpoint.turn_completed or
                          checkpoint.handoff_protocol == "submit-tool-v1"):
         checkpoint = asyncio.run(_execute_video(producer, directory, spec, payload, checkpoint, request))
@@ -373,55 +235,3 @@ def _produce_video(producer, **request):
               if (directory / "production_usage.json").is_file() else CodexUsage())
     atomic_json(directory / SESSION_FILENAME, session)
     return ProducedVideo(directory, artifact, session)
-
-
-@lru_cache(maxsize=64)
-def _decoded_video_metadata(path: str, checksum: str):
-    """Decode a verified byte sequence once, not on every browser Range request.
-
-    Callers hash the current file before using this cache; replacing its bytes
-    cannot reuse the old entry. Exceptions are never cached.
-    """
-    metadata = probe_media(Path(path))
-    decode_media(Path(path))
-    _require_playable_mp4(metadata)
-    return metadata
-
-
-def validate_video_artifact(root: Path, execution_spec=None):
-    from creatoros.runs.models import ArtifactValidation, ValidatedVideo
-
-    artifact = VideoArtifact.model_validate_json(safe_file(root, root / VIDEO_MANIFEST).read_text(encoding="utf-8"))
-    video = safe_file(root, root / artifact.video_path)
-    if video.suffix.lower() != ".mp4" or file_sha256(video) != artifact.sha256:
-        raise ValueError("视频文件已变化。")
-    spec = TaskExecutionSpec.model_validate_json(safe_file(root, root / "execution_spec.json").read_text(encoding="utf-8"))
-    if execution_spec and spec.public_dict() != TaskExecutionSpec.model_validate(execution_spec).public_dict():
-        raise ValueError("视频执行规范与当前 Revision 不符。")
-    verify_execution_spec(spec, root, ready=True)
-    payload = json.loads(safe_file(root, root / "production_request.txt").read_text(encoding="utf-8"))
-    checkpoint = VideoCheckpoint.model_validate_json(safe_file(root, root / VIDEO_CHECKPOINT).read_text(encoding="utf-8"))
-    accepted = checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
-    if (not checkpoint.turn_completed and not accepted) or checkpoint.input_digest != _identity(spec, payload):
-        raise ValueError("视频缺少完整且匹配输入的生产回执。")
-    delivery = VideoDelivery.model_validate_json(checkpoint.response or "")
-    original = (safe_file(root, root / "received-video.mp4") if accepted else
-                safe_file(root / "work", root / "work" / delivery.video_path))
-    if accepted and file_sha256(original) != checkpoint.accepted_sha256:
-        raise ValueError("已接收视频发生变化。")
-    if file_sha256(original) != artifact.sha256 or delivery.title != artifact.title or delivery.text != artifact.text:
-        raise ValueError("视频与 SDK 已完成回执不一致。")
-    metadata = _decoded_video_metadata(str(video), artifact.sha256)
-    digest = hashlib.sha256(b"creatoros-video-artifact-v1\0")
-    files = [root / VIDEO_MANIFEST, root / VIDEO_CHECKPOINT, root / "production_request.txt", root / "execution_spec.json", video,
-             *[file for folder in (root / "skills", root / "materials") for file in folder.rglob("*") if file.is_file()]]
-    if accepted:
-        files.append(original)
-    for path in sorted(files):
-        safe_file(root, path)
-        digest.update(path.relative_to(root).as_posix().encode() + b"\0")
-        digest.update(bytes.fromhex(file_sha256(path)))
-    return ArtifactValidation(artifact_digest=digest.hexdigest(), card_count=0, total_image_bytes=0,
-        images=[], video=ValidatedVideo(path=artifact.video_path, byte_size=video.stat().st_size,
-            sha256=artifact.sha256, **{key: metadata[key] for key in
-            ("duration_seconds", "width", "height", "has_audio", "video_codec", "audio_codec")}))

@@ -6,6 +6,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from openai_codex import SkillInput
+
 from creatoros.integrations.codex import CodexProducerError, CodexSdkProducer
 from creatoros.integrations.native_image_assets import INVENTORY
 from creatoros.integrations.native_production import CHECKPOINT, load_checkpoint
@@ -26,6 +28,45 @@ class NativeThreadContinuityTests(unittest.TestCase):
         self.producer = CodexSdkProducer(project_root=self.root, generated_images_root=self.generated,
                                          timeout_seconds=5)
         NativeTransport.reset(self.generated)
+
+        # Historical file-v1 Attempts retain their protocol on retry. A new
+        # Revision may resume the same thread using structured-v1; emulate both
+        # SDK response schemas with unique turn IDs rather than treating every
+        # output_schema as a composition review.
+        file_thread = NativeTransport._thread
+
+        def thread_with_structured(transport, thread_id):
+            legacy = file_thread(transport, thread_id)
+
+            async def turn(inputs, **controls):
+                properties = (controls.get("output_schema") or {}).get("properties", {})
+                if any(isinstance(item, SkillInput) for item in inputs):
+                    return await legacy.turn(inputs, **controls)
+                if "status" in properties:
+                    review_id = f"structured-review-{len(NativeTransport.reviews) + 1}"
+                    NativeTransport.reviews.append((thread_id, inputs, controls))
+                    total = NativeTransport.usage_total(NativeTransport.mode,
+                                                        NativeTransport.turn_numbers.get(thread_id, 0))
+                    return Turn(thread_id, json.dumps({"status": "ready", "note": "Use the frozen inputs."}),
+                                total, is_review=True, turn_id=review_id)
+                if "artifacts" not in properties:
+                    raise AssertionError("Unexpected SDK output schema")
+                turn_no = NativeTransport.turn_numbers.get(thread_id, 0) + 1
+                NativeTransport.turn_numbers[thread_id] = turn_no
+                NativeTransport.calls.append((thread_id, inputs, controls, turn_no))
+                NativeTransport.write_artifact(thread_id, controls, 1, "actual prompt", complete=True)
+                source = NativeTransport.source_for(thread_id, 1)
+                response = {"title": "Native smoke", "text": "Draft text", "hashtags": ["#test"],
+                            "complete": True, "artifacts": [{"order": 1, "source_image_path": source,
+                            "image_prompt": "actual prompt", "reference_ids": [], "content": "Current page."}]}
+                return Turn(thread_id, json.dumps(response), NativeTransport.usage_total(NativeTransport.mode, turn_no),
+                            image_paths=[source], turn_id=f"structured-production-{turn_no}")
+
+            return SimpleNamespace(id=thread_id, turn=turn)
+
+        hybrid = patch.object(NativeTransport, "_thread", thread_with_structured)
+        hybrid.start()
+        self.addCleanup(hybrid.stop)
         self.sdk = patch("openai_codex.AsyncCodex", NativeTransport)
         self.sdk.start()
         self.addCleanup(self.sdk.stop)
@@ -57,6 +98,8 @@ class NativeThreadContinuityTests(unittest.TestCase):
         second_assets = json.loads((second.directory / INVENTORY).read_text())
         self.assertEqual(len(second_assets["assets"]), 1)
         self.assertNotEqual(first_assets["assets"][0]["asset_id"], second_assets["assets"][0]["asset_id"])
+        self.assertEqual(load_checkpoint(first.directory).handoff_protocol, "file-v1")
+        self.assertEqual(load_checkpoint(second.directory).handoff_protocol, "structured-v1")
         self.assertEqual(second.session.usage.input_tokens, 150)
         self.assertEqual(second.session.usage.output_tokens, 35)
         self.assertEqual(load_checkpoint(second.directory).usage.input_tokens, 300)
@@ -96,16 +139,22 @@ class NativeThreadContinuityTests(unittest.TestCase):
     def test_old_assets_cannot_be_submitted_as_new_revision_delivery(self):
         first = self.produce()
         old_asset = json.loads((first.directory / INVENTORY).read_text())["assets"][0]["asset_id"]
+        turns = []
 
         def old_delivery(transport, thread_id):
             async def turn(inputs, **controls):
-                if "output_schema" in controls:
+                properties = (controls.get("output_schema") or {}).get("properties", {})
+                if "status" in properties:
                     return Turn(thread_id, '{"status":"ready","note":"Use current inputs"}',
                                 (200, 40), is_review=True, turn_id="review-new-revision")
-                work = Path(controls["cwd"])
-                (work / "delivery.json").write_text(json.dumps({"complete": True, "artifacts": [
-                    {"order": 1, "asset_id": old_asset, "image_prompt": "Attempt to reuse old asset"}]}))
-                return Turn(thread_id, "old image submitted", (300, 70), turn_id="new-revision-turn")
+                self.assertIn("artifacts", properties)
+                turns.append(1)
+                response = {"title": "Old image", "text": "Draft", "hashtags": [], "complete": True,
+                            "artifacts": [{"order": 1, "asset_id": old_asset,
+                                           "image_prompt": "Attempt to reuse old asset",
+                                           "reference_ids": [], "content": "Old image"}]}
+                return Turn(thread_id, json.dumps(response), (300, 70),
+                            turn_id=f"new-revision-turn-{len(turns)}")
             return SimpleNamespace(id=thread_id, turn=turn)
 
         # A same-thread asset still needs this Revision's own SDK receipt.
@@ -143,9 +192,11 @@ class NativeThreadContinuityTests(unittest.TestCase):
 
         def failed_after_image(transport, thread_id):
             async def turn(inputs, **controls):
-                if "output_schema" in controls:
+                properties = (controls.get("output_schema") or {}).get("properties", {})
+                if "status" in properties:
                     return Turn(thread_id, '{"status":"ready","note":"Use current inputs"}',
                                 (200, 40), is_review=True, turn_id="review-before-disconnect")
+                self.assertIn("artifacts", properties)
                 captured.append(inputs[0].text)
                 image(self.generated / thread_id / "unreceived-new-image.png", (101, 122, 143))
                 raise RuntimeError("injected receiver disconnect")
@@ -156,7 +207,7 @@ class NativeThreadContinuityTests(unittest.TestCase):
                 self.produce(revision=2, thread_id=first.session.thread_id)
             with self.assertRaisesRegex(CodexProducerError, "injected receiver disconnect"):
                 self.produce(revision=2, attempt=2, thread_id=first.session.thread_id)
-        self.assertIn("只修复当前 work/delivery.json", captured[-1])
+        self.assertIn("只修交付结果", captured[-1])
         self.assertIn("不得调用生图工具", captured[-1])
 
 

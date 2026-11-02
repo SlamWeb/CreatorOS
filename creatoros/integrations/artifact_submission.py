@@ -7,26 +7,14 @@ import json
 from pathlib import Path
 
 from .atomic_file import atomic_write_text
-from .production_materials import FileDelivery, accept_delivery_value
+from creatoros.delivery.image_materials import FileDelivery, accept_delivery_value
 
-SUBMISSION = "artifact-submission.json"
+from creatoros.delivery.image import SUBMISSION, accepted_submission
 MAX_FAILURES = 3
 
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def accepted_submission(directory, checkpoint):
-    from .native_production import safe_file
-    raw = safe_file(directory, directory / SUBMISSION, 8_000_000).read_bytes()
-    if not checkpoint.submission_sha256 or hashlib.sha256(raw).hexdigest() != checkpoint.submission_sha256:
-        raise ValueError("提交回执缺少宿主凭证或已改变。")
-    state = json.loads(raw)
-    if (state.get("thread_id") != checkpoint.thread_id or state.get("input_digest") != checkpoint.input_digest
-            or not state.get("accepted") or not state.get("turn_id")):
-        raise ValueError("提交回执不属于本次任务。")
-    return state
 
 
 class ImageSubmission:
@@ -43,7 +31,7 @@ class ImageSubmission:
         async with self._lock:
             if not isinstance(arguments, dict):
                 return {"accepted": False, "retryable": True, "error": "提交参数必须为JSON对象。"}
-            from .native_image_assets import ImageAssetStore
+            from creatoros.delivery.image_assets import ImageAssetStore
             artifacts = arguments.get("artifacts")
             paths = [p.get("source_image_path") for p in artifacts if isinstance(p, dict)] if isinstance(artifacts, list) else []
             store = ImageAssetStore(self.directory, self.generated_root, self.checkpoint.thread_id,
@@ -68,7 +56,7 @@ class ImageSubmission:
                     "error": "宿主保存交付失败，已有图片保留；请停止，不要重新生图。"}
 
     def _submit(self, arguments):
-        from .native_production import CHECKPOINT, ingest, verified_pages
+        from creatoros.delivery.image import CHECKPOINT, ingest, verified_pages
         from .visual_production import atomic_json
         checkpoint = self.checkpoint
         if not self.turn_id:
@@ -91,7 +79,7 @@ class ImageSubmission:
         except ValueError as error:
             checkpoint.submission_failures += 1
             atomic_json(self.directory / CHECKPOINT, checkpoint)
-            from .native_image_assets import ImageAssetStore
+            from creatoros.delivery.image_assets import ImageAssetStore
             assets = ImageAssetStore(self.directory, self.generated_root, checkpoint.thread_id,
                                      checkpoint.input_digest).read().assets
             return {"accepted": False, "retryable": checkpoint.submission_failures < MAX_FAILURES,

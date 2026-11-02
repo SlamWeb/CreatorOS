@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import shutil
 from pathlib import Path
@@ -12,7 +11,7 @@ from PIL import Image
 from pydantic import Field
 
 from .codex import ProductionModel
-from .atomic_file import atomic_write_text
+from creatoros.delivery.files import atomic_json, input_digest
 from .skill_pair import PairReceipt, StoryboardReceipt, VisualPage
 
 
@@ -44,18 +43,6 @@ class VisualCheckpoint(ProductionModel):
     plan: VisualPlan
     visual_thread_id: str
     pages: list[SavedPage]
-
-
-def atomic_json(path: Path, value: ProductionModel) -> None:
-    if path.is_symlink():
-        raise ValueError("checkpoint 写入路径不能是符号链接。")
-    atomic_write_text(path, value.model_dump_json(indent=2))
-
-
-def input_digest(prompt: str, skills: list[tuple[str, Path]]) -> str:
-    from .producer_skills import _digest
-    payload = [prompt, *[_digest(path.parent) for _, path in skills]]
-    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
 def normalize_refs(refs: list[str], skill_root: Path) -> list[str]:

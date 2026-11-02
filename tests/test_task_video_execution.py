@@ -123,7 +123,7 @@ class TaskVideoExecutionTests(unittest.TestCase):
         with patch("creatoros.integrations.video_production._execute_video", self.completed_transport):
             result = self.produce()
         _decoded_video_metadata.cache_clear()
-        with patch("creatoros.integrations.video_production.decode_media", wraps=decode_media) as decoder:
+        with patch("creatoros.delivery.video.decode_media", wraps=decode_media) as decoder:
             first = validate_video_artifact(result.directory, self.spec)
             again = validate_video_artifact(result.directory, self.spec)
             self.assertEqual(first, again)

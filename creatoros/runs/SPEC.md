@@ -1,5 +1,16 @@
 # ContentRun SPEC
 
+## 2026-11-02 完成视频回执的离线纠正
+
+- 对已完成但路径无效的旧视频回执，新增需要明确选择文件、先检查再显式执行的本地纠正；新 Attempt、双阶段归属复核及失败队列回执更新沿用 Run 的租约和事务边界，不重写旧回执，不调用 Codex。操作入口、前置条件、fingerprint、v2 摘要与证据局限见 [交付 SPEC](../delivery/SPEC.md)。`submit-tool-v1` 已完成但没有接收回执时禁止自动重试，保留现场核查。
+- 最初 `tests.test_video_delivery_contract.VideoDeliveryContractTests.test_invalid_completed_receipt_can_be_repaired_on_explicit_retry` 标为 expectedFailure；重构基线 `a28ad5b9bbc8` 的归档源码去掉标记后，在隔离文件和受控 SDK 替身下复现第二次 Attempt 报 `CodexProducerError: 文件缺失或过大`，同一失败在重构后再现两次：原回执指向 `missing.mp4`，工作目录另有 `finished.mp4`。旧断言要求重试自动修复，但原回执并不能证明应选择哪个文件；现改为测试普通重试拒绝猜测、显式选文件成功及缺证据/并发/取消/归属变化等拒绝。验证使用隔离 SQLite、受控 SDK 替身和可完整解码的本地 MP4，不代表真实 Codex 成片质量。
+
+## 2026-11-02 生产与交付职责拆分
+
+- `creatoros.delivery` 现集中冻结输入、图片和视频的收件/回执校验、确定性产物验收及同 Revision 的文件恢复，详见 [交付 SPEC](../delivery/SPEC.md)。Run 生命周期、队列、任务创建事务和执行所有权仍由现有 Run 侧负责；等待依赖的任务仍允许没有 Run。旧模块导入、持久文件格式、历史摘要和接口保持兼容。
+- 隔离文件验证对同一组重构前的图片与视频逐文件哈希及全部验收字段一致；固定 `file-v1` 图片回执的 `native-v1` 摘要也用重构前代码独立核对。交付入口及离线恢复测试禁止导入 Run/生产适配器。当时视频已完成但无效回执的修复仍是既有预期失败；后续处理见上节。
+- 扩展回归初次发现旧 `test_native_thread_continuity` 有 2 项失败、2 项报错，`test_simple_skill_tasks` 有 1 项栏目外 Skill 应拒绝的断言未获得异常；五项均在 `git archive HEAD` 的隔离原始源码上以相同错误重现。已核对调用链与后续提交：旧 Attempt 同 Revision 恢复继续原交付协议，新 Revision 可复用 thread 并使用 structured 回执；账号可用 Skill 可由任务临时选用，不会自动加入栏目池，另一个账号独占的 Skill 必须拒绝。现以支持两种 SDK 回合及唯一 turn ID 的夹具验证续接，同时保留线程、图片、用量及无重画断言；账号测试检查池外可用、冻结不变及越权无任务/Run/素材集/回执。受控夹具不代表真实模型生产。
+
 ## 2026-11-01 干净重做的精确 Skill 列表（隔离验证通过）
 
 - 工具新契约的 fresh 支持 skill_ids，宿主核对账号可用性并读取当前版本摘要，构造 selected Skill 执行规范。保留原选题和视频所需素材，不继承旧 thread 或旧产物。
@@ -35,7 +46,7 @@
 
 ## 选题内独立制作任务（2026-10-27）
 
-- 简化选择：任务新增 `skill_ids` 精确版本列表，按账号权限及栏目池家族校验，由宿主读取摘要并冻结原始正文/资源。无需 Skill 输出声明，所选 Skill 均为 `selected`，原样并列交给 Codex；旧 `skills`、旧输出角色及已冻结任务按原协议读取。图片/视频提示词对 `selected` 不设置主辅优先级。原请求不含 `skill_ids` 时保持既有幂等摘要。
+- 简化选择：任务新增 `skill_ids` 精确版本列表，由宿主读取摘要并冻结原始正文/资源。此节当时要求栏目池家族校验；后续账号库可临时选用池外 Skill 的行为以本文件 2026-11-02 说明为准。无需 Skill 输出声明，所选 Skill 均为 `selected`，原样并列交给 Codex；旧 `skills`、旧输出角色及已冻结任务按原协议读取。图片/视频提示词对 `selected` 不设置主辅优先级。原请求不含 `skill_ids` 时保持既有幂等摘要。
 - 隔离真实 SQLite/文件与受控本地调度定向测试 11/11：无声明 Skill、多 Skill 冻结、同请求重放、池外拒绝、移除旧池引用但保留文件、图片/视频平等提示及旧提示兼容；不代表真实模型质量或端到端视频验收。
 
 - [制作任务契约](../../docs/production-tasks/SPEC.md)：新增 ProductionTask 与 nullable ContentRun.task_id；旧 Run 保持 null，互斥/最新运行/父状态写入按新旧作用域区分。复用原队列与30工位限制，不创建第二生产器。

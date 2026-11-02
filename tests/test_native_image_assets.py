@@ -354,7 +354,7 @@ class NativeImageAssetTests(unittest.TestCase):
         image(source)
         event = self.notification(source)
         before = (self.directory / "native_image_assets.json").read_bytes()
-        with patch("creatoros.integrations.native_image_assets.atomic_json",
+        with patch("creatoros.delivery.image_assets.atomic_json",
                    side_effect=OSError("injected authority write denied")):
             with self.assertRaisesRegex(OSError, "injected authority write denied"):
                 self.store.observe(event)

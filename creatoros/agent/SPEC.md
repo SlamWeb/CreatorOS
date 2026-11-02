@@ -3,6 +3,7 @@
 ## 2026-11-02 生产结果观察边界
 
 - AgentPlan 不再直接读取 Run、Revision、ProductionTask、Topic 或 Series 的 ORM 对象；通过 `creatoros.runs.observation` 在当前事务中获取生产状态和准确版本凭据。计划仍负责自己的步骤、依赖和状态，生产观察不会启动或重试任务。
+- 只观察生产状态时不会导入生产执行器和 Codex；生产错误定义在 `creatoros.runs.errors`，原有 `creatoros.runs` 和 `service` 导入仍指向同一异常类。
 - 保留账号归属、等待无 Run 的任务、部分完成/失败的兄弟任务、版本摘要核对和已提交生产防重复；原 HTTP/工具契约与历史计划不变。
 - 验证：独立 SQLite 的生产观察四项，以及计划、工具契约、重规划、防重复与续接共 33 项通过；其中生产者为受控测试替身，不代表真实模型质量。
 

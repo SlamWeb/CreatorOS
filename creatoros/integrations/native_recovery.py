@@ -10,7 +10,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from .native_production import load_checkpoint, safe_file
+from creatoros.delivery.image import load_checkpoint, safe_file
 from .worker_protocol import _write
 
 

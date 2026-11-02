@@ -33,32 +33,13 @@ from creatoros.storage import (
     MediaCollection,
 )
 
-from .artifacts import validate_artifact
+from creatoros.delivery import validate_artifact
+from .errors import ContentRunError, ContentRunExecutionError, ContentRunLeaseError
 from .models import ContentRunInput, RunExecutionResult, SkillOverrides
 from .repository import ContentRunRepository
 from .ownership import LocalExecutionGuard
 from .task_contracts import TaskExecutionSpec, TaskMaterial
 from .task_execution import freeze_execution_spec, verify_execution_spec
-
-
-class ContentRunError(ValueError):
-    """A requested ContentRun transition is invalid."""
-
-    def __init__(self, message: str, *, code: str = "conflict", status_code: int = 409,
-                 run_id: str | None = None, iteration_id: str | None = None):
-        super().__init__(message)
-        self.code, self.status_code, self.run_id = code, status_code, run_id
-        self.iteration_id = iteration_id
-
-
-class ContentRunExecutionError(RuntimeError):
-    def __init__(self, run_id: str, message: str):
-        super().__init__(message)
-        self.run_id = run_id
-
-
-class ContentRunLeaseError(ContentRunError):
-    """The caller no longer owns the run and must not write a late result."""
 
 
 def _serialized(method):
@@ -90,7 +71,7 @@ def _is_preimage_skill_clarification(previous_revision, repository, run_root: Pa
         if (directory.is_symlink() or not directory.is_dir()
                 or not directory.resolve().is_relative_to(run_root.resolve())):
             return False
-        from creatoros.integrations.native_production import load_checkpoint
+        from creatoros.delivery.image import load_checkpoint
 
         checkpoint = load_checkpoint(directory)
     except (OSError, ValueError, RuntimeError) as error:
@@ -534,7 +515,8 @@ class ContentRunService:
             raise
         return prepared
 
-    def execute_claimed(self, prepared: dict, *, owner_id: str, cancel_event: Event | None = None) -> RunExecutionResult:
+    def execute_claimed(self, prepared: dict, *, owner_id: str, cancel_event: Event | None = None,
+                        producer_override=None) -> RunExecutionResult:
         cancel_event = cancel_event or Event()
         finished = Event()
 
@@ -550,7 +532,8 @@ class ContentRunService:
         heartbeat = Thread(target=renew, daemon=True, name="content-run-heartbeat")
         try:
             heartbeat.start()
-            return self._produce_claimed(prepared, owner_id=owner_id, cancel_event=cancel_event)
+            return self._produce_claimed(prepared, owner_id=owner_id, cancel_event=cancel_event,
+                                         producer_override=producer_override)
         except BaseException:
             # Covers infrastructure errors outside Producer's normal exception boundary.
             self.interrupt_owner(prepared["run_id"], owner_id=owner_id, message="执行过程已中断，可在核实后显式恢复。")
@@ -561,13 +544,14 @@ class ContentRunService:
                 heartbeat.join(timeout=6)
             self.guard.finish(owner_id)
 
-    def _produce_claimed(self, prepared: dict, *, owner_id: str, cancel_event: Event) -> RunExecutionResult:
+    def _produce_claimed(self, prepared: dict, *, owner_id: str, cancel_event: Event,
+                         producer_override=None) -> RunExecutionResult:
         run_id, owner = prepared["run_id"], owner_id
         started = monotonic()
         try:
             if cancel_event.is_set():
                 raise ContentRunLeaseError("执行器已停止。")
-            producer = self.producer_factory()
+            producer = producer_override if producer_override is not None else self.producer_factory()
             native = prepared["input"].production_protocol in {"native-v1", "task-v1"}
             task_spec = prepared["input"].execution_spec
             produced = producer.produce_to(
@@ -626,11 +610,13 @@ class ContentRunService:
         if cancel_event.is_set():
             self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
             raise ContentRunExecutionError(run_id, "本次生产已停止，保留文件等待显式恢复。")
+        commit_guard = getattr(producer_override, "guard_and_reconcile_commit", None)
         self._mark_produced(
-            run_id, prepared["attempt_id"], produced, monotonic() - started, owner_id=owner
+            run_id, prepared["attempt_id"], produced, monotonic() - started, owner_id=owner,
+            commit_guard=commit_guard,
         )
         try:
-            validation = self._validate_active(run_id, owner_id=owner)
+            validation = self._validate_active(run_id, owner_id=owner, commit_guard=commit_guard)
         except Exception as error:
             try:
                 self._mark_failed(
@@ -955,7 +941,7 @@ class ContentRunService:
                             if checked.artifact_digest != previous_revision.artifact_digest:
                                 raise ContentRunError("前一版本原生产物已变化，不能作为返工上下文。",
                                                       code="invalid_revision_context")
-                            from creatoros.integrations.native_production import load_checkpoint
+                            from creatoros.delivery.image import load_checkpoint
 
                             checkpoint = load_checkpoint(previous_directory)
                             if (checkpoint is None or not checkpoint.turn_completed
@@ -1150,6 +1136,7 @@ class ContentRunService:
         elapsed: float,
         *,
         owner_id: str,
+        commit_guard=None,
     ) -> None:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
@@ -1160,6 +1147,8 @@ class ContentRunService:
                 raise ContentRunError("生产记录不完整。")
             self._assert_lease(content_run, owner_id)
             self._assert_attempt(repository, content_run, attempt)
+            if commit_guard is not None:
+                commit_guard(session, content_run, revision)
             previous = content_run.status
             attempt.status = ContentAttemptStatus.SUCCEEDED
             attempt.producer_thread_id = produced.session.thread_id
@@ -1185,7 +1174,7 @@ class ContentRunService:
             )
 
     @_serialized
-    def _validate_active(self, run_id: str, *, owner_id: str | None = None):
+    def _validate_active(self, run_id: str, *, owner_id: str | None = None, commit_guard=None):
         content_run = self.get(run_id)
         revision = self.repository.get_revision_number(run_id, content_run.active_revision_number)
         if revision is None or not revision.artifact_directory:
@@ -1204,6 +1193,8 @@ class ContentRunService:
                 raise ContentRunError("当前 Revision 不存在。")
             if owner_id is not None:
                 self._assert_lease(content_run, owner_id)
+            if commit_guard is not None:
+                commit_guard(session, content_run, revision)
             previous = content_run.status
             revision.artifact_digest = validation.artifact_digest
             revision.validation_json = validation.model_dump(mode="json")

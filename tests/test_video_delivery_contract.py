@@ -2,6 +2,8 @@
 import shutil
 import subprocess
 import unittest
+from contextlib import asynccontextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from creatoros.integrations.codex import CodexProducerError
@@ -87,15 +89,73 @@ class VideoDeliveryContractTests(unittest.TestCase):
         self.assertEqual(before, {p.relative_to(result.directory): p.read_bytes()
                                  for p in result.directory.rglob("*") if p.is_file()})
 
-    @unittest.expectedFailure
-    def test_invalid_completed_receipt_can_be_repaired_on_explicit_retry(self):
-        """Known bug: SDK completed is confused with a reusable valid delivery."""
+    def test_invalid_completed_receipt_is_not_guessed_or_reexecuted_on_retry(self):
+        """A wrong path cannot identify the intended file without explicit selection."""
         with self.assertRaises(CodexProducerError):
             self.deliver(path="missing.mp4")
-        # A bounded correction should be allowed to point at the existing render.
-        # Today _execute_video is never reached because turn_completed is true.
-        repaired = self.deliver(attempt=2)
-        validate_video_artifact(repaired.directory, self.fixture.spec)
+        source = self.fixture.run / "revision-001/attempt-001"
+        before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+        with patch("creatoros.integrations.video_production._execute_video",
+                   side_effect=AssertionError("plain retry must not call the SDK")):
+            with self.assertRaises(CodexProducerError):
+                self.fixture.produce(attempt=2)
+        self.assertEqual(before, {p.relative_to(source): p.read_bytes()
+                                  for p in source.rglob("*") if p.is_file()})
+        self.assertFalse((self.fixture.run / "revision-001/attempt-002/video_artifact.json").exists())
+
+    def test_completed_tool_turn_without_accepted_receipt_never_restarts_sdk(self):
+        async def completed_without_submission(*args):
+            checkpoint = await self.fixture.completed_transport(*args)
+            checkpoint.handoff_protocol = "submit-tool-v1"
+            checkpoint.response = None
+            atomic_json(args[1] / VIDEO_CHECKPOINT, checkpoint)
+            raise ValueError("completed turn did not submit an accepted video")
+
+        with patch("creatoros.integrations.video_production._execute_video", completed_without_submission):
+            with self.assertRaises(CodexProducerError):
+                self.fixture.produce()
+        source = self.fixture.run / "revision-001/attempt-001"
+        before = {p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()}
+        with patch("creatoros.integrations.video_production._execute_video",
+                   side_effect=AssertionError("completed turn must not restart")) as sdk:
+            with self.assertRaises(CodexProducerError):
+                self.fixture.produce(attempt=2)
+        sdk.assert_not_called()
+        self.assertEqual(before, {p.relative_to(source): p.read_bytes()
+                                  for p in source.rglob("*") if p.is_file()})
+
+    def test_real_collector_marks_completed_without_submission_unconfirmed(self):
+        from tests.smoke_native_production import NativeTransport, Turn
+
+        NativeTransport.reset(self.fixture.root / "generated")
+        clip = self.fixture.clip
+        class Thread:
+            id = "unconfirmed-video-thread"
+            async def turn(self, inputs, **controls):
+                shutil.copyfile(clip, Path(controls["cwd"]) / "rendered.mp4")
+                return Turn(self.id, "No video was submitted.", turn_id="unconfirmed-turn")
+
+        class Client:
+            async def thread_start(self, **options):
+                return Thread()
+
+        @asynccontextmanager
+        async def local_client(deadline, cancel, *, dynamic_tools):
+            self.assertEqual(len(dynamic_tools), 1)
+            yield Client()
+
+        with patch("creatoros.integrations.video_production._production_client", local_client):
+            with self.assertRaises(CodexProducerError) as error:
+                self.fixture.produce()
+        self.assertEqual(error.exception.error_type, "video_delivery_unconfirmed")
+        old = self.fixture.run / "revision-001/attempt-001"
+        self.assertTrue((old / "work/rendered.mp4").is_file())
+        with patch("creatoros.integrations.video_production._production_client",
+                   side_effect=AssertionError("must not start another SDK client")) as client:
+            with self.assertRaises(CodexProducerError) as retry:
+                self.fixture.produce(attempt=2)
+        self.assertEqual(retry.exception.error_type, "video_delivery_unconfirmed")
+        client.assert_not_called()
 
 
 if __name__ == "__main__":

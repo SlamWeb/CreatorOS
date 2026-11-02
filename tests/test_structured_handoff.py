@@ -299,7 +299,7 @@ class StructuredHandoffTests(unittest.TestCase):
         self.assert_structured_inputs(self.transport.deliveries[-1], images=0)
 
     def test_completed_response_with_host_index_write_failure_recovers_offline(self):
-        from creatoros.integrations import production_materials
+        from creatoros.delivery import image_materials as production_materials
 
         write = production_materials.atomic_json
 
@@ -350,7 +350,7 @@ class StructuredHandoffTests(unittest.TestCase):
         self.assert_structured_inputs(self.transport.deliveries[-1], images=0)
 
     def test_model_envelope_left_by_failed_host_write_requires_repair(self):
-        from creatoros.integrations import production_materials
+        from creatoros.delivery import image_materials as production_materials
 
         self.transport.forge_envelope = True
         write = production_materials.atomic_write_bytes
