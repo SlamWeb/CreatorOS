@@ -162,6 +162,7 @@ def run_agent(
     request_context: dict | None = None,
     user_context_ref: dict | None = None,
     host_observation: dict | None = None,
+    require_existing_session: bool = False,
 ):
     console = console or Console()
 
@@ -179,7 +180,9 @@ def run_agent(
     skill_loader = SkillLoader.from_defaults() if not runtime_context.archive_only_reads and (allowed is None or "read_file" in allowed) else SkillLoader([])
     # Default call shapes remain compatible with CLI hosts and existing tests.
     persist = save_messages if session_file is None else lambda messages: save_messages(messages, session_file)
-    state = AgentState(messages=load_messages() if session_file is None else load_messages(session_file))
+    messages = (load_messages(session_file, require_existing=True) if require_existing_session
+                else load_messages() if session_file is None else load_messages(session_file))
+    state = AgentState(messages=messages)
     checkpoint = (load_compaction_checkpoint(state.messages) if session_file is None
                   else load_compaction_checkpoint(state.messages, session_file))
     persist(state.messages)
