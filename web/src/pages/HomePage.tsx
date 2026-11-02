@@ -1,12 +1,11 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Layers, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { request } from "../api/client";
 import type { CreatorView, PageResponse } from "../api/types";
 import { BrandMark } from "../components/BrandMark";
 import { Button } from "../components/ui/button";
-import workImage from "../assets/home/work-artwork-cartoon.png";
-import skillLibrary from "../assets/home/reusable-skill-cartoon.png";
 import "./home.css";
 
 export function HomePage() {
@@ -51,8 +50,8 @@ export function HomePage() {
     <main id="home-main">
       <section className="home-hero" aria-labelledby="home-title">
         <h1 id="home-title" aria-label="每个好作品，都不止于一次。">
-          <span>每个好作品<span className="home-icon-mark home-icon-work" aria-hidden="true"><img src={workImage} alt="" /></span>，</span>
-          <span>都不止于一次<span className="home-icon-mark home-icon-reuse" aria-hidden="true"><img src={skillLibrary} alt="" /></span>。</span>
+          <span>每个好作品<span className="home-icon-mark home-icon-work inline-flex items-center justify-center align-middle mx-1.5 w-11 h-11 md:w-14 md:h-14 rounded-2xl -rotate-6 hover:rotate-0 transition-transform duration-300 bg-linear-to-b from-blue-50 to-white border border-blue-200/80 shadow-md shadow-blue-500/10 text-blue-600" aria-hidden="true"><Sparkles className="size-6 md:size-7" strokeWidth={1.75} /></span>，</span>
+          <span>都不止于一次<span className="home-icon-mark home-icon-reuse inline-flex items-center justify-center align-middle mx-1.5 w-11 h-11 md:w-14 md:h-14 rounded-2xl rotate-6 hover:rotate-0 transition-transform duration-300 bg-linear-to-b from-indigo-50 to-white border border-indigo-200/80 shadow-md shadow-indigo-500/10 text-indigo-600" aria-hidden="true"><Layers className="size-6 md:size-7" strokeWidth={1.75} /></span>。</span>
         </h1>
         <p>把这一次的创作经验，变成下一次的起点。</p>
         <div className="home-actions">
