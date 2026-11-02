@@ -166,12 +166,14 @@ async function hostEvent(step, index) {
   report.events.push({ index, name: step.name, session_id: report.session_id, receipt });
   const expectedSession = report.session_id;
   const reopenedResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/agent/sessions/${expectedSession}` && response.request().method() === 'GET', { timeout: 30_000 })
+    .then(response => readJson(response, 'Reopened account session'))
     .then(value => ({ value }), error => ({ error }));
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const root = await panel();
   const reopenedResult = await reopenedResponse;
   if (reopenedResult.error) throw reopenedResult.error;
-  const reopened = await readJson(reopenedResult.value, 'Reopened account session');
+  const reopened = reopenedResult.value;
+  // panel() may navigate; finish reading the response before reopening it.
+  const root = await panel();
   check(reopened.id === expectedSession && reopened.creator_id === scenario.creator_id, 'Reload lost the account conversation');
   const lastQuery = report.turns.at(-1)?.query;
   if (lastQuery) {
@@ -192,12 +194,14 @@ async function finalRefresh() {
   const turnPostCount = () => report.writes.filter(write => write.method === 'POST' && /^\/api\/agent\/sessions\/[^/]+\/turns$/.test(write.path)).length;
   const postCountBefore = turnPostCount();
   const reopenedResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/agent/sessions/${expectedSession}` && response.request().method() === 'GET', { timeout: 30_000 })
+    .then(response => readJson(response, 'Final refreshed conversation'))
     .then(value => ({ value }), error => ({ error }));
   await page.reload({ waitUntil: 'domcontentloaded' });
-  const root = await panel();
   const received = await reopenedResponse;
   if (received.error) throw received.error;
-  const reopened = await readJson(received.value, 'Final refreshed conversation');
+  const reopened = received.value;
+  // CDP response bodies belong to the old document once panel() navigates.
+  const root = await panel();
   check(reopened.id === expectedSession && reopened.creator_id === scenario.creator_id, 'Final refresh changed the account conversation');
   const preserved = entry => reopened.entries?.some(value => value.kind === entry.kind && value.turn_id === entry.turn_id && value.text === entry.text && (!entry.id || value.id === entry.id));
   check(preserved(user), 'Final refresh lost the last user query or its server turn ID');
