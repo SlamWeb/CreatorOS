@@ -147,6 +147,15 @@ class ImageTransport(NativeTransport):
 
 
 class NativeReferencesTest(ReferencesTest):
+    def setUp(self):
+        super().setUp()
+        # These fixtures intentionally write delivery.json and test legacy
+        # index repair. Keep their persisted protocol explicit, as in the
+        # native continuity suite. Current tool-v1 is covered separately.
+        legacy = patch("creatoros.integrations.native_production.DEFAULT_HANDOFF", "file-v1")
+        legacy.start()
+        self.addCleanup(legacy.stop)
+
     def production(self, directory, pair, catalog):
         return produce_native(self.producer, directory=directory, pack_id="run-reference", creator_id="creator-a",
             series_id="series-a", topic_id="topic-a", topic_title="A new topic", topic_brief="Do not lose my intent",

@@ -1,5 +1,13 @@
 # 任务专属图文参考
 
+## 2026-11-03 · 本次精确 Skill
+
+- Web 在原参考图表单从栏目池勾选一份或多份精确版本；reference-production 与既有 Agent start_content_run(action=reference) 可选 skill_ids（1～12份互不重复）。宿主复用制作任务的账号可用权限与 TaskExecutionSpec 冻结，省略沿用旧默认，不改栏目绑定、不增加工具。
+- 请求身份不含 Skill；WriteReceipt 保留 queue_topics operation_id 和旧回执结构，追加本次所选 ID 与原 Run。同 request_id 改选/改参考要求409；重放读取冻结版本，目录后续变化不重解析、不重画。旧无标记回执按省略 Skill 兼容。
+- 新 Topic、操作审计/回执、Run、持久队列授权在同一短事务提交，队列提交后才能消费。非法/跨账号、冻结失败、入队失败回滚全部业务行；文件冻结失败可能留下本次新 UUID 下未引用副本，不触碰旧文件、不派发生产。SQLite BEGIN IMMEDIATE 与既有进程锁保护并发；不宣称事务能回滚文件或模型。
+- 隔离验证：新增真实 HTTP/SQLite 6/6（30.5s），工具映射/动态工具传输/当前 tool-v1 参考图恢复/Agent 制作/清单隔离联合41/41（90.2s）；共享 staged14项与 production_tasks11项逐项通过。专属 e2e:all 组 reference-selection 2/2、无跳过/重试，其余组 not_run；独立构建/typecheck通过，桌面1440×900/手机390×844截图已检查，不代表实体手机或模型质量。
+- 原 NativeReferencesTest 三项在干净88db22a同样失败：文件索引替身未声明旧协议，误进入新动态工具路径。现像 continuity 测试一样明确 file-v1，保留全部原图/修复/不重画断言；另加当前 tool-v1 的类型化图片事件与真实产物提交回执，验证两原图字节顺序、反向产物顺序、中断后同回执恢复及离线重放不多生图。曾有一轮未配置媒体工具而跳过17项，后续配置 ffmpeg/ffprobe 补跑；新增旧回执夹具最初使用未声明 image 能力的 primary 被正确拒绝，改为内置图片默认后6项整组通过。没有调用真实模型、旧账号或正式数据。
+
 ## 2026-11-03 · 生产 Skill 选择边界
 
 - 参考图直接制作与普通生产共用 `creatoros.runs.skill_selection`：当前栏目图片阶段的 Skill 池默认、账号可用性、旧栏目绑定和版本摘要由同一规则解析。无可用选择时在创建选题和 Run 前返回具体错误，不进入生产。

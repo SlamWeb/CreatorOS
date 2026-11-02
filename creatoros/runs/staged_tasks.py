@@ -30,12 +30,9 @@ class StagedTasks:
         if item.skill_ids is not None:
             if not self.library:
                 raise ValueError("栏目 Skill 库未配置。")
-            selected = []
-            for skill_id in item.skill_ids:
-                if not self.library.can_use(topic.series.creator_id, skill_id):
-                    raise ContentRunError("所选 Skill 不在当前账号的 Skill 库中。", code="scope_conflict", status_code=403)
-                selected.append(dict(skill_id=skill_id, digest=self.library.describe(skill_id)["digest"], role="selected"))
-            selections = selected
+            from .skill_selection import resolve_task_skill_ids
+            selections = resolve_task_skill_ids(self.library, topic.series.creator_id, item.skill_ids,
+                                                kind=item.kind).model_dump()["skills"]
         if not selections and not item.skill_overrides and self.library:
             pool = self.library.get_series(topic.series_id)
             # No explicit stage defaults yet: keep legacy image execution intact.

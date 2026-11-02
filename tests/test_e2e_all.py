@@ -54,7 +54,11 @@ if (JSON.stringify(result) !== JSON.stringify(['passed', 'incomplete', 'flaky', 
         self.assertEqual(groups["media"]["directory"], "media-tests")
         media = sorted(path.name for path in (WEB / "media-tests").glob("*.spec.ts"))
         self.assertEqual(sorted(groups["media"]["specs"]), media)
-        self.assertEqual(sorted(value["additional_spec_digests"]), [f"media-tests/{name}" for name in media])
+        self.assertEqual(groups["reference-selection"]["directory"], "reference-selection-tests")
+        references = sorted(path.name for path in (WEB / "reference-selection-tests").glob("*.spec.ts"))
+        self.assertEqual(sorted(groups["reference-selection"]["specs"]), references)
+        self.assertEqual(sorted(value["additional_spec_digests"]), sorted(
+            [f"media-tests/{name}" for name in media] + [f"reference-selection-tests/{name}" for name in references]))
         self.assertNotIn("must-not-be-read", result.stdout.decode())
 
     def test_an_unclassified_spec_refuses_to_run_even_in_plan(self):
