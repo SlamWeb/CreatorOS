@@ -9,7 +9,8 @@ from unittest.mock import patch
 import contextlib
 import io
 
-from tests.run_reliability import classify_unittest, select_cases, module_inventory, reject_operational_plan_fixture, main
+from tests.run_reliability import (classify_unittest, select_cases, module_inventory,
+                                   reject_operational_plan_fixture, ISOLATION_CASES, main)
 
 
 class ReliabilityRunnerTests(unittest.TestCase):
@@ -60,6 +61,16 @@ class ReliabilityRunnerTests(unittest.TestCase):
             report = module_inventory(root, [])
             self.assertEqual(report["not_in_any_python_gate"], ["tests.test_unreviewed"])
             self.assertEqual(report["not_run_in_this_invocation"], ["tests.test_unreviewed"])
+
+    def test_isolation_suite_is_explicit_and_counted_in_inventory(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_isolated_dev.py").write_text("not imported", encoding="utf-8")
+            inventory = module_inventory(root, ISOLATION_CASES)
+            self.assertIn("tests.test_isolated_dev", inventory["declared_isolation_modules"])
+            self.assertNotIn("tests.test_isolated_dev", inventory["not_in_any_python_gate"])
+            self.assertIn("tests.test_isolated_dev", inventory["selected_modules"])
 
     def test_old_plan_fixture_is_rejected_before_any_tool_can_dispatch(self):
         with TemporaryDirectory() as folder:

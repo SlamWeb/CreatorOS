@@ -99,7 +99,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [general, agent-plan, staged, compact, media]
+        group: [general, agent-plan, staged, compact, media, reference-selection]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/reliability-runtime
@@ -119,6 +119,39 @@ jobs:
             tmp/ci-browsers/creatoros-e2e-all-*/
             tmp/ci-browsers/media-preflight/
             tmp/media-e2e-all-*/
+          if-no-files-found: warn
+          retention-days: 14
+
+  parallel-isolation:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/reliability-runtime
+        with:
+          python-deps: 'true'
+          node: 'true'
+          media: 'true'
+          chrome: 'true'
+      - name: Prepare a second independent checkout
+        shell: pwsh
+        run: |
+          $second = Join-Path $env:RUNNER_TEMP 'creatoros-ci-second'
+          if (Test-Path -LiteralPath $second) { throw 'Second checkout already exists' }
+          git worktree add --detach $second $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix (Join-Path $second 'web') ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CREATOROS_SECOND_WORKTREE=$second" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify isolated worktrees and fixture boundaries
+        run: python -m tests.run_reliability --suite isolation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reliability-parallel-isolation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            tmp/reliability-*/
+            tmp/ci-parallel-isolation/
           if-no-files-found: warn
           retention-days: 14
 

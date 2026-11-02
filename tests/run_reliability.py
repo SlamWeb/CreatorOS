@@ -34,6 +34,12 @@ CASES = [
                           "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
                           "tests.test_host_tool_contract", "-v"]),
     ("reference_skill_boundary", ["-m", "unittest", "tests.test_reference_skill_boundary", "-v"]),
+    ("reference_production", ["-m", "unittest", "tests.test_reference_production_service",
+        "tests.test_reference_skill_selection", "tests.test_reference_production_api",
+        "tests.test_reference_tool_handoff", "tests.test_topic_references",
+        "tests.test_reference_protocol_audit", "-v"]),
+    ("skill_extraction_delivery", ["-m", "unittest", "tests.test_extraction_batch",
+        "tests.test_extraction_host_delivery", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
@@ -106,16 +112,29 @@ BENCHMARK_CASES = [("benchmark_contracts", ["-m", "unittest", *[
     )], "-q"])]
 
 
+# Independent server/build/fixture contracts.  These use Node and Chrome in
+# addition to Python and codecs, so CI runs them in a separate job.
+ISOLATION_CASES = [
+    ("parallel_worktrees", ["-m", "unittest", "tests.test_isolated_build", "tests.test_isolated_dev", "-v"]),
+    ("browser_fixture_isolation", ["-m", "unittest", "tests.test_e2e_all",
+        "tests.test_e2e_producer", "tests.test_media_e2e_isolation", "-v"]),
+    ("agent_fixture_isolation", ["-m", "unittest", "tests.test_batch_images_isolation",
+        "tests.test_live_production_tasks_isolation", "tests.test_live_reference_entry",
+        "tests.test_plan_continuation_isolation", "tests.test_skill_edit_batch_isolation", "-v"]),
+]
+
+
 def module_inventory(workspace, selected):
     def modules(cases):
         return {arg for _, command in cases for arg in command if arg.startswith("tests.test_")}
     all_modules = {"tests." + path.stem for path in (Path(workspace) / "tests").glob("test_*.py")}
-    backend, benchmark, current = modules(CASES), modules(BENCHMARK_CASES), modules(selected)
+    backend, benchmark, isolation, current = modules(CASES), modules(BENCHMARK_CASES), modules(ISOLATION_CASES), modules(selected)
     return {"all_test_modules": sorted(all_modules), "declared_backend_modules": sorted(backend),
-            "declared_benchmark_modules": sorted(benchmark), "selected_modules": sorted(current),
+            "declared_benchmark_modules": sorted(benchmark), "declared_isolation_modules": sorted(isolation),
+            "selected_modules": sorted(current),
             "not_run_in_this_invocation": sorted(all_modules - current),
-            "not_in_any_python_gate": sorted(all_modules - backend - benchmark),
-            "declared_modules_missing_from_checkout": sorted((backend | benchmark) - all_modules),
+            "not_in_any_python_gate": sorted(all_modules - backend - benchmark - isolation),
+            "declared_modules_missing_from_checkout": sorted((backend | benchmark | isolation) - all_modules),
             "note": "Inventory reads filenames only; unreviewed modules are never imported or executed."}
 
 
@@ -156,10 +175,10 @@ def reject_operational_plan_fixture(workspace, command):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--shard", help="Deterministic nonoverlapping allowlist partition, e.g. 1/2")
-    parser.add_argument("--suite", choices=("backend", "benchmark"), default="backend")
+    parser.add_argument("--suite", choices=("backend", "benchmark", "isolation"), default="backend")
     parser.add_argument("--inventory", action="store_true", help="Read-only module inventory; no tests or media tools run")
     args = parser.parse_args(argv)
-    suite = CASES if args.suite == "backend" else BENCHMARK_CASES
+    suite = {"backend": CASES, "benchmark": BENCHMARK_CASES, "isolation": ISOLATION_CASES}[args.suite]
     selected = select_cases(suite, args.shard)
     workspace = Path(__file__).resolve().parents[1]
     inventory = module_inventory(workspace, selected)
@@ -193,7 +212,7 @@ def main(argv=None):
                 reject_operational_plan_fixture(workspace, command)
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership", "reference_production", "skill_extraction_delivery", "parallel_worktrees", "browser_fixture_isolation", "agent_fixture_isolation"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 if is_unittest:

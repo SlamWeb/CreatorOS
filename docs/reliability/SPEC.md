@@ -2,7 +2,10 @@
 
 ## 当前 CI 门禁（2026-11-03）
 
-- 后端显式 allowlist 拆为两个不重叠分片；Benchmark 契约、前端类型/构建/本地状态、完整受控浏览器和 Chrome 刷新回归分别执行，不再共用一个 35 分钟任务。浏览器直接使用 `web/e2e-all.mjs --group` 的 general、agent-plan、staged、compact、media 五组，继续拒绝未分类 spec；真实模型探针不加入 CI。
+- 参考图直接制作的业务服务、账号归属、原图和 Skill 冻结、幂等回执及 Agent/Web 接线纳入 reference_production；结构化 Skill 草稿与多图提炼纳入 skill_extraction_delivery。新参考图选择页面作为第六组 reference-selection 浏览器测试，保留原 general 组。
+- 独立的 --suite isolation 明确列入浏览器与 Agent 夹具安全、双 worktree 的构建和并行服务验证。CI 安装第二份独立 checkout 的依赖后运行；不会启动付费探针。若依赖缺失、夹具没执行或任何测试跳过，不算完整通过。
+
+- 后端显式 allowlist 拆为两个不重叠分片；Benchmark 契约、前端类型/构建/本地状态、完整受控浏览器和 Chrome 刷新回归分别执行，不再共用一个 35 分钟任务。浏览器直接使用 `web/e2e-all.mjs --group` 的 general、agent-plan、staged、compact、media、reference-selection 六组，继续拒绝未分类 spec；真实模型探针不加入 CI。
 - 每个任务在安装依赖、加载测试前，将 TEMP/TMP/TMPDIR 设为 `Path.resolve()` 后的工作区 `tmp/ci-<job>`。Windows 的 8.3 短名 TEMP 会与实现返回的规范长路径混用，导致真实相等/relative_to 检查失败；仅修测试运行环境，不修改产品冻结、链接或越界校验。
 - 同步清空模型/发布密钥，隔离 CODEX_HOME、发布 token/staging 路径，将显式外部 API 端点设为不可连接的 loopback `:1` 并禁用 dotenv；这不是网络沙箱，未审查测试仍不能自动执行。
 - 媒体任务安装固定月末 BtbN Windows GPL 构建，验证已固定的上游归档 SHA-256；再实际编码 H264/AAC、调用 ffprobe 核验音视频、尺寸和时长，保存两个可执行文件的版本与 SHA-256。固定源为 2026-10-31 月末构建，上游保留两年，需要在其到期前明确更新；缺失、校验失败或运行失败均不降级为跳过。
