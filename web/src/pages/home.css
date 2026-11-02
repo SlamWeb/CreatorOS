@@ -39,18 +39,6 @@
 .home-actions .home-cta:active { scale:.98; }
 .home-page [data-variant="secondary"] { color:var(--ink); border-color:var(--line); background:var(--canvas); }
 .home-page [data-slot="button"][data-variant="secondary"]:enabled:hover { color:var(--ink); border-color:var(--ink); background:var(--canvas); }
-.home-workspaces { max-width:1120px; margin:0 auto; padding:0 32px 96px; }
-.home-section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:28px; }
-.home-section-heading h2 { margin:0; font-size:30px; line-height:1.35; letter-spacing:-.025em; font-weight:600; }
-.home-account-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:48px; border-top:1px solid var(--line); }
-.home-account { display:flex; align-items:center; gap:16px; min-width:0; padding:25px 10px; border-bottom:1px solid var(--line); transition:background .16s; }
-.home-account:hover { background:#fafafa; }
-.home-account-avatar { display:grid; place-items:center; flex:0 0 44px; height:44px; border:1px solid var(--line); border-radius:12px; color:var(--ink); font-size:17px; font-weight:600; }
-.home-account-copy { display:grid; min-width:0; gap:6px; flex:1; }
-.home-account-copy strong { color:var(--ink); font-size:16px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.home-account-copy > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#62626b; font-size:13px; }
-.home-account-state { grid-column:1 / -1; padding:36px 0; color:#62626b; font-size:15px; }
-.home-account-state p { margin:0 0 16px; }
 @media (max-width:700px) {
   .home-nav { min-height:80px; padding:20px 22px; gap:16px; flex-wrap:wrap; }
   .home-brand { font-size:18px; gap:7px; }
@@ -62,11 +50,6 @@
   .home-hero > p { margin-top:25px; font-size:15px; }
   .home-actions { gap:10px; margin-top:28px; }
   .home-actions .home-cta { height:48px; padding:0 19px; font-size:14px; gap:8px; }
-  .home-workspaces { padding:0 24px 64px; }
-  .home-section-heading { align-items:flex-start; flex-direction:column; gap:8px; margin-bottom:16px; }
-  .home-section-heading h2 { font-size:26px; }
-  .home-account-list { grid-template-columns:minmax(0,1fr); }
-  .home-account { padding:22px 4px; gap:12px; }
 }
 @media (prefers-reduced-motion:reduce) {
   .home-page *, .home-page *::before, .home-page *::after { transition:none; animation:none!important; }

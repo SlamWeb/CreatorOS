@@ -18,9 +18,8 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.locator("#home-title")).not.toContainText(/[，。]/);
   await expect(page.locator(".home-page footer")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "主导航" })).toHaveCount(0);
-  const account = page.locator(".home-account").filter({ hasText: "[隔离验证] 校准账号" });
-  await expect(account).toBeVisible();
-  await expect(account).toHaveAttribute("href", `/?creator=${fixture.creator_id}`);
+  await expect(page.locator(".home-workspaces")).toHaveCount(0);
+  await expect(page.getByText("你的账号", { exact: true })).toHaveCount(0);
   const primary = page.locator(".home-actions").getByRole("link", { name: "进入工作台" });
   const secondary = page.getByRole("navigation", { name: "首页导航" }).getByRole("link", { name: "Skill 库", exact: true });
   await expect(primary).toHaveCSS("background-color", "rgb(29, 29, 31)");
@@ -45,7 +44,7 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await page.getByRole("link", { name: "CreatorOS 首页", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: /每个好作品/ })).toBeVisible();
-  await account.click();
+  await page.goto(`/?creator=${fixture.creator_id}`);
   expect(new URL(page.url()).searchParams.get("creator")).toBe(fixture.creator_id);
   await expect(page.getByRole("navigation", { name: "账号工作区" })).toBeVisible();
   await page.goto(`/?series=${fixture.series_id}`);
@@ -131,23 +130,16 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
   } finally { await touch.close(); }
 });
 
-test("empty and unavailable accounts never block entry or fake content", async ({ page }, testInfo) => {
-  await page.route("**/api/creators?limit=4", route => route.fulfill({
-    status: 200, json: { items: [], page: { total: 0, limit: 4, offset: 0 } },
-  }));
+test("entry home never requests accounts and remains independent of the account service", async ({ page }) => {
+  const reads: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/creators")) reads.push(request.url()); });
+  await page.route("**/api/creators**", route => route.abort());
   await page.goto("/");
-  await expect(page.getByText("你的第一个创作账号，从这里开始。", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "创建账号", exact: false }).click();
-  await expect(page).toHaveURL(/\/workspace$/);
-  await page.unroute("**/api/creators?limit=4");
-  await page.route("**/api/creators?limit=4", route => route.fulfill({
-    status: 503, json: { error: { message: "受控故障：账号读取失败" } },
-  }));
-  await page.goto("/");
-  await expect(page.getByText("暂时无法读取账号，你仍可以进入工作台。", { exact: true })).toBeVisible();
+  await expect(page.locator("#home-title > span").last()).toHaveCSS("filter", "blur(0px)");
   await expect(page.locator(".home-account")).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath("home-read-error.png"), fullPage: true });
-  await page.unroute("**/api/creators?limit=4");
-  await page.getByRole("button", { name: "重新读取", exact: true }).click();
-  await expect(page.locator(".home-account").first()).toBeVisible();
+  expect(reads).toEqual([]);
+  await page.unroute("**/api/creators**");
+  await page.getByRole("link", { name: "进入工作台", exact: true }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
+  await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
