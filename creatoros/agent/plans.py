@@ -13,6 +13,7 @@ import json
 import re
 from threading import Event, RLock, Thread
 from urllib.parse import urlsplit
+from filelock import Timeout as FileLockTimeout
 from sqlalchemy import select, text
 
 from creatoros.ai.types import ToolCall
@@ -270,7 +271,7 @@ class PlanService:
     @staticmethod
     def _pause_reason(plan):
         if plan.status != 'paused': return None
-        return 'checkpoint' if plan.continuation_state in {'pending', 'claimed', 'done_checkpoint'} else 'manual'
+        return 'checkpoint' if plan.continuation_state in {'pending', 'claimed', 'executing', 'done_checkpoint'} else 'manual'
 
     @staticmethod
     def _find(session, sid, owner, identity):
@@ -371,7 +372,7 @@ class PlanService:
                 row.arguments_json,row.depends_on_json,row.wait_for_completion = item['arguments'],item['depends_on'],item['wait_for_completion']
             p.version += 1
             if p.status in {'completed','needs_attention'}: p.status = 'running'
-            if p.continuation_state not in {'claimed', 'done_checkpoint'}: p.continuation_state = 'none'
+            if p.continuation_state not in {'claimed', 'executing', 'done_checkpoint'}: p.continuation_state = 'none'
         self._wake.set()
         return self.get(sid, identity)
 
@@ -387,7 +388,7 @@ class PlanService:
             elif action == 'resume':
                 if p.status != 'paused': raise ValueError('当前计划未暂停。')
                 p.status = 'running'
-                if p.continuation_state in {'pending', 'done_checkpoint'}: p.continuation_state = 'none'
+                if p.continuation_state in {'pending', 'done_checkpoint', 'unknown'}: p.continuation_state = 'none'
             elif action == 'retry':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
                 if not row or not self._retryable(row):
@@ -401,7 +402,8 @@ class PlanService:
                     row.status, row.error, row.result_json = 'pending', None, None
                 for blocked in self._rows(session, identity):
                     if blocked.status == 'blocked': blocked.status, blocked.error = 'pending', None
-                p.status, p.continuation_state = 'running', 'none'
+                p.status = 'running'
+                if p.continuation_state != 'executing': p.continuation_state = 'none'
             elif action == 'skip':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
                 if not row or not self._skippable(row):
@@ -425,7 +427,8 @@ class PlanService:
                 AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
                 ((AgentPlan.continuation_state == 'pending') &
                  (AgentPlan.continuation_until.is_(None) | (AgentPlan.continuation_until <= now))) |
-                ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now))))))
+                ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now)) |
+                (AgentPlan.continuation_state == 'executing')))))
 
     def claim_continuation(self, session_id, worker_token, lease_seconds=60):
         now = datetime.now(timezone.utc)
@@ -449,7 +452,7 @@ class PlanService:
             p = session.get(AgentPlan, plan_id)
             if not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}': return False
             if p.continuation_state in {'done', 'done_checkpoint'}: return True
-            if p.continuation_state != 'claimed' or p.continuation_token != worker_token: return False
+            if p.continuation_state not in {'claimed', 'executing'} or p.continuation_token != worker_token: return False
             p.continuation_state, p.continuation_token, p.continuation_until = ('done_checkpoint' if p.status == 'paused' else 'done'), None, None
             return True
 
@@ -470,10 +473,36 @@ class PlanService:
         with self._write() as session:
             p = session.get(AgentPlan, plan_id)
             if (not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}'
-                    or p.continuation_state != 'claimed' or p.continuation_token != worker_token):
+                    or p.continuation_state not in {'claimed', 'executing'} or p.continuation_token != worker_token):
                 return False
             p.continuation_state, p.continuation_token, p.continuation_until = outcome, None, None
             return True
+
+    def begin_continuation_output(self, plan_id, event_id, worker_token):
+        """Fence the first model output before it can reach the agent loop.
+
+        The caller also holds the session's process lock, so an expired lease
+        is not itself loss of ownership; a changed token or event is.
+        """
+        with self._write() as session:
+            p = session.get(AgentPlan, plan_id)
+            if (not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}'
+                    or p.continuation_state != 'claimed' or p.continuation_token != worker_token):
+                return False
+            p.continuation_state, p.continuation_until = 'executing', None
+            return True
+
+    def abandon_executing_continuations(self, session_id):
+        """Mark orphaned execution unknown. Caller must own the session lock."""
+        with self._write() as session:
+            rows = session.scalars(select(AgentPlan).where(
+                AgentPlan.session_id == session_id,
+                AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
+                AgentPlan.continuation_state == 'executing')).all()
+            events = [f'{p.id}:{p.continuation_version}' for p in rows]
+            for p in rows:
+                p.continuation_state, p.continuation_token, p.continuation_until = 'unknown', None, None
+            return events
 
     def start(self):
         with self._lock:
@@ -483,12 +512,25 @@ class PlanService:
             # are replayed with the same host-owned idempotency identity.
             with self._write() as session:
                 for row in session.scalars(select(AgentPlanStep).where(AgentPlanStep.status == 'running')):
-                    if not _current_contract(session.get(AgentPlan, row.plan_id)): continue
-                    if (row.tool == 'start_content_run' and row.arguments_json.get('action') == 'tasks'
-                            and isinstance(row.arguments_json.get('tasks'), list)):
-                        row.status = 'pending'
-                    else:
-                        row.status, row.error = 'unknown', '服务中断时步骤结果未知，请先核对。'
+                    plan = session.get(AgentPlan, row.plan_id)
+                    if not _current_contract(plan): continue
+                    guard_factory = getattr(self.chat, '_continuation_guard', None)
+                    guard = guard_factory(plan.session_id) if guard_factory else None
+                    if guard:
+                        try:
+                            guard.acquire(timeout=0)
+                        except FileLockTimeout:
+                            continue
+                    try:
+                        if plan.continuation_state in {'executing', 'unknown'}:
+                            row.status, row.error = 'unknown', '续接中断时步骤结果未知，请先核对。'
+                        elif (row.tool == 'start_content_run' and row.arguments_json.get('action') == 'tasks'
+                                and isinstance(row.arguments_json.get('tasks'), list)):
+                            row.status = 'pending'
+                        else:
+                            row.status, row.error = 'unknown', '服务中断时步骤结果未知，请先核对。'
+                    finally:
+                        if guard: guard.release()
             self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='creatoros-plan')
             self._thread = Thread(target=self._loop, daemon=True, name='creatoros-plan-scheduler')
             self._thread.start()
@@ -520,6 +562,9 @@ class PlanService:
             plans = list(session.scalars(select(AgentPlan).where(AgentPlan.status == 'running',
                 AgentPlan.request_digest.startswith(CONTRACT_PREFIX))))
             for p in plans:
+                # No newly scheduled work while an executing continuation may
+                # still change the plan, or after that continuation was lost.
+                if p.continuation_state in {'executing', 'unknown'}: continue
                 rows = self._rows(session, p.id)
                 by_key = {s.step_key:s for s in rows}
                 for s in rows:

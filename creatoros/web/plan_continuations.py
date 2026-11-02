@@ -1,9 +1,25 @@
 """Durable continuation attempt evidence, before any model output reaches tools."""
+from datetime import datetime, timedelta, timezone
+from math import ceil
 from openai import APIConnectionError
 
 PROTOCOL = 1
 MAX_ATTEMPTS = 3
 RETRY_SECONDS = 30
+
+
+def new_retry_at():
+    return (datetime.now(timezone.utc) + timedelta(seconds=RETRY_SECONDS)).isoformat()
+
+
+def retry_delay(record):
+    try:
+        when = datetime.fromisoformat(record["continuation_retry_at"])
+        if when.tzinfo is None:
+            raise ValueError("retry time has no timezone")
+        return max(0, ceil((when - datetime.now(timezone.utc)).total_seconds()))
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def can_retry(record):
@@ -28,8 +44,9 @@ class ContinuationProvider:
     A lost first response can cost remote model tokens but cannot have executed
     a host tool. Once output is exposed, automatic replay is forbidden.
     """
-    def __init__(self, provider, record, update):
+    def __init__(self, provider, record, update, begin_output):
         self.provider, self.record, self.update = provider, record, update
+        self.begin_output = begin_output
 
     def __getattr__(self, name):
         return getattr(self.provider, name)
@@ -42,6 +59,8 @@ class ContinuationProvider:
 
     def output(self):
         if self.record.get("continuation_stage") != "output_seen":
+            if not self.begin_output():
+                raise RuntimeError("计划续接的事件或执行权已变化，禁止派发工具。")
             self.update(continuation_stage="output_seen")
 
     def failed(self):
