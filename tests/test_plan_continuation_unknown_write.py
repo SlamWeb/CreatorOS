@@ -7,13 +7,18 @@ import unittest
 from unittest.mock import patch
 
 import httpx
+from copy import deepcopy
+from sqlalchemy import func, select
 
 from creatoros.agent.plans import PlanService
-from creatoros.ai.types import StreamEnd, TextDelta, ToolCallDelta
+from creatoros.ai.types import StreamEnd, TextDelta, ToolCall, ToolCallDelta
+from creatoros.context import RuntimeContext
 from creatoros.integrations.studio import StudioClient, StudioClientError
 from creatoros.session.snapshot import load_messages
 from creatoros.storage import Base, ContentRepository, CreatorPlatform, Database
+from creatoros.storage.models import AgentPlan, AgentPlanStep
 from creatoros.tools.execution import execute_tool_call
+from creatoros.tools.plans import _valid_write_receipt
 from creatoros.tools.results import ToolResult
 from creatoros.web.chat import AgentChatService
 
@@ -103,7 +108,7 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
                         owner.plans.edit(owner.sid, owner.pid, current["version"], payload["steps"])
                     owner.committed += 1
                 if owner.mode == "commit_success":
-                    return {"id": owner.pid}
+                    return owner.plans.get(owner.sid, owner.pid)
                 if owner.mode == "commit_500":
                     raise StudioClientError("response after commit", "http_error", status_code=500)
                 if owner.mode == "commit_503_unavailable":
@@ -249,6 +254,273 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
         self.assertEqual(doc["requests"][0]["continuation_outcome"], "done")
         self.assertEqual(self.providers[0].calls, 2)
 
+    def test_malformed_update_preflight_read_never_counts_as_unknown_write(self):
+        methods = []
+        def transport(request):
+            methods.append(request.method)
+            return httpx.Response(200, json={})
+        def client(url, **kwargs):
+            return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+        update = self.plan_call("update", expected_version=self.version, steps=self.steps)
+        with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+            doc = self.start_continuation([[update], []])
+        self.assertEqual(methods, ["GET"])
+        self.assertEqual(self.plans.get(self.sid, self.pid)["continuation_state"], "done_checkpoint")
+        self.assertEqual(doc["requests"][0]["continuation_outcome"], "done")
+        self.assertEqual(self.providers[0].calls, 2)
+        self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["failed"])
+
+    def test_plan_write_receipt_checks_identity_owner_version_and_shape(self):
+        valid = self.plans.get(self.sid, self.pid)
+        expected = dict(plan_id=self.pid, session_id=self.sid, creator_id="isolated",
+                        expected_version=valid["version"] - 1)
+        self.assertTrue(_valid_write_receipt(valid, **expected))
+        self.assertTrue(_valid_write_receipt({**valid, "version": valid["version"] + 3}, **expected))
+        for change in ({"id": "other"}, {"session_id": "other"}, {"creator_id": "other"},
+                       {"creator_id": ""}, {"version": valid["version"] - 1}, {"version": True},
+                       {"status": "invented"}, {"status": []}, {"steps": None}):
+            with self.subTest(change=change):
+                self.assertFalse(_valid_write_receipt({**valid, **change}, **expected))
+        for field in ("id", "session_id", "creator_id", "version", "status", "steps"):
+            with self.subTest(missing=field):
+                missing = dict(valid)
+                del missing[field]
+                self.assertFalse(_valid_write_receipt(missing, **expected))
+
+    def test_all_continuation_writes_stop_after_committed_but_invalid_2xx_receipt(self):
+        for action in ("update", "resume", "retry", "skip"):
+            with self.subTest(action=action), ContinuationUnknownWriteTests.isolated_case() as case:
+                if action in {"retry", "skip"}:
+                    with case.db.session() as session:
+                        row = session.get(AgentPlanStep, case.pid + ":image")
+                        row.tool = "get_producer_skill"
+                        row.arguments_json = {"skill_id": "missing--0000000000000000"}
+                        row.status, row.error = "failed", "controlled read failure"
+                        row.result_json = {"_error_type": "studio_read_failed"}
+                extras = {"expected_version": case.version}
+                if action == "update":
+                    extras["steps"] = case.steps
+                if action in {"retry", "skip"}:
+                    extras["step_id"] = "image"
+                call = case.plan_call(action, **extras)
+
+                def transport(request):
+                    method, payload = request.method, json.loads(request.content or b"{}")
+                    case.requests.append((method, request.url.path, payload))
+                    if method == "GET":
+                        return httpx.Response(200, json=case.plans.get(case.sid, case.pid))
+                    if method == "PATCH":
+                        case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"])
+                    else:
+                        case.plans.action(case.sid, case.pid, payload["expected_version"],
+                                          payload["action"], payload.get("step_id"))
+                    case.committed += 1
+                    return httpx.Response(200, json={"unexpected": "not a plan receipt"})
+
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    doc = case.start_continuation([[call, call], [call], []])
+                self.assertEqual(case.committed, 1)
+                self.assertEqual(case.providers[0].calls, 1)
+                self.assertEqual(case.plans.get(case.sid, case.pid)["continuation_state"], "unknown")
+                self.assertEqual(doc["requests"][0]["continuation_outcome"], "unknown")
+                self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"],
+                                 ["unknown", "not_dispatched"])
+                previous = deepcopy(case.plans.get(case.sid, case.pid)["steps"])
+                case.chat._resume_plans()
+                case.plans.advance()
+                self.assertEqual(case.plans.get(case.sid, case.pid)["steps"], previous)
+                self.assertEqual(case.committed, 1)
+
+    def test_ordinary_chat_plan_writes_show_invalid_receipt_as_unknown(self):
+        for action in ("create", "resume"):
+            with self.subTest(action=action), ContinuationUnknownWriteTests.isolated_case() as case:
+                captured = []
+                def transport(request):
+                    payload = json.loads(request.content)
+                    if action == "create":
+                        result = case.plans.create(case.sid, payload["request_id"], payload["title"],
+                                                   payload["steps"], "http://127.0.0.1:1")
+                    else:
+                        result = case.plans.action(case.sid, case.pid, payload["expected_version"], "resume")
+                    captured.append(result)
+                    return httpx.Response(200, json={})
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+                arguments = ({"action": "create", "title": "ordinary plan", "steps": [case.steps[0]]}
+                             if action == "create" else {"action": "resume", "plan_id": case.pid,
+                                                         "expected_version": case.version})
+                case.responses = [[("manage_plan", arguments)], []]
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    view = case.chat.get(case.sid)
+                    case.chat.submit(case.sid, "ordinary-invalid", "继续", view["version"], "http://127.0.0.1:1")
+                    thread = case.chat.threads.get(case.sid)
+                    if thread is not None:
+                        thread.join(20)
+                doc = case.chat._read(case.sid)
+                self.assertEqual(len(captured), 1)
+                self.assertEqual(case.providers[0].calls, 2)  # ordinary chat retains its existing flow
+                self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["unknown"])
+                messages = load_messages(case.chat._path(case.sid).with_name("messages.json"))
+                result = next(message for message in messages if message.get("role") == "tool")
+                self.assertIn("studio_outcome_unknown", result["content"])
+                with case.db.session() as session:
+                    self.assertEqual(session.scalar(select(func.count()).select_from(AgentPlan)),
+                                     2 if action == "create" else 1)
+
+    def test_ordinary_create_and_resume_accept_actual_plan_receipts(self):
+        for action in ("create", "resume"):
+            with self.subTest(action=action), ContinuationUnknownWriteTests.isolated_case() as case:
+                def transport(request):
+                    payload = json.loads(request.content)
+                    if action == "create":
+                        result = case.plans.create(case.sid, payload["request_id"], payload["title"],
+                                                   payload["steps"], "http://127.0.0.1:1")
+                    else:
+                        result = case.plans.action(case.sid, case.pid, payload["expected_version"], "resume")
+                    return httpx.Response(200, json=result)
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+                arguments = ({"action": "create", "title": "ordinary plan", "steps": [case.steps[0]]}
+                             if action == "create" else {"action": "resume", "plan_id": case.pid,
+                                                         "expected_version": case.version})
+                case.responses = [[("manage_plan", arguments)], []]
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    view = case.chat.get(case.sid)
+                    case.chat.submit(case.sid, "ordinary-valid", "继续", view["version"], "http://127.0.0.1:1")
+                    thread = case.chat.threads.get(case.sid)
+                    if thread is not None:
+                        thread.join(20)
+                doc = case.chat._read(case.sid)
+                self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["done"])
+
+    def test_ordinary_remaining_plan_writes_report_invalid_receipt_after_commit(self):
+        for action in ("update", "pause", "retry", "skip"):
+            with self.subTest(action=action), ContinuationUnknownWriteTests.isolated_case() as case:
+                if action == "pause":
+                    case.plans.action(case.sid, case.pid, case.version, "resume")
+                    case.version = case.plans.get(case.sid, case.pid)["version"]
+                if action in {"retry", "skip"}:
+                    with case.db.session() as session:
+                        row = session.get(AgentPlanStep, case.pid + ":image")
+                        row.tool = "get_producer_skill"
+                        row.arguments_json = {"skill_id": "missing--0000000000000000"}
+                        row.status, row.error = "failed", "controlled read failure"
+                        row.result_json = {"_error_type": "studio_read_failed"}
+                arguments = {"action": action, "plan_id": case.pid, "expected_version": case.version}
+                if action == "update":
+                    arguments["steps"] = case.steps
+                if action in {"retry", "skip"}:
+                    arguments["step_id"] = "image"
+                committed = []
+                def transport(request):
+                    payload = json.loads(request.content)
+                    if request.method == "PATCH":
+                        result = case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"])
+                    else:
+                        result = case.plans.action(case.sid, case.pid, payload["expected_version"],
+                                                   payload["action"], payload.get("step_id"))
+                    committed.append(result)
+                    return httpx.Response(200, json={})
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+                context = RuntimeContext(project_root=case.root, studio_url="http://127.0.0.1:1",
+                    creator_id="isolated", agent_session_id=case.sid)
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    result = execute_tool_call(ToolCall("ordinary-write", "manage_plan", json.dumps(arguments)),
+                                               context=context, model_requested=True)
+                self.assertEqual(len(committed), 1)
+                self.assertGreater(committed[0]["version"], case.version)
+                self.assertTrue(result.is_error)
+                self.assertEqual(result.error_type, "studio_outcome_unknown")
+                self.assertTrue(result.details["plan_write_outcome_unknown"])
+
+    def test_ordinary_lost_or_malformed_write_receipts_keep_error_and_show_unknown(self):
+        for mode in ("lost", "bad_json", "array", "http_500", "non_http_exception"):
+            with self.subTest(mode=mode), ContinuationUnknownWriteTests.isolated_case() as case:
+                committed = []
+                def transport(request):
+                    payload = json.loads(request.content)
+                    committed.append(case.plans.action(case.sid, case.pid, payload["expected_version"], "resume"))
+                    if mode == "lost":
+                        raise httpx.ReadTimeout("controlled lost response", request=request)
+                    if mode == "non_http_exception":
+                        raise OSError("controlled write failure after commit")
+                    if mode == "bad_json":
+                        return httpx.Response(200, content=b"invalid json")
+                    if mode == "array":
+                        return httpx.Response(200, json=[])
+                    return httpx.Response(500, json={"error": {"code": "controlled_server_failure",
+                                                                "message": "controlled failure"}})
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+                case.responses = [[case.plan_call("resume", expected_version=case.version)], []]
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    view = case.chat.get(case.sid)
+                    case.chat.submit(case.sid, "ordinary-transport", "继续", view["version"], "http://127.0.0.1:1")
+                    thread = case.chat.threads.get(case.sid)
+                    if thread is not None:
+                        thread.join(20)
+                self.assertEqual(len(committed), 1)
+                self.assertEqual(case.providers[0].calls, 2)
+                doc = case.chat._read(case.sid)
+                self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["unknown"])
+                messages = load_messages(case.chat._path(case.sid).with_name("messages.json"))
+                result = next(message for message in messages if message.get("role") == "tool")
+                expected = ("studio_outcome_unknown" if mode == "lost" else
+                            "studio_invalid_response" if mode in {"bad_json", "array"} else
+                            "tool_exception" if mode == "non_http_exception" else "controlled_server_failure")
+                self.assertIn(expected, result["content"])
+
+    def test_ordinary_read_or_proven_rejection_is_not_marked_unknown(self):
+        for mode in ("read_failed", "rejected"):
+            with self.subTest(mode=mode), ContinuationUnknownWriteTests.isolated_case() as case:
+                def transport(request):
+                    if mode == "read_failed":
+                        raise httpx.ReadTimeout("controlled read timeout", request=request)
+                    return httpx.Response(403, json={"error": {"code": "agent_scope_rejected", "message": "denied"}})
+                def client(url, **kwargs):
+                    return StudioClient(url, client=httpx.Client(transport=httpx.MockTransport(transport)), **kwargs)
+                call = case.plan_call("get") if mode == "read_failed" else case.plan_call("resume", expected_version=case.version)
+                case.responses = [[call], []]
+                with patch("creatoros.tools.studio.StudioClient", side_effect=client):
+                    view = case.chat.get(case.sid)
+                    case.chat.submit(case.sid, "ordinary-known", "继续", view["version"], "http://127.0.0.1:1")
+                    thread = case.chat.threads.get(case.sid)
+                    if thread is not None:
+                        thread.join(20)
+                doc = case.chat._read(case.sid)
+                self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["failed"])
+                messages = load_messages(case.chat._path(case.sid).with_name("messages.json"))
+                result = next(message for message in messages if message.get("role") == "tool")
+                self.assertIn("studio_read_failed" if mode == "read_failed" else "agent_scope_rejected", result["content"])
+
+    def test_ordinary_unknown_result_survives_projection_failure(self):
+        from creatoros.tools.model_projection import project_model_content
+        self.mode = "ordinary_unknown"
+        self.responses = [[self.plan_call("resume", expected_version=self.version)], []]
+        calls = []
+        def fail_once(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("controlled projection failure")
+            return project_model_content(*args, **kwargs)
+        with patch("creatoros.tools.model_projection.project_model_content", side_effect=fail_once):
+            view = self.chat.get(self.sid)
+            self.chat.submit(self.sid, "ordinary-projection", "继续", view["version"], "http://127.0.0.1:1")
+            thread = self.chat.threads.get(self.sid)
+            if thread is not None:
+                thread.join(20)
+        doc = self.chat._read(self.sid)
+        self.assertEqual(self.providers[0].calls, 2)
+        self.assertEqual([e["status"] for e in doc["entries"] if e["kind"] == "tool"], ["unknown"])
+        messages = load_messages(self.chat._path(self.sid).with_name("messages.json"))
+        result = next(message for message in messages if message.get("role") == "tool")
+        self.assertIn("studio_outcome_unknown", result["content"])
+        self.assertIn("write response lost", result["content"])
+
     def test_proven_middleware_rejection_and_connection_refusal_are_not_unknown(self):
         for mode in ("pre_route_rejection", "connection_refused"):
             with self.subTest(mode=mode):
@@ -274,7 +546,7 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
         doc = self.chat._read(self.sid)
         self.assertEqual(self.providers[0].calls, 2)
         self.assertEqual(doc["status"], "idle")
-        self.assertEqual([entry["status"] for entry in doc["entries"] if entry["kind"] == "tool"], ["failed"])
+        self.assertEqual([entry["status"] for entry in doc["entries"] if entry["kind"] == "tool"], ["unknown"])
 
 
 if __name__ == "__main__":
