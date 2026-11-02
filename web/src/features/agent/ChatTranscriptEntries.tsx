@@ -118,7 +118,8 @@ function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: strin
   const status = entry.status === "waiting" ? (backgroundStatus === "unknown" ? "后台状态待确认" : "后台进行中")
     : running ? (entry.background ? (backgroundStatus === "queued" ? "等待执行" : "正在提炼")
       : entry.research ? "等待调研结果" : entry.discussion ? "等待讨论回复" : "调用中")
-    : successful ? "已返回" : "结果需检查";
+    : successful ? "已返回" : entry.status === "unknown" ? "结果未确认"
+      : entry.status === "not_dispatched" ? "未执行" : "结果需检查";
   const navigation = links.filter(link => !["research", "discussion"].includes(chatLinkKind(link) ?? ""));
   return <div className="chat-tool chat-tool-expandable" data-status={entry.status} data-entry-id={entry.id}>
     <button type="button" className="chat-tool-toggle" aria-expanded={open} aria-controls={detailsId}
