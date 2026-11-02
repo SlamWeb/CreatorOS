@@ -193,6 +193,16 @@ class GitSkillInstallerLongPathTests(TestCase):
                                  "rev-parse", "--verify", "HEAD"], check=True, capture_output=True)
         self.assertTrue(result.stdout.strip())
 
+    def test_existing_pair_fixture_works_at_observed_checkout_length(self):
+        from tests.smoke_pair_production import install_fixture
+        name = "knowledge-to-storyboard-deep"
+        root = self.deep_directory("pair-fixture", 209 - len(name) - len("source") - 2)
+        record = install_fixture(ProducerSkillCatalog(self.root / "pair-catalog"), root, name,
+                                 "https://github.com/example/storyboard", "mind")
+        self.assertEqual(len(str(root / name / "source")), 209)
+        self.assertEqual(record["name"], name)
+        self.assertTrue((Path(record["local_path"]) / "SKILL.md").is_file())
+
     def test_non_windows_git_command_remains_unmodified(self):
         with mock.patch.object(producer_skills, "os", SimpleNamespace(name="posix")), \
              mock.patch.object(producer_skills.subprocess, "run") as run:

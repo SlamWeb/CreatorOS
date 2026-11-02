@@ -30,7 +30,8 @@ def install_fixture(catalog, root, name, repo, role):
         Image.new("RGB", (32, 32), "white").save(source / "assets" / "character.png")
     for args in [("init",), ("add", "."), ("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"),
                  ("remote", "add", "origin", repo)]:
-        subprocess.run(["git", "-C", str(source), *args], capture_output=True, check=True)
+        options = ["-c", "core.longpaths=true"] if os.name == "nt" else []
+        subprocess.run(["git", *options, "-C", str(source), *args], capture_output=True, check=True)
     return catalog.register(workspace, repo, InstallReceipt(skill_path=".", carousel_compatible=False, compatibility_note="fixture"), role=role)
 
 
