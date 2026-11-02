@@ -1,5 +1,9 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-03 · 参考图应用服务边界
+
+`reference-production` 路由只做请求解析、入口权限与 RunDetail 投影；业务编排调用 `app.state.reference_production`，由 runs 的公开 ReferenceProductionService 校验账号并在同一事务内冻结、创建、去重、授权队列。Agent 仍经原 HTTP 入口，错误状态/代码及请求字段保持兼容；路由不再访问 Run/执行器私有锁或数据库写事务。
+
 ## 2026-11-03 · 参考图本次 Skill
 
 参考图直接制作可选本次 skill_ids，账号权限/精确版本冻结与制作任务共用；无选择保留默认。Topic/Run/队列/原操作回执同事务提交，重放使用冻结版本，同 request_id 改选409；不修改栏目绑定与旧记录。
