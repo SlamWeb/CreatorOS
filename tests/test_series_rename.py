@@ -151,7 +151,19 @@ class SeriesRenameMigrationTests(unittest.TestCase):
                     description="Original", audience="Original", skill_name="knowledge-to-carousel")
                 repo.add_topic(topic_id="topic", series_id="series", title="Original topic",
                                source=TopicSource.MANUAL)
-                ContentRunService(db, output_root=root / "outputs").create("topic")
+                # The current ORM has columns introduced after v18. Seed the
+                # historical schema directly, preserving a real old run and
+                # revision to verify rather than querying it with today's ORM.
+                with db.engine.begin() as connection:
+                    connection.execute(text("""INSERT INTO content_runs
+                        (id,topic_id,idempotency_key,status,active_revision_number,input_snapshot_json,
+                         retryable,version,created_at,updated_at)
+                        VALUES ('old-run','topic','content:topic','queued',1,'{}',0,1,
+                                '2026-10-01 00:00:00','2026-10-01 00:00:00')"""))
+                    connection.execute(text("""INSERT INTO content_revisions
+                        (id,content_run_id,revision_number,production_input_json,created_at,updated_at)
+                        VALUES ('old-revision','old-run',1,'{}',
+                                '2026-10-01 00:00:00','2026-10-01 00:00:00')"""))
                 with db.session() as session:
                     session.add(WriteReceipt(request_id="old-receipt", operation="queue_topics", origin="web",
                         resource_id="series", response_json={"creator_id": "owner", "original": [1, 2, 3]}))
@@ -166,7 +178,16 @@ class SeriesRenameMigrationTests(unittest.TestCase):
                 operation()
                 db = Database(url)
                 try:
-                    self.assertEqual(rows(db), before)
+                    current = rows(db)
+                    added = set(current) - set(before)
+                    self.assertIn(added, (set(), {"production_tasks", "agent_plan_steps", "agent_plans",
+                                                "creator_skill_refs", "managed_materials", "series_skill_refs"}))
+                    for table in added:
+                        self.assertEqual(current.pop(table), [])
+                    for run in current["content_runs"]:
+                        if "task_id" in run:
+                            self.assertIsNone(run.pop("task_id"))
+                    self.assertEqual(current, before)
                     with db.engine.connect() as connection:
                         self.assertFalse(connection.execute(text("PRAGMA foreign_key_check")).all())
                         self.assertEqual(connection.execute(text("PRAGMA integrity_check")).scalar_one(), "ok")
