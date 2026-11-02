@@ -1,6 +1,7 @@
 """Native Skill draft folder parsing, preservation and path-boundary smoke."""
 import asyncio
 import base64
+import json
 import sys
 import threading
 from contextlib import asynccontextmanager
@@ -90,7 +91,7 @@ def main():
         assert (source / "references" / "guide.md").read_bytes() == b"immutable guide"
         assert (source / "SKILL.md").read_text(encoding="utf-8") == skill_text("old-production")
 
-        # SDK wiring writes into the real draft tree using text plus selected image inputs.
+        # The model returns files; the host writes the real draft with all images.
         from creatoros.integrations import skill_extraction
         sdk_root = root / "sdk-job"
         sdk_root.mkdir()
@@ -111,7 +112,6 @@ def main():
             async def turn(self, inputs, **controls):
                 sdk_calls["inputs"] = inputs
                 sdk_calls["turn_controls"] = controls
-                write_native_drafts(sdk_root, "single", resource=b"written during SDK turn")
                 return object()
 
         class FakeClient:
@@ -126,7 +126,7 @@ def main():
         sdk = ModuleType("openai_codex")
         sdk.ApprovalMode = SimpleNamespace(deny_all="deny_all")
         sdk.LocalImageInput = type("LocalImageInput", (Input,), {})
-        sdk.Sandbox = SimpleNamespace(workspace_write="workspace_write")
+        sdk.Sandbox = SimpleNamespace(workspace_write="workspace_write", read_only="read_only")
         sdk.TextInput = type("TextInput", (Input,), {})
         sdk_calls["thread_id"] = None
         with patch.dict(sys.modules, {"openai_codex": sdk}), \
@@ -137,10 +137,10 @@ def main():
                 lambda value: sdk_calls.__setitem__("thread_id", value)))
         assert sdk_calls["thread_id"] == "sdk-thread"
         assert sdk_calls["thread_controls"]["cwd"] == str((sdk_root / "draft").resolve())
-        assert sdk_calls["thread_controls"]["sandbox"] == "workspace_write"
-        assert sdk_calls["turn_controls"]["sandbox"] == "workspace_write"
+        assert sdk_calls["thread_controls"]["sandbox"] == "read_only"
+        assert sdk_calls["turn_controls"]["sandbox"] == "read_only"
         assert "output_schema" not in sdk_calls["thread_controls"]
-        assert "output_schema" not in sdk_calls["turn_controls"]
+        assert "output_schema" in sdk_calls["turn_controls"]
         assert [type(item).__name__ for item in sdk_calls["inputs"]] == ["TextInput"] + ["LocalImageInput"] * 20
         assert [item.value for item in sdk_calls["inputs"][1:]] == [str(path.resolve()) for path in sdk_images]
         assert sdk_result.note == "说明来自最终响应，不是 JSON"
@@ -210,7 +210,11 @@ def main():
 
 
 async def _completed_turn():
-    return SimpleNamespace(status="completed", final_response="说明来自最终响应，不是 JSON", usage=None)
+    return SimpleNamespace(status="completed", final_response=json.dumps({"schema_version": 1,
+        "note": "说明来自最终响应，不是 JSON", "suggested_topic": "Try a new topic",
+        "skills": [{"folder": "skill", "files": [{"path": "SKILL.md", "text": skill_text("legacy-end-to-end-skill")},
+            {"path": "references/guide-1.md", "text": "written during SDK turn"}],
+            "delete_paths": [], "reference_assets": []}]}), usage=None)
 
 
 if __name__ == "__main__":

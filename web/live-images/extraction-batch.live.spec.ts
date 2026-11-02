@@ -69,6 +69,7 @@ test("fifteen references reach one real Codex extraction and all remain in its d
   expect(job.uploads).toHaveLength(15); expect(job.status).toBe("ready");
   expect(job.uploads.map((item: { id: string }) => item.id).sort()).toEqual([...expectedHashes].sort());
   expect(job.skills).toHaveLength(1); expect(job.saved_skills).toEqual([]);
+  expect(job.files.some((file: {path: string}) => file.path === "SKILL.md")).toBe(true);
   expect(job.files.filter((file: {kind: string}) => file.kind === "image")).toHaveLength(15);
   const retainedHashes = await Promise.all(job.files.filter((file: { kind: string }) => file.kind === "image")
     .map(async (file: { role: string; path: string }) => {
@@ -79,7 +80,7 @@ test("fifteen references reach one real Codex extraction and all remain in its d
   expect(retainedHashes.sort()).toEqual([...expectedHashes].sort());
   await page.reload();
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Skill 文件" }).getByRole("button")).toHaveCount(16);
+  await expect(page.getByRole("navigation", { name: "Skill 文件" }).getByRole("button")).toHaveCount(job.files.length);
   expect(posts).toHaveLength(1);
   expect((await (await request.get("/api/skill-extractions")).json()).items.map((item: { id: string }) => item.id)).toEqual([jobId]);
   persist();

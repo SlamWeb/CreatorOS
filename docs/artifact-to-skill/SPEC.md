@@ -1,5 +1,22 @@
 # Artifact → Skill Workbench
 
+## V7：宿主接收结构化草稿（2026-11-03）
+
+- 新的普通 single/mind/visual/pair 提炼和这些候选的修订使用 `creatoros-skill-files/v1`：Codex 只读、fresh thread、deny-all，返回有版本的 JSON 文件清单；宿主在本次操作 draft 内暂存、校验并发布文件。脚本只保存为草稿数据，不执行；不扩大 SDK 审批/文件权限，不安装、不试产、不入库、不发布。
+- 每份目录必须明确返回完整 `SKILL.md`；支持相对路径、scripts 和其他受支持的 UTF-8 文本资产、新增/替换及明确的文件删除清单。候选修订将原有非敏感文本及资产清单送入请求，未提及的文件和二进制资产完整保留，旧版本不变；敏感路径沿用 catalog 规则明确 omitted，不读取其正文给模型，也不允许模型修改。超过 512 KiB 的单文本或 2 MiB 的合计旧文本在调用模型前明确拒绝，不静默截断；模型响应最多 4 MiB，完整草稿最多 2,000 项/96 MiB。新二进制只支持从本次已接收参考图复制，不接受任意本机路径、任意 base64 或代执行脚本生成二进制。
+- 非 mind 原图由宿主按本次 references 名称完整保存在 assets，纯文案/图文的原始文案保留在 `assets/source.txt`；mind 可按 `image_index` 显式选择必要原图。复制仍核对格式、路径与大小；不依据模型传入的来源路径读取文件。已有同名资产与本次素材字节不同时明确拒绝并保留原件，不静默覆盖；同一原图修订保持原字节。拒绝绝对路径、越界、链接/重解析点、Windows 保留名/ADS、大小写冲突、嵌套 Skill、覆盖原图及不匹配模式。全部候选文件验证通过后才提升 draft；保留原树备份与 `draft_delivery.json`，再沿用原来的 Skill 格式、版本摘要、显式确认与保存门槛。
+- SDK completed、有效 manifest、有效文件交付各自必需。中断/超时、口头成功/工具拒绝说明、非法清单、部分文件和已有旧草稿均不能冒充本次成功；不自动追加模型调用。失败修订保持当前版本，历史任务和已有证据不回写。`draft_protocol.json` 记录协议，公开活动区分“模型返回内容”与“宿主接收草稿”，不伪造模型文件工具事件。
+- **融合/校准及其修订继续使用 `native-files/v1`，不是本次已修复能力。** 融合需要完整的 `_source_inputs`、只读权威来源、32 MiB 混合资产及 `assets/fusion-sources/<命名空间>` 保留；校准使用完整好坏对照、搭档资料、内部 name 门槛且不能默认把失败图装进生产 assets。尚未证明普通 manifest 的输入/原图保留规则与之等价，因此保留原入口并记录 `native_reason`。这些入口仍可能受下述工具权限拒绝影响，不静默降级或丢失资源。视频/FFmpeg 的工具执行也不在本次草稿交付修复范围内。
+
+### 原失败与验证边界
+
+- 原 15 图失败 `366cd844…48020` 的 SDK 0.157.1 SQLite 状态显示实际 cwd 为该任务 draft、approval 为 never、managed 权限有该 draft 的写入项。只读 rollout 中有 10 组 `custom_tool_call(exec)` 与返回；真实 `exec_command` 被 `blocked by policy` 拒绝，`apply_patch` 的绝对/相对路径都报 `writing outside of the project; rejected by user approval settings`。它不是仅有模型自述的拒绝。ThreadItem 投影只有 3 条 agentMessage、13 条 reasoning 和 1 条 userMessage，公开流缺少 command/file 事件不能证明未调用工具。
+- 尚不能从这些记录区分 code-mode 桥接策略、Windows 路径/规范化或其他平台限制；不将猜测记作根因，不改审批策略。原失败的 30 文件/15 原图保留；只读摘要与哈希见本工作树忽略目录 `tmp/extraction-diagnosis-20261103-1f9bc263/original-evidence.json`。宿主交付解决草稿内容依赖被拒绝的文件工具这一契约，不宣称修复底层工具、视频生产或平台权限。
+- `python -m unittest tests.test_extraction_host_delivery -v` 的首条完整 service→SDK→交付复现先失败于“草稿目录缺失”，实现后转绿；受控 SDK 不写文件、不耗模型。覆盖 15 图原字节、四模式、普通候选修订、旧资源与版本不变、失败不切版/不重调、路径/链接/大小/原图与取消门槛，以及真实 loopback HTTP 上传/提交/刷新不重提。真实 15 图需另用新 root、SQLite、构建、端口、CODEX_HOME、临时/结果目录，仅一次显式授权提交，不能重放原失败任务；真实结果另记，不把受控测试当作模型质量验收。
+- 最终新增 14/14（16.951 秒），含完整服务修订 15 原图不变及旧同名资产碰撞失败不切版；既有校准/诊断 I/O 合计 32/32；skill_draft_files、skill_extraction、skill_workbench、extraction_activity、skill_merge 五份 smoke 通过，提炼 completed-turn 子项独立通过；Python 编译、diff、batch TS 及隔离前端构建通过。全入口 completed-turn smoke 曾在未修改的 native composition 阶段因 2 秒期限内 PowerShell/客户端启动超时失败，不将其记作全套通过。文案保留和同名资产碰撞两项先复现失败再修复；没有通过丢文件或放宽门槛处理。
+- 真实新夹具 `tmp/manifest-batch-live-1793650567274/`，端口 18998：Playwright 1/1（1.2 分钟），唯一新 Job `e12fcb7b…517b`、thread `01a19de9-0f3c-7913-98a8-95c7fa87027b`、gpt-6-sol/high；实际 approval never、模型工具调用 0。返回 SKILL.md + 15 张原图，全部摘要与真实上传字节一致；刷新仍唯一提炼 POST，未入库，creators/series/topics/content_runs 均为 0。完整响应、15 图哈希、清单、运行时源码指纹及业务计数保存 `report.json`；本轮夹具已停止，只删除认证副本，原失败 30 文件哈希均未变。
+- 首个新浏览器夹具 `tmp/manifest-batch-live-1793650405601/` 在上传前因同名 input 定位歧义失败，0 上传/0 Job/0 模型调用；截图/trace 保留。随后复用集成 f396652 的表单范围与提交后上传顺序，在第二套全新夹具完成唯一真实调用。真实调用后仅交付模块追加敏感文件保护、source.txt 保留、同名碰撞门槛及 Windows 设备名扩展，由本地测试验证；SDK/审批/schema 和真实浏览器脚本未再变，未再次付费。此例只验证普通 single 草稿链路与素材保留，未评价提炼质量，未验证真实 mind/pair、融合、校准或视频执行。
+
 ## V6：诊断记录故障不能中断提炼（2026-10-09）
 
 - 真实任务 `f9ade851…d8a2b` 在 32 秒时替换 `production_progress.json.tmp` 被 Windows 拒绝；此 OSError 经 SDK 事件观察器冒泡，宿主主动 interrupt，草稿为空。不能将其归因于额度或 SDK，也没有证据确认占用者。
