@@ -372,7 +372,9 @@ class PlanService:
                 row.arguments_json,row.depends_on_json,row.wait_for_completion = item['arguments'],item['depends_on'],item['wait_for_completion']
             p.version += 1
             if p.status in {'completed','needs_attention'}: p.status = 'running'
-            if p.continuation_state not in {'claimed', 'executing', 'done_checkpoint'}: p.continuation_state = 'none'
+            # Editing does not resolve an interrupted continuation: keep its
+            # pending work frozen until an explicit recovery action.
+            if p.continuation_state not in {'claimed', 'executing', 'unknown', 'done_checkpoint'}: p.continuation_state = 'none'
         self._wake.set()
         return self.get(sid, identity)
 
