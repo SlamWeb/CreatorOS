@@ -58,6 +58,33 @@ def fallback_report(root, case, manifest, error, stage):
         "evidence_files": [{"name": "metrics.json", "label": "已观测用量；缺失不记0"}]})
 
 
+def wait_for_trial(server, root: Path, case_id: str, *, timeout: float = 120) -> int:
+    """Wait for the owned process and verify the HTTP endpoint identifies this trial."""
+    deadline = monotonic() + timeout
+    address = root / "server-address.json"
+    while monotonic() < deadline:
+        if server.poll() is not None:
+            raise RuntimeError(f"Isolated server exited {server.returncode}; see server.log")
+        if not address.is_file():
+            sleep(0.2)
+            continue
+        data = json.loads(address.read_text(encoding="utf-8"))
+        if (data.get("pid") != server.pid or data.get("case_id") != case_id
+                or data.get("run_id") != root.name or not isinstance(data.get("port"), int)
+                or not 0 < data["port"] < 65536):
+            raise RuntimeError("Isolated server address identifies a different trial")
+        try:
+            with urlopen(f"http://127.0.0.1:{data['port']}/__benchmark__/scenario", timeout=2) as reply:
+                scenario = json.load(reply)
+        except (OSError, ValueError):
+            sleep(0.2)
+            continue
+        if scenario.get("case_id") != case_id or scenario.get("run_id") != root.name:
+            raise RuntimeError("Isolated HTTP endpoint belongs to a different trial")
+        return data["port"]
+    raise TimeoutError("Isolated server startup timed out")
+
+
 def execute_case(batch, case, index, manifest, dataset_path):
     from creatoros.evaluation.benchmark.manifest import verify_manifest
     verify_manifest(batch / "manifest.json")
@@ -66,26 +93,14 @@ def execute_case(batch, case, index, manifest, dataset_path):
     (batch / "claims").mkdir(exist_ok=True)
     with (batch / "claims" / (case["id"] + ".json")).open("x", encoding="utf-8") as out:
         json.dump({"case_id": case["id"], "run_id": root.name, "first_attempt": True}, out)
-    port = 9100 + index
     env = {**os.environ, "PYTHONUTF8": "1", "DATABASE_URL": f"sqlite:///{(root / 'bootstrap.db').as_posix()}"}
     log = (root / "server.log").open("wb")
     server = subprocess.Popen([sys.executable, "-m", "creatoros.evaluation.benchmark.server", "--case", case["id"],
-        "--root", str(root), "--dataset", str(dataset_path), "--manifest", str(batch / "manifest.json"), "--port", str(port)],
+        "--root", str(root), "--dataset", str(dataset_path), "--manifest", str(batch / "manifest.json"), "--port", "0"],
         cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT)
     stage = "server_start"
     try:
-        deadline = monotonic() + 120
-        while monotonic() < deadline:
-            if server.poll() is not None:
-                raise RuntimeError(f"Isolated server exited {server.returncode}; see server.log")
-            try:
-                with urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as reply:
-                    if json.load(reply)["status"] == "ok":
-                        break
-            except (OSError, ValueError):
-                sleep(0.5)
-        else:
-            raise TimeoutError("Isolated server startup timed out")
+        port = wait_for_trial(server, root, case["id"])
         stage = "real_browser"
         with (root / "driver.log").open("wb") as output:
             driver = subprocess.run(["node", str(REPO / "web/e2e/live-benchmark-v2.mjs"),
@@ -121,7 +136,7 @@ def main():
     parser.add_argument("action", choices=["freeze", "run", "report"])
     parser.add_argument("--batch", required=True)
     parser.add_argument("--workers", type=int, default=3, choices=range(1, 4))
-    parser.add_argument("--dataset", type=Path, default=DATASET)
+    parser.add_argument("--dataset", type=Path, help="Dataset for freeze; run/report use the frozen dataset")
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     args = parser.parse_args()
     if not args.batch or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in args.batch):
@@ -129,23 +144,30 @@ def main():
     root = REPO / "data/agent-benchmark-v2" / args.batch
     if args.action == "freeze":
         root.mkdir(parents=True, exist_ok=False)
-        manifest = freeze(root, args.dataset, args.cases.split(",") if args.cases else None)
+        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None)
         print(json.dumps({"batch": args.batch, "selected_cases": manifest["selected_case_ids"],
                           "frozen_files": len(manifest["source_hashes"]), "path": str(root)}, ensure_ascii=False))
     else:
-        from creatoros.evaluation.benchmark.manifest import verify_manifest
+        from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
         from creatoros.evaluation.benchmark.report import summarize_batch
+        # Historical reporting must not depend on today's source tree; the
+        # report reader checks the frozen dataset copy against its saved hash.
+        manifest = (verify_manifest(root / "manifest.json")["manifest"] if args.action == "run"
+                    else json.loads((root / "manifest.json").read_text(encoding="utf-8")))
+        dataset_path = frozen_dataset_path(root / "manifest.json", manifest).resolve()
+        original_path = (REPO / manifest["dataset_path"]).resolve()
+        if args.dataset is not None and args.dataset.resolve() not in {dataset_path, original_path}:
+            raise ValueError("Run/report must use the frozen dataset")
         if args.action == "run":
-            manifest = verify_manifest(root / "manifest.json")["manifest"]
-            cases = json.loads(args.dataset.read_text(encoding="utf-8"))["cases"]
+            cases = json.loads(dataset_path.read_text(encoding="utf-8"))["cases"]
             selected = [case for case in cases if case["id"] in manifest["selected_case_ids"]]
             with ThreadPoolExecutor(max_workers=args.workers) as executor:
-                futures = [executor.submit(execute_case, root, case, i, manifest, args.dataset) for i, case in enumerate(selected)]
+                futures = [executor.submit(execute_case, root, case, i, manifest, dataset_path) for i, case in enumerate(selected)]
                 for future in as_completed(futures):
                     future.result()
-                    summarize_batch(root, args.dataset)
+                    summarize_batch(root, dataset_path)
             verify_manifest(root / "manifest.json")
-        result = summarize_batch(root, args.dataset)
+        result = summarize_batch(root, dataset_path)
         print(json.dumps({"summary": str(root / "summary.json"), "report": str(root / "RESULTS.md")}, ensure_ascii=False))
 
 

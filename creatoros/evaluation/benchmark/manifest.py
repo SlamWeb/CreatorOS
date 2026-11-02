@@ -3,13 +3,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import hashlib
+from html.parser import HTMLParser
 import importlib.metadata
 import io
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
+from urllib.parse import unquote, urlsplit
 import zipfile
 
 
@@ -28,12 +32,30 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _relative(path: Path) -> str:
-    path = path.resolve()
+def _reject_links(path: Path, root: Path) -> Path:
+    """Check the lexical path before resolving any symlink or junction."""
+    path = Path(os.path.abspath(path))
+    root = Path(os.path.abspath(root))
     try:
-        name = path.relative_to(PROJECT_ROOT.resolve()).as_posix()
+        parts = path.relative_to(root).parts
     except ValueError as error:
         raise ValueError("Frozen inputs must stay inside the repository") from error
+    candidate = root
+    for part in parts:
+        candidate /= part
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+            raise ValueError(f"Frozen input is linked: {candidate}")
+    return path
+
+
+def _relative(path: Path) -> str:
+    root = PROJECT_ROOT.resolve()
+    path = _reject_links(path, root)
+    name = path.relative_to(root).as_posix()
     if any(part in {".git", "__pycache__", "node_modules", ".venv"} for part in Path(name).parts):
         raise ValueError(f"Dependency/cache path is not a frozen input: {name}")
     if path.name.lower() in _PRIVATE or path.name.lower().startswith(".env"):
@@ -64,8 +86,57 @@ def _dataset(path: Path) -> dict:
     return doc
 
 
+def _frontend_entries(dist: Path) -> None:
+    """Reject an incomplete SPA before freezing any paid browser trials."""
+    index = _reject_links(dist / "index.html", dist.parent)
+    if not index.is_file():
+        raise ValueError("Build the frontend before freezing the real-browser benchmark")
+
+    class Entries(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.modules = []
+            self.assets = []
+
+        def handle_starttag(self, tag, attrs):
+            attr = dict(attrs)
+            if tag == "script" and attr.get("type") == "module" and attr.get("src"):
+                self.modules.append(attr["src"])
+                self.assets.append(attr["src"])
+            if tag == "link" and set((attr.get("rel") or "").lower().split()) & {"stylesheet", "modulepreload"} and attr.get("href"):
+                self.assets.append(attr["href"])
+
+    parsed = Entries()
+    parsed.feed(index.read_text(encoding="utf-8"))
+    if not parsed.modules:
+        raise ValueError("The frontend has no built module entry")
+    for reference in parsed.assets:
+        url = urlsplit(reference)
+        if url.scheme or url.netloc:
+            raise ValueError("The frontend entry must use a local built asset")
+        relative = unquote(url.path).lstrip("/")
+        if relative.startswith("./"):
+            relative = relative[2:]
+        if not relative.startswith("assets/"):
+            raise ValueError(f"The frontend entry is not served by Studio: {reference}")
+        asset = _reject_links(dist / relative, dist.parent).resolve()
+        if not asset.is_relative_to((dist / "assets").resolve()) or not asset.is_file():
+            raise ValueError(f"The frontend entry asset is missing: {reference}")
+
+
+def frozen_dataset_path(manifest_path: Path, manifest: dict) -> Path:
+    """Return the verified dataset copy, or the original for pre-copy manifests."""
+    snapshot = manifest.get("dataset_snapshot")
+    if snapshot:
+        if snapshot.get("path") != "frozen-cases.json":
+            raise ValueError("Invalid frozen dataset path")
+        return Path(manifest_path).resolve().parent / snapshot["path"]
+    return PROJECT_ROOT / manifest["dataset_path"]
+
+
 def _default_sources() -> list[Path]:
     root = PROJECT_ROOT
+    _frontend_entries(root / "web/dist")
     sources = set((root / "creatoros").rglob("*.py"))
     sources.update((root / "creatoros/skills").rglob("*.md"))
     sources.update(p for p in (root / "web/dist").rglob("*") if p.is_file())

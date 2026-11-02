@@ -17,6 +17,23 @@ def prioritize_control_routes(app):
     app.router.routes.sort(key=lambda route: not getattr(route, "path", "").startswith("/__benchmark__/"))
 
 
+def open_trial_listener(app, root: Path, case_id: str, port: int = 0):
+    """Bind this trial's loopback socket before publishing its chosen address."""
+    import uvicorn
+    from creatoros.evaluation.benchmark.io import write_json
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
+                            timeout_graceful_shutdown=4)
+    sock = config.bind_socket()
+    try:
+        write_json(root / "server-address.json", {"case_id": case_id, "run_id": root.name,
+                                                  "pid": os.getpid(), "port": sock.getsockname()[1]})
+    except BaseException:
+        sock.close()
+        raise
+    return config, sock
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True)
@@ -31,8 +48,11 @@ def main():
         parser.error("Trial must live in the dedicated benchmark namespace")
     root.mkdir(parents=True, exist_ok=True)
     os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'world/world.db').as_posix()}"
-    from creatoros.evaluation.benchmark.manifest import verify_manifest
-    verify_manifest(args.manifest)
+    from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
+    manifest = verify_manifest(args.manifest)["manifest"]
+    dataset_path = frozen_dataset_path(args.manifest, manifest).resolve()
+    if args.dataset.resolve() != dataset_path:
+        parser.error("Trial must use the verified frozen dataset")
     from fastapi import HTTPException, Request
     from fastapi.responses import JSONResponse
     import uvicorn
@@ -43,9 +63,8 @@ def main():
     from creatoros.evaluation.benchmark.world import BenchmarkWorld
     from creatoros.evaluation.benchmark.io import now, write_json
     from creatoros.web.server import StudioServer
-    dataset = json.loads(args.dataset.read_text(encoding="utf-8"))
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
     case = next(row for row in dataset["cases"] if row["id"] == args.case)
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     requests, lock, finished = [], Lock(), {}
     started, clock = now(), monotonic()
     def sink(record):
@@ -61,7 +80,7 @@ def main():
     def provider():
         return MeasuredProvider(api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-flash",
                                 timeout_seconds=90, max_retries=0, sink=sink)
-    world = BenchmarkWorld(root / "world", case, provider, dataset_path=args.dataset, eval_root=root.parents[2])
+    world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2])
     world.app.state.skill_iterations.provider_factory = lambda: MeasuredProvider(
         api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-v4-flash", timeout_seconds=180,
         reasoning_effort="high", max_retries=0, sink=sink, purpose="rsi")
@@ -75,7 +94,7 @@ def main():
 
     @app.get("/__benchmark__/scenario")
     def scenario():
-        return {"case_id": case["id"], "scenario": case["scenario"], "creator_id": "bench-a",
+        return {"case_id": case["id"], "run_id": root.name, "scenario": case["scenario"], "creator_id": "bench-a",
             "live_codex": case["live_codex"],
             "steps": case["steps"], "variables": world.variables,
             "attachment_files": {"reference": str(world.input_dir / "reference.png")},
@@ -345,11 +364,12 @@ def main():
         return finished if finished else JSONResponse({"status": "running"}, status_code=202)
 
     prioritize_control_routes(app)
-    print(json.dumps({"case_id": case["id"], "root": str(root), "port": args.port}), flush=True)
+    config, sock = open_trial_listener(app, root, case["id"], args.port)
+    print(json.dumps({"case_id": case["id"], "root": str(root), "port": sock.getsockname()[1]}), flush=True)
     try:
-        StudioServer(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning", access_log=False,
-                                   timeout_graceful_shutdown=4)).run()
+        StudioServer(config).run(sockets=[sock])
     finally:
+        sock.close()
         world.close()
 
 
