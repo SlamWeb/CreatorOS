@@ -162,7 +162,7 @@ def main():
         active = {"queued", "researching", "running", "producing", "validating", "extracting"}
         return (doc["status"] == "running" or any(row["status"] in active for row in runs + jobs + research)
                 or any(row["status"] in {"queued", "running", "waiting_production"} for row in iterations)
-                or any(row["status"] in {"pending", "running"} or row.get("continuation_state") in {"pending", "claimed"} for row in plans))
+                or any(row["status"] in {"pending", "running"} or row.get("continuation_state") in {"pending", "claimed", "executing"} for row in plans))
 
     @app.get("/__benchmark__/task-state")
     def task_state(session_id: str):

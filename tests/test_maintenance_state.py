@@ -88,6 +88,9 @@ class MaintenanceStateTests(unittest.TestCase):
             db.execute("UPDATE agent_plans SET status='completed',continuation_state='pending'")
         self.assertFalse(inspect_idle(self.layout)['idle'])
         with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute("UPDATE agent_plans SET continuation_state='executing'")
+        self.assertFalse(inspect_idle(self.layout)['idle'])
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE agent_plans SET continuation_state='done'")
         self.assertTrue(inspect_idle(self.layout)['idle'])
 

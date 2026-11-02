@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from typing import Callable
 
 from fastapi import HTTPException
+from filelock import FileLock, Timeout as FileLockTimeout
 
 from creatoros.agent.loop import run_agent
 from creatoros.ai import DeepSeekProvider
@@ -31,7 +32,8 @@ from creatoros.terminal import Console
 from creatoros.events import AgentEvent
 from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.web.chat_attachments import ChatAttachments, MAX_IMAGES
-from creatoros.web.plan_continuations import ContinuationProvider, PROTOCOL, RETRY_SECONDS, can_retry, settled_outcome
+from creatoros.web.plan_continuations import (ContinuationProvider, PROTOCOL, RETRY_SECONDS,
+    can_retry, new_retry_at, retry_delay, settled_outcome)
 
 STUDIO_TOOLS = frozenset({"manage_media_collection", "query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "manage_topics",
                           "manage_skill_library", "manage_material",
@@ -329,27 +331,47 @@ class AgentChatService:
         _write(self._path(doc["id"]), doc)
         self.last_saved[doc["id"]] = monotonic()
 
+    def _continuation_guard(self, session_id):
+        """Cross-process ownership, scoped to this database and session."""
+        plans = getattr(self, "plan_service", None)
+        url = plans.db.engine.url if plans else None
+        if url and url.get_backend_name() == "sqlite" and url.database not in {None, "", ":memory:"}:
+            database = Path(url.database).resolve()
+            directory = database.with_name(database.name + ".continuation-locks")
+        else:
+            directory = self.root.resolve() / ".continuation-locks"
+        directory.mkdir(parents=True, exist_ok=True)
+        return FileLock(str(directory / (str(_uuid(session_id)) + ".lock")), timeout=0, thread_local=False)
+
     def start(self):
         # Called only after Studio acquired its execution ownership lock.
         with self.lock:
             self.stopping.clear()
             for path in self.root.glob("*/view.json"):
-                doc = json.loads(path.read_text(encoding="utf-8"))
-                if doc["status"] == "running":
-                    doc["status"] = "interrupted"
-                    doc["version"] += 1
-                    doc["error"] = "服务重启，上一条指令未完整结束。请先查询已有任务，不会自动重跑。"
-                    for entry in doc["entries"]:
-                        if entry.get("kind") == "tool" and entry.get("status") == "running":
-                            entry["status"] = "unknown"
-                    if doc['requests']:
-                        doc['requests'][-1]['status'] = 'interrupted'
-                        answer = next((e for e in reversed(doc['entries']) if e['kind'] == 'assistant'
-                                       and e.get('turn_id') == doc['requests'][-1]['id']), None)
-                        if answer is not None:
-                            answer['terminal'] = True
-                    self._repair(doc["id"])
-                    self._save(doc)
+                guard = self._continuation_guard(path.parent.name)
+                try:
+                    guard.acquire(timeout=0)
+                except FileLockTimeout:
+                    continue  # A different host is still executing this session.
+                try:
+                    doc = json.loads(path.read_text(encoding="utf-8"))
+                    if doc["status"] == "running":
+                        doc["status"] = "interrupted"
+                        doc["version"] += 1
+                        doc["error"] = "服务重启，上一条指令未完整结束。请先查询已有任务，不会自动重跑。"
+                        for entry in doc["entries"]:
+                            if entry.get("kind") == "tool" and entry.get("status") == "running":
+                                entry["status"] = "unknown"
+                        if doc['requests']:
+                            doc['requests'][-1]['status'] = 'interrupted'
+                            answer = next((e for e in reversed(doc['entries']) if e['kind'] == 'assistant'
+                                           and e.get('turn_id') == doc['requests'][-1]['id']), None)
+                            if answer is not None:
+                                answer['terminal'] = True
+                        self._repair(doc["id"])
+                        self._save(doc)
+                finally:
+                    guard.release()
 
     def _repair(self, session_id):
         path = self._path(session_id).with_name("messages.json")
@@ -536,78 +558,126 @@ class AgentChatService:
                     continue
                 if self.stopping.is_set() or session_id in self.active or len(self.active) >= self.max_parallel_sessions:
                     continue
-                token = uuid4().hex
-                event = plans.claim_continuation(session_id, token, lease_seconds=120)
-                if not event:
-                    continue
-                doc = record = provider = None
+                guard = self._continuation_guard(session_id)
                 try:
-                    doc = self._read(session_id)
-                    if doc.get("creator_id") != event["creator_id"] or doc.get("scope_kind") != "creator":
-                        raise ValueError("计划与对话账号不一致")
-                    # Persist the event identity before execution: a process crash can
-                    # interrupt a continuation but must never replay its side effects.
-                    request_id = "plan-" + hashlib.sha256(event["event_id"].encode()).hexdigest()
-                    record = next((item for item in doc["requests"] if item["id"] == request_id), None)
-                    if record is not None:
-                        matching = record.get("kind") == "plan_continuation" and record.get("event_id") == event["event_id"]
-                        outcome = record.get("continuation_outcome")
-                        if matching and (outcome == "done" or (not record.get("continuation_protocol") and record.get("status") == "idle")):
-                            plans.ack_continuation(event["plan_id"], event["event_id"], token)
-                            continue
-                        if not (matching and outcome in {"running", "retry_pending"} and can_retry(record)):
-                            outcome = "failed" if matching and outcome == "failed" else "unknown"
-                            record["continuation_outcome"] = outcome
+                    guard.acquire(timeout=0)
+                except FileLockTimeout:
+                    continue
+                transferred = False
+                try:
+                    abandoned = plans.abandon_executing_continuations(session_id)
+                    if abandoned:
+                        doc = self._read(session_id)
+                        matching = [r for r in doc["requests"] if r.get("event_id") in abandoned
+                                    and r.get("kind") == "plan_continuation"]
+                        for record in matching:
+                            record.update(continuation_outcome="unknown", status="interrupted")
+                        if matching and doc["requests"][-1] in matching:
+                            doc.update(status="interrupted", error="计划续接执行中断，结果未知；请先核对原任务。",
+                                       version=doc["version"] + 1)
+                        if matching:
                             self._save(doc)
-                            plans.fail_continuation(event["plan_id"], event["event_id"], token, outcome=outcome)
-                            continue
-                    provider = self.provider_factory()
-                    if isinstance(provider, DeepSeekProvider):
-                        provider.image_resolver = lambda ref, sid=session_id: self.attachments.resolve(sid, ref)
-                        provider.set_reasoning_effort(doc.get("reasoning_effort", "high"))
-                    observation = {key: event[key] for key in ("event_id", "plan_id", "status", "steps", "reason") if key in event}
-                    if record is None:
-                        record = {"id": request_id, "text": "", "kind": "plan_continuation", "event_id": event["event_id"]}
-                        doc["requests"].append(record)
-                    record.update(status="running", continuation_protocol=PROTOCOL,
-                        continuation_attempts=record.get("continuation_attempts", 0) + 1,
-                        continuation_stage="prepared", continuation_outcome="running",
-                        continuation_transient_failure=False, continuation_model_calls=0)
-                    doc.update(status="running", error=None, version=doc["version"] + 1)
-                    self.active[session_id], self.providers[session_id] = doc, provider
-                    self._save(doc)
-                    thread = Thread(target=self._run, args=(doc, "后台计划结果", event["studio_url"], provider,
-                                    request_id, None, False, None, observation),
-                                    kwargs={"on_done": lambda e=event, t=token, r=record:
-                                            self._finish_plan_continuation(e, t, r)}, daemon=True)
-                    self.threads[session_id] = thread
-                    thread.start()
-                except Exception:
-                    # Thread construction/start can fail after the durable
-                    # request was saved. Nothing reached the provider; remove
-                    # the in-memory busy marker so the same request can retry.
-                    self.active.pop(session_id, None)
-                    self.providers.pop(session_id, None)
-                    self.threads.pop(session_id, None)
-                    if provider is not None:
-                        try:
-                            provider.client.close()
-                        except Exception:
-                            pass
-                    if record is not None and record.get("continuation_stage") == "prepared":
-                        record.update(status="failed", continuation_transient_failure=True)
-                        record["continuation_outcome"] = settled_outcome(record, "failed")
-                        doc.update(status="failed", error=("计划续接尚未开始，稍后在同一请求内重新检查。"
-                            if record["continuation_outcome"] == "retry_pending" else "计划续接未能开始且已达重试上限，请检查服务。"), version=doc["version"] + 1)
+                        continue
+                    transferred = self._resume_plan_locked(session_id, guard)
+                finally:
+                    if not transferred:
+                        guard.release()
+
+    def _resume_plan_locked(self, session_id, guard):
+        plans = self.plan_service
+        token = uuid4().hex
+        event = plans.claim_continuation(session_id, token, lease_seconds=120)
+        if not event:
+            return False
+        doc = record = provider = None
+        try:
+            doc = self._read(session_id)
+            if doc.get("creator_id") != event["creator_id"] or doc.get("scope_kind") != "creator":
+                raise ValueError("计划与对话账号不一致")
+            request_id = "plan-" + hashlib.sha256(event["event_id"].encode()).hexdigest()
+            record = next((item for item in doc["requests"] if item["id"] == request_id), None)
+            if record is not None:
+                matching = record.get("kind") == "plan_continuation" and record.get("event_id") == event["event_id"]
+                outcome = record.get("continuation_outcome")
+                if matching and outcome == "done":
+                    plans.ack_continuation(event["plan_id"], event["event_id"], token)
+                    return False
+                if not (matching and outcome in {"running", "retry_pending"} and can_retry(record)):
+                    outcome = "failed" if matching and outcome == "failed" else "unknown"
+                    if matching:
+                        record["continuation_outcome"] = outcome
+                        if outcome == "unknown" and doc["requests"][-1] is record:
+                            doc.update(status="interrupted", error="计划续接结果未知；请先核对原任务。",
+                                       version=doc["version"] + 1)
                         self._save(doc)
-                        self._finish_plan_continuation(event, token, record)
-                    else:
-                        plans.release_continuation(event["plan_id"], event["event_id"], token, retry_seconds=RETRY_SECONDS)
-                    # An unavailable provider should not turn a durable pending
-                    # event into a tight loop or disappear silently.
-                    self.plan_continuation_retry_after[session_id] = monotonic() + 30
-                    import logging
-                    logging.getLogger(__name__).warning("计划续接暂不可用，将稍后重新检查", exc_info=True)
+                    plans.fail_continuation(event["plan_id"], event["event_id"], token, outcome=outcome)
+                    return False
+                if outcome == "running" or retry_delay(record) is None:
+                    record.update(status="interrupted", continuation_outcome="retry_pending",
+                                  continuation_retry_at=new_retry_at())
+                    if doc["requests"][-1] is record:
+                        doc.update(status="interrupted", error="计划续接中断且没有模型输出，将在退避后重新检查。",
+                                   version=doc["version"] + 1)
+                    self._save(doc)
+                delay = retry_delay(record)
+                if delay:
+                    plans.release_continuation(event["plan_id"], event["event_id"], token, retry_seconds=delay)
+                    return False
+            provider = self.provider_factory()
+            if isinstance(provider, DeepSeekProvider):
+                provider.image_resolver = lambda ref, sid=session_id: self.attachments.resolve(sid, ref)
+                provider.set_reasoning_effort(doc.get("reasoning_effort", "high"))
+            observation = {key: event[key] for key in ("event_id", "plan_id", "status", "steps", "reason") if key in event}
+            if record is None:
+                record = {"id": request_id, "text": "", "kind": "plan_continuation", "event_id": event["event_id"]}
+                doc["requests"].append(record)
+            record.pop("continuation_retry_at", None)
+            record.update(status="running", continuation_protocol=PROTOCOL,
+                continuation_attempts=record.get("continuation_attempts", 0) + 1,
+                continuation_stage="prepared", continuation_outcome="running",
+                continuation_transient_failure=False, continuation_model_calls=0)
+            doc.update(status="running", error=None, version=doc["version"] + 1)
+            self.active[session_id], self.providers[session_id] = doc, provider
+            self._save(doc)
+
+            def run_locked():
+                try:
+                    self._run(doc, "后台计划结果", event["studio_url"], provider, request_id,
+                              None, False, None, observation,
+                              on_done=lambda: self._finish_plan_continuation(event, token, record),
+                              before_continuation_output=lambda: plans.begin_continuation_output(
+                                  event["plan_id"], event["event_id"], token))
+                finally:
+                    guard.release()
+
+            thread = Thread(target=run_locked, daemon=True)
+            self.threads[session_id] = thread
+            thread.start()
+            return True
+        except Exception:
+            self.active.pop(session_id, None)
+            self.providers.pop(session_id, None)
+            self.threads.pop(session_id, None)
+            if provider is not None:
+                try:
+                    provider.client.close()
+                except Exception:
+                    pass
+            if record is not None and record.get("continuation_stage") == "prepared":
+                record.update(status="failed", continuation_transient_failure=True)
+                record["continuation_outcome"] = settled_outcome(record, "failed")
+                if record["continuation_outcome"] == "retry_pending":
+                    record["continuation_retry_at"] = new_retry_at()
+                doc.update(status="failed", error=("计划续接尚未开始，稍后在同一请求内重新检查。"
+                    if record["continuation_outcome"] == "retry_pending" else "计划续接未能开始且已达重试上限，请检查服务。"), version=doc["version"] + 1)
+                self._save(doc)
+                self._finish_plan_continuation(event, token, record)
+            else:
+                plans.release_continuation(event["plan_id"], event["event_id"], token, retry_seconds=RETRY_SECONDS)
+            self.plan_continuation_retry_after[session_id] = monotonic() + 30
+            import logging
+            logging.getLogger(__name__).warning("计划续接暂不可用，将稍后重新检查", exc_info=True)
+            return False
 
     def _finish_plan_continuation(self, event, token, record):
         plans = self.plan_service
@@ -801,7 +871,7 @@ class AgentChatService:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
-    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None):
+    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None, before_continuation_output=None):
         status, error = "idle", None
         continuation = next((item for item in doc["requests"] if item["id"] == request_id), None) if host_observation else None
         if continuation is not None:
@@ -809,7 +879,7 @@ class AgentChatService:
                 with self.lock:
                     continuation.update(fields)
                     self._save(doc)
-            provider = ContinuationProvider(provider, continuation, update_attempt)
+            provider = ContinuationProvider(provider, continuation, update_attempt, before_continuation_output)
         try:
             session_file = self._path(doc["id"]).with_name("messages.json")
             messages = load_messages(session_file)
@@ -890,6 +960,7 @@ class AgentChatService:
                         outcome = settled_outcome(continuation, status)
                         continuation["continuation_outcome"] = outcome
                         if outcome == "retry_pending":
+                            continuation["continuation_retry_at"] = new_retry_at()
                             error = "计划续接在收到首次模型输出前连接失败，未执行工具；30秒后在同一请求内有限重试。"
                         elif outcome == "unknown":
                             error = "计划续接未完整结束，已有输出或执行结果可能生效；需核对原任务，不自动重放。"
