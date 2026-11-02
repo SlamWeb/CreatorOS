@@ -16,7 +16,7 @@ from typing import Callable
 from fastapi import HTTPException
 from filelock import FileLock, Timeout as FileLockTimeout
 
-from creatoros.agent.loop import run_agent
+from creatoros.agent.loop import ContinuationWriteOutcomeUnknown, run_agent
 from creatoros.ai import DeepSeekProvider
 from creatoros.ai.deepseek import (
     DEEPSEEK_CHAT_REASONING_EFFORTS, DEEPSEEK_REASONING_EFFORTS, DEEPSEEK_REASONING_EFFORT_MAP,
@@ -830,7 +830,9 @@ class AgentChatService:
                                        and e.get("name") == data["name"]))), None)
                 if entry is None:
                     return  # Never overwrite a different tool or an assistant answer.
-                entry["status"] = "failed" if data.get("is_error") else "done"
+                entry["status"] = ("not_dispatched" if data.get("not_dispatched") else
+                                   "unknown" if data.get("outcome_unknown") else
+                                   "failed" if data.get("is_error") else "done")
                 if data.get("pending_task"):
                     entry["background"] = deepcopy(data["pending_task"])
                     entry["status"] = "waiting"
@@ -949,6 +951,8 @@ class AgentChatService:
                 status, error = "failed", "计划续接没有取得完整模型结束回执，请先核对原任务。"
         except ChatStopped:
             status, error = "interrupted", "服务关闭，指令已中断；请先查看已有任务。"
+        except ContinuationWriteOutcomeUnknown:
+            status, error = "failed", "计划写入结果未知；请先核对原计划，未继续派发工具。"
         except HTTPException:
             status = "failed"
             error = ("选中的作品资料不可读取或归属已变化，请返回选题重新选择；未自动重试或生产。" if context_target

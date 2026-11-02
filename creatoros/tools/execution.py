@@ -35,6 +35,7 @@ def execute_tool_call(
         )
 
     before_dispatch = True
+    result = None
     try:
         raw_arguments = (bind_account_arguments(tool_name, tool_call.arguments, context)
                          if model_requested else tool_call.arguments)
@@ -72,9 +73,15 @@ def execute_tool_call(
             details={"validation_errors": error.errors(), "pre_dispatch": before_dispatch},
         )
     except Exception as error:
+        details = {"exception_type": type(error).__name__}
+        if (model_requested and context and context.plan_continuation_id and tool_name == "manage_plan"
+                and isinstance(result, ToolResult)):
+            # Projection can fail after a plan write returned; preserve the
+            # dispatch evidence for the continuation's unknown-result gate.
+            details.update(result.details)
         return ToolResult(
             content=f"工具 {tool_name} 执行失败：{error}",
             is_error=True,
             error_type="tool_exception",
-            details={"exception_type": type(error).__name__},
+            details=details,
         )

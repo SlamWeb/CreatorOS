@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from creatoros.integrations.studio import StudioClientError
 from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action
 from .argument_contract import ActionContract
+from .results import ToolResult
 from .studio import _call
 
 
@@ -146,6 +147,18 @@ ManagePlanArgs = ActionContract(Annotated[Union[
 def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=None, step_id=None, context=None):
     session = getattr(context, "agent_session_id", None)
     continuation = getattr(context, "plan_continuation_id", None)
+    write_started = False
+    write_status = None
+
+    def write(client, method, path, **kwargs):
+        nonlocal write_started, write_status
+        write_started = True
+        try:
+            return client.request(method, path, **kwargs)
+        except StudioClientError as error:
+            write_status = error.status_code
+            raise
+
     def invoke(client):
         if not session:
             raise StudioClientError("需要当前账号对话才能管理计划。", code="session_required")
@@ -206,7 +219,18 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                             comparable = without_video_inputs(old_args)
                             if comparable is None or comparable != without_video_inputs(new_args):
                                 raise StudioClientError("已有生产任务，不能自动修改其他生产要求；请先核对原任务。", code="production_replay_blocked")
-            return client.request("PATCH", path, payload={"expected_version": expected_version, "steps": normalized})
-        return client.request("POST", path + "/actions", payload={"expected_version": expected_version,
-                              "action": action, **({"step_id": step_id} if step_id else {})})
-    return _call(invoke, context)
+            return write(client, "PATCH", path, payload={"expected_version": expected_version, "steps": normalized})
+        return write(client, "POST", path + "/actions", payload={"expected_version": expected_version,
+                     "action": action, **({"step_id": step_id} if step_id else {})})
+    try:
+        result = _call(invoke, context)
+    except Exception as error:
+        if not continuation:
+            raise
+        result = ToolResult(content=f"工具 manage_plan 执行失败：{error}", is_error=True,
+                            error_type="tool_exception", details={"exception_type": type(error).__name__})
+    if continuation and action in {"update", "resume", "retry", "skip"}:
+        result.details["continuation_write_started"] = write_started
+        if write_status is not None:
+            result.details["continuation_http_status"] = write_status
+    return result

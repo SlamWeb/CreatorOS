@@ -9,11 +9,12 @@ import httpx
 
 class StudioClientError(RuntimeError):
     def __init__(self, message: str, code: str, *, run_id: str | None = None,
-                 details: dict | None = None):
+                 details: dict | None = None, status_code: int | None = None):
         super().__init__(message)
         self.code = code
         self.run_id = run_id
         self.details = details or {}
+        self.status_code = status_code
 
 
 class StudioClient:
@@ -76,6 +77,7 @@ class StudioClient:
                 str(detail.get("code") or "studio_request_failed"),
                 run_id=detail.get("run_id"),
                 details={key: value for key, value in detail.items() if key not in {"code", "message", "run_id"}},
+                status_code=response.status_code,
             )
         return data
 
