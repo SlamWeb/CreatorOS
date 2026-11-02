@@ -161,10 +161,11 @@ test("video accepts original BGM share text without pre-resolving it", async ({ 
 test("new series can be created before choosing any Skill", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: `空栏目-${crypto.randomUUID().slice(0, 6)}` });
   await page.goto(`/?creator=${account.id}`);
-  await page.getByRole("button", { name: "新建栏目", exact: true }).click();
-  await page.getByLabel("新栏目名称").fill("先建栏目再选 Skill");
+  await page.getByRole("complementary", { name: "账号与栏目", exact: true }).getByRole("button", { name: "新建栏目", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "新建栏目", exact: true });
+  await create.getByLabel("新栏目名称").fill("先建栏目再选 Skill");
   await expect(page.getByLabel("配方", { exact: true })).toHaveCount(0);
-  await page.locator(".rail-form").getByRole("button", { name: "创建", exact: true }).click();
+  await create.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "先建栏目再选 Skill", exact: true })).toBeVisible();
   const seriesId = new URL(page.url()).searchParams.get("series");
   const series = await request.get(`/api/series/${seriesId}`).then(response => response.json());
@@ -186,7 +187,7 @@ test("new series can be created before choosing any Skill", async ({ page, reque
   await expect(pool.getByRole("checkbox", { name: "staged-ui-image", exact: true })).toBeChecked();
 });
 
-test("image freezes multiple Skills and a dependent video waits without a Run until cancelled", async ({ page, request }) => {
+test("image freezes multiple Skills and a dependent video waits without a Run until cancelled", async ({ page, request }, info) => {
   const pair = await post(request, "/test/production-task-pair", {});
   const seeded = await post(request, "/test/staged-video", {});
   const account = await post(request, "/api/creators", { display_name: `多Skill-${crypto.randomUUID().slice(0, 6)}` });
@@ -197,48 +198,117 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
   expect(poolSaved.ok(), await poolSaved.text()).toBeTruthy();
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "独立图片任务" }] });
   const topicId = queued.topic_ids[0];
-  await page.goto(`/?creator=${account.id}&series=${series.id}&topic=${topicId}&production=split`);
-  const dialog = page.getByRole("dialog", { name: "选题详情" });
-  await dialog.getByRole("button", { name: "移除任务 2", exact: true }).click();
-  await dialog.getByLabel("任务 1 名称", { exact: true }).fill("一主多辅任务");
-  await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("使用主Skill制图，其他两份辅助。");
-  const choices = dialog.getByRole("group", { name: "任务 1 选择 Skill" });
-  await choices.locator(`input[value="${seeded.image_skill.id}"]`).check();
-  await choices.locator(`input[value="${pair.mind.id}"]`).check();
-  await choices.locator(`input[value="${pair.production.id}"]`).check();
-  const submitted = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/topics/${topicId}/production-tasks`);
-  await dialog.getByRole("button", { name: "提交并开始制作（1）", exact: true }).click();
-  const response = await submitted; expect(response.ok(), await response.text()).toBe(true);
-  const body = response.request().postDataJSON();
-  expect(body.tasks[0].kind).toBe("image");
-  expect(body.tasks[0].skill_ids).toEqual([seeded.image_skill.id, pair.mind.id, pair.production.id]);
-  const result = await response.json();
-  const run = await request.get(`/api/runs/${result.items[0].run_id}`).then(value => value.json());
-  expect(run.input_snapshot.execution_spec.skills).toHaveLength(3);
-  expect(run.input_snapshot.execution_spec.skills.every((item: { digest: string; path?: string }) => item.digest.length === 64 && !item.path)).toBe(true);
-  // The legacy controlled image producer cannot complete task-v1; this is a deliberate
-  // failed-dependency fixture proving video never silently skips missing images.
-  await page.goto(`/?creator=${account.id}&view=materials&collection=${result.collection_id}`);
-  await page.getByRole("button", { name: "制作视频", exact: true }).click();
-  const form = page.getByRole("form", { name: "制作视频", exact: true });
-  await form.getByLabel("视频任务名称").fill("等待指定图片");
-  await form.getByLabel("剪辑要求", { exact: true }).fill("必须等指定任务，不跳过缺图。");
-  await form.getByRole("checkbox", { name: /staged-ui-video.*v1/ }).check();
-  await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "bgm.wav", mimeType: "audio/wav", buffer: Buffer.from(seeded.audio_base64, "base64") });
-  await expect(form.getByLabel("选择 BGM")).not.toHaveValue("");
-  await form.getByLabel("视频开始方式").selectOption("wait");
-  await form.getByRole("checkbox", { name: /一主多辅任务/ }).check();
-  await form.getByRole("button", { name: "保存并等待图片完成" }).click();
-  await expect(form.getByRole("status").filter({ hasText: "视频任务已保存" })).toBeVisible();
-  await form.getByRole("link", { name: "查看这个选题的制作任务" }).click();
-  const waiting = dialog.locator(".production-task-list > li").filter({ hasText: "等待指定图片" });
-  await expect(waiting.getByRole("button", { name: "取消等待", exact: true })).toBeVisible();
-  const beforeCancel = await request.get(`/api/topics/${topicId}/production-tasks`).then(value => value.json());
-  const videoTask = beforeCancel.items.find((item: { kind: string }) => item.kind === "video");
-  expect(videoTask.run_id).toBeNull(); expect(videoTask.depends_on).toEqual([result.items[0].id]);
-  await waiting.getByRole("button", { name: "取消等待", exact: true }).click();
-  await expect(waiting).toContainText("已取消");
-  await page.reload(); await expect(waiting).toContainText("已取消");
+  const gate = `/test/production-gates/${topicId}`;
+  await post(request, gate, { outcome: "complete" });
+  try {
+    await page.goto(`/?creator=${account.id}&series=${series.id}&topic=${topicId}&production=split`);
+    const dialog = page.getByRole("dialog", { name: "选题详情" });
+    await dialog.getByRole("button", { name: "移除任务 2", exact: true }).click();
+    await dialog.getByLabel("任务 1 名称", { exact: true }).fill("一主多辅任务");
+    await dialog.getByLabel("任务 1 制作要求", { exact: true }).fill("使用主Skill制图，其他两份辅助。");
+    const choices = dialog.getByRole("group", { name: "任务 1 选择 Skill" });
+    await choices.locator(`input[value="${seeded.image_skill.id}"]`).check();
+    await choices.locator(`input[value="${pair.mind.id}"]`).check();
+    await choices.locator(`input[value="${pair.production.id}"]`).check();
+    const submitted = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/topics/${topicId}/production-tasks`);
+    await dialog.getByRole("button", { name: "提交并开始制作（1）", exact: true }).click();
+    const response = await submitted; expect(response.ok(), await response.text()).toBe(true);
+    const body = response.request().postDataJSON();
+    expect(body.tasks[0].kind).toBe("image");
+    expect(body.tasks[0].skill_ids).toEqual([seeded.image_skill.id, pair.mind.id, pair.production.id]);
+    const result = await response.json();
+    await expect.poll(async () => (await request.get(gate).then(value => value.json())).image_waiting).toBe(true);
+    const run = await request.get(`/api/runs/${result.items[0].run_id}`).then(value => value.json());
+    expect(run.status).toBe("producing");
+    expect(run.input_snapshot.execution_spec.skills).toHaveLength(3);
+    expect(run.input_snapshot.execution_spec.skills.every((item: { digest: string; path?: string }) => item.digest.length === 64 && !item.path)).toBe(true);
+    // task-v1 images now succeed. Hold this exact producer until cancellation is
+    // persisted; a sleep cannot guarantee that the image is still incomplete.
+    await page.goto(`/?creator=${account.id}&view=materials&collection=${result.collection_id}`);
+    await page.getByRole("button", { name: "制作视频", exact: true }).click();
+    const form = page.getByRole("form", { name: "制作视频", exact: true });
+    await form.getByLabel("视频任务名称").fill("等待指定图片");
+    await form.getByLabel("剪辑要求", { exact: true }).fill("必须等指定任务，不跳过缺图。");
+    await form.getByRole("checkbox", { name: /staged-ui-video.*v1/ }).check();
+    await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "bgm.wav", mimeType: "audio/wav", buffer: Buffer.from(seeded.audio_base64, "base64") });
+    await expect(form.getByLabel("选择 BGM")).not.toHaveValue("");
+    await form.getByLabel("视频开始方式").selectOption("wait");
+    await form.getByRole("checkbox", { name: /一主多辅任务/ }).check();
+    await form.getByRole("button", { name: "保存并等待图片完成" }).click();
+    await expect(form.getByRole("status").filter({ hasText: "视频任务已保存" })).toBeVisible();
+    await form.getByRole("link", { name: "查看这个选题的制作任务" }).click();
+    const waiting = dialog.locator(".production-task-list > li").filter({ hasText: "等待指定图片" });
+    await expect(waiting.getByRole("button", { name: "取消等待", exact: true })).toBeVisible();
+    const beforeCancel = await request.get(`/api/topics/${topicId}/production-tasks`).then(value => value.json());
+    const videoTask = beforeCancel.items.find((item: { kind: string }) => item.kind === "video");
+    expect(videoTask.status).toBe("waiting");
+    expect(videoTask.run_id).toBeNull(); expect(videoTask.depends_on).toEqual([result.items[0].id]);
+    const cancelling = page.waitForResponse(value => value.request().method() === "POST"
+      && new URL(value.url()).pathname === `/api/topics/${topicId}/production-tasks/${videoTask.id}/cancel`);
+    await waiting.getByRole("button", { name: "取消等待", exact: true }).click();
+    const cancelled = await cancelling;
+    expect(cancelled.status(), await cancelled.text()).toBe(200);
+    await expect(waiting).toContainText("已取消");
+    await page.reload(); await expect(waiting).toContainText("已取消");
+    await post(request, `${gate}/release`, {});
+    await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(value => value.json())).status).toBe("awaiting_approval");
+    await post(request, `${gate}/advance`, {});
+    const proof = await post(request, `${gate}/advance`, {});
+    expect(proof.calls).toEqual({ image: 1, video: 0 });
+    expect(proof.runs).toEqual([{ id: run.id, task_id: result.items[0].id, status: "awaiting_approval" }]);
+    expect(proof.attempt_count).toBe(1); expect(proof.queue_count).toBe(1);
+    const after = proof.tasks.find((item: { id: string }) => item.id === videoTask.id);
+    expect(after.status).toBe("cancelled"); expect(after.run_id).toBeNull();
+    expect(after.depends_on).toEqual([result.items[0].id]);
+    await page.reload(); await expect(waiting).toContainText("已取消");
+    await info.attach("cancelled-before-image-completion.json", { body: JSON.stringify(proof, null, 2), contentType: "application/json" });
+  } finally {
+    await post(request, `${gate}/release`, {});
+  }
+});
+
+test("a failed image dependency remains visible and never dispatches or repeats production", async ({ page, request }, info) => {
+  const seeded = await post(request, "/test/staged-video", {});
+  const account = await post(request, "/api/creators", { display_name: `失败依赖-${crypto.randomUUID().slice(0, 6)}` });
+  const series = await post(request, `/api/creators/${account.id}/series`, { name: "失败依赖隔离" });
+  for (const skill of [seeded.image_skill, seeded.skill]) await post(request, `/api/creators/${account.id}/skills`, { skill_id: skill.id, request_id: crypto.randomUUID() });
+  const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "失败图片与等待视频" }] });
+  const topicId = queued.topic_ids[0], endpoint = `/api/topics/${topicId}/production-tasks`;
+  const gate = `/test/production-gates/${topicId}`;
+  await post(request, gate, { outcome: "fail" });
+  try {
+    const image = await post(request, endpoint, { request_id: crypto.randomUUID(), tasks: [
+      { title: "指定失败图片", brief: "受控失败，不调用模型", kind: "image", skill_ids: [seeded.image_skill.id] }] });
+    await expect.poll(async () => (await request.get(gate).then(value => value.json())).image_waiting).toBe(true);
+    const audio = await post(request, `/api/creators/${account.id}/materials`, { name: "bgm.wav", data_base64: seeded.audio_base64 });
+    const payload = { request_id: crypto.randomUUID(), tasks: [{ title: "不得跳过失败图片", brief: "只等待指定任务", kind: "video", skill_ids: [seeded.skill.id],
+      inputs: { collection_id: image.collection_id, bgm_material_id: audio.id }, depends_on: [image.items[0].id] }] };
+    const saved = await post(request, endpoint, payload), videoTask = saved.items[0];
+    expect(videoTask.status).toBe("waiting"); expect(videoTask.run_id).toBeNull();
+    expect(videoTask.depends_on).toEqual([image.items[0].id]);
+    await page.goto(`/?creator=${account.id}&series=${series.id}&topic=${topicId}`);
+    const row = page.getByRole("dialog", { name: "选题详情" }).locator(".production-task-list > li").filter({ hasText: "不得跳过失败图片" });
+    await expect(row).toContainText("等待材料");
+    await post(request, `${gate}/release`, {});
+    await expect.poll(async () => (await request.get(`/api/runs/${image.items[0].run_id}`).then(value => value.json())).status).toBe("failed");
+    await post(request, `${gate}/advance`, {});
+    const replay = await post(request, endpoint, payload);
+    expect(replay.items[0].id).toBe(videoTask.id); expect(replay.items[0].run_id).toBeNull();
+    const proof = await post(request, `${gate}/advance`, {});
+    const failed = proof.tasks.find((item: { id: string }) => item.id === videoTask.id);
+    expect(failed.status).toBe("needs_attention"); expect(failed.run_id).toBeNull();
+    expect(failed.depends_on).toEqual([image.items[0].id]);
+    expect(proof.calls).toEqual({ image: 1, video: 0 });
+    expect(proof.runs).toHaveLength(1); expect(proof.runs[0].status).toBe("failed");
+    expect(proof.attempt_count).toBe(1); expect(proof.queue_count).toBe(1);
+    await page.reload(); await expect(row).toContainText("待核对");
+    await expect(row.getByRole("alert")).toContainText("有图片任务未完成");
+    await expect(row.getByRole("link", { name: "查看任务", exact: true })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "重试准备材料", exact: true })).toBeVisible();
+    await info.attach("failed-dependency-no-extra-production.json", { body: JSON.stringify(proof, null, 2), contentType: "application/json" });
+  } finally {
+    await post(request, `${gate}/release`, {});
+  }
 });
 
 test("existing image Run, revision and approval still work through the current UI", async ({ page, request }) => {
