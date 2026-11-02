@@ -90,6 +90,8 @@ class ReferenceProductionRunArgs(ProductionArguments):
     instructions: str = Field(default="", max_length=3000, description="参考制作的完整要求。")
     reference_presentation: bool = Field(default=False,
         description="默认只借鉴内容；用户明确要求参考画面风格或版式时才设 true。")
+    skill_ids: SkillIds | None = Field(default=None,
+        description="本次参考制作使用的一份或多份精确 Skill 版本 ID；省略沿用栏目默认，不改栏目绑定。")
 
 
 StartRunArgs = ActionContract(Annotated[Union[

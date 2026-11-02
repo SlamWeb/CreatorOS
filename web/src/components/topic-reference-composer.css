@@ -12,6 +12,13 @@
 .topic-reference-composer .topic-reference-presentation { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:14px; color:var(--ink); margin:16px 0; }
 .topic-reference-presentation input { width:16px; height:16px; margin:0; accent-color:var(--accent); }
 .topic-reference-presentation span { font-size:12px; color:var(--muted); }
+.topic-reference-composer .topic-reference-skills { margin-top:16px; }
+.topic-reference-skills legend { font-size:14px; font-weight:600; margin-bottom:6px; }
+.topic-reference-skills small { color:var(--muted); }
+.topic-reference-skill-options { display:flex; flex-wrap:wrap; gap:10px 20px; margin-top:10px; }
+.topic-reference-composer .topic-reference-skill-options label { display:flex; align-items:center; gap:8px; min-width:0; font-size:14px; }
+.topic-reference-skill-options span { overflow-wrap:anywhere; }
+.topic-reference-composer .topic-reference-skill-options input[type="checkbox"] { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:var(--accent); }
 .topic-reference-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:16px; }
 .topic-reference-actions small { color:var(--muted); font-size:12px; }
 .topic-reference-status { margin-bottom:0; color:var(--muted); font-size:14px; }

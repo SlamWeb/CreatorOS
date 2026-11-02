@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-03 · 参考图本次 Skill
+
+既有 start_content_run 的 reference action 可选一份或多份精确 skill_ids，复用制作任务的账号权限与版本冻结；省略沿用默认，不改栏目绑定。宿主请求键不随 Skill 改选变化，同一请求改选返回幂等冲突，未知结果先核对原 Run。
+
 ## 2026-11-03 计划权限声明
 
 模型计划工具枚举、宿主计划动作、续接工具/动作与续接改计划动作共享 `creatoros.plan_capabilities`；不同场景仍独立授权，未知默认拒绝。真实工具注册、账号总授权、参数 Schema 与资源归属仍由原模块负责。未新增模型工具或脚本执行；旧计划、生产等待、防重复与恢复语义见 [Agent SPEC](../agent/SPEC.md#2026-11-03-计划能力声明)。

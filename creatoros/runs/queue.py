@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from contextlib import nullcontext
 
 from sqlalchemy import select, or_, and_
 
-from creatoros.storage.models import ContentRun, ContentRunStatus, ProductionQueueItem, TopicRemoval
+from creatoros.storage.models import ContentRun, ContentRevision, ContentRunStatus, ProductionQueueItem, TopicRemoval
 from .service import ContentRunError
 
 
@@ -15,13 +16,17 @@ class ProductionQueue:
         self.service = service
         self.database = service.database
 
-    def enqueue(self, run_id: str, expected_version: int) -> ProductionQueueItem:
-        with self.service._write_lock, self.database.session() as session:
+    def enqueue(self, run_id: str, expected_version: int, *, bound_session=None) -> ProductionQueueItem:
+        with self.service._write_lock, (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
             run = session.get(ContentRun, run_id)
             if run is None:
                 raise ContentRunError("运行不存在。", code="not_found", status_code=404)
             self.service._assert_no_active_iteration(session, run.topic_id)
-            revision = self.service.get_active_revision(run_id)
+            revision = (session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run_id,
+                        ContentRevision.revision_number == run.active_revision_number))
+                        if bound_session is not None else self.service.get_active_revision(run_id))
+            if revision is None:
+                raise ContentRunError("当前内容版本不存在。", code="not_found", status_code=404)
             item = session.scalar(select(ProductionQueueItem).where(
                 ProductionQueueItem.run_id == run_id, ProductionQueueItem.revision_id == revision.id))
             if run.input_snapshot_json.get("production_protocol") == "external-import":

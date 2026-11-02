@@ -226,7 +226,7 @@ tool_registry = {
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs, expose_to_model=False),
-        Tool(name="start_content_run", description="用户明确要求生产时选择action：start用topic_ids列表按栏目默认生产，单条也填列表；tasks用topic_id和tasks拆分制作，每项显式kind和具体brief、可选skill_ids；fresh用source_run_id和所见expected_version清空旧上下文重做，可指定skill_ids；reference用series_id、title、当前会话attachment_ids及完整要求直接制作。25张独立理由图填25项，各自一个Codex会话，共用同题素材集。先图后视频用manage_plan等待上游，视频inputs携带collection_id与bgm_material_id或bgm_reference，分享原文直接交Codex，不先解析。受理不等于完成，不自动重提或发布。",
+        Tool(name="start_content_run", description="用户明确要求生产时选择action：start用topic_ids列表按栏目默认生产，单条也填列表；tasks用topic_id和tasks拆分制作，每项显式kind和具体brief、可选skill_ids；fresh用source_run_id和所见expected_version清空旧上下文重做，可指定skill_ids；reference用series_id、title、当前会话attachment_ids及完整要求直接制作，可用skill_ids选择本次一份或多份精确版本，不改栏目绑定；省略时沿用默认。同一参考请求改选Skill会冲突，先核对原记录。25张独立理由图填25项，各自一个Codex会话，共用同题素材集。先图后视频用manage_plan等待上游，视频inputs携带collection_id与bgm_material_id或bgm_reference，分享原文直接交Codex，不先解析。受理不等于完成，不自动重提或发布。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),

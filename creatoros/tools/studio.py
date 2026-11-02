@@ -456,7 +456,8 @@ def start_content_run(action, context=None, **arguments):
             request_id = sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
             try:
                 result = client.request("POST", f"/api/series/{quote(series_id, safe='')}/reference-production",
-                    payload={"reference_id": ref, "title": title, "request_id": request_id})
+                    payload={"reference_id": ref, "title": title, "request_id": request_id,
+                             **({"skill_ids": request.skill_ids} if request.skill_ids is not None else {})})
             except StudioClientError as error:
                 error.details.update(request_id=request_id, series_id=series_id,
                     topic_id="reference-" + sha256(json.dumps([series_id, request_id]).encode()).hexdigest()[:24],

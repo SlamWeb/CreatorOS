@@ -211,6 +211,17 @@ class ProductionRequestMappingTests(unittest.TestCase):
             start_content_run(action="start", topic_ids=["topic"], skill_overrides={}, context=self.context)
         self.assertEqual(self.mapping.calls, [])
 
+    def test_reference_exact_skills_do_not_change_request_identity(self):
+        start_content_run(action="reference", series_id="series", title="参考制作",
+            attachment_ids=["image"], instructions="完整要求", skill_ids=SKILLS, context=self.context)
+        first = self.mapping.calls[-1][2]
+        ReferenceProductionRequest.model_validate(first)
+        self.assertEqual(first["skill_ids"], SKILLS)
+        self.mapping.calls.clear()
+        start_content_run(action="reference", series_id="series", title="参考制作",
+            attachment_ids=["image"], instructions="完整要求", skill_ids=SKILLS[:1], context=self.context)
+        self.assertEqual(self.mapping.calls[-1][2]["request_id"], first["request_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

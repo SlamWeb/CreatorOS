@@ -28,6 +28,9 @@ const groups = [
   { name: "media", config: "playwright.media.config.ts", directory: "media-tests",
     source: "fresh deterministic local image Runs; no model or historical data",
     specs: ["collections.spec.ts", "fixture-http.spec.ts"] },
+  { name: "reference-selection", config: "playwright.reference-selection.config.ts", directory: "reference-selection-tests",
+    source: "fresh SQLite/Skill pool and controlled local image producer; no model",
+    specs: ["selection.spec.ts"] },
 ];
 const live = ["live-topic-references.spec.ts"];
 const args = process.argv.slice(2);
@@ -67,7 +70,16 @@ if (new Set(selectedMedia).size !== selectedMedia.length || unknownMedia.length 
 }
 const digest = file => createHash("sha256").update(readFileSync(file)).digest("hex");
 const specDigests = Object.fromEntries(actual.map(name => [name, digest(path.join(dir, name))]));
-const additionalSpecDigests = Object.fromEntries(actualMedia.map(name => [`media-tests/${name}`, digest(path.join(mediaDir, name))]));
+const referenceDirectory = path.join(import.meta.dirname, "reference-selection-tests");
+const referenceSpecs = inventory(referenceDirectory);
+const declaredReferences = groups.filter(group => group.directory === "reference-selection-tests").flatMap(group => group.specs);
+if (JSON.stringify(referenceSpecs) !== JSON.stringify([...declaredReferences].sort())) {
+  throw new Error("Reference-selection spec inventory changed; review the controlled group before running");
+}
+const additionalSpecDigests = Object.fromEntries([
+  ...actualMedia.map(name => [`media-tests/${name}`, digest(path.join(mediaDir, name))]),
+  ...referenceSpecs.map(name => [`reference-selection-tests/${name}`, digest(path.join(referenceDirectory, name))]),
+]);
 const plan = { groups, excluded_live_specs: live, spec_digests: specDigests, additional_spec_digests: additionalSpecDigests };
 if (planning) {
   console.log(JSON.stringify(plan, null, 2));
@@ -96,7 +108,7 @@ if (planning) {
         }
       }
     };
-    for (const folder of ["creatoros", "migrations", "tests", "production-skills", "web/src", "web/public", "web/e2e", "web/media-tests"]) visit(path.join(repo, folder));
+    for (const folder of ["creatoros", "migrations", "tests", "production-skills", "web/src", "web/public", "web/e2e", "web/media-tests", "web/reference-selection-tests"]) visit(path.join(repo, folder));
     for (const entry of readdirSync(import.meta.dirname, { withFileTypes: true })) {
       if (entry.isFile() && sourceExtensions.has(path.extname(entry.name))) {
         const file = path.join(import.meta.dirname, entry.name);

@@ -31,7 +31,7 @@ $env:CREATOROS_PYTHON = 'D:\Anaconda4.7g\envs\deepcode\python.exe'
 npm --prefix web run e2e:all
 ```
 
-入口先核对 `web/e2e/*.spec.ts` 和 `web/media-tests/*.spec.ts` 清单，新增或删除 spec 后需要人工分类，不能静默跳过。随后在独立目录构建前端，分组启动真实本机 HTTP API 和 Chrome：普通 Studio、Agent Plan、制作任务/阶段、compact 和素材集夹具。素材集组自动新建两条受控图片 Run，不读取正式数据库或历史图片。各组分别使用系统分配的空闲端口、独立 SQLite、文件、会话及 Playwright 结果。日志打印根目录，`summary.json` 单列每组数据来源、通过、失败、跳过、未发现的文件与原始 JSON 报告；素材集组还记录本次新建源库、产物和结果目录。部分失败时仍执行后续组。`--group compact` 等选项仅用于排查，汇总明确标为部分运行。
+入口先核对 `web/e2e/*.spec.ts`、`web/media-tests/*.spec.ts` 和 `web/reference-selection-tests/*.spec.ts` 清单，新增或删除 spec 后需要人工分类，不能静默跳过。随后在独立目录构建前端，分组启动真实本机 HTTP API 和 Chrome：普通 Studio、Agent Plan、制作任务/阶段、compact 和素材集夹具。素材集组自动新建两条受控图片 Run，不读取正式数据库或历史图片。各组分别使用系统分配的空闲端口、独立 SQLite、文件、会话及 Playwright 结果。日志打印根目录，`summary.json` 单列每组数据来源、通过、失败、跳过、未发现的文件与原始 JSON 报告；素材集组还记录本次新建源库、产物和结果目录。部分失败时仍执行后续组。`--group compact` 等选项仅用于排查，汇总明确标为部分运行。
 
 任一组出现跳过或重试才通过的用例时，整组不会标为完整通过；仍应查看各组数量和失败证据。此入口不包含下文明确列出的目录外 live 脚本。
 
@@ -95,3 +95,8 @@ node node_modules/@playwright/test/cli.js test --config playwright.live-referenc
 该配置只接受本工作树 `tmp` 下的独立根、该根内两张参考图和显式本机非 8765 端口，不替使用者证明端口当前监听的进程确实指向该数据库。浏览器证据写入该根下新的 `browser-results-*`。失败或结果未知时保留 SQLite、文件、会话及报告，先核对是否已经发生模型调用或生产，不直接用同一目录重跑。
 
 `web/e2e` 下 12 个 `live-*.mjs` 是独立手动脚本，不属于 Playwright spec 清单；`web/live-images`、`live-calibration`、`live-context-focus`、`production-tasks-live` 和 `media-agent-tests` 是独立目录，均不计入以上全量结果。它们各有来源、凭证、历史工件和外部副作用前置条件，不要默认接入正式服务。
+
+
+## 参考图本次 Skill 的受控回归
+
+`npm --prefix web run e2e:all -- --group reference-selection` 建立独立构建、随机非生产端口、SQLite、账号/栏目、精确 Skill 与本地 PNG，使用 E2EProducer，不读取历史图片或调用模型。两项浏览器测试验证无默认时勾选多份、终态交付/原图要求冻结、栏目不变、刷新不重提交，以及响应丢失后改选409、恢复原选择复用唯一 Run/Attempt/队列项。完整 `e2e:all` 包含此组，单组汇总保留其他组 not_run。无需 ffmpeg/ffprobe；默认使用项目 Python 和 Chrome。
