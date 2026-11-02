@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -39,7 +40,7 @@ if (JSON.stringify(result) !== JSON.stringify(['passed', 'incomplete', 'flaky', 
         result = plan(env=env)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
         value = json.loads(result.stdout)
-        selected = [name for group in value["groups"] for name in group["specs"]]
+        selected = [name for group in value["groups"] if group.get("directory", "e2e") == "e2e" for name in group["specs"]]
         live = value["excluded_live_specs"]
         actual = sorted(path.name for path in (WEB / "e2e").glob("*.spec.ts"))
         self.assertEqual(sorted(selected + live), actual)
@@ -50,6 +51,10 @@ if (JSON.stringify(result) !== JSON.stringify(['passed', 'incomplete', 'flaky', 
         groups = {group["name"]: group for group in value["groups"]}
         self.assertEqual(groups["agent-plan"]["specs"], ["agent-plan.spec.ts"])
         self.assertEqual(sorted(groups["staged"]["specs"]), ["production-tasks.spec.ts", "staged-production.spec.ts"])
+        self.assertEqual(groups["media"]["directory"], "media-tests")
+        media = sorted(path.name for path in (WEB / "media-tests").glob("*.spec.ts"))
+        self.assertEqual(sorted(groups["media"]["specs"]), media)
+        self.assertEqual(sorted(value["additional_spec_digests"]), [f"media-tests/{name}" for name in media])
         self.assertNotIn("must-not-be-read", result.stdout.decode())
 
     def test_an_unclassified_spec_refuses_to_run_even_in_plan(self):
@@ -61,6 +66,53 @@ if (JSON.stringify(result) !== JSON.stringify(['passed', 'incomplete', 'flaky', 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("new-unreviewed.spec.ts", result.stderr.decode(errors="replace"))
 
+    def test_an_unclassified_media_spec_refuses_to_run(self):
+        with tempfile.TemporaryDirectory(prefix="creatoros-media-manifest-") as temporary:
+            for path in (WEB / "media-tests").glob("*.spec.ts"):
+                (Path(temporary) / path.name).touch()
+            (Path(temporary) / "new-media.spec.ts").touch()
+            result = plan("--media-spec-dir", temporary)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("new-media.spec.ts", result.stderr.decode(errors="replace"))
+
+    def test_media_prepare_only_creates_new_controlled_fixture_without_browser(self):
+        with tempfile.TemporaryDirectory(prefix="creatoros-all-media-proof-") as temporary:
+            env = os.environ.copy()
+            env.update(TEMP=temporary, TMP=temporary, TMPDIR=temporary, CREATOROS_PYTHON=os.sys.executable,
+                       CREATOROS_E2E_PORT="8765", MEDIA_SOURCE_DB="must-not-be-read",
+                       MEDIA_OUTPUT_ROOT="must-not-be-read", MEDIA_TEST_ROOT="must-not-be-used")
+            result = subprocess.run(["node", "e2e-all.mjs", "--group", "media", "--prepare-only"],
+                                    cwd=WEB, env=env, stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
+            self.assertEqual(result.returncode, 0, result.stdout.decode("utf-8", errors="replace"))
+            summaries = list(Path(temporary).glob("creatoros-e2e-all-*/summary.json"))
+            self.assertEqual(len(summaries), 1)
+            summary = json.loads(summaries[0].read_text(encoding="utf-8"))
+            media = summary["groups"]["media"]
+            self.assertEqual(summary["status"], "prepared_not_run")
+            self.assertEqual(media["status"], "prepared")
+            self.assertTrue(summary["prepare_only"])
+            self.assertEqual(media["expected"], 0)
+            self.assertEqual(media["tests_not_run"], media["specs"])
+            self.assertNotEqual(media["port"], 8765)
+            self.assertEqual(summary["groups"]["general"]["status"], "not_run")
+            source = media["fixture"]
+            workspace = Path(source["workspace"]).resolve(strict=True)
+            self.assertEqual(workspace.parent, (REPO / "tmp").resolve())
+            self.assertTrue(workspace.name.startswith("media-e2e-all-"))
+            try:
+                self.assertEqual(source["kind"], "deterministic-local")
+                self.assertEqual(Path(source["source_db"]), workspace / "source" / "review.db")
+                self.assertEqual(Path(source["output_root"]), workspace / "source" / "outputs")
+                self.assertTrue(Path(source["source_db"]).is_file())
+                self.assertEqual(len(list(Path(source["output_root"]).rglob("*.png"))), 4)
+                self.assertTrue(all(source["checks"].values()))
+                self.assertFalse(Path(source["server_root"]).exists())
+                self.assertFalse(Path(source["test_output"]).exists())
+                self.assertNotIn("must-not-be", json.dumps(summary))
+            finally:
+                shutil.rmtree(workspace)
+
     def test_controlled_environment_discards_live_and_external_configuration(self):
         script = """
 import { controlledEnvironment } from './e2e-safety.mjs';
@@ -69,6 +121,7 @@ const before = { AGENT_BASELINE: '1', CREATOROS_LIVE_REFERENCE_ROOT: 'danger',
   OTHER_SERVICE_TOKEN: 'other-secret',
   CREATOROS_CODEX_EXECUTABLE: 'real-codex', CREATOROS_XHS_MCP_URL: 'http://127.0.0.1:18060/mcp',
   CREATOROS_MEDIA_DOWNLOADER: 'real-downloader', CREATOROS_PRODUCTION_CONCURRENCY: '99',
+  MEDIA_SOURCE_DB: 'foreign-data', MEDIA_INTERNAL_CONFIG_ROOT: 'foreign-run',
   CREATOROS_FFMPEG: 'test-ffmpeg', CREATOROS_PYTHON: 'test-python' };
 console.log(JSON.stringify(controlledEnvironment(before, '/isolated', '/isolated/dist')));
 """
@@ -78,6 +131,8 @@ console.log(JSON.stringify(controlledEnvironment(before, '/isolated', '/isolated
         value = json.loads(result.stdout)
         for name in ("AGENT_BASELINE", "CREATOROS_LIVE_REFERENCE_ROOT", "CREATOROS_INTERNAL_E2E_ROOT"):
             self.assertNotIn(name, value)
+        self.assertNotIn("MEDIA_SOURCE_DB", value)
+        self.assertNotIn("MEDIA_INTERNAL_CONFIG_ROOT", value)
         self.assertEqual(value["DEEPSEEK_API_KEY"], "")
         self.assertNotIn("OTHER_SERVICE_TOKEN", value)
         self.assertEqual(value["PYTHON_DOTENV_DISABLED"], "1")

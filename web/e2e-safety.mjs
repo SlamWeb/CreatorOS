@@ -11,7 +11,7 @@ export function controlledEnvironment(source, root, dist) {
   const allowedCreatoros = new Set(["CREATOROS_PYTHON", "CREATOROS_FFMPEG", "CREATOROS_FFPROBE"]);
   for (const key of Object.keys(env)) {
     const name = key.toUpperCase();
-    if (exact.has(name) || /(TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|CREDENTIAL|API_KEY|PRIVATE_KEY)/.test(name)
+    if (exact.has(name) || name.startsWith("MEDIA_") || /(TOKEN|SECRET|PASSWORD|PASSWD|COOKIE|CREDENTIAL|API_KEY|PRIVATE_KEY)/.test(name)
         || (name.startsWith("CREATOROS_") && !allowedCreatoros.has(name))) delete env[key];
   }
   Object.assign(env, {

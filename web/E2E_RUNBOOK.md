@@ -7,13 +7,39 @@ $env:CREATOROS_PYTHON = 'D:\Anaconda4.7g\envs\deepcode\python.exe'
 npm --prefix web run e2e:all
 ```
 
-入口先核对 `web/e2e/*.spec.ts` 清单，新增或删除 spec 后需要人工分类，不能静默跳过。随后在独立目录构建前端，分组启动真实本机 HTTP API 和 Chrome：普通 Studio 夹具、Agent Plan 夹具、制作任务/阶段夹具和 compact 夹具。各组分别使用系统分配的空闲端口、独立 SQLite、文件、会话及 Playwright 结果。日志打印根目录，`summary.json` 记录每组的通过、失败、跳过、未发现的文件与原始 JSON 报告；部分失败时仍执行后续组。`--group compact` 等选项仅用于排查，汇总明确标为部分运行。
+入口先核对 `web/e2e/*.spec.ts` 和 `web/media-tests/*.spec.ts` 清单，新增或删除 spec 后需要人工分类，不能静默跳过。随后在独立目录构建前端，分组启动真实本机 HTTP API 和 Chrome：普通 Studio、Agent Plan、制作任务/阶段、compact 和素材集夹具。素材集组自动新建两条受控图片 Run，不读取正式数据库或历史图片。各组分别使用系统分配的空闲端口、独立 SQLite、文件、会话及 Playwright 结果。日志打印根目录，`summary.json` 单列每组数据来源、通过、失败、跳过、未发现的文件与原始 JSON 报告；素材集组还记录本次新建源库、产物和结果目录。部分失败时仍执行后续组。`--group compact` 等选项仅用于排查，汇总明确标为部分运行。
 
 任一组出现跳过或重试才通过的用例时，整组不会标为完整通过；仍应查看各组数量和失败证据。此入口不包含下文明确列出的目录外 live 脚本。
 
 入口记录源码、spec 和前端资源的开始指纹，结束时若检测到变动会标出文件并将总结果标为失败；这不能发现运行期间被改动后又恢复的文件，也不冻结依赖或浏览器版本。需要同一版本的最终结果时，先等并行代码修改结束，再从稳定工作树执行。
 
 受控回归清除 live 开关和 `AGENT_BASELINE`，不继承真实 DeepSeek 密钥或小红书地址；Codex 用户目录指向独立根，程序指向不存在的路径，Windows 下也阻止真实 SDK 启动。生产/提炼和参考图调研使用受控夹具，不能据此宣称真实模型通过。这些设置不是操作系统网络沙箱，其他外部服务和手工执行的脚本仍需独立审查。
+
+素材集的两个浏览器测试及一项不启动浏览器的 HTTP 检查位于 `web/media-tests`，已接入全量入口。只准备新夹具、检查汇总而不构建或启动浏览器时，可运行 `npm --prefix web run e2e:all -- --group media --prepare-only`；汇总标为 `prepared_not_run`，记录四张图片已校验、两条唯一 Run、本地生产器调用次数及后台未启动的自检，并明确列出未运行的 spec，通过数为零。下面的命令可独立执行素材集组：它先用本地确定性生产器创建两条已校验的图片 Run，再建立单独前端构建、数据库副本和结果目录；不读取正式数据库或历史图片，也不调用模型。结果只证明本地文件、HTTP 和界面流程，不代表真实模型生成质量：
+
+```powershell
+$env:CREATOROS_PYTHON = 'D:\Anaconda4.7g\envs\deepcode\python.exe'
+$run = [guid]::NewGuid().ToString('N')
+$fixture = Join-Path (Get-Location).Path "tmp\media-source-$run"
+$env:MEDIA_TEST_ROOT = Join-Path (Get-Location).Path "tmp\media-server-$run"
+$env:MEDIA_TEST_OUTPUT = Join-Path (Get-Location).Path "tmp\media-results-$run"
+$env:CREATOROS_BUILD_OUT_DIR = Join-Path (Get-Location).Path "tmp\media-dist-$run"
+& $env:CREATOROS_PYTHON -m tests.media_collections_fixture --root $fixture
+if ($LASTEXITCODE -ne 0) { throw '素材夹具准备失败。' }
+npm --prefix web run build
+if ($LASTEXITCODE -ne 0) { throw '独立前端构建失败。' }
+$env:MEDIA_DIST = $env:CREATOROS_BUILD_OUT_DIR
+Remove-Item Env:CREATOROS_BUILD_OUT_DIR
+$env:MEDIA_SOURCE_DB = Join-Path $fixture 'review.db'
+$env:MEDIA_OUTPUT_ROOT = Join-Path $fixture 'outputs'
+$env:MEDIA_CREATOR_ID = 'review-lab'
+$env:CREATOROS_E2E_PORT = '18963' # 先确认此端口空闲；并行运行时每份不同。
+Push-Location web
+node node_modules/@playwright/test/cli.js test --config playwright.media.config.ts
+Pop-Location
+```
+
+每次必须选择新目录。配置要求源数据库、图片目录、服务目录和结果目录位于当前工作树的 `tmp`，并拒绝已有结果目录、共享 `web` 构建和端口 8765。服务只允许集合相关写入，并校验源 Run 行与图片是否变化；如需其他隔离源，可显式更换对应路径和账号 ID。Python 服务直接调用时也必须显式提供 `--source-db`、`--output-root`、`--creator` 和 `--port`，不会默认选择历史数据库或账号。
 
 `live-topic-references.spec.ts` 的 2 项真实模型测试不计入受控全量通过：一项调用 Codex 实际生成一张图，另一项经真实 DeepSeek 和 Codex 联网调研。普通配置不会发现它；下面是单独执行的入口。仅在已授权使用模型额度、确认独立数据和空闲端口后执行。下例的固定目录必须不存在，重复实验换新目录，不自动重跑或覆盖未知结果。
 
@@ -42,4 +68,4 @@ node node_modules/@playwright/test/cli.js test --config playwright.live-referenc
 
 该配置只接受本工作树 `tmp` 下的独立根、该根内两张参考图和显式本机非 8765 端口，不替使用者证明端口当前监听的进程确实指向该数据库。浏览器证据写入该根下新的 `browser-results-*`。失败或结果未知时保留 SQLite、文件、会话及报告，先核对是否已经发生模型调用或生产，不直接用同一目录重跑。
 
-`web/e2e` 下 12 个 `live-*.mjs` 是独立手动脚本，不属于 Playwright spec 清单；`web/live-images`、`live-calibration`、`live-context-focus`、`production-tasks-live`、`media-tests` 和 `media-agent-tests` 是独立目录，均不计入以上全量结果。它们各有来源、凭证、历史工件和外部副作用前置条件，不要默认接入正式服务。
+`web/e2e` 下 12 个 `live-*.mjs` 是独立手动脚本，不属于 Playwright spec 清单；`web/live-images`、`live-calibration`、`live-context-focus`、`production-tasks-live` 和 `media-agent-tests` 是独立目录，均不计入以上全量结果。它们各有来源、凭证、历史工件和外部副作用前置条件，不要默认接入正式服务。

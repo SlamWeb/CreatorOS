@@ -1,7 +1,7 @@
-"""Isolated collection UI probe using existing real production artifacts, read-only.
+"""Isolated collection UI probe using existing validated image artifacts, read-only.
 
-The formal SQLite is opened read-only and backed up to a new tmp database. The
-application never starts production workers and only collection writes are
+The explicitly selected SQLite is opened read-only and backed up to a new tmp
+database. The application never starts production workers and only collection writes are
 allowed by default. --agent-probe explicitly enables real DeepSeek conversation
 writes; production, task recovery, approval and publication remain forbidden.
 """
@@ -14,14 +14,9 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+from contextlib import closing
 
-import uvicorn
-from fastapi.responses import JSONResponse
-
-from creatoros.config import PROJECT_ROOT
-from creatoros.runs import ContentRunService
-from creatoros.storage import Database, upgrade_database
-from creatoros.web import create_app
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def digest_rows(path, run_ids):
@@ -37,30 +32,41 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--dist", type=Path, required=True)
-    parser.add_argument("--source-db", type=Path, default=PROJECT_ROOT / "data/creatoros.db")
-    parser.add_argument("--creator", default="creator-e765be5862d3476cbdd7")
-    parser.add_argument("--port", type=int, default=8894)
+    parser.add_argument("--source-db", type=Path, required=True)
+    parser.add_argument("--output-root", type=Path, required=True,
+                        help="root containing the recorded source artifact directories")
+    parser.add_argument("--creator", required=True)
+    parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--agent-probe", action="store_true",
                         help="Explicit paid DeepSeek browser probe; still forbids production.")
     parser.add_argument("--series-probe", action="store_true",
                         help="Also allow renaming one newly seeded isolated column, never originals.")
     args = parser.parse_args()
+    if args.agent_probe:
+        from dotenv import load_dotenv
+        load_dotenv()
     if args.agent_probe and not os.environ.get("DEEPSEEK_API_KEY", "").strip():
         raise RuntimeError("DEEPSEEK_API_KEY missing; use local .env or environment")
+    if not 1 <= args.port <= 65535 or args.port == 8765:
+        parser.error("Use a valid non-production port other than 8765")
     root = args.root.resolve()
-    if root.exists() or not root.is_relative_to((PROJECT_ROOT / "tmp").resolve()):
+    boundary = (PROJECT_ROOT / "tmp").resolve()
+    if boundary != PROJECT_ROOT.resolve() / "tmp" or root.exists() or not root.is_relative_to(boundary):
         raise ValueError("Use a fresh directory below project tmp")
-    root.mkdir(parents=True)
     original = args.source_db.resolve(strict=True)
+    output_root = args.output_root.resolve(strict=True)
+    if not original.is_file() or not output_root.is_dir():
+        raise ValueError("Source database and artifact root must exist")
+    root.mkdir(parents=True)
     target = root / "isolated.sqlite"
     source = sqlite3.connect(original.as_uri() + "?mode=ro", uri=True)
     try:
         source.execute("PRAGMA query_only=ON")
-        with sqlite3.connect(target) as destination:
+        with closing(sqlite3.connect(target)) as destination:
             source.backup(destination)
     finally:
         source.close()
-    with sqlite3.connect(target) as connection:
+    with closing(sqlite3.connect(target)) as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute("""
             SELECT cr.id AS run_id, cr.topic_id, t.title, r.id AS revision_id,
@@ -78,7 +84,7 @@ def main():
         if row["topic_id"] in seen:
             continue
         directory = Path(row["artifact_directory"])
-        if directory.is_dir() and directory.resolve().is_relative_to((PROJECT_ROOT / "outputs").resolve()):
+        if directory.is_dir() and directory.resolve().is_relative_to(output_root):
             validation = json.loads(row["validation_json"] or "{}")
             if validation.get("images"):
                 chosen.append(dict(row))
@@ -93,11 +99,20 @@ def main():
                  for row in chosen for path in (Path(row["artifact_directory"]) / "images").iterdir()
                  if path.is_file()}
     url = "sqlite:///" + target.as_posix()
+    # app.py creates a module-level app on import. Its database must point at
+    # this fresh copy too, before importing CreatorOS web modules.
+    os.environ["DATABASE_URL"] = url
+    import uvicorn
+    from fastapi.responses import JSONResponse
+    from creatoros.runs import ContentRunService
+    from creatoros.storage import Database, upgrade_database
+    from creatoros.web import create_app
+
     upgrade_database(url)
     database = Database(url)
     # Exact output roots must match recorded legacy artifacts. All reads use the
     # real validator; writes to business endpoints and all workers are disabled.
-    runs = ContentRunService(database, output_root=PROJECT_ROOT / "outputs")
+    runs = ContentRunService(database, output_root=output_root)
     app = create_app(database=database, run_service=runs, studio_dist=args.dist,
                      chat_root=root / "chats", eval_root=root / "eval", defer_background_start=True)
     seeded = None
