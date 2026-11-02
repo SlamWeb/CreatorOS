@@ -9,6 +9,7 @@ from creatoros.integrations.topic_references import TopicReferenceStore
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, TopicDraft
 from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRun, ContentRevision, ContentAttempt, Series, WriteReceipt
+from creatoros.storage.models import ProductionQueueItem
 from .errors import ContentRunError
 from .skill_selection import resolve_task_skill_ids, resolve_image_skills
 from .task_contracts import TaskExecutionSpec
@@ -115,4 +116,12 @@ class ReferenceProductionService:
                                ContentRevision.revision_number == 1))
         attempted = session.scalar(select(ContentAttempt.id).where(ContentAttempt.revision_id == first.id).limit(1))
         if run.status.value == "queued" and run.active_revision_number == 1 and not attempted:
+            item = session.scalar(select(ProductionQueueItem).where(
+                ProductionQueueItem.run_id == run.id, ProductionQueueItem.revision_id == first.id))
+            # A dispatch may have been marked running before a crash, even
+            # though no Attempt exists. Replaying the request cannot turn its
+            # reconciled needs_attention (or another terminal queue state) into
+            # a fresh authorization; only explicit recovery may do that.
+            if item is not None and item.status not in {"pending", "running"}:
+                return
             self.executor.queue.enqueue(run.id, run.version, bound_session=session)

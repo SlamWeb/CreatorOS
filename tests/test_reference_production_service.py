@@ -1,18 +1,22 @@
 """Public reference submission over real isolated SQLite/files and controlled workers."""
 import base64
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 import httpx
+from sqlalchemy import select
 
 from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.integrations.topic_references import TopicReferenceStore
-from creatoros.runs import ContentRunError, ReferenceProductionInput, ReferenceProductionService
-from creatoros.storage import ContentRepository, Series, WriteReceipt
+from creatoros.runs import ContentRunError, ManagedRunExecutor, ReferenceProductionInput, ReferenceProductionService
+from creatoros.storage import (ContentAttempt, ContentRepository, ContentRevision, ContentRun, ContentRunEvent,
+                               PendingOperation, Series, Topic, WriteReceipt)
+from creatoros.storage.models import ProductionQueueItem
 from creatoros.tools import execute_tool_call
 from tests.agent_studio_support import serve
 from tests import test_reference_skill_selection as selection
@@ -37,6 +41,15 @@ class ReferenceProductionServiceTests(unittest.TestCase):
         ref = store.freeze("series", [image["id"]], "完整保留原始要求", reference_presentation=True)
         return ReferenceProductionInput(reference_id=ref.id, title="Public service reference", request_id=request_id,
                                         skill_ids=[item["id"] for item in self.skills[:2]], **changes)
+
+    def recorded_rows(self):
+        models = (Topic, ContentRun, ContentRevision, ContentAttempt, ContentRunEvent,
+                  ProductionQueueItem, PendingOperation, WriteReceipt)
+        with self.database.session() as session:
+            return {model.__name__: [deepcopy({prop.key: getattr(row, prop.key)
+                    for prop in model.__mapper__.column_attrs})
+                    for row in session.scalars(select(model).order_by(*model.__mapper__.primary_key))]
+                    for model in models}
 
     def test_public_service_freezes_exact_inputs_and_replays_one_authorization(self):
         api = self.direct
@@ -141,5 +154,91 @@ class ReferenceProductionServiceTests(unittest.TestCase):
             self.assertTrue(self.producer.started.wait(5))
             self.assertEqual(self.counts(), tuple(value + 1 for value in baseline))
             self.assertEqual(len(self.producer.calls), 1)
+        finally:
+            self.producer.release.set()
+
+    def test_replay_preserves_preclaim_crash_until_explicit_recovery(self):
+        body = self.request("reference-preclaim-crash")
+        original = self.app.state.executor
+        try:
+            # Keep the real executor alive without claiming, so its durable
+            # running marker can represent a crash before an Attempt exists.
+            with patch.object(original, "_consume", side_effect=lambda: original._stop.wait()):
+                run = self.direct.submit("series", body, creator_id="creator")
+                pending = original.queue_snapshot(run.id)
+                self.assertEqual(pending["status"], "pending")
+                baseline = self.counts()
+                self.assertEqual(self.direct.submit("series", body, creator_id="creator").id, run.id)
+                self.assertEqual(original.queue_snapshot(run.id), pending)
+                self.assertEqual(self.counts(), baseline)
+                original.queue.transition(pending["id"], "running")
+                with self.database.session() as session:
+                    self.assertEqual(list(session.scalars(select(ContentAttempt))), [])
+                original.shutdown()
+
+            restarted = ManagedRunExecutor(self.runs, max_concurrency=1)
+            self.executors.append(restarted)
+            api = ReferenceProductionService(self.database, self.runs, restarted,
+                self.app.state.writes.pending_operations, library=self.library)
+            # Keep dispatch excluded while comparing persisted records.
+            with restarted._lock:
+                restarted.start()
+                recovered = restarted.queue_snapshot(run.id)
+                self.assertEqual(recovered["status"], "needs_attention")
+                with self.database.session() as session:
+                    receipt = dict(session.get(WriteReceipt, body.request_id).response_json)
+                    self.assertEqual(list(session.scalars(select(ContentAttempt))), [])
+                records = self.recorded_rows()
+                self.assertEqual(api.submit("series", body, creator_id="creator").id, run.id)
+                self.assertEqual(restarted.queue_snapshot(run.id), recovered)
+                self.assertEqual(self.counts(), baseline)
+                self.assertEqual(self.recorded_rows(), records)
+                with self.database.session() as session:
+                    self.assertEqual(session.get(WriteReceipt, body.request_id).response_json, receipt)
+                    self.assertEqual(list(session.scalars(select(ContentAttempt))), [])
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                identifiers = list(pool.map(lambda _: api.submit("series", body, creator_id="creator").id, range(4)))
+            self.assertEqual(identifiers, [run.id] * 4)
+            self.assertEqual(restarted.queue_snapshot(run.id), recovered)
+            self.assertEqual(self.counts(), baseline)
+            self.assertEqual(self.recorded_rows(), records)
+            self.assertFalse(self.producer.started.wait(1.2))
+
+            # Explicit authorization remains the existing recovery mechanism.
+            restarted.submit(run.id, expected_version=self.runs.get(run.id).version)
+            self.assertTrue(self.producer.started.wait(5))
+            self.assertEqual(len(self.producer.calls), 1)
+        finally:
+            self.producer.release.set()
+
+    def test_old_unmarked_receipt_replay_preserves_preclaim_attention(self):
+        self.library.add("creator", "knowledge-to-carousel", "legacy-reference-default")
+        self.library.set_series("series", self.pool["version"], ["knowledge-to-carousel"],
+            {"image": [{"skill_id": "knowledge-to-carousel", "role": "primary"}], "video": []})
+        body = self.request("legacy-reference-preclaim").model_copy(update={"skill_ids": None})
+        executor = self.app.state.executor
+        try:
+            with patch.object(executor, "_consume", side_effect=lambda: executor._stop.wait()):
+                run = self.direct.submit("series", body, creator_id="creator")
+                with self.database.session() as session:
+                    receipt = session.get(WriteReceipt, body.request_id)
+                    old_value = dict(receipt.response_json)
+                    old_value.pop("reference_production")
+                    receipt.response_json = old_value
+                pending = executor.queue_snapshot(run.id)
+                executor.queue.transition(pending["id"], "running")
+                executor.queue.recover()
+                attention = executor.queue_snapshot(run.id)
+                self.assertEqual(attention["status"], "needs_attention")
+                baseline = self.counts()
+                records = self.recorded_rows()
+                self.assertEqual(self.direct.submit("series", body, creator_id="creator").id, run.id)
+                self.assertEqual(executor.queue_snapshot(run.id), attention)
+                self.assertEqual(self.counts(), baseline)
+                self.assertEqual(self.recorded_rows(), records)
+                with self.database.session() as session:
+                    self.assertEqual(session.get(WriteReceipt, body.request_id).response_json, old_value)
+                    self.assertEqual(list(session.scalars(select(ContentAttempt))), [])
+                self.assertFalse(self.producer.started.is_set())
         finally:
             self.producer.release.set()
