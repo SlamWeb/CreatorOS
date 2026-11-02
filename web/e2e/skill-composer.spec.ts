@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { limitVisibleSkillCatalog } from "./fixtures/skill-catalog";
 
 const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pC8AAAAASUVORK5CYII=", "base64");
 
@@ -25,7 +26,38 @@ async function addSkill(page: Page, name: string) {
   await page.getByRole("dialog", { name }).getByRole("button", { name: "加入组合", exact: true }).click();
 }
 
+test("dragging a Skill near the viewport edge scrolls a long list to the basket", async ({ page }) => {
+  // The long catalog is a controlled read projection; the dragged Skill is real.
+  await page.route("**/api/producer-skills", async route => {
+    const response = await route.fetch();
+    const result = await response.json();
+    const visual = result.items.find((item: { name: string }) => item.name === "inspector-visual");
+    expect(visual).toBeTruthy();
+    result.items = [...Array.from({ length: 20 }, (_, i) => ({ ...visual, id: `filler-${i}`, name: `测试占位 ${i}`, display_name: `测试占位 ${i}` })), visual];
+    await route.fulfill({ response, json: result });
+  });
+  await page.goto("/skills");
+  const card = page.getByRole("button", { name: "inspector-visual", exact: true });
+  await card.scrollIntoViewIfNeeded();
+  const start = await card.boundingBox();
+  expect(start).toBeTruthy();
+  const initialScroll = await page.evaluate(() => window.scrollY);
+  expect(initialScroll).toBeGreaterThan(200);
+  await page.mouse.move(start!.x + start!.width / 2, start!.y + start!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start!.x + start!.width / 2, 5, { steps: 12 });
+  await expect.poll(() => page.evaluate(() => window.scrollY), { timeout: 8000 }).toBeLessThan(100);
+  const basket = page.getByLabel("Skill 组合框", { exact: true });
+  const finish = await basket.boundingBox();
+  expect(finish).toBeTruthy();
+  await page.mouse.move(finish!.x + finish!.width / 2, finish!.y + finish!.height / 2);
+  await page.mouse.up();
+  await expect(basket).toContainText("inspector-visual");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("free composer accepts different Skill roles, deduplicates, removes and restores session draft", async ({ page }) => {
+  await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   await page.goto("/skills");
   const basket = page.getByLabel("Skill 组合框", { exact: true });
 

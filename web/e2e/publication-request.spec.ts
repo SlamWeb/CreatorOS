@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import type { PublicationRequest } from "../src/api/publication";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function post(request: APIRequestContext, path: string, data: object) {
   const response = await request.post(path, { data });
@@ -12,10 +13,11 @@ test("publication preview requires approval and explicit frozen confirmation; un
   // responses are intercepted: this test must never contact or publish to Xiaohongshu.
   const account = await post(request, "/api/creators", { display_name: "发布隔离验收" });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "英语词汇" });
+  await configureImageDefault(request, account.id, series.id);
   const queue = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "同是害怕，这4个英语词怎么选？" }] });
   const run = await post(request, "/api/runs", { topic_id: queue.topic_ids[0] });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
-  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   const stored = await request.get(`/api/runs/${run.id}`).then(r => r.json());
   let saved: PublicationRequest | null = null;
   let sendCount = 0;

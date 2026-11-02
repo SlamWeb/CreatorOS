@@ -1,18 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { studioApi } from "../api/client";
 import { AccountChatPanel } from "./AccountChatPanel";
 import { BrandMark } from "./BrandMark";
-import type { ChatContextTarget } from "./agentComposerState";
+import { AgentChatContext, type ChatTarget } from "../features/agent/chatHostContext";
 
-type ChatTarget = { creatorId: string | null; accountName?: string; draftSeed?: string; sessionId?: string;
-  contextTarget?: ChatContextTarget; contextTitle?: string };
 type ChatState = ChatTarget & { isOpen: boolean; seedId?: number; defaultPath?: string };
-type ChatControls = { isOpen: boolean; creatorId: string | null; open: (target: ChatTarget) => void;
-  close: () => void; setDefault: (target: ChatTarget) => void };
 const storageKey = "creatoros.agent.panel.v1";
-const ChatContext = createContext<ChatControls | null>(null);
 function initialState(): ChatState {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
@@ -70,7 +65,7 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
       restoreFocus.current = false;
     }
   }, [state.isOpen, standalone, launcherReady]);
-  return <ChatContext.Provider value={{ isOpen: state.isOpen, creatorId: state.creatorId, open, close, setDefault }}>
+  return <AgentChatContext.Provider value={{ isOpen: state.isOpen, creatorId: state.creatorId, open, close, setDefault }}>
     <div className={visible ? "global-agent-chat-open" : "global-agent-chat-closed"}>{children}</div>
     {!standalone && <button ref={opener} type="button" className="workspace-chat-launcher" aria-label={visible ? "关闭账号对话" : "打开账号对话"}
       disabled={!launcherReady}
@@ -79,10 +74,5 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
     {hasOpened && <AccountChatPanel creatorId={state.creatorId} accountName={accountName} open={visible}
       onClose={close} openerRef={opener} draftSeed={state.draftSeed} draftSeedId={state.seedId} selectedSessionId={state.sessionId}
       contextTarget={state.contextTarget} contextTitle={state.contextTitle} />}
-  </ChatContext.Provider>;
-}
-export function useAgentChat() {
-  const value = useContext(ChatContext);
-  if (!value) throw new Error("Agent chat must be inside AgentChatProvider.");
-  return value;
+  </AgentChatContext.Provider>;
 }

@@ -114,7 +114,7 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
   await expect(icon).toHaveCSS("transition-property", "none");
   await primary.press("Enter");
   await expect(page).toHaveURL(/\/workspace$/);
-  const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 }, baseURL: "http://127.0.0.1:8877" });
+  const touch = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 740 }, baseURL: test.info().project.use.baseURL });
   try {
     const mobile = await touch.newPage();
     await mobile.goto("/");

@@ -18,6 +18,16 @@ const awaitingAgent = (plan: PlanSummary) => (plan.pause_reason === "checkpoint"
 const planLabel = (plan: PlanSummary) => awaitingAgent(plan) ? (plan.continuation_state === "claimed" ? "Agent 正在判断" : "等待 Agent 判断") : plan.pause_reason === "checkpoint" && plan.status === "paused" ? "等待继续" : planNames[plan.status] ?? plan.status;
 const planPath = (sessionId: string) => `/api/agent/sessions/${encodeURIComponent(sessionId)}/plans`;
 
+async function readPlans(path: string): Promise<{ items: PlanSummary[] }> {
+  const value = await request<unknown>(path);
+  const items = value && typeof value === "object" && "items" in value ? value.items : null;
+  if (!Array.isArray(items) || items.some(item => !item || typeof item !== "object" ||
+    typeof item.id !== "string" || typeof item.title !== "string" || typeof item.status !== "string" || typeof item.version !== "number")) {
+    throw new Error("计划列表响应格式错误，请稍后重试。");
+  }
+  return { items: items as PlanSummary[] };
+}
+
 function textResult(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -56,7 +66,7 @@ export function AgentPlan({ sessionId, visible, conversationRunning }: { session
   const [picked, setPicked] = useState<string | null>(null);
   const base = planPath(sessionId);
   const listKey = ["agent-plans", sessionId];
-  const list = useQuery({ queryKey: listKey, queryFn: () => request<{ items: PlanSummary[] }>(base), enabled: visible && !!sessionId, retry: false,
+  const list = useQuery({ queryKey: listKey, queryFn: () => readPlans(base), enabled: visible && !!sessionId, retry: false,
     refetchInterval: query => visible && (conversationRunning || query.state.data?.items.some(item => active(item.status) || awaitingAgent(item))) ? 3000 : false });
   useEffect(() => { if (visible) void client.invalidateQueries({ queryKey: listKey }); }, [visible, conversationRunning, sessionId]);
   const summaries = list.data?.items ?? [];

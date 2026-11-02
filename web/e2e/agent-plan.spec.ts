@@ -1,5 +1,32 @@
 import { expect, test } from "@playwright/test";
 
+test("malformed plan response keeps chat usable and retry recovers", async ({ page, request }) => {
+  const creatorResponse = await request.post("/api/creators", { data: { display_name: "计划错误隔离测试" } });
+  expect(creatorResponse.status()).toBe(201);
+  const creator = await creatorResponse.json();
+  const sessionResponse = await request.post("/api/agent/sessions", { data: { creator_id: creator.id } });
+  expect(sessionResponse.status()).toBe(201);
+  const session = await sessionResponse.json();
+  let malformed = true;
+  const errors: string[] = [];
+  const turnPosts: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("request", req => { if (req.method() === "POST" && req.url().endsWith("/turns")) turnPosts.push(req.url()); });
+  await page.route(`**/api/agent/sessions/${session.id}/plans`, route =>
+    malformed ? route.fulfill({ json: { status: "unexpected" } }) : route.continue());
+  await page.goto(`/agent?creator=${creator.id}&chat=${session.id}`);
+  const alert = page.getByRole("alert").filter({ hasText: "计划读取失败" });
+  await expect(alert).toContainText("计划列表响应格式错误");
+  const input = page.getByRole("textbox", { name: "给 Agent 的消息" });
+  await input.fill("保留草稿");
+  malformed = false;
+  await alert.getByRole("button", { name: "重试" }).click();
+  await expect(alert).toHaveCount(0);
+  await expect(input).toHaveValue("保留草稿");
+  expect(turnPosts).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test("计划展示步骤与依赖，失败可见并刷新保留", async ({ page, request }, info) => {
   const creatorResponse = await request.post("/api/creators", { data: { display_name: "计划界面隔离测试" } });
   expect(creatorResponse.ok()).toBeTruthy();
@@ -9,8 +36,8 @@ test("计划展示步骤与依赖，失败可见并刷新保留", async ({ page,
   const session = await sessionResponse.json();
   const path = `/api/agent/sessions/${session.id}/plans`;
   const response = await request.post(path, { data: { request_id: crypto.randomUUID(), title: "测试任务计划", steps: [
-    { id: "read", title: "查看不存在的 Skill", tool: "get_producer_skill", arguments: { skill_id: "nonexistent-plan-test" } },
-    { id: "next", title: "处理读取结果", tool: "get_producer_skill", arguments: { skill_id: "nonexistent-plan-test" }, depends_on: ["read"] },
+    { id: "read", title: "查看不存在的 Skill", tool: "get_producer_skill", arguments: { skill_id: "nonexistent-plan-test--0000000000000000" } },
+    { id: "next", title: "处理读取结果", tool: "get_producer_skill", arguments: { skill_id: "nonexistent-plan-test--0000000000000000" }, depends_on: ["read"] },
   ] } });
   expect(response.ok(), await response.text()).toBeTruthy();
   const plan = await response.json();
@@ -42,7 +69,7 @@ test("关键节点等待 Agent 判断并在刷新后保留", async ({ page, requ
   const path = `/api/agent/sessions/${session.id}/plans`;
   const response = await request.post(path, { data: { request_id: crypto.randomUUID(), title: "图片制作计划", steps: [
     { id: "review", title: "检查选中的图片", tool: "request_review", arguments: { question: "图片顺序是否合适？" } },
-    { id: "next", title: "继续准备素材", tool: "get_producer_skill", arguments: { skill_id: "missing-plan-test" }, depends_on: ["review"] },
+    { id: "next", title: "继续准备素材", tool: "get_producer_skill", arguments: { skill_id: "missing-plan-test--0000000000000000" }, depends_on: ["review"] },
   ] } });
   expect(response.ok(), await response.text()).toBeTruthy();
   const plan = await response.json();

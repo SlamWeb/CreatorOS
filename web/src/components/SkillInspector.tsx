@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import { ApiError, apiUrl, studioApi } from "../api/client";
 import type { ProducerSkillFile, ProducerSkillItem, ProducerSkillText } from "../api/types";
 import { skillEditPrompt, type SkillEditContext } from "./skillEditHandoff";
-import { useAgentChat } from "./AgentChatHost";
+import { useAgentChat } from "../features/agent";
 import { SkillVersionControls } from "./SkillVersionControls";
 import "./skill-inspector.css";
 

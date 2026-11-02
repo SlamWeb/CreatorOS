@@ -15,19 +15,29 @@ async function fixture(request: APIRequestContext) {
   const newest = await post(`/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
     topics: [{ title: "刚添加的新选题", brief: "应该直接出现在前面，不必往下翻。" }] });
   // Existing isolated E2EProducer writes validated files; no paid model or publishing.
-  const run = await post("/api/runs", { topic_id: topics.topic_ids[0] });
+  await post("/test/calibration", {});
+  const catalog = await request.get("/api/producer-skills?include_versions=true").then(r => r.json());
+  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
+  expect(skill).toBeTruthy();
+  const run = await post("/api/runs", { topic_id: topics.topic_ids[0], request_id: crypto.randomUUID(),
+    skill_overrides: { skill_id: skill.id, expected_digests: { [skill.id]: skill.digest } } });
   await post(`/api/runs/${run.id}/execute`, { expected_version: run.version });
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
   return { account, series, topics, newest, run };
 }
 
-test("new topics are globally first; account previews and top pagination avoid a long scroll", async ({ page, request }, info) => {
+test("account overview shows recent work; column pagination retains chronological order", async ({ page, request }, info) => {
   const data = await fixture(request);
   const original = await request.get(`/api/series/${data.series.id}/topics?limit=100`).then(r => r.json());
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET") writes.push(req.url()); });
   await page.goto(`/?creator=${data.account.id}&topics=queued`);
-  await expect(page.locator(".content-card")).toHaveCount(6);
+  const recent = page.getByRole("region", { name: "近期作品" });
+  await expect(recent.getByRole("img")).toHaveCount(1);
+  await expect(recent.getByRole("link", { name: "查看内容 故事选题 1" })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("account-preview-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: `进入栏目 ${data.series.name}` }).click();
+  await expect(page.locator(".content-card")).toHaveCount(20);
   await expect(page.locator(".content-card").first()).toContainText("刚添加的新选题");
   await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
   await expect(page.getByLabel("内容排序")).toHaveCount(0);
@@ -36,10 +46,6 @@ test("new topics are globally first; account previews and top pagination avoid a
   }));
   expect(Math.abs(cards[0].y - cards[1].y)).toBeLessThan(2);
   expect(cards[1].x).toBeGreaterThan(cards[0].x);
-  await page.screenshot({ path: info.outputPath("account-preview-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: "查看全部", exact: true }).click();
-  await expect(page).toHaveURL(/topics=queued/);
-  await expect(page.locator(".content-card")).toHaveCount(20);
   const top = page.getByRole("navigation", { name: "选题分页 · 顶部" });
   await expect(top).toBeInViewport();
   await top.getByRole("button", { name: "下一页" }).click();

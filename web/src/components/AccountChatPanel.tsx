@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
-import { AgentConversation } from "../pages/AgentPage";
+import { AgentConversation } from "../features/agent";
 import type { ChatContextTarget } from "./agentComposerState";
 
 export type AccountChatPanelProps = {

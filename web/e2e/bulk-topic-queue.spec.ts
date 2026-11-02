@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 async function fixture(request: APIRequestContext, count = 1) {
   const create = async (path: string, data: object = {}) => {
@@ -7,10 +7,15 @@ async function fixture(request: APIRequestContext, count = 1) {
     return response.json();
   };
   const creator = await create("/api/creators", { display_name: "批量入队隔离验收" });
-  const series = await create(`/api/creators/${creator.id}/series`, { name: "待选批量入队" });
+  const series = (await create("/api/series", { creator_id: creator.id, name: "待选批量入队", skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
   const batches = [];
   for (let index = 0; index < count; index++) batches.push(await create(`/test/series/${series.id}/research`));
   return { creator, series, batches, create };
+}
+
+async function selectAllPending(page: Page) {
+  await page.locator(".library-select-menu summary").click();
+  await page.getByRole("button", { name: "全选本页待选", exact: true }).click();
 }
 
 test("select all visible candidates across batches, deselect, queue through SQLite and reload without production", async ({ page, request }, info) => {
@@ -26,9 +31,10 @@ test("select all visible candidates across batches, deselect, queue through SQLi
   });
   await page.goto(`/?creator=${data.creator.id}&series=${data.series.id}&topics=pending`);
   const toolbar = page.getByRole("group", { name: "批量入队", exact: true });
-  await expect(toolbar).toContainText("10 项可入队");
+  await selectAllPending(page);
+  await expect(toolbar).toContainText("已选 10 项");
   const all = toolbar.getByRole("checkbox", { name: "全选本页待选", exact: true });
-  await all.check();
+  await expect(all).toBeChecked();
   await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(10);
   expect((await request.get(`/api/series/${data.series.id}/topics`).then(r => r.json())).page.total).toBe(0);
   const omitted = `research-${data.batches[0].id}-c2`;
@@ -50,16 +56,15 @@ test("select all visible candidates across batches, deselect, queue through SQLi
     expect(data.batches.some(batch => batch.id === post.batch)).toBe(true);
     expect(post.body.selections.every(s => s.candidate_id === "c1" || s.candidate_id === "c2")).toBe(true);
   }
-  await expect(toolbar).toContainText("1 项可入队");
-  await expect(all).not.toBeChecked();
-  await page.reload(); await expect(page.getByRole("group", { name: "批量入队", exact: true })).toContainText("1 项可入队");
+  await expect(toolbar).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(1);
+  await expect(page.getByRole("checkbox", { name: /选择入队/ })).not.toBeChecked();
+  await page.reload(); await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(1);
   expect(queuePosts).toHaveLength(5); expect(productionPosts).toEqual([]);
-  await page.getByRole("checkbox", { name: "全选本页待选", exact: true }).check();
-  await page.getByRole("button", { name: "已入队", exact: true }).click();
-  await expect(page.getByRole("group", { name: "批量入队", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "待选", exact: true }).click();
-  await expect(page.getByRole("checkbox", { name: "全选本页待选", exact: true })).not.toBeChecked();
+  await selectAllPending(page);
+  await toolbar.getByRole("button", { name: "取消选择", exact: true }).click();
+  await expect(toolbar).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: /选择入队/ })).not.toBeChecked();
 });
 
 test("partially failed batches retain selections and reuse the same request on explicit retry", async ({ page, request }) => {
@@ -76,10 +81,9 @@ test("partially failed batches retain selections and reuse the same request on e
     else await route.continue();
   });
   await page.goto(`/?creator=${data.creator.id}&series=${data.series.id}`);
-  await page.getByRole("checkbox", { name: "全选本页待选", exact: true }).check();
+  await selectAllPending(page);
   const previouslyQueued = page.getByTestId(`library-research-${data.batches[0].id}-c1`);
   await expect(previouslyQueued.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(0);
-  await expect(previouslyQueued.getByRole("checkbox", { name: /选择生产/ })).not.toBeChecked();
   await page.getByRole("button", { name: "确认入队（3）", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("受控批次暂不可用");
   await expect(page.getByRole("button", { name: "确认入队（2）", exact: true })).toBeEnabled();
@@ -102,11 +106,11 @@ test("lost queue response refreshes persisted state without automatically resubm
     await route.abort("failed");
   });
   await page.goto(`/?creator=${data.creator.id}&series=${data.series.id}&topics=pending`);
-  await page.getByRole("checkbox", { name: "全选本页待选", exact: true }).check();
+  await selectAllPending(page);
   await page.getByRole("button", { name: "确认入队（2）", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("请先刷新核对");
-  await expect(page.getByText("暂无待选建议。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(0);
   expect((await request.get(`/api/series/${data.series.id}/topics`).then(r => r.json())).page.total).toBe(2);
-  await page.reload(); await expect(page.getByText("暂无待选建议。", { exact: true })).toBeVisible();
+  await page.reload(); await expect(page.getByRole("checkbox", { name: /选择入队/ })).toHaveCount(0);
   expect(posts).toBe(1);
 });

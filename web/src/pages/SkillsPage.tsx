@@ -184,20 +184,43 @@ export function SkillsPage() {
     if (event.button !== 0) return;
     dragCleanup.current?.();
     dragRef.current = { payload, startX: event.clientX, startY: event.clientY, active: false };
+    let pointerX = event.clientX, pointerY = event.clientY;
+    let scrollFrame: number | null = null;
     const cleanup = () => {
+      if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+      scrollFrame = null;
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("keydown", esc);
       dragCleanup.current = null;
     };
+    const updateDrag = () => {
+      const state = dragRef.current;
+      if (!state?.active) return;
+      const target = document.elementFromPoint(pointerX, pointerY)?.closest("[data-drop]")?.getAttribute("data-drop") ?? null;
+      setDrag({ payload: state.payload, x: pointerX, y: pointerY, target: validTarget(state.payload, target) ? target : null });
+    };
+    const scrollNearEdge = () => {
+      scrollFrame = null;
+      if (!dragRef.current?.active) return;
+      const distance = pointerY < 48 ? -20 : pointerY > window.innerHeight - 48 ? 20 : 0;
+      if (!distance) return;
+      const before = window.scrollY;
+      window.scrollBy(0, distance);
+      if (window.scrollY !== before) {
+        updateDrag();
+        scrollFrame = window.requestAnimationFrame(scrollNearEdge);
+      }
+    };
     const move = (e: PointerEvent) => {
       const state = dragRef.current;
       if (!state) return;
       if (!state.active && Math.hypot(e.clientX - state.startX, e.clientY - state.startY) < 6) return;
       state.active = true;
-      const target = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-drop]")?.getAttribute("data-drop") ?? null;
-      setDrag({ payload: state.payload, x: e.clientX, y: e.clientY, target: validTarget(state.payload, target) ? target : null });
+      pointerX = e.clientX; pointerY = e.clientY;
+      updateDrag();
+      if (scrollFrame === null) scrollFrame = window.requestAnimationFrame(scrollNearEdge);
     };
     const up = (e: PointerEvent) => {
       cleanup();

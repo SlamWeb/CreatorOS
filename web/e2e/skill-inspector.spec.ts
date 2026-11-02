@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { limitVisibleSkillCatalog } from "./fixtures/skill-catalog";
 
 async function openMind(page: Page) {
   await page.goto("/skills");
@@ -82,6 +83,7 @@ test("add is explicit; filled slot can inspect without clearing; keyboard remain
 });
 
 test("drag selects the free basket without opening inspector", async ({ page }) => {
+  await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   await page.goto("/skills");
   const card = page.getByRole("button", { name: "inspector-visual", exact: true });
   const slot = page.getByLabel("Skill 组合框", { exact: true });
@@ -255,10 +257,18 @@ test("workspace Skill editing stays in the account drawer and survives refresh w
     description: "", audience: "", request_id: crypto.randomUUID().replaceAll("-", "") } });
   expect(composed.ok(), await composed.text()).toBeTruthy();
   const { series } = await composed.json() as { series: { id: string } };
+  // Current column headers read the account library and column pool, rather
+  // than the legacy composition binding alone.
+  const added = await request.post(`/api/creators/${account.id}/skills`, { data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() } });
+  expect(added.ok(), await added.text()).toBeTruthy();
+  const pool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
+  const updated = await request.put(`/api/series/${series.id}/skills`, { data: { expected_version: pool.version,
+    skill_ids: [...new Set([...pool.items.map((item: { id: string }) => item.id), fixture.mind.id])], defaults: { image: [], video: [] } } });
+  expect(updated.ok(), await updated.text()).toBeTruthy();
   let posts = 0;
   page.on("request", req => { if (req.url().includes("/api/agent/sessions") && req.method() !== "GET") posts++; });
   await page.goto(`/?creator=${account.id}&series=${series.id}`);
-  await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
+  await page.getByRole("button", { name: /^inspector-mind\s*v\d+/ }).click();
   const dialog = page.getByRole("dialog", { name: "inspector-mind" });
   await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill" }).click();
   await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("不要额外标题，保留现有参考。请保存。");

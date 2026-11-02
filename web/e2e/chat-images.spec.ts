@@ -16,6 +16,7 @@ async function controlledChat(page: Page) {
     const url = new URL(req.url());
     const sid = url.pathname.split("/")[4];
     if (url.pathname.endsWith("/events")) return route.abort();
+    if (url.pathname.endsWith("/plans") && req.method() === "GET") return route.fulfill({ json: { items: [] } });
     if (url.pathname.endsWith("/attachments") && req.method() === "POST") {
       controls.uploads++;
       const body = req.postDataJSON();
@@ -183,11 +184,13 @@ test("account drawer keeps image drafts with their own session across account sw
   await page.getByRole("button", { name: "打开账号对话" }).click();
   await select(page, "甲.png");
   await expect(page.getByLabel("待发送图片").getByRole("img", { name: "甲.png" })).toBeVisible();
-  await page.getByRole("button", { name: `查看账号 ${b.display_name}` }).click();
+  await page.getByRole("button", { name: "切换账号" }).click();
+  await page.getByRole("dialog", { name: "切换账号" }).getByRole("button", { name: `切换到账号 ${b.display_name}`, exact: true }).click();
   await expect(page.getByLabel("待发送图片")).toHaveCount(0);
   await select(page, "乙.png");
   await expect(page.getByLabel("待发送图片").getByRole("img", { name: "乙.png" })).toBeVisible();
-  await page.getByRole("button", { name: `查看账号 ${a.display_name}` }).click();
+  await page.getByRole("button", { name: "切换账号" }).click();
+  await page.getByRole("dialog", { name: "切换账号" }).getByRole("button", { name: `切换到账号 ${a.display_name}`, exact: true }).click();
   await expect(page.getByLabel("待发送图片").getByRole("img", { name: "甲.png" })).toBeVisible();
   await expect(page.getByRole("img", { name: "乙.png" })).toHaveCount(0);
   await page.reload();

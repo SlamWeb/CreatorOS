@@ -1,6 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
-import path from "node:path";
 
 const runId = "production-progress-e2e";
 const now = Date.now();
@@ -131,11 +129,13 @@ async function verifyDesktopAndMobile(page: Page, testInfo: { outputPath: (name:
 test("shows mind research stage, real activity, page count, and stays read-only on refresh", async ({ page }, testInfo) => {
   const requests = await openProjection(page, runProjection(progress("mind", "searching")));
   await expect(page.getByText("内容调研 · 进行中")).toBeVisible();
+  await page.getByRole("button", { name: "运行详情", exact: true }).click();
   await expect(page.getByText(/搜索中 · 最近活动/)).toBeVisible();
   await expect(page.getByText("共 11 页")).toHaveCount(0);
   await expect(page.getByText("共 5 页")).toHaveCount(0);
   await expect(page.getByText("已完成工具调用 3 次")).toBeVisible();
   await expect(page.getByRole("button", { name: /开始生产|恢复生产/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "技术记录", exact: true }).click();
   await expect(page.locator(".stream-status")).toContainText("状态");
   await page.reload();
   await expect(page.getByText("内容调研 · 进行中")).toBeVisible();
@@ -147,6 +147,7 @@ test("shows mind research stage, real activity, page count, and stays read-only 
 test("shows visual production without inventing page counts", async ({ page }, testInfo) => {
   await openProjection(page, runProjection(progress("visual", "tool_running")));
   await expect(page.getByText("图片制作 · 进行中")).toBeVisible();
+  await page.getByRole("button", { name: "运行详情", exact: true }).click();
   await expect(page.getByText(/工具执行中 · 最近活动/)).toBeVisible();
   await expect(page.getByText("共 11 页")).toBeVisible();
   await expect(page.getByText("逐页制图 · 第 2 页 · 第 2 次尝试 · 已完成 1 页")).toBeVisible();
@@ -202,7 +203,7 @@ test("final verified cards replace the unreviewed preview instead of duplicating
   await expect(page.getByText("制作中预览 · 尚未验收", { exact: true })).toHaveCount(0);
 });
 
-test("final card content and prompt evidence render independently", async ({ page }) => {
+test("final card content and prompt evidence render independently", async ({ page }, testInfo) => {
   const projection = runProjection(null, {
     status: "awaiting_approval",
     allowed_actions: ["approve", "revise", "cancel"],
@@ -229,10 +230,7 @@ test("final card content and prompt evidence render independently", async ({ pag
   await expect(evidence.getByRole("heading", { name: "内容稿" })).toBeVisible();
   await expect(evidence.getByText("仅内容稿可见")).toBeVisible();
   await expect(evidence.getByRole("heading", { name: "生图 Prompt" })).toHaveCount(0);
-  const screenshotDir = path.resolve(import.meta.dirname, "../../tmp/testresults");
-  mkdirSync(screenshotDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  await page.screenshot({ path: path.join(screenshotDir, `run-inspector-evidence-${stamp}-content.png`), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("run-inspector-evidence-content.png"), fullPage: true });
 
   await page.getByRole("button", { name: "查看第 2 张" }).click();
   await expect(evidence).toHaveCount(1);
@@ -241,7 +239,7 @@ test("final card content and prompt evidence render independently", async ({ pag
   await expect(evidence.getByRole("heading", { name: "生图 Prompt" })).toBeVisible();
   await expect(evidence.getByText("仅 Prompt 可见")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: path.join(screenshotDir, `run-inspector-evidence-${stamp}-prompt-mobile.png`), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("run-inspector-evidence-prompt-mobile.png"), fullPage: true });
 
   await page.getByRole("button", { name: "查看第 3 张" }).click();
   await expect(evidence).toHaveCount(0);
@@ -250,7 +248,8 @@ test("final card content and prompt evidence render independently", async ({ pag
 test("stale stage activity is described as quiet, not as a failure", async ({ page }, testInfo) => {
   await openProjection(page, runProjection(progress("production", "waiting", 180)));
   await expect(page.getByText("生产 · 进行中")).toBeVisible();
-  await expect(page.getByText(/暂无新活动 ·/)).toBeVisible();
+  await page.getByRole("button", { name: "运行详情", exact: true }).click();
+  await expect(page.locator(".run-live-progress > p").filter({ hasText: "暂无新活动" })).toBeVisible();
   await expect(page.getByText("生产 · 阶段失败")).toHaveCount(0);
   await verifyDesktopAndMobile(page, testInfo, "stale-progress");
 });

@@ -1,22 +1,30 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
-import { Layout } from "./components/Layout";
-import { WorkspacePage, WorkspaceRedirect } from "./pages/WorkspacePage";
-import { SkillsPage } from "./pages/SkillsPage";
-import { RunDetailPage } from "./pages/RunsPage";
-import { AgentPage } from "./pages/AgentPage";
-import { StudioPreview } from "./pages/StudioPreview";
-import { ObservationPage } from "./pages/ObservationPage";
-import { EvalPage } from "./pages/EvalPage";
-import { CalibrationPage } from "./pages/CalibrationPage";
-import { HomePage } from "./pages/HomePage";
+
+// Each page loads on demand. In particular the public home page does not need
+// to download the workspace, Agent, evaluation and production interfaces.
+const Layout = lazy(() => import("./components/Layout").then(module => ({ default: module.Layout })));
+const WorkspacePage = lazy(() => import("./pages/WorkspacePage").then(module => ({ default: module.WorkspacePage })));
+const WorkspaceRedirect = lazy(() => import("./pages/WorkspacePage").then(module => ({ default: module.WorkspaceRedirect })));
+const SkillsPage = lazy(() => import("./pages/SkillsPage").then(module => ({ default: module.SkillsPage })));
+const RunDetailPage = lazy(() => import("./pages/RunsPage").then(module => ({ default: module.RunDetailPage })));
+const AgentPage = lazy(() => import("./pages/AgentPage").then(module => ({ default: module.AgentPage })));
+const StudioPreview = lazy(() => import("./pages/StudioPreview").then(module => ({ default: module.StudioPreview })));
+const ObservationPage = lazy(() => import("./pages/ObservationPage").then(module => ({ default: module.ObservationPage })));
+const EvalPage = lazy(() => import("./pages/EvalPage").then(module => ({ default: module.EvalPage })));
+const CalibrationPage = lazy(() => import("./pages/CalibrationPage").then(module => ({ default: module.CalibrationPage })));
+const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
+
+const pageLoading = <div className="state-panel loading-state" role="status">正在加载页面…</div>;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: true } } });
 
 export function App() {
   return <QueryClientProvider client={queryClient}><BrowserRouter><Routes>
-    <Route path="/studio-preview" element={<StudioPreview />} />
+    <Route path="/studio-preview" element={<Suspense fallback={pageLoading}><StudioPreview /></Suspense>} />
     <Route element={<AppShell />}>
+      <Route element={<PageOutlet />}>
       <Route path="/" element={<HomeEntry />} />
       <Route path="/workspace" element={<WorkspacePage />} />
       <Route path="/skills" element={<SkillsPage />} />
@@ -28,6 +36,7 @@ export function App() {
       <Route path="/observation" element={<ObservationPage />} />
       <Route path="/eval" element={<EvalPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
     </Route>
   </Routes></BrowserRouter></QueryClientProvider>;
 }
@@ -40,5 +49,10 @@ function HomeEntry() {
 function AppShell() {
   const location = useLocation();
   // Keep the same Layout/Agent provider between workspace and legacy deep links.
-  return location.pathname === "/" && !location.search ? <Outlet /> : <Layout />;
+  return location.pathname === "/" && !location.search ? <Outlet /> : <Suspense fallback={pageLoading}><Layout /></Suspense>;
+}
+
+function PageOutlet() {
+  // Keep the shell and its Agent session mounted while another page loads.
+  return <Suspense fallback={pageLoading}><Outlet /></Suspense>;
 }

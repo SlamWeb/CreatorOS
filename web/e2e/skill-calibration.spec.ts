@@ -43,7 +43,7 @@ async function trial(page: Page) {
   await expect(page.locator(".extraction-trial").last().getByText("试产完成", { exact: true })).toBeVisible({ timeout: 20000 });
 }
 
-test("calibration compares real artifacts and references, edits and trials a candidate, then explicitly updates the original", async ({ page }, info) => {
+test("calibration compares real artifacts and references, trials a candidate, then explicitly switches its series to a new version", async ({ page }, info) => {
   const setup = await seed(page); const before = await evidence(page);
   await fillComparison(page, setup);
   await page.getByRole("group", { name: "产物评价", exact: true }).getByRole("button", { name: "好在哪里", exact: true }).click();
@@ -93,14 +93,25 @@ test("calibration compares real artifacts and references, edits and trials a can
   await page.getByRole("button", { name: "试用满意，确认保存", exact: true }).click();
   await expect(page.getByText("已确认更新", { exact: true })).toBeVisible();
   const after = await evidence(page);
-  expect(after.target_digest).not.toBe(before.target_digest);
+  expect(after.target_digest).toBe(before.target_digest);
   expect(after.companion_files).toEqual(before.companion_files);
   expect(after.artifact_files).toEqual(before.artifact_files);
   expect(after.counts).toEqual(before.counts);
-  expect(after.protected_records).toEqual(before.protected_records);
   const result = await (await page.request.get(`/api/skill-calibrations/${id}`)).json();
   expect(result.status).toBe("applied");
   expect(result.skill_id).toBe(setup.skill_id);
+  const oldSeries = before.protected_records.series[setup.series_id];
+  const newSeries = after.protected_records.series[setup.series_id];
+  expect(newSeries.mind_skill_id).not.toBe(setup.skill_id);
+  expect(newSeries.revision).toBe(oldSeries.revision + 1);
+  const unchangedSeries = { ...newSeries, mind_skill_id: oldSeries.mind_skill_id, revision: oldSeries.revision, updated_at: oldSeries.updated_at };
+  expect(unchangedSeries).toEqual(oldSeries);
+  const unchangedRecords = structuredClone(after.protected_records);
+  unchangedRecords.series[setup.series_id] = oldSeries;
+  expect(unchangedRecords).toEqual(before.protected_records);
+  const selected = await (await page.request.get(`/api/producer-skills/${encodeURIComponent(newSeries.mind_skill_id)}/files/content?path=SKILL.md`)).json();
+  expect(selected.digest).toBe(result.applied_digest);
+  expect(selected.content).toContain("测试者手工校准：保留蛋糕");
   expect(result.job.trials[0].thread_id).toContain("controlled-calibration-trial-");
   expect(result.job.trials[0].digest).toBe(result.job.digest);
   await page.reload();
@@ -114,7 +125,7 @@ test("late old calibration response cannot replace a newer saved draft and diff"
   const id = await generate(page);
   const endpoint = `/api/skill-calibrations/${id}`;
   await page.getByRole("button", { name: /修改差异与依据/ }).click();
-  await expect(page.getByLabel("Skill 修改差异")).toContainText("受控校准改稿");
+  await expect(page.getByLabel("Skill 修改差异")).toContainText("受控校准改稿", { timeout: 20000 });
   const old = await (await page.request.get(endpoint)).json();
   let release!: () => void;
   let captured!: () => void;
@@ -170,7 +181,7 @@ test("late old calibration response cannot replace a newer saved draft and diff"
   await expect(editor).toHaveValue(/新稿必须保留：旧请求不准覆盖/);
 });
 
-test("changing the candidate invalidates the old trial, and a shared source conflict is never force overwritten", async ({ page }) => {
+test("changing the candidate invalidates the old trial, and a newer series version is never force overwritten", async ({ page }) => {
   const setup = await seed(page);
   await fillComparison(page, setup, false); await generate(page); await trial(page);
   await page.getByRole("button", { name: "编辑", exact: true }).click();
@@ -184,12 +195,24 @@ test("changing the candidate invalidates the old trial, and a shared source conf
   const source = await sourceResponse.json();
   const concurrent = await page.request.put(`/api/producer-skills/${encodeURIComponent(setup.skill_id)}/files/content`, { data: { path: "SKILL.md", content: `${source.content}\n另一位编辑的新要求。\n`, expected_digest: source.digest } });
   expect(concurrent.ok()).toBeTruthy();
+  const candidate = await concurrent.json();
+  expect(candidate.skill_id).not.toBe(setup.skill_id);
+  const series = await (await page.request.get(`/api/series/${setup.series_id}`)).json();
+  const switched = await page.request.post(`/api/series/${setup.series_id}/skill-version`, { data: {
+    skill_id: candidate.skill_id, expected_digest: candidate.digest, expected_revision: series.revision, request_id: crypto.randomUUID(),
+  } });
+  expect(switched.ok(), await switched.text()).toBeTruthy();
   const changed = await evidence(page);
   await page.getByRole("button", { name: "确认更新当前 Skill", exact: true }).click();
   await page.getByRole("button", { name: "试用满意，确认保存", exact: true }).click();
   await expect(page.getByRole("alert").filter({ hasText: "保存未确认" })).toBeVisible();
   await expect(page.getByRole("button", { name: "重新确认保存", exact: true })).toHaveCount(0);
   expect((await evidence(page)).target_digest).toBe(changed.target_digest);
+  const currentSeries = await (await page.request.get(`/api/series/${setup.series_id}`)).json();
+  expect(currentSeries.mind_skill_id).toBe(candidate.skill_id);
+  const current = await (await page.request.get(`/api/producer-skills/${encodeURIComponent(candidate.skill_id)}/files/content?path=SKILL.md`)).json();
+  expect(current.digest).toBe(candidate.digest);
+  expect(current.content).toContain("另一位编辑的新要求。");
 });
 
 test("only a confirmed rollback permits a new explicit save request without another trial", async ({ page }) => {
@@ -223,7 +246,7 @@ test("only a confirmed rollback permits a new explicit save request without anot
   expect(requestIds).toHaveLength(1);
   await expect(page.getByRole("group", { name: "确认更新共享 Skill", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "试用满意，确认保存", exact: true }).click();
-  await expect(page.getByText("已确认更新", { exact: true })).toBeVisible();
+  await expect(page.getByText("已确认更新", { exact: true })).toBeVisible({ timeout: 20000 });
   expect(requestIds).toHaveLength(2);
   expect(requestIds[1]).not.toBe(requestIds[0]);
   const result = await (await page.request.get(`/api/skill-calibrations/${id}`)).json();

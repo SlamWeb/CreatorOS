@@ -1,9 +1,15 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 async function createCreator(request: APIRequestContext, name: string) {
   const response = await request.post("/api/creators", { data: { display_name: name } });
   expect(response.status()).toBe(201);
   return response.json() as Promise<{ id: string; display_name: string }>;
+}
+
+async function switchAccount(page: Page, name: string) {
+  await page.getByRole("button", { name: "切换账号", exact: true }).click();
+  await page.getByRole("dialog", { name: "切换账号", exact: true })
+    .getByRole("button", { name: `切换到账号 ${name}`, exact: true }).click();
 }
 
 async function createSession(request: APIRequestContext, creatorId: string | null) {
@@ -40,8 +46,7 @@ test("account entry stays lazy and the first turn is bound to that account", asy
     status: 503, json: { error: { message: "隔离验收：模型响应故障注入" } },
   }));
 
-  await page.goto("/");
-  await page.getByRole("button", { name: `查看账号 ${creator.display_name}` }).click();
+  await page.goto(`/?creator=${creator.id}`);
   await page.getByRole("button", { name: "打开账号对话" }).click();
   const panel = page.locator(".account-chat-panel");
   await expect(panel).toBeVisible();
@@ -60,12 +65,12 @@ test("account entry stays lazy and the first turn is bound to that account", asy
   await expect(panel).toBeHidden();
   await page.getByRole("button", { name: "打开账号对话" }).click();
   await expect(input).toHaveValue("A 账号的草稿不能泄漏给 B。");
-  await page.getByRole("button", { name: `查看账号 ${otherCreator.display_name}` }).click();
+  await switchAccount(page, otherCreator.display_name);
   await expect(panel).toBeVisible();
   await expect(panel.getByRole("heading", { name: otherCreator.display_name, exact: true })).toBeVisible();
   await expect(panel.getByRole("textbox", { name: "给 Agent 的消息" })).toHaveValue("");
   await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("B 账号自己的草稿。");
-  await page.getByRole("button", { name: `查看账号 ${creator.display_name}` }).click();
+  await switchAccount(page, creator.display_name);
   await expect(panel.getByRole("heading", { name: creator.display_name, exact: true })).toBeVisible();
   await expect(input).toHaveValue("A 账号的草稿不能泄漏给 B。");
   expect(sessionPosts).toBe(0);
@@ -167,7 +172,7 @@ test("account conversation stays mounted on task links, back and reload without 
   await expect(panel.locator(".agent-transcript")).not.toContainText("正在核对任务。");
   expect(await page.evaluate(key => sessionStorage.getItem(key), `creatoros.agent.selected-chat.v1:creator%3A${owner.id}`)).toBe(nextSession.id);
   await panel.getByRole("button", { name: "关闭账号对话" }).click();
-  await page.getByRole("button", { name: `查看账号 ${other.display_name}` }).click();
+  await switchAccount(page, other.display_name);
   await page.getByRole("button", { name: "打开账号对话" }).click();
   await expect(panel.getByRole("heading", { name: other.display_name, exact: true })).toBeVisible();
   await expect(panel.getByRole("alert")).toHaveCount(0);
@@ -191,7 +196,7 @@ test("deep links derive a bound session scope; mismatched scopes cannot send", a
   });
 
   await page.goto(`/?creator=${creator.id}`);
-  await page.getByRole("button", { name: `查看账号 ${otherCreator.display_name}` }).click();
+  await switchAccount(page, otherCreator.display_name);
   await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(otherCreator.id);
   await expect(page.getByRole("heading", { name: otherCreator.display_name, level: 1 })).toBeVisible();
 

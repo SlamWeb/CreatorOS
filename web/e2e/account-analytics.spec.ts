@@ -56,11 +56,16 @@ test("account data reads SQLite projection, persists settings and handles sparse
   data.checking = false; data.error = "平台暂不可用，保留上次数据。";
   await expect(panel.getByRole("alert")).toContainText("保留上次数据");
   await expect(panel.locator(".analytics-chart-point")).toHaveCount(1);
-  await page.getByRole("button", { name: `查看账号 ${second.display_name}` }).click();
+  await page.getByRole("button", { name: "切换账号", exact: true }).click();
+  await page.getByRole("dialog", { name: "切换账号", exact: true })
+    .getByRole("button", { name: `切换到账号 ${second.display_name}`, exact: true }).click();
   await expect(panel).toContainText("还没有近期发布的笔记");
   await expect(panel.getByRole("switch", { name: "自动更新" })).not.toBeChecked();
   await expect(panel.getByRole("button", { name: "刷新数据", exact: true })).toBeDisabled();
   await expect(panel).not.toContainText(data.notes[0].title);
+  await page.getByRole("button", { name: "切换账号", exact: true }).click();
+  await page.getByRole("dialog", { name: "切换账号", exact: true })
+    .getByRole("button", { name: `切换到账号 ${first.display_name}`, exact: true }).click();
   await page.getByRole("button", { name: "趋势测试栏目", exact: true }).click();
   await expect(page).not.toHaveURL(/view=data/);
   await expect(page.getByRole("heading", { name: "趋势测试栏目", exact: true })).toBeVisible();

@@ -106,3 +106,77 @@ test("rename conflict retains its draft; ownership change still persists through
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   await expect(drawer.getByLabel("归属账号", { exact: true })).toHaveValue(other.id);
 });
+
+test("a late assignment response keeps the user's newer workspace location", async ({ page, request }) => {
+  const data = await fixture(request);
+  const other = await post(request, "/api/creators", { display_name: `并发接收账号-${data.suffix}` });
+  await page.goto(`/?creator=${data.account.id}`);
+  await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
+  await expect(page).toHaveURL(url => url.searchParams.get("series") === data.series.id);
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+
+  let release!: () => void;
+  let captured!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const responseReady = new Promise<void>(resolve => { captured = resolve; });
+  await page.route(`**/api/series/${data.series.id}/assignment`, async route => {
+    const response = await route.fetch(); // real isolated SQLite write; only delivery is delayed
+    captured();
+    await hold;
+    await route.fulfill({ response });
+  });
+  await page.getByRole("dialog", { name: "栏目设置" }).getByLabel("归属账号").selectOption(other.id);
+  await responseReady;
+  await page.goBack();
+  await expect(page).toHaveURL(url => url.searchParams.get("creator") === data.account.id && !url.searchParams.has("series"));
+  const refreshed = page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/series");
+  release();
+  await refreshed;
+  await page.waitForLoadState("networkidle");
+  await expect.poll(async () => (await request.get(`/api/series/${data.series.id}`).then(r => r.json())).creator_id).toBe(other.id);
+  await expect(page.getByRole("heading", { name: data.account.display_name, exact: true, level: 1 })).toBeVisible();
+  await expect(page).toHaveURL(url => url.searchParams.get("creator") === data.account.id && !url.searchParams.has("series"));
+});
+
+test("column title and actions remain separate with the chat drawer open", async ({ page, request }, info) => {
+  const account = await post(request, "/api/creators", { display_name: `布局账号-${crypto.randomUUID().slice(0, 8)}` });
+  const series = await post(request, `/api/creators/${account.id}/series`, { name: "一个较长的栏目标题需要完整显示并且不能被按钮遮挡" });
+  await page.goto(`/?creator=${account.id}&series=${series.id}`);
+  const title = page.getByRole("heading", { name: series.name, exact: true, level: 1 });
+  const header = page.locator(".series-content-section .library-heading");
+  await expect(title).toBeVisible();
+  const expectSeparate = async () => {
+    const geometry = await header.evaluate(element => {
+      const titleBox = element.querySelector(".workspace-title-group")!.getBoundingClientRect();
+      return Array.from(element.querySelectorAll(".library-heading-actions > button"), button => {
+        const box = button.getBoundingClientRect();
+        return { overlap: titleBox.left < box.right - 1 && titleBox.right > box.left + 1
+          && titleBox.top < box.bottom - 1 && titleBox.bottom > box.top + 1,
+        outside: box.left < -1 || box.right > window.innerWidth + 1 };
+      });
+    });
+    expect(geometry).toHaveLength(3);
+    expect(geometry.every(item => !item.overlap && !item.outside)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  };
+  await expectSeparate();
+  await page.screenshot({ path: info.outputPath("title-desktop-closed.png") });
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(page.locator(".account-chat-panel")).toBeVisible();
+  await page.screenshot({ path: info.outputPath("title-desktop-chat.png") });
+  await expectSeparate();
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+  await page.setViewportSize({ width: 870, height: 1004 });
+  await expectSeparate();
+  await page.screenshot({ path: info.outputPath("title-narrow.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectSeparate();
+  await page.screenshot({ path: info.outputPath("title-mobile-closed.png") });
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  await expect(page.locator(".account-chat-panel")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("title-mobile-chat.png") });
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+  await expect(title).toBeVisible();
+  await expectSeparate();
+});

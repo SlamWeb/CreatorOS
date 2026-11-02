@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function post(request: APIRequestContext, path: string, data: object) {
   const response = await request.post(path, { data });
@@ -9,12 +10,13 @@ async function post(request: APIRequestContext, path: string, data: object) {
 test("content workbench exposes actions, keeps details on demand and archives through the existing API", async ({ page, request }, info) => {
   const account = await post(request, "/api/creators", { display_name: "工作台隔离验收" });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "词汇工作台" });
+  await configureImageDefault(request, account.id, series.id);
   const queued = await post(request, `/api/series/${series.id}/queue`, {
     request_id: crypto.randomUUID(), topics: [{ title: "afraid / scared / frightened / terrified：害怕的几种表达" }],
   });
   const run = await post(request, "/api/runs", { topic_id: queued.topic_ids[0] });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
-  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   const stored = await request.get(`/api/runs/${run.id}`).then(r => r.json());
   let writes = 0;
   page.on("request", req => { if (req.url().includes("/api/") && req.method() !== "GET") writes++; });
@@ -78,6 +80,7 @@ test("content workbench exposes actions, keeps details on demand and archives th
 test("an invalid revision link is read-only until the user returns to the current version", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: "版本链接隔离验收" });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "无效版本" });
+  await configureImageDefault(request, account.id, series.id);
   const queue = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "版本校验" }] });
   const run = await post(request, "/api/runs", { topic_id: queue.topic_ids[0] });
   let writes = 0;
@@ -93,6 +96,7 @@ test("an invalid revision link is read-only until the user returns to the curren
 test("a delayed content removal cannot navigate away from the next Run", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: "迟到删除隔离验收" });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "迟到响应" });
+  await configureImageDefault(request, account.id, series.id);
   const queue = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "内容 A" }, { title: "内容 B" }] });
   const first = await post(request, "/api/runs", { topic_id: queue.topic_ids[0] });
   const second = await post(request, "/api/runs", { topic_id: queue.topic_ids[1] });

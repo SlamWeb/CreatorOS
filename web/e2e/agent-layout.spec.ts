@@ -55,7 +55,8 @@ test("agent history, markdown and composer remain usable", async ({ page }, info
   await input.press("Shift+Enter");
   await expect(input).toHaveValue("测试消息\n");
   await input.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("没有自动重试");
+  await expect(page.getByRole("alert").filter({ hasText: "提交结果待核对" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toBeVisible();
   await expect(input).toHaveValue("测试消息\n");
   expect(posts).toBe(1);
   await page.screenshot({ path: info.outputPath("agent-error.png"), fullPage: true });

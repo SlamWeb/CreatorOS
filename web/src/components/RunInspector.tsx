@@ -16,7 +16,7 @@ import type { ProducerSkillItem } from "../api/types";
 import { RunDiscussion } from "./RunDiscussion";
 import { PublicationPanel } from "./PublicationPanel";
 import { publicationApi } from "../api/publication";
-import { useAgentChat } from "./AgentChatHost";
+import { useAgentChat } from "../features/agent";
 import { ArtifactDownload } from "./ArtifactDownload";
 import "./run-inspector.css";
 

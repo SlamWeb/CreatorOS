@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function fixture(request: APIRequestContext) {
   const create = async (url: string, data: object) => {
@@ -8,6 +9,7 @@ async function fixture(request: APIRequestContext) {
   };
   const account = await create("/api/creators", { display_name: "批量生产隔离验收" });
   const series = await create(`/api/creators/${account.id}/series`, { name: "批量生产测试栏目" });
+  await configureImageDefault(request, account.id, series.id);
   const queued = await create(`/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
     topics: [{ title: "第一条等待后台生产" }, { title: "第二条自动接着生产" }, { title: "第三条暂不生产" }] });
   return { account, series, topicIds: queued.topic_ids as string[] };
@@ -19,9 +21,11 @@ test("batch selection creates durable runs through the real isolated API and ref
   const posted: string[][] = [];
   page.on("request", req => { if (req.method() === "POST" && new URL(req.url()).pathname === "/api/runs/batch") posted.push(req.postDataJSON().topic_ids); });
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.locator(".library-select-menu summary").click();
+  await page.getByRole("button", { name: "全选本页可生产选题", exact: true }).click();
   const all = page.getByRole("checkbox", { name: "全选本页可生产选题" });
-  await all.check();
-  await expect(page.getByRole("button", { name: "批量生产（3）", exact: true })).toBeEnabled();
+  await expect(all).toBeChecked();
+  await expect(page.getByRole("button", { name: "批量生产（3，沿用已配置 Skill）", exact: true })).toBeEnabled();
   await page.getByRole("checkbox", { name: "选择生产 第三条暂不生产", exact: true }).uncheck();
   await expect(all).not.toBeChecked();
   await expect.poll(() => all.evaluate((el: HTMLInputElement) => el.indeterminate)).toBe(true);
@@ -29,11 +33,12 @@ test("batch selection creates durable runs through the real isolated API and ref
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("batch-selection-mobile.png"), fullPage: true });
-  await page.getByRole("button", { name: "批量生产（2）", exact: true }).click();
+  await page.getByRole("button", { name: "批量生产（2，沿用已配置 Skill）", exact: true }).click();
   const result = page.getByRole("region", { name: "批量提交结果" });
   await expect(result).toContainText("已受理 2 项");
   await expect(result.getByRole("link")).toHaveCount(2);
-  expect(posted).toEqual([data.topicIds.slice(0, 2)]);
+  expect(posted).toHaveLength(1);
+  expect([...posted[0]].sort()).toEqual(data.topicIds.slice(0, 2).sort());
   const runs = await request.get(`/api/series/${data.series.id}/topics`).then(r => r.json());
   expect(runs.items.slice(0, 2).every((topic: { existing_run_id: string | null }) => topic.existing_run_id)).toBe(true);
   expect(runs.items[2].existing_run_id).toBeNull();
@@ -65,13 +70,14 @@ test("partial rejection preserves only rejected selections and HTTP failure does
     ] } });
   });
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
-  await page.getByRole("checkbox", { name: "全选本页可生产选题" }).check();
-  await page.getByRole("button", { name: "批量生产（3）", exact: true }).click();
+  await page.locator(".library-select-menu summary").click();
+  await page.getByRole("button", { name: "全选本页可生产选题", exact: true }).click();
+  await page.getByRole("button", { name: "批量生产（3，沿用已配置 Skill）", exact: true }).click();
   await expect(page.getByRole("region", { name: "批量提交结果" })).toContainText("受控拒绝：栏目配置有变化");
   await expect(page.getByRole("checkbox", { name: "选择生产 第一条等待后台生产", exact: true })).not.toBeChecked();
   await expect(page.getByRole("checkbox", { name: "选择生产 第二条自动接着生产", exact: true })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "选择生产 第三条暂不生产", exact: true })).toBeChecked();
-  await page.getByRole("button", { name: "批量生产（2）", exact: true }).click();
+  await page.getByRole("button", { name: "批量生产（2，沿用已配置 Skill）", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("受控队列暂不可用");
   await expect(page.getByRole("checkbox", { name: "选择生产 第二条自动接着生产", exact: true })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "选择生产 第三条暂不生产", exact: true })).toBeChecked();
@@ -89,14 +95,20 @@ test("partial rejection preserves only rejected selections and HTTP failure does
 test("durable queue projection distinguishes waiting and attention; blocked worker never looks active", async ({ page, request }) => {
   const data = await fixture(request);
   const created = await request.post("/api/runs", { data: { topic_id: data.topicIds[0] } }).then(r => r.json());
+  const attentionResponse = await request.post("/api/runs", { data: { topic_id: data.topicIds[1] } });
+  expect(attentionResponse.status()).toBe(201);
+  const attention = await attentionResponse.json();
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET") writes.push(new URL(req.url()).pathname); });
   // Controlled read projections cover queue states without executing or publishing.
   // Capture the real DTO once; repeated poll intercepts must not keep an HTTP
   // request alive past page teardown (which disposes route.fetch responses).
   const library = await request.get(`/api/series/${data.series.id}/topic-library?state=all&offset=0&limit=20`).then(r => r.json());
-  library.items[0] = { ...library.items[0], existing_run_id: created.id, production_queue_status: "pending", production_queue_position: 2, available_actions: [] };
-  library.items[1] = { ...library.items[1], production_queue_status: "needs_attention", production_queue_position: null, available_actions: ["resume"] };
+  const waitingIndex = library.items.findIndex((item: { id: string }) => item.id === data.topicIds[0]);
+  const attentionIndex = library.items.findIndex((item: { id: string }) => item.id === data.topicIds[1]);
+  expect(waitingIndex).toBeGreaterThanOrEqual(0); expect(attentionIndex).toBeGreaterThanOrEqual(0);
+  library.items[waitingIndex] = { ...library.items[waitingIndex], existing_run_id: created.id, production_queue_status: "pending", production_queue_position: 2, available_actions: [] };
+  library.items[attentionIndex] = { ...library.items[attentionIndex], existing_run_id: attention.id, production_queue_status: "needs_attention", production_queue_position: null, available_actions: ["resume"] };
   await page.route(`**/api/series/${data.series.id}/topic-library?**`, async route => {
     await route.fulfill({ json: library });
   });

@@ -37,7 +37,7 @@
 .workspace-rename input { width: 100%; min-width: 0; height: 40px; margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; font: inherit; background: var(--canvas); color: var(--ink); }
 .workspace-rename > .button { height: 40px; border-radius: 9px; }
 .workspace-rename > .form-error, .workspace-rename > [role="status"] { grid-column: 1 / -1; margin: 0; }
-.series-content-section .library-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px; margin-bottom: 20px; }
+.series-content-section .library-heading { display: flex; flex-wrap: wrap; align-items: start; gap: 16px; margin-bottom: 20px; }
 .series-content-section .library-heading-actions { margin-left: 0; gap: 8px; }
 .series-content-section .library-heading-actions > button { height: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 14px; border-radius: 9px; white-space: nowrap; }
 .series-content-section .library-pagination { align-items: center; }
@@ -69,7 +69,7 @@
 @media (min-width: 1400px) { .workspace.chat-open .content-feed { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1101px) { .workspace.chat-open .account-recent-grid, .workspace.chat-open .account-column-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1100px) and (min-width: 761px) { .workspace { grid-template-columns: 216px minmax(0, 1fr); } }
-@media (max-width: 1200px) { .series-content-section .library-heading { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1200px) { .series-content-section .library-heading { display: grid; grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) {
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .workspace-tree-toggle { display: block; width: calc(100% - 32px); margin: 16px 16px 0; text-align: left; padding: 11px 12px; border: 1px solid var(--line); background: var(--canvas); border-radius: 9px; color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }

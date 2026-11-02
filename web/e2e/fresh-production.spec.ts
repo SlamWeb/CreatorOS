@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function post(request: APIRequestContext, path: string, data: object) {
   const response = await request.post(path, { data });
@@ -9,10 +10,11 @@ async function post(request: APIRequestContext, path: string, data: object) {
 test("same topic starts clean once, retains original artifacts and survives a lost creation response", async ({ page, request }, info) => {
   const creator = await post(request, "/api/creators", { display_name: "干净重做隔离账号" });
   const series = await post(request, `/api/creators/${creator.id}/series`, { name: "干净重做" });
+  await configureImageDefault(request, creator.id, series.id);
   const topics = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title: "保留选题，重新制作" }] });
   const original = await post(request, "/api/runs", { topic_id: topics.topic_ids[0] });
   await post(request, `/api/runs/${original.id}/execute`, { expected_version: original.version });
-  await expect.poll(async () => (await request.get(`/api/runs/${original.id}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${original.id}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   const before = await request.get(`/api/runs/${original.id}`).then(r => r.json());
   let createdId = "", loseResponse = true;
   const payloads: Record<string, unknown>[] = [];
@@ -44,7 +46,7 @@ test("same topic starts clean once, retains original artifacts and survives a lo
   expect(payloads).toHaveLength(2);
   expect(payloads[0]).toEqual(payloads[1]);
   expect(executePosts).toBe(1);
-  await expect.poll(async () => (await request.get(`/api/runs/${createdId}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${createdId}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   await page.reload();
   await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeVisible();
   expect(executePosts).toBe(1);

@@ -22,7 +22,11 @@ async function setup(request: APIRequestContext, title: string, single = false) 
     }).then(async imported => request.get(`/api/runs/${imported.run_id}`).then(r => r.json()));
   }
   const topics = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title }] });
-  const run = await post(request, "/api/runs", { topic_id: topics.topic_ids[0] });
+  const catalog = await request.get("/api/producer-skills?include_versions=true").then(response => response.json());
+  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
+  expect(skill).toBeTruthy();
+  const run = await post(request, "/api/runs", { topic_id: topics.topic_ids[0], request_id: crypto.randomUUID(),
+    skill_overrides: { skill_id: skill.id, expected_digests: { [skill.id]: skill.digest } } });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
   return request.get(`/api/runs/${run.id}`).then(r => r.json());

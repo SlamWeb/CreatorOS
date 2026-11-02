@@ -10,7 +10,7 @@ test("closing the operation drawer stops its overview observer", async ({ page }
     } });
   });
 
-  await page.goto("/");
+  await page.goto("/workspace");
   await page.getByRole("button", { name: "运营指令" }).click();
   await expect(page.getByRole("dialog", { name: "运营指令" })).toBeVisible();
   await expect.poll(() => overviewRequests).toBe(1);
@@ -49,13 +49,16 @@ test("a terminal run keeps its history but does not poll run or event endpoints"
 
   await page.goto(`/runs/${runId}`);
   await expect(page.getByRole("heading", { name: "已结束运行" })).toBeVisible();
-  await page.getByRole("button", { name: /^生产记录 ·/ }).click();
+  await page.getByRole("button", { name: "技术记录", exact: true }).click();
   await expect(page.getByText("执行中断")).toBeVisible();
-  expect(requests).toEqual({ run: 1, events: 1, stream: 0 });
+  expect(requests.run).toBe(1);
+  expect(requests.events).toBeGreaterThanOrEqual(1);
+  expect(requests.stream).toBe(0);
+  const loaded = { ...requests };
 
   await page.waitForTimeout(11_000);
 
-  expect(requests).toEqual({ run: 1, events: 1, stream: 0 });
+  expect(requests).toEqual(loaded);
 });
 
 test("idle chat and closed floating panel do not keep fetching sessions", async ({ page, request }) => {

@@ -165,7 +165,7 @@ test("unknown reasoning setting requires an explicit valid choice", async ({ pag
   await expect(page.getByRole("combobox", { name: "推理程度" })).toHaveValue("");
   await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("先不要发送");
   await expect(page.getByRole("button", { name: "发送 ↑" })).toBeDisabled();
-  await expect(page.getByRole("alert")).toContainText("当前推理设置不可用");
+  await expect(page.getByRole("alert").filter({ hasText: "当前推理设置不可用" })).toBeVisible();
   await page.getByRole("combobox", { name: "推理程度" }).selectOption("high");
   await expect(page.getByRole("button", { name: "发送 ↑" })).toBeEnabled();
 });
