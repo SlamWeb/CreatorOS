@@ -73,6 +73,10 @@ CASES = [
     ("plan_workflows", ["-m", "unittest", "tests.test_agent_plans", "tests.test_plan_tool_contract",
         "tests.test_plan_replanning_safety", "tests.test_plan_continuation", "tests.test_background_agent",
         "tests.test_background_wait", "-v"]),
+    ("media_task_lifecycle", ["-m", "unittest", "tests.test_bgm_analysis", "tests.test_media_collection_agent",
+        "tests.test_media_collections", "tests.test_production_task_collections", "tests.test_production_tasks",
+        "tests.test_pending_tasks", "tests.test_task_navigation_contract", "tests.test_task_stop_remove",
+        "tests.test_simple_skill_tasks", "tests.test_shared_skill_fork", "-v"]),
     *[(name, ["-m", "tests." + name]) for name in (
         "smoke_codex_completed_turn", "smoke_production_progress", "smoke_extraction_activity",
         "smoke_codex_public_events", "smoke_skill_extraction", "smoke_skill_draft_files",
@@ -180,7 +184,7 @@ def main(argv=None):
                 reject_operational_plan_fixture(workspace, command)
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 if is_unittest:

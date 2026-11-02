@@ -12,6 +12,7 @@
 - 后端和 Benchmark 的显式模块清单共同用于逐模块库存；`python -m tests.run_reliability --inventory` 只读取 `tests/test_*.py` 文件名，不导入、不 discovery 执行。报告列出本次未运行、任何 Python 门禁都未声明及当前 checkout 缺失的模块，不能将 allowlist 或浏览器分组通过写成全仓全量通过。含 8765、真实 SDK 或外部依赖的未审查模块继续不运行，先修为随机端口/独立服务夹具再单独纳入。
 - 已安全审查的8个受控交付模块归为 native_delivery_protocol（动态工具、artifact/file submission、native recovery/assets/thread continuity、graphic contract、structured handoff），组预算600秒；真实SDK事件是受控传输，不调用真实模型。
 - 已隔离验证的6个计划/后台模块归为 plan_workflows，预算600秒。旧 checkout 中 test_agent_plans/test_plan_tool_contract 的硬编码 operational URL 会在子进程启动前被拒绝并保留失败日志；必须合入对应隔离夹具修复后才能运行，不能把拒绝记为通过。
+- 素材、BGM、拆分任务、跨账号 Skill 及归档等10个已隔离模块归为 media_task_lifecycle，预算600秒。旧迁移测试先失败：后续版本新增了空表，旧断言误以为新增表是旧数据变化；现在逐个核实新表为空，同时继续完整比较旧表旧行、检查模型与迁移一致、外键和升级/降级。修订后58/58受控测试通过，原失败不覆盖。
 
 ## 2026-11-01 生图结果恢复小回归
 
