@@ -50,6 +50,10 @@
 
 启动两套本机开发服务、构建及运行回归的具体命令见 [并行开发说明](../scripts/ISOLATED_DEV.md) 和 [浏览器回归说明](../web/E2E_RUNBOOK.md)。不要让两个会话同时安装或改写同一个 `node_modules`；外部账号、Codex 登录和用户级缓存不因为 worktree 分开就自动隔离。
 
+## 后续能力如何接入
+
+完整 Skill 包上传、BGM 分析复用和 Agent 编排图像处理目前只是后续需求，尚未实现。对应的资源归属、版本冻结和执行边界见 [扩展审阅](production-tasks/EXTENSION_REVIEW.md)。
+
 ## 还没有完全拆开的地方
 
 目前仍是一个 FastAPI 宿主；`creatoros/web/app.py`、部分 Skill 及工具实现仍较大，交付模块也复用部分 `integrations` 中的 Skill、媒体和文件能力。工作树隔离解决开发实例和测试数据冲突，不代表外部服务已经隔离，也不代表所有前后端功能都能零冲突并行改动。后续按实际修改冲突和验证证据继续调整边界。
