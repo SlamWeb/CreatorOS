@@ -14,7 +14,10 @@ import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { MediaCollections } from "../components/MediaCollections";
 import { CreatorSkillLibrary, SeriesSkillPool } from "../components/SkillLibrary";
-import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
+import { useWorkInbox } from "../components/TaskInbox";
+import { AccountNavigator } from "../components/AccountNavigator";
+import { AccountOverview } from "../components/AccountOverview";
+import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import "./workspace.css";
 
 export function WorkspaceRedirect() {
@@ -78,13 +81,27 @@ export function WorkspacePage() {
   const createAccount = useMutation({
     retry: false,
     mutationFn: (input: { name: string; handle: string }) => studioApi.createCreator({ display_name: input.name, account_handle: input.handle || undefined }),
-    onSuccess: async () => { setAccountDraft(null); await refresh(); },
+    onSuccess: async result => {
+      setAccountDraft(null);
+      await refresh();
+      selectAccount(result.id, true);
+      if (chat.isOpen) chat.open({ creatorId: result.id, accountName: result.display_name });
+    },
   });
 
   const deleteAccount = useMutation({
     retry: false,
     mutationFn: (id: string) => studioApi.deleteCreator(id),
-    onSuccess: async () => { setConfirmingAccount(null); await refresh(); },
+    onSuccess: async (_result, id) => {
+      setConfirmingAccount(null);
+      await refresh();
+      setParams(previous => {
+        if (previous.get("creator") !== id) return previous;
+        const next = new URLSearchParams(previous);
+        for (const key of ["creator", "series", "view", "topic", "collection", "collection_topic"]) next.delete(key);
+        return next;
+      });
+    },
     onError: () => setConfirmingAccount(null),
   });
 
@@ -157,12 +174,14 @@ export function WorkspacePage() {
     });
   }
 
-  function selectAccount(id: string) {
+  function selectAccount(id: string, resetView = false) {
     setTreeOpen(false);
+    setConfirmingAccount(null);
     const selected = accounts.find(item => item.id === id);
     if (chat.isOpen && selected) chat.open({ creatorId: selected.id, accountName: selected.display_name });
     setParams(previous => {
       const next = new URLSearchParams(previous); next.set("creator", id);
+      if (resetView) next.delete("view");
       for (const key of ["series", "topics", "offset", "select", "research", "operation", "topic", "chat", "collection", "collection_topic"]) next.delete(key);
       return next;
     });
@@ -172,68 +191,25 @@ export function WorkspacePage() {
       ...(topic ? { contextTarget: { series_id: topic.series_id, topic_id: topic.id,
         ...(topic.existing_run_id ? { run_id: topic.existing_run_id } : {}) }, contextTitle: title } : {}) });
   };
+  const beginNewAccount = () => { createAccount.reset(); setAccountDraft({ name: "", handle: "" }); };
+  const beginNewSeries = () => {
+    if (!accounts.length) { beginNewAccount(); return; }
+    createSeries.reset();
+    setSeriesDraft({ name: "", creatorId: scopedCreatorId });
+  };
 
   return <div className={`workspace${chat.isOpen ? " chat-open" : ""}`}>
     <button type="button" className="workspace-tree-toggle" aria-expanded={treeOpen} onClick={() => setTreeOpen(!treeOpen)}>账号与栏目 · {series?.name ?? account?.display_name ?? "选择账号"}</button>
     <aside className={`workspace-rail${treeOpen ? " is-open" : ""}`} aria-label="账号与栏目">
-      {accounts.map(account => <section className="rail-group" key={account.id}>
-        <div className="rail-account">
-          <button type="button" className="rail-account-select" aria-label={`查看账号 ${account.display_name}`} aria-current={!seriesId && account.id === scopedCreatorId ? "page" : undefined} onClick={() => selectAccount(account.id)}>
-            <span className="rail-avatar" aria-hidden="true">{account.display_name.slice(0, 1)}</span><h2>{account.display_name}</h2>
-          </button>
-          {!allSeries.some(s => s.creator_id === account.id) && (
-            confirmingAccount === account.id
-              ? <button type="button" className="rail-add rail-delete" disabled={deleteAccount.isPending}
-                  onClick={() => deleteAccount.mutate(account.id)}>确认删除</button>
-              : <button type="button" className="rail-add action-danger" aria-label={`删除账号 ${account.display_name}`}
-                  title="删除账号" onClick={() => setConfirmingAccount(account.id)}>×</button>
-          )}
-          <button type="button" className="rail-add" aria-label={`在 ${account.display_name} 下新建栏目`}
-            onClick={() => { setSeriesDraft({ name: "", creatorId: account.id }); setConfirmingAccount(null); }}>+</button>
-        </div>
-        {allSeries.filter(s => s.creator_id === account.id).map(item => <button type="button" key={item.id}
-          className={`rail-series ${item.id === seriesId ? "active" : ""}`}
-          aria-current={item.id === seriesId ? "page" : undefined} onClick={() => selectSeries(item.id)}>
-          <span>{item.name}</span>{inbox.hasUnseen("series", item.id) && <UnseenDot label="栏目有未查看内容" />}
-        </button>)}
-      </section>)}
-      {!!allSeries.some(s => s.creator_id === null) && <section className="rail-group">
-        <div className="rail-account"><h2>未分配</h2>
-          <button type="button" className="rail-add" aria-label="新建未分配栏目" onClick={() => setSeriesDraft({ name: "", creatorId: null })}>+</button>
-        </div>
-        {allSeries.filter(s => s.creator_id === null).map(item => <button type="button" key={item.id}
-          className={`rail-series ${item.id === seriesId ? "active" : ""}`}
-          aria-current={item.id === seriesId ? "page" : undefined} onClick={() => selectSeries(item.id)}>
-          <span>{item.name}</span>{inbox.hasUnseen("series", item.id) && <UnseenDot label="栏目有未查看内容" />}
-        </button>)}
-      </section>}
-      <div className="rail-foot">
-        {seriesDraft ? <form className="rail-form" onSubmit={event => {
-          event.preventDefault();
-          if (seriesDraft.name.trim()) createSeries.mutate({ name: seriesDraft.name.trim(), creatorId: seriesDraft.creatorId });
-        }}>
-          <input autoFocus required maxLength={120} placeholder="栏目名称" value={seriesDraft.name}
-            aria-label="新栏目名称" onChange={event => setSeriesDraft({ ...seriesDraft, name: event.target.value })} />
-          <div><button className="button button-primary" disabled={createSeries.isPending}>创建</button>
-            <button className="button button-secondary" type="button" onClick={() => setSeriesDraft(null)}>取消</button></div>
-          {createSeries.isError && <p className="form-error" role="alert">{createSeries.error.message}</p>}
-        </form> : null}
-        {accountDraft === null ? (
-          <button type="button" className="rail-new-account" onClick={() => setAccountDraft({ name: "", handle: "" })}>+ 新账号</button>
-        ) : <form className="rail-form" onSubmit={event => {
-          event.preventDefault();
-          if (accountDraft.name.trim()) createAccount.mutate({ name: accountDraft.name.trim(), handle: accountDraft.handle.trim() });
-        }}>
-          <input autoFocus required maxLength={120} placeholder="账号名称" value={accountDraft.name}
-            aria-label="新账号名称" onChange={event => setAccountDraft({ ...accountDraft, name: event.target.value })} />
-          <input maxLength={160} placeholder="账号标识（可选）" value={accountDraft.handle}
-            aria-label="新账号标识" onChange={event => setAccountDraft({ ...accountDraft, handle: event.target.value })} />
-          <div><button className="button button-primary" disabled={createAccount.isPending}>创建</button>
-            <button className="button button-secondary" type="button" onClick={() => setAccountDraft(null)}>取消</button></div>
-          {createAccount.isError && <p className="form-error" role="alert">{createAccount.error.message}</p>}
-        </form>}
-        {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
-      </div>
+      <AccountNavigator accounts={accounts} account={account} series={accountSeries} selectedSeriesId={seriesId}
+        unassigned={allSeries.filter(item => item.creator_id === null)}
+        onSelectAccount={selectAccount} onSelectSeries={id => selectSeries(id)}
+        onOverview={() => account ? selectAccount(account.id, true) : accountSeries[0] && selectSeries(accountSeries[0].id)}
+        onCreateAccount={beginNewAccount} onCreateSeries={beginNewSeries}
+        hasUnseen={id => inbox.hasUnseen("series", id)} confirmingDelete={confirmingAccount === account?.id}
+        onConfirmDelete={() => setConfirmingAccount(account?.id ?? null)}
+        onDelete={() => account && deleteAccount.mutate(account.id)} deletePending={deleteAccount.isPending} />
+      {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
     </aside>
     <main className="workspace-main">
       {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
@@ -242,18 +218,14 @@ export function WorkspacePage() {
       {account && (series || !["data", "materials", "skills"].includes(params.get("view") ?? "")) && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
-        {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={() => setSeriesDraft({name:"",creatorId:scopedCreatorId})}>新建栏目</button>}
+        {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={beginNewSeries}>新建栏目</button>}
       </header>
       {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"},{value:"skills",label:"Skill 库"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials","skills"].includes(params.get("view") ?? "") ? params.get("view") : "content") === tab.value}
         onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value !== "content") next.set("view",tab.value); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
       {account && params.get("view") === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={setInspectedSkill} /> : account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
-      {!!accountSeries.some(item => item.topic_count > 0) && <>{accountSeries.filter(item => item.topic_count > 0).map(item => <SeriesWorkspace key={item.id} series={item} overview onSelect={() => selectSeries(item.id, undefined, true)} onDiscuss={discuss}
-        accounts={accounts.map(a => ({id:a.id,name:a.display_name}))} skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
-        onAssign={creatorId => assign.mutate({series:item,creatorId})} />)}</>}
-      {!accountSeries.some(item => item.topic_count > 0) && <div className="workspace-empty">
-        <p>{account ? accountSeries.length ? "这个账号还没有选题。" : "这个账号还没有栏目。" : "还没有栏目。先在 Skill 页组合或在这里新建。"}</p>
-        <button type="button" className="button button-primary" onClick={() => setSeriesDraft({ name: "", creatorId: scopedCreatorId ?? accounts[0]?.id ?? null })}>新建栏目</button>
-      </div>}
+      <AccountOverview key={account?.id ?? "unassigned"} creatorId={account?.id ?? null} series={accountSeries}
+        onSelect={id => selectSeries(id)} hasUnseen={id => inbox.hasUnseen("series", id)}
+        onCreate={beginNewSeries} />
       </>}
       </>}
       {series && <SeriesWorkspace key={series.id} series={series}
@@ -267,6 +239,33 @@ export function WorkspacePage() {
         }} deletePending={deleteSeries.isPending}
         deleteError={deleteSeries.variables?.id === series.id ? deleteSeries.error?.message ?? null : null} />}
     </main>
+    {accountDraft && <WorkspaceDialog title="新建账号" busy={createAccount.isPending} onClose={() => setAccountDraft(null)}>
+      <form className="workspace-create-form" onSubmit={event => {
+        event.preventDefault();
+        if (accountDraft.name.trim() && !createAccount.isPending) createAccount.mutate({ name: accountDraft.name.trim(), handle: accountDraft.handle.trim() });
+      }}>
+        <label>账号名称<input required maxLength={120} data-initial-focus value={accountDraft.name} aria-label="新账号名称"
+          disabled={createAccount.isPending} onChange={event => setAccountDraft({ ...accountDraft, name: event.target.value })} /></label>
+        <label>账号标识（可选）<input maxLength={160} value={accountDraft.handle} aria-label="新账号标识"
+          disabled={createAccount.isPending} onChange={event => setAccountDraft({ ...accountDraft, handle: event.target.value })} /></label>
+        {createAccount.isError && <p className="form-error" role="alert">{createAccount.error.message}</p>}
+        <div className="workspace-dialog-actions"><button className="button button-secondary" type="button" disabled={createAccount.isPending} onClick={() => setAccountDraft(null)}>取消</button>
+          <button className="button button-primary" disabled={createAccount.isPending || !accountDraft.name.trim()}>{createAccount.isPending ? "创建中…" : "创建"}</button></div>
+      </form>
+    </WorkspaceDialog>}
+    {seriesDraft && <WorkspaceDialog title="新建栏目" busy={createSeries.isPending} onClose={() => setSeriesDraft(null)}>
+      <p className="workspace-create-owner">所属账号：<strong>{accounts.find(item => item.id === seriesDraft.creatorId)?.display_name ?? "未分配"}</strong></p>
+      <form className="workspace-create-form" onSubmit={event => {
+        event.preventDefault();
+        if (seriesDraft.name.trim() && !createSeries.isPending) createSeries.mutate({ name: seriesDraft.name.trim(), creatorId: seriesDraft.creatorId });
+      }}>
+        <label>栏目名称<input required maxLength={120} data-initial-focus value={seriesDraft.name} aria-label="新栏目名称"
+          disabled={createSeries.isPending} onChange={event => setSeriesDraft({ ...seriesDraft, name: event.target.value })} /></label>
+        {createSeries.isError && <p className="form-error" role="alert">{createSeries.error.message}</p>}
+        <div className="workspace-dialog-actions"><button className="button button-secondary" type="button" disabled={createSeries.isPending} onClick={() => setSeriesDraft(null)}>取消</button>
+          <button className="button button-primary" disabled={createSeries.isPending || !seriesDraft.name.trim()}>{createSeries.isPending ? "创建中…" : "创建"}</button></div>
+      </form>
+    </WorkspaceDialog>}
     {inspectedSkill && <SkillInspector skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: account?.id, seriesId: series?.id }}
       onAgentEdit={account ? prompt => {
@@ -275,13 +274,13 @@ export function WorkspacePage() {
   </div>;
 }
 
-function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, overview = false, onSelect, onDiscuss, onDelete, deletePending = false, deleteError }: {
+function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, onDiscuss, onDelete, deletePending = false, deleteError }: {
   series: SeriesView;
   accounts: { id: string; name: string }[];
   skills: ProducerSkillItem[];
   onInspectSkill: (skill: ProducerSkillItem) => void;
   onAssign: (creatorId: string | null) => void;
-  overview?: boolean; onSelect?: () => void; onDiscuss?: (title: string, topic?: TopicView) => void;
+  onDiscuss?: (title: string, topic?: TopicView) => void;
   onDelete?: () => void; deletePending?: boolean; deleteError?: string | null;
 }) {
   const client = useQueryClient();
@@ -333,15 +332,14 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
     title={!series.creator_id ? "先分配账号" : undefined}
     onClick={() => runMutation.mutate(topic)}>{runMutation.isPending && runMutation.variables?.id === topic.id ? "提交中…" : topic.available_actions.includes("resume") ? "恢复生产" : "生产"}</button>;
   const heading = <div className="workspace-title-group">
-        {overview ? <h2><button type="button" onClick={onSelect}>{series.name} <span aria-hidden="true">→</span></button></h2> : <h1>{series.name}</h1>}
-        {!overview && <><div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
+        <h1>{series.name}</h1>
+        <div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
           {!poolItems.length && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目 Skill</button>}
           {poolItems.length > 0 && <div><span className="muted">栏目 Skill：</span>{poolItems.map((bound, index) => <span key={bound.id}>
             {index > 0 && <span aria-hidden="true"> · </span>}
             <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} showVersion />
           </span>)}</div>}
         </div>
-        </>}
       </div>;
   const headerActions = <>
     <button ref={addTrigger} type="button" className="button button-secondary workspace-add-trigger" aria-expanded={addOpen} aria-controls={addId}
@@ -350,7 +348,7 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
       onClick={() => setSettingsOpen(value => !value)}><Settings2 size={16} aria-hidden="true" /><span>栏目设置</span></button>
   </>;
   const headerPanels = <>
-    {!overview && <div id={settingsId} className="workspace-series-settings" hidden={!settingsOpen}>
+    <div id={settingsId} className="workspace-series-settings" hidden={!settingsOpen}>
       <form className="workspace-rename" onSubmit={event => {
         event.preventDefault();
         const name = nameDraft?.trim();
@@ -373,9 +371,9 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
         disabled={deletePending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>}
       </div>
       {settingsOpen && series.creator_id && <SeriesSkillPool key={`${series.id}:${series.creator_id}`} seriesId={series.id} creatorId={series.creator_id} />}
-    </div>}
+    </div>
     {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
-    {!overview && <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {
+    <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {
       event.preventDefault();
       if (topicTitle.trim()) addTopic.mutate(topicTitle.trim());
     }}>
@@ -384,15 +382,14 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
       <button className="button button-primary" disabled={!topicTitle.trim() || addTopic.isPending}>添加</button>
       <button type="button" className="button button-quiet" disabled={addTopic.isPending} onClick={() => { setAddOpen(false); addTrigger.current?.focus(); }}>取消</button>
       {addTopic.isError && <p className="form-error" role="alert">{addTopic.error.message}</p>}
-    </form>}
+    </form>
     {runMutation.isError && <p className="form-error" role="alert">{runMutation.error.message}</p>}
     {runMutation.isSuccess && <p className="queue-submitted" role="status">已加入生产队列。<Link to={`/runs/${runMutation.data.id}`}>查看任务 →</Link></p>}
   </>;
-  return <section className={overview ? "account-series-section" : "series-content-section"}>
-    {overview && <header className="account-series-head">{heading}</header>}
-    <TopicLibrary seriesId={series.id} startButton={startButton} compact={overview} onDiscuss={onDiscuss} onViewAll={overview ? onSelect : undefined}
+  return <section className="series-content-section">
+    <TopicLibrary seriesId={series.id} startButton={startButton} onDiscuss={onDiscuss}
       series={series} skills={skills}
-      heading={!overview ? heading : undefined} headerActions={!overview ? headerActions : undefined} headerPanels={headerPanels}
+      heading={heading} headerActions={headerActions} headerPanels={headerPanels}
       productionEnabled={series.is_active && !!series.creator_id}
       batchProductionEnabled={!!skillPool.data?.defaults.image.length && skillPool.data.defaults.image.every(item => poolItems.some(skill => skill.id === item.skill_id))} />
   </section>;

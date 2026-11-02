@@ -33,7 +33,7 @@ async function workspaceFixture(request: APIRequestContext, topicCount = 0, incl
 test("workspace tree keeps empty columns manageable, Skill links inspect real files, and main navigation stays fixed", async ({ page, request }, info) => {
   const data = await workspaceFixture(request, 24, true);
   await page.goto(`/?creator=${data.account.id}`);
-  await expect(page.locator(".account-series-section")).toHaveCount(1);
+  await expect(page.locator(".account-column-list > button")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: data.empty.name })).toHaveCount(0);
   await expect(page.locator(".workspace-rail").getByRole("button", { name: data.empty.name })).toBeVisible();
   await expect(page.locator(".rail-series").filter({ hasText: data.series.name })).toContainText(data.series.name);
@@ -43,8 +43,8 @@ test("workspace tree keeps empty columns manageable, Skill links inspect real fi
   await page.screenshot({ path: info.outputPath("workspace-management-account-desktop.png"), fullPage: true });
 
   await page.locator(".rail-series").filter({ hasText: data.series.name }).click();
-  const mindLink = page.getByRole("button", { name: data.skills.mind.name, exact: true });
-  const visualLink = page.getByRole("button", { name: data.skills.production.name, exact: true });
+  const mindLink = page.getByRole("button", { name: new RegExp(`^${data.skills.mind.name}(?:v1)?$`) });
+  const visualLink = page.getByRole("button", { name: new RegExp(`^${data.skills.production.name}(?:v1)?$`) });
   await expect(mindLink).toBeVisible();
   await expect(visualLink).toBeVisible();
   const nav = page.locator(".sidebar");

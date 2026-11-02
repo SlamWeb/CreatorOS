@@ -1,0 +1,38 @@
+.account-nav-switch-row { display: flex; align-items: center; gap: 2px; margin-bottom: 18px; }
+.account-nav-switch { display: flex; align-items: center; gap: 9px; min-width: 0; width: 100%; padding: 8px; border: 1px solid transparent; border-radius: 10px; color: var(--ink); background: transparent; text-align: left; }
+.account-nav-switch:hover { background: var(--surface); }
+.account-nav-switch > svg { flex-shrink: 0; color: var(--muted); }
+.account-nav-avatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); color: var(--ink); font-size: 12px; font-weight: 600; }
+.account-nav-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.account-nav-overview { display: flex; gap: 10px; align-items: center; padding: 9px 12px; width: 100%; border: 0; border-radius: 8px; text-align: left; font-size: 13px; color: var(--ink); background: transparent; }
+.account-nav-overview svg { color: var(--muted); }
+.account-nav-overview:hover { background: var(--surface); }
+.account-nav-overview.is-current { background: var(--accent-soft); }
+.account-nav-section-head { display: flex; align-items: center; justify-content: space-between; margin: 22px 8px 7px 12px; }
+.account-nav-section-head h2 { margin: 0; font-size: 12px; font-weight: 550; color: #62626a; }
+.account-nav-series { display: grid; gap: 3px; }
+.account-nav-series .rail-series { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 8px; color: var(--ink); background: transparent; text-align: left; font-size: 13px; }
+.account-nav-series .rail-series > svg { flex: 0 0 15px; color: var(--muted); }
+.account-nav-series .rail-series > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-nav-series .rail-series:hover { background: var(--surface); }
+.account-nav-series .rail-series.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 550; }
+.account-nav-series .rail-series.active > svg { color: inherit; }
+.account-nav-empty { margin: 14px 12px; color: #62626a; font-size: 13px; }
+.account-nav-search { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; color: #62626a; }
+.account-nav-search:focus-within { border-color: var(--accent); }
+.account-nav-search input { width: 100%; min-width: 0; border: 0; border-radius: 0; padding: 0; outline: none; background: transparent; color: var(--ink); font: inherit; font-size: 13px; }
+.studio-shell .account-nav-search input:focus { box-shadow: none; outline: none; }
+.account-nav-search input::placeholder { color: #62626a; }
+.account-switch-dialog { width: min(380px, calc(100vw - 32px)); padding: 20px; }
+.account-switch-dialog .workspace-dialog-head { margin-bottom: 16px; }
+.account-switch-list { display: grid; gap: 3px; max-height: min(360px, 48dvh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.account-switch-list > button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; font-size: 13px; }
+.account-switch-list > button:hover, .account-switch-list > button[aria-current] { background: var(--surface); }
+.account-switch-list > button > span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.account-switch-list > button > svg { flex-shrink: 0; color: var(--accent); }
+.account-switch-footer { display: grid; gap: 2px; padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--line); }
+.account-switch-footer button { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; font-size: 13px; }
+.account-switch-footer button:hover { background: var(--surface); }
+.account-switch-footer .action-danger { color: var(--danger); }
+.account-switch-footer .action-danger:hover { background: var(--danger-soft); }
+.workspace-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

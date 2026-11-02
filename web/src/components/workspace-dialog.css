@@ -1,0 +1,16 @@
+.workspace-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--canvas); box-shadow: 0 18px 64px rgb(29 29 31 / .14); }
+.workspace-dialog::backdrop { background: rgb(29 29 31 / .2); }
+.workspace-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.workspace-dialog-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.workspace-icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 30px; padding: 0; background: transparent; border: 0; border-radius: 7px; color: var(--muted); }
+.workspace-icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
+.workspace-dialog button:focus-visible, .workspace-icon-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.workspace-create-form { display: grid; gap: 16px; }
+.workspace-create-form label { display: grid; gap: 8px; font-size: 13px; color: var(--ink); }
+.workspace-create-form input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--ink); font: inherit; outline: none; }
+.workspace-create-form input:focus { border-color: var(--accent); box-shadow: var(--ring); }
+.workspace-create-form .workspace-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.workspace-create-form .workspace-dialog-actions button { border-radius: 9px; }
+.workspace-create-form .form-error { margin: 0; }
+.workspace-create-owner { margin: 0 0 20px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.workspace-create-owner strong { color: var(--ink); font-weight: 500; }
