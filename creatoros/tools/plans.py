@@ -144,19 +144,48 @@ ManagePlanArgs = ActionContract(Annotated[Union[
 ], Field(discriminator="action")])
 
 
+def _valid_write_receipt(data, *, plan_id, session_id, creator_id, expected_version):
+    """A 2xx JSON object is not itself a receipt for the requested plan."""
+    if not isinstance(data, dict):
+        return False
+    version, owner, status = data.get("version"), data.get("creator_id"), data.get("status")
+    return (data.get("id") == plan_id and data.get("session_id") == session_id
+            and isinstance(owner, str) and bool(owner.strip())
+            and (creator_id is None or owner == creator_id)
+            and type(version) is int and version >= 1
+            and (expected_version is None or type(expected_version) is int and version > expected_version)
+            and isinstance(status, str) and status in {"running", "paused", "completed", "needs_attention"}
+            and isinstance(data.get("steps"), list))
+
+
 def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=None, step_id=None, context=None):
     session = getattr(context, "agent_session_id", None)
+    creator = getattr(context, "creator_id", None)
     continuation = getattr(context, "plan_continuation_id", None)
     write_started = False
     write_status = None
+    write_outcome_unknown = False
 
-    def write(client, method, path, **kwargs):
-        nonlocal write_started, write_status
+    def write(client, method, path, *, expected_id, minimum_version, **kwargs):
+        nonlocal write_started, write_status, write_outcome_unknown
         write_started = True
         try:
-            return client.request(method, path, **kwargs)
+            data = client.request(method, path, **kwargs)
+            if not _valid_write_receipt(data, plan_id=expected_id, session_id=session,
+                                        creator_id=creator, expected_version=minimum_version):
+                write_outcome_unknown = True
+                raise StudioClientError("计划写入可能已生效，但回执无效；请先核对原计划，不要自动重试。",
+                                        code="studio_outcome_unknown")
+            return data
         except StudioClientError as error:
             write_status = error.status_code
+            known_rejection = (error.code == "studio_unavailable" and write_status is None or
+                write_status in {403, 415} and error.code in {"agent_scope_rejected", "origin_rejected", "json_required"})
+            if not known_rejection:
+                write_outcome_unknown = True
+            raise
+        except Exception:
+            write_outcome_unknown = True
             raise
 
     def invoke(client):
@@ -171,7 +200,10 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
             identity = ["agent-plan-v1", session, turn, title, normalized]
             request_id = sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True,
                                            separators=(",", ":")).encode()).hexdigest() if turn else uuid4().hex
-            return client.request("POST", root, payload={"request_id": request_id, "title": title, "steps": normalized})
+            identity = sha256(json.dumps({"session_id": session, "request_id": request_id}, ensure_ascii=False,
+                                         sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            return write(client, "POST", root, expected_id=identity, minimum_version=None,
+                         payload={"request_id": request_id, "title": title, "steps": normalized})
         if action == "list":
             return client.request("GET", root)
         path = root + "/" + quote(plan_id, safe="")
@@ -219,13 +251,15 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                             comparable = without_video_inputs(old_args)
                             if comparable is None or comparable != without_video_inputs(new_args):
                                 raise StudioClientError("已有生产任务，不能自动修改其他生产要求；请先核对原任务。", code="production_replay_blocked")
-            return write(client, "PATCH", path, payload={"expected_version": expected_version, "steps": normalized})
-        return write(client, "POST", path + "/actions", payload={"expected_version": expected_version,
-                     "action": action, **({"step_id": step_id} if step_id else {})})
+            return write(client, "PATCH", path, expected_id=plan_id, minimum_version=expected_version,
+                         payload={"expected_version": expected_version, "steps": normalized})
+        return write(client, "POST", path + "/actions", expected_id=plan_id, minimum_version=expected_version,
+                     payload={"expected_version": expected_version, "action": action,
+                              **({"step_id": step_id} if step_id else {})})
     try:
         result = _call(invoke, context)
     except Exception as error:
-        if not continuation:
+        if not continuation and not write_outcome_unknown:
             raise
         result = ToolResult(content=f"工具 manage_plan 执行失败：{error}", is_error=True,
                             error_type="tool_exception", details={"exception_type": type(error).__name__})
@@ -233,4 +267,6 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
         result.details["continuation_write_started"] = write_started
         if write_status is not None:
             result.details["continuation_http_status"] = write_status
+    if write_outcome_unknown:
+        result.details["plan_write_outcome_unknown"] = True
     return result

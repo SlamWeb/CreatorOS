@@ -74,14 +74,15 @@ def execute_tool_call(
         )
     except Exception as error:
         details = {"exception_type": type(error).__name__}
-        if (model_requested and context and context.plan_continuation_id and tool_name == "manage_plan"
-                and isinstance(result, ToolResult)):
+        if model_requested and tool_name == "manage_plan" and isinstance(result, ToolResult):
             # Projection can fail after a plan write returned; preserve the
             # dispatch evidence for the continuation's unknown-result gate.
             details.update(result.details)
         return ToolResult(
-            content=f"工具 {tool_name} 执行失败：{error}",
+            content=(result.content if details.get("plan_write_outcome_unknown")
+                     else f"工具 {tool_name} 执行失败：{error}"),
             is_error=True,
-            error_type="tool_exception",
+            error_type=(result.error_type or "studio_outcome_unknown")
+                       if details.get("plan_write_outcome_unknown") else "tool_exception",
             details=details,
         )
