@@ -30,7 +30,15 @@ async function screenshot(name) {
 }
 async function panel() {
   const root = page.locator('.account-chat-panel');
-  if (!await root.isVisible()) await page.getByRole('button', { name: '打开账号对话', exact: true }).click();
+  const opener = page.getByRole('button', { name: '打开账号对话', exact: true });
+  // Hydration can restore an open panel after navigation. Wait for either
+  // legitimate state before deciding whether an opening click is needed.
+  await expect.poll(async () => await root.isVisible() || await opener.isVisible(),
+    { timeout: 30_000, message: 'Account chat neither opened nor offered its opener' }).toBe(true);
+  if (!await root.isVisible()) {
+    try { await opener.click({ timeout: 3_000 }); }
+    catch (error) { if (!await root.isVisible()) throw error; }
+  }
   await root.waitFor({ state: 'visible', timeout: 30_000 });
   await root.getByRole('textbox', { name: '给 Agent 的消息', exact: true }).waitFor({ state: 'visible' });
   return root;

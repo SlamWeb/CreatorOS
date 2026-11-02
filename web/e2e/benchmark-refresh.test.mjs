@@ -14,7 +14,7 @@ const sid = 'isolated-refresh-session', creator = 'isolated-creator', turn = 'is
 const query = 'Retain this exact user turn through navigation';
 const answer = 'Retain this exact assistant answer and Trace';
 
-async function runFixture({ hostEvent = false, fault = null } = {}) {
+async function runFixture({ hostEvent = false, fault = null, autoOpen = false } = {}) {
   const output = await mkdtemp(path.join(tmpdir(), 'creatoros-benchmark-refresh-'));
   let opened = 0, submitted = false, turnPosts = 0, finishPosts = 0, traceGets = 0;
   let retained;
@@ -63,7 +63,7 @@ async function runFixture({ hostEvent = false, fault = null } = {}) {
     if (!['/', '/opened'].includes(url.pathname)) { response.writeHead(404); return response.end(); }
     // Each refresh closes the panel; reopening does a real document navigation.
     // This deterministically invalidates the previous document's CDP response.
-    const isOpen = url.pathname === '/opened' && ++opened % 2 === 1;
+    const isOpen = autoOpen ? (++opened, true) : url.pathname === '/opened' && ++opened % 2 === 1;
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(`<!doctype html><html><body><main></main><script>
       const sid = ${JSON.stringify(sid)}, turn = ${JSON.stringify(turn)};
@@ -71,6 +71,7 @@ async function runFixture({ hostEvent = false, fault = null } = {}) {
       async function boot() {
         const doc = await (await fetch(endpoint)).json();
         const main = document.querySelector('main');
+        ${autoOpen ? "await new Promise(resolve => setTimeout(resolve, 600));" : ""}
         if (!${isOpen}) {
           main.innerHTML = '<button>打开账号对话</button>';
           main.querySelector('button').onclick = () => { location.href = '/opened?navigation=' + Date.now(); };
@@ -115,6 +116,15 @@ async function runFixture({ hostEvent = false, fault = null } = {}) {
     await new Promise(resolve => server.close(resolve));
   }
 }
+
+test('real driver handles a panel that opens during delayed page hydration', async () => {
+  const result = await runFixture({ autoOpen: true });
+  assert.equal(result.code, 0, `${result.output}\n${JSON.stringify(result.report.errors)}\n${result.log}`);
+  assert.equal(result.report.completed, true);
+  assert.equal(result.report.refresh_ok, true);
+  assert.equal(result.turnPosts, 1);
+  assert.equal(result.traceGets, 2);
+});
 
 for (const hostEvent of [false, true]) test(`real driver survives ${hostEvent ? 'hostEvent + finalRefresh' : 'finalRefresh'} panel navigation`, async () => {
   const result = await runFixture({ hostEvent });

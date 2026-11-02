@@ -164,7 +164,7 @@ jobs:
         with:
           node: 'true'
           chrome: 'true'
-      - name: Real Chrome and loopback HTTP refresh regression (8 required cases)
+      - name: Real Chrome and loopback HTTP refresh regression (9 required cases)
         run: node --test web/e2e/benchmark-refresh.test.mjs
       - uses: actions/upload-artifact@v4
         if: always()
