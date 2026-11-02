@@ -98,14 +98,22 @@ def main() -> int:
                CREATOROS_VITE_PORT=str(args.vite_port), CREATOROS_VITE_CACHE_DIR=str(root / "vite-cache"),
                TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
     if args.fixtures:
-        # Empty values prevent dotenv from reintroducing credentials in this fixture.
-        env.update(DEEPSEEK_API_KEY="", CREATOROS_XHS_MCP_TOKEN="",
+        # Prevent ordinary fixture runs from inheriting live model or publish
+        # credentials; external networking is still not an OS sandbox.
+        env.update(DEEPSEEK_API_KEY="", OPENAI_API_KEY="", CODEX_API_KEY="",
+                   ZHIHU_ACCESS_SECRET="", PERSONCLONE_SESSION_COOKIE="",
+                   PERSONCLONE_BASE_URL="http://127.0.0.1:1", PYTHON_DOTENV_DISABLED="1",
+                   CODEX_HOME=str(root / "codex-home"),
+                   CREATOROS_CODEX_EXECUTABLE=str(root / "no-codex.exe"),
+                   CREATOROS_POWERSHELL_EXECUTABLE=str(root / "no-powershell.exe"),
+                   CREATOROS_MEDIA_DOWNLOADER=str(root / "no-downloader.exe"),
+                   CREATOROS_XHS_MCP_TOKEN="", CREATOROS_XHS_MCP_URL="http://127.0.0.1:1/mcp",
                    CREATOROS_XHS_MCP_TOKEN_FILE=str(root / "no-publication-token"))
 
     codex_home = Path(env.get("CODEX_HOME") or Path.home() / ".codex").resolve()
     print(f"Instance: {root}\nAPI: {env['CREATOROS_STUDIO_URL']}\nVite: http://127.0.0.1:{args.vite_port}", flush=True)
     print(f"SQLite, output, sessions, temp and Vite cache: {root}", flush=True)
-    print(f"Codex user directory is inherited/shared: {codex_home} (including generated_images and credentials)", flush=True)
+    print(f"Codex user directory: {codex_home} ({'isolated for fixture' if args.fixtures else 'inherited/shared'})", flush=True)
     print(f"Model credential sources (values hidden): {_credential_sources(env)}", flush=True)
     print("Codex authentication may also use a user credential store; external services remain shared. "
           "Fixture mode is not a network sandbox.", flush=True)

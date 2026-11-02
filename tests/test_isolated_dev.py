@@ -133,17 +133,22 @@ class IsolatedDevelopmentTest(unittest.TestCase):
 
     def test_two_stacks_and_browser_suites_do_not_share_data(self):
         api_a, vite_a, api_b, vite_b = free_ports(4)
+        # By default this also works within one checkout. Set this variable to
+        # exercise a second, independently installed Git worktree end to end.
+        second = Path(os.environ.get("CREATOROS_SECOND_WORKTREE", REPO)).resolve()
+        self.assertTrue((second / "scripts" / "isolated_dev.py").is_file())
+        self.assertTrue((second / "web" / "node_modules" / "@playwright" / "test" / "cli.js").is_file())
         with tempfile.TemporaryDirectory(prefix="creatoros-isolation-proof-") as temporary:
             base = Path(temporary)
             stacks = []
             browsers = []
             try:
-                for label, api, vite in (("a", api_a, vite_a), ("b", api_b, vite_b)):
+                for label, api, vite, checkout in (("a", api_a, vite_a, REPO), ("b", api_b, vite_b, second)):
                     log = (base / f"{label}.log").open("w", encoding="utf-8")
                     process = subprocess.Popen([
                         sys.executable, "-m", "scripts.isolated_dev", "--root", str(base / label),
                         "--api-port", str(api), "--vite-port", str(vite), "--fixtures", "--stop-on-stdin",
-                    ], cwd=REPO, stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, text=True)
+                    ], cwd=checkout, stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, text=True)
                     stacks.append((process, log))
                 for process, _ in stacks:
                     self.assertIsNone(process.poll())
@@ -151,8 +156,8 @@ class IsolatedDevelopmentTest(unittest.TestCase):
                     wait_ready(process, f"http://127.0.0.1:{api}/api/health")
                     wait_ready(process, f"http://127.0.0.1:{vite}/api/health")
 
-                node = REPO / "web" / "node_modules" / "@playwright" / "test" / "cli.js"
-                for label, own, other in (("a", vite_a, vite_b), ("b", vite_b, vite_a)):
+                for label, own, other, checkout in (("a", vite_a, vite_b, REPO), ("b", vite_b, vite_a, second)):
+                    node = checkout / "web" / "node_modules" / "@playwright" / "test" / "cli.js"
                     env = os.environ.copy()
                     env.update(CREATOROS_ISOLATION_LABEL=label,
                                CREATOROS_ISOLATION_URL=f"http://127.0.0.1:{own}",
@@ -160,7 +165,7 @@ class IsolatedDevelopmentTest(unittest.TestCase):
                                CREATOROS_ISOLATION_RESULT=str(base / label / "browser-results"))
                     log = (base / f"browser-{label}.log").open("w", encoding="utf-8")
                     process = subprocess.Popen(["node", str(node), "test", "--config", "playwright.isolation.config.ts"],
-                                               cwd=REPO / "web", env=env, stdout=log, stderr=subprocess.STDOUT)
+                                               cwd=checkout / "web", env=env, stdout=log, stderr=subprocess.STDOUT)
                     browsers.append((process, log))
                 for process, _ in browsers:
                     self.assertEqual(process.wait(timeout=120), 0)

@@ -11,7 +11,7 @@ python -m scripts.isolated_dev --root "$env:TEMP\creatoros-dev-b" --api-port 188
 
 直接运行 `npm run dev` 时必须显式设置 `CREATOROS_API_URL`，否则 Vite 会给出启动示例并退出，不再自动连接 8765。构建和 preview 不要求该变量。
 
-需要确定性浏览器夹具时可附加 `--fixtures`；它使用 `tests.studio_e2e_server` 的受控生产者并清空 DeepSeek 凭证，不代表真实 Codex/模型结果，也不是网络沙箱。
+需要确定性浏览器夹具时可附加 `--fixtures`；它使用 `tests.studio_e2e_server` 的受控生产者，禁用继承的模型凭证、Codex 可执行程序和发布入口，不代表真实 Codex/模型结果，也不是网络沙箱。
 
 常规 Playwright 回归也可以同时运行，默认配置提供真实 API + Vite 的受控环境：
 
@@ -47,4 +47,4 @@ python -m unittest tests.test_isolated_dev -v
 python -m unittest tests.test_isolated_build -v
 ```
 
-该测试在同一 checkout 中同时启动两套 API/Vite 和两套 Chrome 回归，使用受控生产者，通过 HTTP 和界面检查各自账号、会话附件、图片产物及跨实例拒绝；不连接 8765，不调用真实模型。它不能证明不同工作树的第三方工具、凭证或外部服务已经隔离。
+该测试默认在同一 checkout 中同时启动两套 API/Vite 和两套 Chrome 回归；要验证两个实际工作树，请先分别安装各自的前端依赖，然后设置 `CREATOROS_SECOND_WORKTREE` 为第二个工作树的绝对路径再运行同一测试。它使用受控生产者，通过 HTTP 和界面检查各自账号、会话附件、图片产物及跨实例拒绝；不连接 8765，不调用真实模型。第三方工具、凭证或外部服务仍可能共享。
