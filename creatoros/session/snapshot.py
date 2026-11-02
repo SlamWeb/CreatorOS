@@ -27,14 +27,12 @@ def load_messages(session_file=None):
 
 
 def save_messages(messages, session_file=None):
+    # Lazy import keeps session initialization independent of integration adapters.
+    from ..integrations.atomic_file import atomic_write_text
+
     path = session_file or SESSION_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_file = path.with_suffix(".tmp")
-    temporary_file.write_text(
-        json.dumps(messages, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    temporary_file.replace(path)
+    atomic_write_text(path, json.dumps(messages, ensure_ascii=False, indent=2))
 
 
 def find_tool_result(messages, result_ref: str) -> dict | None:
