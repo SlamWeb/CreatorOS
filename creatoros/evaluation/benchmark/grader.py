@@ -7,11 +7,13 @@ not object IDs already disclosed in the user's question.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import json
 import re
 
+from .skill_evidence import VERSION as SKILL_EVIDENCE_VERSION
 
-VERSION = "benchmark-v3-case-outcomes"
+VERSION = "benchmark-v3.1-case-outcomes"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -103,8 +105,69 @@ def _background(evidence, key):
 
 def _candidates(evidence, family=None):
     records = _background(evidence, "skills")
-    return [item for item in records if isinstance(item, Mapping) and item.get("version_status") == "candidate"
-            and (family is None or item.get("family_id") == family or item.get("source_skill_id") == family)]
+    errors = evidence.get("background", {}).get("skill_inventory_errors", [])
+    if not isinstance(errors, list) or errors:
+        raise MissingEvidence("Registered Skill inventory is incomplete or inconsistent")
+    selected = [item for item in records if isinstance(item, Mapping) and item.get("version_status") == "candidate"
+                and (family is None or item.get("family_id") == family or item.get("source_skill_id") == family)]
+    ids = [item.get("id") for item in selected]
+    if any(not isinstance(identifier, str) or not identifier for identifier in ids) or len(ids) != len(set(ids)):
+        raise MissingEvidence("Duplicate or missing candidate identities")
+    return selected
+
+
+def _selected_candidate(evidence, family):
+    """Bind every candidate check to the successful edit's one returned identity."""
+    if not isinstance(family, str) or not family:
+        raise MissingEvidence("Candidate family identity missing")
+    candidates = _candidates(evidence, family)
+    calls = evidence.get("calls")
+    if not isinstance(calls, list):
+        raise MissingEvidence("Candidate edit receipt missing")
+    identities = set()
+    for call in calls:
+        if not isinstance(call, Mapping) or call.get("tool", call.get("name")) != "update_producer_skill_file":
+            continue
+        if call.get("is_error") is not False:
+            continue
+        try:
+            args = call.get("arguments")
+            args = json.loads(args) if isinstance(args, str) else args
+            if not isinstance(args, Mapping) or args.get("skill_id") != family:
+                continue
+            result = call.get("raw_result")
+            result = json.loads(result) if isinstance(result, str) else result
+        except (ValueError, TypeError):
+            raise MissingEvidence("Candidate edit receipt is malformed")
+        if (not isinstance(result, Mapping) or result.get("outcome_unknown") is True
+                or result.get("completed") is False or result.get("error")):
+            continue
+        if isinstance(result.get("skill_id"), str) and result["skill_id"]:
+            identities.add(result["skill_id"])
+    if len(identities) != 1:
+        raise MissingEvidence("A unique successful candidate edit receipt is required")
+    matches = [item for item in candidates if item.get("id") in identities]
+    if len(matches) != 1:
+        raise MissingEvidence("The returned candidate is absent or ambiguous")
+    candidate = matches[0]
+    identifier = candidate["id"]
+    path = evidence.get("skill_paths", {}).get(identifier)
+    if path != f"world-producer-skills/working/{identifier}":
+        raise MissingEvidence("Authoritative candidate working path missing")
+    files = evidence.get("after", {}).get("files")
+    body = candidate.get("content")
+    texts = evidence.get("skill_texts", {})
+    if (not isinstance(files, Mapping) or not isinstance(body, str)
+            or not isinstance(texts, Mapping) or texts.get(identifier) != body
+            or files.get(f"{path}/SKILL.md") != hashlib.sha256(body.encode("utf-8")).hexdigest()):
+        raise MissingEvidence("Candidate body is missing or does not match the captured working file")
+    background = evidence.get("background", {})
+    manifest = background.get("skill_manifests", {}).get(identifier)
+    captured = {key[len(path) + 1:]: digest for key, digest in files.items() if key.startswith(path + "/")}
+    if (background.get("skill_evidence_version") != SKILL_EVIDENCE_VERSION
+            or not isinstance(manifest, Mapping) or manifest != captured):
+        raise MissingEvidence("Complete candidate file inventory does not match the captured state")
+    return candidate, path
 
 
 def _frozen_skill_ids(snapshot):
@@ -144,15 +207,13 @@ def _candidate_used(exp, evidence):
     def persisted(files, identifier):
         return any(identifier in path.replace("\\", "/").split("/")
                    or path.replace("\\", "/").split("/")[-1] == identifier + ".json" for path in files)
+    candidate, _ = _selected_candidate(evidence, family)
+    identifier = candidate["id"]
     new_candidates = set()
-    for candidate in _candidates(evidence, family):
-        identifier = candidate.get("id")
-        if not isinstance(identifier, str) or not identifier:
-            raise MissingEvidence("Candidate identity missing")
-        if not persisted(before_files, identifier):
-            if not persisted(after_files, identifier):
-                raise MissingEvidence("New candidate registration/file existence unproven")
-            new_candidates.add(identifier)
+    if not persisted(before_files, identifier):
+        if not persisted(after_files, identifier):
+            raise MissingEvidence("New candidate registration/file existence unproven")
+        new_candidates.add(identifier)
     if not new_candidates:
         return False, "No newly persisted candidate in the requested Skill family"
     before_runs = {row.get("id") for row in _rows(evidence, "before", "content_runs")}
@@ -402,6 +463,33 @@ def _expectation(expectation, evidence):
             raise MissingEvidence("Expected resource ID is missing")
         rows = [row for row in _rows(evidence, "after", table) if row.get("id") == identifier]
         return len(rows) == 1 and _field(rows[0], field) == value, f"{table}/{identifier} {field} must equal {value!r}"
+    if kind == "topic_removal_exact":
+        identifier = exp.get("id", evidence.get("variables", {}).get("topic_a"))
+        if not isinstance(identifier, str) or not identifier:
+            raise MissingEvidence("Topic ID missing")
+        before, after = _rows(evidence, "before", "topics"), _rows(evidence, "after", "topics")
+        def indexed(rows):
+            if any(not isinstance(row.get("id"), str) or not row["id"] for row in rows):
+                raise MissingEvidence("Topic identity missing")
+            values = {row["id"]: row for row in rows}
+            if len(values) != len(rows):
+                raise MissingEvidence("Duplicate topic identity")
+            return values
+        old, new = indexed(before), indexed(after)
+        if identifier not in old:
+            raise MissingEvidence("Original target topic missing")
+        old_receipts = [row for row in _rows(evidence, "before", "topic_removals") if row.get("topic_id") == identifier]
+        receipts = [row for row in _rows(evidence, "after", "topic_removals") if row.get("topic_id") == identifier]
+        if old_receipts or len(receipts) > 1:
+            raise MissingEvidence("Original or duplicate target removal receipt")
+        if not receipts:
+            return False, "Target removal receipt missing"
+        status = receipts[0].get("status")
+        if status not in {"deleted", "archived"}:
+            return False, "Existing topic must be deleted or archived"
+        expected = set(old) - ({identifier} if status == "deleted" else set())
+        preserved = set(new) == expected and all(old[key] == new[key] for key in expected)
+        return preserved, f"Exact topic removal status={status}; other rows and remaining target preserved"
     if kind == "removed":
         identifier = exp.get("id", evidence.get("variables", {}).get("topic_a"))
         if not identifier:
@@ -413,19 +501,29 @@ def _expectation(expectation, evidence):
         candidates = _candidates(evidence, exp.get("id"))
         return _minimum(len({item.get("id") for item in candidates if item.get("id")}), value), "Candidate version count"
     if kind in {"candidate_body_contains", "candidate_body_excludes"}:
-        texts = evidence.get("skill_texts", {})
-        candidates = _candidates(evidence, exp.get("id"))
-        bodies = [item.get("content", item.get("body", texts.get(item.get("id")))) for item in candidates]
-        if not candidates or any(not isinstance(body, str) for body in bodies):
-            raise MissingEvidence("Candidate body evidence is unavailable")
+        candidate, _ = _selected_candidate(evidence, exp.get("id", evidence.get("variables", {}).get("skill_a")))
+        body = candidate["content"]
         terms = value if isinstance(value, list) else [value]
         if any(not isinstance(term, str) or not term for term in terms):
             raise MissingEvidence("Candidate body terms must be nonempty strings")
-        matches = any(all(term in body for term in terms) for body in bodies) if kind == "candidate_body_contains" else all(all(term not in body for term in terms) for body in bodies)
-        return matches, "Candidate bodies satisfy requested text inclusion/exclusion"
+        matches = all(term in body for term in terms) if kind == "candidate_body_contains" else all(term not in body for term in terms)
+        return matches, f"Returned candidate {candidate['id']} satisfies requested text inclusion/exclusion"
     if kind == "candidate_used":
         return _candidate_used(exp, evidence)
-    if kind in {"candidate_asset_exists", "candidate_asset_absent"}:
+    if kind == "candidate_assets_preserved":
+        family = exp.get("id", evidence.get("variables", {}).get("skill_a"))
+        candidate, prefix = _selected_candidate(evidence, family)
+        before = evidence.get("before", {}).get("files")
+        if not isinstance(before, Mapping):
+            raise MissingEvidence("Original Skill asset manifest is missing")
+        original = f"world-producer-skills/working/{family}/assets/"
+        old = {key[len(original):]: digest for key, digest in before.items() if key.startswith(original)}
+        if not old:
+            raise MissingEvidence("Original Skill assets are missing")
+        assets = prefix + "/assets/"
+        new = {key[len(assets):]: digest for key, digest in evidence["after"]["files"].items() if key.startswith(assets)}
+        return old == new, f"Returned candidate {candidate['id']} preserves all original asset bytes"
+    if kind in {"candidate_asset_exists", "candidate_asset_absent", "candidate_asset_unchanged"}:
         family, asset = exp.get("id"), exp.get("field")
         paths = evidence.get("skill_paths")
         files = evidence.get("after", {}).get("files")
@@ -435,43 +533,33 @@ def _expectation(expectation, evidence):
         asset = asset.replace("\\", "/")
         if asset.startswith("/") or ":" in asset or any(part in {"", ".", ".."} for part in asset.split("/")):
             raise MissingEvidence("Candidate asset path must stay relative to the candidate directory")
-        candidates = _candidates(evidence, family)
-        if not candidates:
-            raise MissingEvidence("No candidate exists for the requested Skill family")
-        missing = False
-        for candidate in candidates:
-            prefix = paths.get(candidate.get("id"))
-            if not isinstance(prefix, str) or not prefix:
-                missing = True
-                continue
-            prefix = prefix.replace("\\", "/").rstrip("/")
-            if not any(path.startswith(prefix + "/") for path in files):
-                missing = True
-                continue
-            present = prefix + "/" + asset in files
-            if present == (kind == "candidate_asset_exists"):
-                return True, f"A candidate in {family} satisfies {kind}: {asset}"
-        if missing:
-            raise MissingEvidence("Candidate directory path or existence evidence missing")
-        return False, f"No candidate in {family} satisfies {kind}: {asset}"
+        candidate, prefix = _selected_candidate(evidence, family)
+        present = prefix + "/" + asset in files
+        if kind == "candidate_asset_unchanged":
+            before = evidence.get("before", {}).get("files")
+            original = f"world-producer-skills/working/{family}/{asset}"
+            if not isinstance(before, Mapping) or original not in before:
+                raise MissingEvidence("Original asset bytes are missing")
+            return present and files[prefix + "/" + asset] == before[original], f"Returned candidate {candidate['id']} preserves {asset} bytes"
+        return present == (kind == "candidate_asset_exists"), f"Returned candidate {candidate['id']} {kind}: {asset}"
     if kind == "skill_original_unchanged":
         identifier = exp.get("id", evidence.get("variables", {}).get("skill_a"))
         paths = evidence.get("skill_paths", {}).get(identifier)
         before, after = evidence.get("before", {}).get("files"), evidence.get("after", {}).get("files")
         if not isinstance(before, dict) or not isinstance(after, dict) or not identifier:
             raise MissingEvidence("Original Skill file evidence is missing")
-        if isinstance(paths, str):
-            prefix = paths.rstrip("/")
-            selected_before = {path: digest for path, digest in before.items() if path == prefix or path.startswith(prefix + "/")}
-            selected_after = {path: digest for path, digest in after.items() if path == prefix or path.startswith(prefix + "/")}
-            if not selected_before:
-                raise MissingEvidence("Original Skill file manifest is missing")
-            return selected_before == selected_after, "Original Skill directory hashes unchanged"
-        if paths is None:
-            paths = [path for path in before if identifier in path.split("/")]
-        if not isinstance(paths, list) or not paths or any(path not in before for path in paths):
-            raise MissingEvidence("Original Skill file manifest is missing")
-        return all(after.get(path) == before[path] for path in paths), "Original Skill file hashes unchanged"
+        working = f"world-producer-skills/working/{identifier}"
+        original = f"world-producer-skills/versions/{identifier}"
+        if paths != working:
+            raise MissingEvidence("Original Skill working directory identity missing")
+        for prefix in (working, original):
+            selected_before = {path: digest for path, digest in before.items() if path.startswith(prefix + "/")}
+            selected_after = {path: digest for path, digest in after.items() if path.startswith(prefix + "/")}
+            if prefix + "/SKILL.md" not in selected_before:
+                raise MissingEvidence("Original Skill working or version manifest is missing")
+            if selected_before != selected_after:
+                return False, f"Original Skill directory changed: {prefix}"
+        return True, "Original Skill working and version directory hashes unchanged"
     if kind == "harness_all_denied":
         probes = evidence.get("probes")
         if not isinstance(probes, list) or not probes:

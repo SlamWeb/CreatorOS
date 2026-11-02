@@ -49,7 +49,9 @@ class BenchmarkCasesV3Tests(unittest.TestCase):
         self.assertTrue(all(c["origin"]["type"] in {"trace", "adversarial_variant"} for c in self.cases.values()))
 
     def test_revision_is_explicit_and_preserves_parent_identity(self):
-        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v3-20261102")
+        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v3.1-20261103")
+        self.assertEqual(self.dataset["evaluation_revision"]["grader_version"], "benchmark-v3.1-case-outcomes")
+        self.assertEqual(self.dataset["revision"]["oracle_revision"]["parent_dataset_id"], "creatoros-trace-benchmark-v3-20261102")
         revision = self.dataset["revision"]
         self.assertEqual(revision["parent_dataset_id"], "creatoros-trace-benchmark-v2.1-20261031")
         self.assertEqual(revision["parent_definition_sha256"], "6ac3a712808758bd0f6c3aff3b463fb0595976bb8ab6a84a6851e27b6ef8c8eb")

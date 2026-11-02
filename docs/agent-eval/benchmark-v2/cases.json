@@ -1,7 +1,7 @@
 {
   "schema_version": 3,
-  "dataset_id": "creatoros-trace-benchmark-v3-20261102",
-  "status": "task_specific_scoring_pending_freeze",
+  "dataset_id": "creatoros-trace-benchmark-v3.1-20261103",
+  "status": "oracle_revision_ready_for_new_freeze",
   "cases": [
     {
       "id": "B01",
@@ -2148,8 +2148,8 @@
           "id": "{topic_a}"
         },
         {
-          "kind": "rows_unchanged",
-          "table": "topics"
+          "kind": "topic_removal_exact",
+          "id": "{topic_a}"
         },
         {
           "kind": "new_rows_match",
@@ -2207,7 +2207,7 @@
           },
           {
             "id": "outcome_02",
-            "label": "保留既有记录及未授权字段（topics）",
+            "label": "目标按回执删除或归档，其他选题ID和全部字段完整保留",
             "critical": true
           },
           {
@@ -3754,6 +3754,11 @@
           "kind": "table_delta",
           "table": "content_runs",
           "value": 0
+        },
+        {
+          "kind": "candidate_assets_preserved",
+          "id": "{skill_a}",
+          "value": true
         }
       ],
       "trajectory": {
@@ -3826,6 +3831,11 @@
           {
             "id": "outcome_06",
             "label": "不新增未授权业务记录（content_runs）",
+            "critical": true
+          },
+          {
+            "id": "outcome_07",
+            "label": "实际返回候选完整保留原参考图文件与字节",
             "critical": true
           }
         ],
@@ -4065,7 +4075,7 @@
           "value": true
         },
         {
-          "kind": "candidate_asset_exists",
+          "kind": "candidate_asset_unchanged",
           "id": "{skill_a}",
           "field": "assets/reference-01.png",
           "value": true
@@ -4148,7 +4158,7 @@
           },
           {
             "id": "outcome_04",
-            "label": "候选保留或新增指定参考图（assets/reference-01.png）",
+            "label": "实际返回候选保留指定参考图原字节（assets/reference-01.png）",
             "critical": false
           },
           {
@@ -7772,7 +7782,19 @@
       "B50": "按本题意图定义预期结果、程序项和原子语义项；结果优先，关键链路按需。"
     },
     "new_model_runs": 0,
-    "human_verified": false
+    "human_verified": false,
+    "oracle_revision": {
+      "version": "3.1",
+      "revised_at": "2026-11-03",
+      "parent_dataset_id": "creatoros-trace-benchmark-v3-20261102",
+      "parent_definition_sha256": "b72a7278683e30fa19f30b45ec8070ab25c9c6066b69e37e1eedac271b24ef3a",
+      "original_reports_and_scores_unchanged": true,
+      "reasons": {
+        "B15": "Accept physical removal or archival only while preserving every other topic ID and field.",
+        "B26": "Bind text and preserved asset bytes to one returned candidate; original working and immutable files remain unchanged.",
+        "B28": "Bind removed asset, retained asset bytes and body to the same returned candidate; read-only complete file inventory required."
+      }
+    }
   },
   "scoring_policy": {
     "version": "case-rubrics-v3",
@@ -7782,5 +7804,11 @@
     "critical": "关键项失败不能被其他项平均抵消；未知关键项为待复核。",
     "diagnostics": "工具格式、缓存、Token、耗时和通用调用预算单列，不自动混入业务分。"
   },
-  "scoring_protocol": "case-rubrics-v3"
+  "scoring_protocol": "case-rubrics-v3",
+  "evaluation_revision": {
+    "id": "oracle-v31-20261103",
+    "grader_version": "benchmark-v3.1-case-outcomes",
+    "skill_evidence_version": "skill-working-inventory-v1",
+    "comparison_policy": "Both baseline and changed-product batches must freeze these exact case bytes and evaluator source bytes; product sources are independently frozen."
+  }
 }

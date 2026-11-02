@@ -19,6 +19,7 @@ from sqlalchemy import inspect, text
 
 from creatoros.storage import ContentRepository, Database, TopicRemoval, TopicSource, upgrade_database
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
+from .skill_evidence import collect_skill_evidence, collect_skill_references
 from creatoros.integrations.skill_extraction import SkillExtractionService
 from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.runs import ContentRunService
@@ -163,6 +164,7 @@ class BenchmarkWorld:
             "items": [dict(item) for item in detail["items"] if item["included"]],
             "snapshot_digest": detail["snapshot_digest"]}}
         self.before = self.snapshot()
+        self.initial_skill_evidence = collect_skill_evidence(self.root, self.catalog.root, self.before["files"])
         self.foreign_before = self.foreign_snapshot(self.before)
 
     def _seed_skills(self):
@@ -246,8 +248,12 @@ class BenchmarkWorld:
         ids = ["bench-b", "bench-private", "bench-shared-b", "bench-topic-b", self.variables["run_b"]]
         selected = {table: [row for row in rows if any(value in json.dumps(row, default=str) for value in ids)]
                     for table, rows in state["database"].items()}
-        prefix = self.catalog.locate(self.variables["skill_b"]).relative_to(self.root).as_posix() + "/"
-        return {"database": selected, "files": {p: digest for p, digest in state["files"].items() if p.startswith(prefix)}}
+        base = self.catalog.root.relative_to(self.root).as_posix()
+        identifier = self.variables["skill_b"]
+        prefixes = tuple(f"{base}/{part}/{identifier}/" for part in ("working", "versions"))
+        record = f"{base}/registry/{identifier}.json"
+        return {"database": selected, "files": {p: digest for p, digest in state["files"].items()
+                                                if p.startswith(prefixes) or p == record}}
 
     def background(self):
         state = self.snapshot()
@@ -262,19 +268,7 @@ class BenchmarkWorld:
                 selected_images, selected_videos = validated_media(directory, json.loads(row["validation_json"]), self.root)
                 images += selected_images
                 videos += selected_videos
-        versions, texts, paths = [], {}, {}
-        for path in self.catalog.root.rglob("SKILL.md"):
-            if "jobs" in path.parts or "inputs" in path.parts:
-                continue
-            skill_id = path.parent.name
-            try:
-                item = self.catalog._record(skill_id)
-            except (OSError, ValueError, KeyError):
-                continue
-            content = path.read_text(encoding="utf-8")
-            texts[skill_id] = content
-            versions.append({**item, "content": content})
-            paths[skill_id] = self.catalog.locate(skill_id).relative_to(self.root).as_posix()
+        skills = collect_skill_evidence(self.root, self.catalog.root, state["files"])
         extractions = self.extractions.list()
         if isinstance(extractions, dict):
             extractions = extractions.get("items", [])
@@ -288,9 +282,8 @@ class BenchmarkWorld:
             collections[row["id"]] = {"items": [dict(item) for item in detail["items"] if item["included"]],
                                      "snapshot_digest": detail["snapshot_digest"]}
         return {"runs": runs, "images": list(dict.fromkeys(images)), "videos": list(dict.fromkeys(videos)),
-            "extractions": extractions, "research": batches, "plans": plans, "skills": versions,
-            "skill_texts": texts, "skill_paths": paths, "library": self.app.state.skill_library.get_creator("bench-a"),
-            "pool": self.app.state.skill_library.get_series("bench-english"),
+            "extractions": extractions, "research": batches, "plans": plans, **skills,
+            **collect_skill_references(state["database"], "bench-a", "bench-english"),
             "exports": [p.relative_to(self.root).as_posix() for p in exports],
             "export_contents": [archive_evidence(p, self.root) for p in exports],
             "initial_collections": self.initial_collections, "collections": collections}

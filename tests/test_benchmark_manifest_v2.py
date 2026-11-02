@@ -59,6 +59,19 @@ class BenchmarkManifestTests(unittest.TestCase):
             self.freeze()
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.target.parent.iterdir()})
 
+    def test_evaluation_revision_is_frozen_and_mismatch_rejected(self):
+        from creatoros.evaluation.benchmark.grader import VERSION
+        from creatoros.evaluation.benchmark.skill_evidence import VERSION as evidence_version
+        document = json.loads(self.dataset.read_text(encoding="utf-8"))
+        revision = {"id": "oracle-v31-20261103", "grader_version": VERSION, "skill_evidence_version": evidence_version}
+        document["evaluation_revision"] = revision
+        self.dataset.write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(self.freeze()["evaluation_revision"], revision)
+        revision["grader_version"] = "old-grader"
+        self.dataset.write_text(json.dumps(document), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "evaluation revision"):
+            manifest._dataset(self.dataset)
+
     def test_changed_runtime_source_rejects_before_any_paid_execution(self):
         self.freeze()
         self.source.write_text("VALUE = 2\n", encoding="utf-8")

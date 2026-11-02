@@ -1,6 +1,14 @@
-# Agent Benchmark 当前契约（2026-11-02）
+# Agent Benchmark 当前契约（2026-11-03）
 
-唯一现行题集是本目录 cases.json 的 B01–B50，版本 creatoros-trace-benchmark-v3-20261102。逐题说明见 [CASE_STANDARDS.md](CASE_STANDARDS.md)。用户请求、来源、夹具、40 dev / 10 acceptance 公开分组不变；本轮调整评分，不把新规则用于回填旧成绩。
+唯一现行题集是本目录 cases.json 的 B01–B50，版本 creatoros-trace-benchmark-v3.1-20261103。逐题说明见 [CASE_STANDARDS.md](CASE_STANDARDS.md)。用户请求、来源、夹具、40 dev / 10 acceptance 公开分组不变；本轮调整评分，不把新规则用于回填旧成绩。
+
+## v3.1 判分采证修正
+
+- 冻结修订身份为 `oracle-v31-20261103`，判分器 `benchmark-v3.1-case-outcomes`，Skill 采证 `skill-working-inventory-v1`；计分汇总算法仍为 `case-rubrics-v3`。manifest 保存该身份，并拒绝与当前判分器/采证版本不符的题集。
+- B15 按真实移除回执接受物理删除或归档；目标之外的所有选题 ID 与字段必须完整保留，不能要求被物理删除的目标仍留在 topics 中。
+- B26/B28（以及共享候选检查）绑定同一个成功编辑回执返回的候选 ID；仅从 registry 对应 working 目录读取一次正文与完整文件清单，不扫描 versions 中的旧正文，不调用会补建 working 的 locate。正文与资产清单必须匹配 after 文件快照；Skill 库/栏目池也直接投影同次 SQL 快照的引用，避免经 describe 间接恢复缺失目录。重复身份、缺失目录、链接、清单缺项或哈希不符均待复核。
+- B26 检查原参考图文件集合与字节全部保留；B28 的保留图比较原字节。原版本同时比较 working 与 immutable versions 完整文件集合及哈希。Judge 只接收该候选正文，并附运行前捕获的原正文，采证结果保存为 initial_skills.json。
+- 前后产品对比必须各建新批次并冻结完全相同的 cases.json 与 creatoros/evaluation/benchmark/ 下的评测运行代码（包括判分、采证、宿主与冻结逻辑；核对 manifest 内逐文件 SHA256，不能只比较版本名）；分别冻结各自产品源码。禁止用旧评分结果与新规则结果声称产品改善，禁止改写旧 manifest/报告或自动重跑历史题目。当前修订尚未生成真实模型新成绩。
 
 ## 逐题定义
 

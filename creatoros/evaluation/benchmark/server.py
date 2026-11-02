@@ -174,7 +174,15 @@ def main():
 
     def judge(evidence):
         from creatoros.ai.context import ModelContext
+        from creatoros.evaluation.benchmark.grader import _selected_candidate, MissingEvidence
         rules = case.get("rubric", [])
+        candidate_skills, candidate_error = [], None
+        if any(rule["kind"].startswith("candidate_") for rule in case["expectations"]):
+            try:
+                selected, _ = _selected_candidate(evidence, world.variables["skill_a"])
+                candidate_skills = [{"id": selected["id"], "content": selected["content"]}]
+            except MissingEvidence as error:
+                candidate_error = str(error)
         payload = {"task": case["steps"], "intent": case.get("intent"),
             "expected_outcome": case.get("expected_outcome"), "answer": evidence["final_answer"],
             "actual_queries": [turn["query"] for turn in evidence["browser"].get("turns", [])],
@@ -183,8 +191,8 @@ def main():
             "variables": world.variables,
             "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id") if k in row} for row in evidence["calls"]],
             "state_checks": evidence["grade"]["checks"], "rubric": rules,
-            "candidate_skills": [{"id": item["id"], "content": item["content"]} for item in evidence["background"]["skills"]
-                                 if item.get("version_status") == "candidate" and item.get("creator_id") != "bench-b"],
+            "candidate_skills": candidate_skills, "candidate_evidence_error": candidate_error,
+            "original_skill": evidence["initial_skills"]["skill_texts"].get(world.variables["skill_a"]),
             "extraction": [{key: item[key] for key in ("id", "status", "skills") if key in item}
                            for item in evidence["background"]["extractions"]],
             "iterations": evidence["background"]["iterations"],
@@ -278,6 +286,7 @@ def main():
                 "requests": [row for row in requests if row["purpose"] == "agent"], "calls": calls,
                 "messages": messages, "final_answer": final, "variables": world.variables,
                 "browser": browser, "background": background, "probes": probes, "codex": codex,
+                "initial_skills": world.initial_skill_evidence,
                 "skill_paths": world.skill_paths | background["skill_paths"], "skill_texts": background["skill_texts"], "controls": controls}
             # Remove only declared, frozen external control rows from the
             # no-agent-mutation comparison. Raw SQL snapshots remain unchanged.
@@ -318,7 +327,7 @@ def main():
             except Exception as failure:
                 evidence["judge"] = {"error": {"kind": type(failure).__name__, "message": str(failure)}, "items": []}
             semantic_judge = evidence["judge"]
-            for name in ("before", "after", "foreign_before", "foreign_after", "calls", "browser", "background", "probes", "grade", "judge", "controls", "codex"):
+            for name in ("before", "after", "foreign_before", "foreign_after", "calls", "browser", "background", "initial_skills", "probes", "grade", "judge", "controls", "codex"):
                 write_json(root / f"{name}.json", evidence[name])
             # Keep all paid calls, including Judge/RSI. Security grading above
             # intentionally inspects only the executing account Agent's context.

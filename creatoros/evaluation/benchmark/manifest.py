@@ -65,6 +65,13 @@ def _relative(path: Path) -> str:
 
 def _dataset(path: Path) -> dict:
     doc = json.loads(path.read_text(encoding="utf-8"))
+    revision = doc.get("evaluation_revision")
+    if revision is not None:
+        from .grader import VERSION as grader_version
+        from .skill_evidence import VERSION as evidence_version
+        if (not isinstance(revision, dict) or revision.get("grader_version") != grader_version
+                or revision.get("skill_evidence_version") != evidence_version):
+            raise ValueError("Dataset evaluation revision does not match the active grader/evidence collector")
     cases = doc.get("cases")
     if not isinstance(cases, list) or [c.get("id") for c in cases] != [f"B{n:02}" for n in range(1, 51)]:
         raise ValueError("Freeze requires all 50 ordered cases B01..B50")
@@ -250,6 +257,7 @@ def freeze_manifest(path, dataset_path, *, pricing, model_configuration, case_id
             inputs.append({"path": _relative(index), "sha256": _digest(data), "size_bytes": len(data), "role": "historical_source_index_not_runtime_gate"})
     result = {"schema_version": 1, "frozen_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset_path": dataset_name, "dataset_id": doc.get("dataset_id"), "all_case_ids": all_ids, "selected_case_ids": selected,
+        "evaluation_revision": doc.get("evaluation_revision"),
         "case_groups": [{"id": c["id"], "family": c["family"], "split": c["split"], "origin_type": c["origin"]["type"]} for c in doc["cases"]],
         "git": _git_state(), "python_version": sys.version, "package_versions": versions,
         "pricing": pricing, "model_configuration": model_configuration, "execution_policy": {"retries": 0, "first_attempts_only": True},

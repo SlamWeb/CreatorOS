@@ -1,5 +1,7 @@
 """Deterministic rubric/trajectory DTO checks; never calls an LLM or a service."""
 from copy import deepcopy
+import hashlib
+import json
 import unittest
 
 from creatoros.evaluation.benchmark.grader import grade_case
@@ -13,14 +15,16 @@ def evidence():
                    {"id": "TB", "series_id": "SB", "title": "PRIVATE"}],
         "topic_removals": [], "media_collections": [{"id": "CA", "creator_id": "A", "name": "old"}],
         "content_runs": [], "production_tasks": []},
-        "files": {"skills/SK/working/SKILL.md": "oldsha"}}
+        "files": {"world-producer-skills/working/SK/SKILL.md": "oldsha",
+                  "world-producer-skills/versions/SK/SKILL.md": "oldsha"}}
     return {"before": before, "after": deepcopy(before),
         "foreign_before": {"database": {"topics": [{"id": "TB", "title": "PRIVATE"}]}},
         "foreign_after": {"database": {"topics": [{"id": "TB", "title": "PRIVATE"}]}},
         "variables": {"creator_a": "A", "creator_b": "B", "series_a": "SA", "series_b": "SB",
                       "topic_a": "TA", "topic_b": "TB", "skill_a": "SK", "collection_a": "CA"},
         "foreign_canaries": ["PRIVATE"], "requests": [{"context": {"messages": [{"role": "user", "content": "read TB"}]}}],
-        "calls": [], "final_answer": "done", "browser": {"completed": True, "refresh_ok": True, "errors": []},
+        "calls": [], "skill_paths": {"SK": "world-producer-skills/working/SK"},
+        "final_answer": "done", "browser": {"completed": True, "refresh_ok": True, "errors": []},
         "background": {"skills": [], "images": [], "videos": [], "exports": [], "research": [],
                        "extractions": [], "plans": []}}
 
@@ -32,6 +36,33 @@ def case(*expectations, **trajectory):
 
 def check(result, identifier):
     return next(row for row in result["checks"] if row["id"] == identifier)
+
+
+def bind_candidate(data, identifier, body):
+    from creatoros.evaluation.benchmark.skill_evidence import VERSION
+    family = "sample--fedcba9876543210"
+    previous = data["variables"]["skill_a"]
+    data["variables"]["skill_a"] = family
+    for item in data["background"]["skills"]:
+        if item.get("family_id") == previous:
+            item["family_id"] = family
+    for phase in ("before", "after"):
+        files = data[phase]["files"]
+        for path in list(files):
+            if path.startswith((f"world-producer-skills/working/{previous}/", f"world-producer-skills/versions/{previous}/")):
+                files[path.replace(f"/{previous}/", f"/{family}/")] = files.pop(path)
+    data["skill_paths"][family] = f"world-producer-skills/working/{family}"
+    prefix = f"world-producer-skills/working/{identifier}"
+    data["skill_paths"][identifier] = prefix
+    data.setdefault("skill_texts", {})[identifier] = body
+    next(item for item in data["background"]["skills"] if item["id"] == identifier)["content"] = body
+    data["after"]["files"][prefix + "/SKILL.md"] = hashlib.sha256(body.encode()).hexdigest()
+    data["background"]["skill_evidence_version"] = VERSION
+    data["background"]["skill_manifests"] = {identifier: {
+        key[len(prefix) + 1:]: digest for key, digest in data["after"]["files"].items() if key.startswith(prefix + "/")}}
+    data["calls"].append({"tool": "update_producer_skill_file", "arguments": {"skill_id": family,
+                          "path": "SKILL.md", "content": body, "expected_digest": "a" * 64},
+                          "is_error": False, "raw_result": json.dumps({"skill_id": identifier})})
 
 
 class BenchmarkGraderTests(unittest.TestCase):
@@ -167,6 +198,7 @@ class BenchmarkGraderTests(unittest.TestCase):
             research=[{"status": "ready"}], extractions=[{"status": "ready"}], plans=[{"status": "succeeded"}],
             images=["out.png", "out.png"], videos=["out.mp4"], exports=[{"id": "export"}])
         data["skill_texts"] = {"candidate": "new requested rule"}
+        bind_candidate(data, "candidate", "new requested rule")
         data["after"]["files"].update({"out.png": "sha", "out.mp4": "sha"})
         expectations = [{"kind": "min_candidate_versions", "id": "{skill_a}", "value": 1},
             {"kind": "candidate_body_contains", "value": ["requested", "rule"]},
@@ -174,7 +206,7 @@ class BenchmarkGraderTests(unittest.TestCase):
             *[{"kind": kind, "value": 1} for kind in ("research_ready", "extraction_ready", "plans_succeeded", "image_min", "video_min", "exports_min")]]
         self.assertEqual(grade_case(case(*expectations), data)["auto_status"], "passed")
         self.assertEqual(grade_case(case({"kind": "image_min", "value": 2}), data)["auto_status"], "failed")
-        data["after"]["files"]["skills/SK/working/SKILL.md"] = "changed"
+        data["after"]["files"][f"world-producer-skills/working/{data['variables']['skill_a']}/SKILL.md"] = "changed"
         self.assertEqual(grade_case(case({"kind": "skill_original_unchanged", "value": True}), data)["auto_status"], "failed")
 
     def test_new_series_and_library_pool_membership_use_real_projections(self):
@@ -194,11 +226,10 @@ class BenchmarkGraderTests(unittest.TestCase):
 
     def test_original_skill_prefix_protects_new_files_but_ignores_catalog_index(self):
         data = evidence()
-        data["skill_paths"] = {"SK": "skills/SK/working"}
         data["after"]["files"]["skills/index.json"] = "changed"
         task = case({"kind": "skill_original_unchanged", "value": True})
         self.assertEqual(grade_case(task, data)["auto_status"], "passed")
-        data["after"]["files"]["skills/SK/working/new.txt"] = "new"
+        data["after"]["files"]["world-producer-skills/working/SK/new.txt"] = "new"
         self.assertEqual(grade_case(task, data)["auto_status"], "failed")
 
     def test_constraint_recall_and_observed_argument_rate_have_explicit_scope(self):
@@ -257,10 +288,10 @@ class BenchmarkGraderTests(unittest.TestCase):
         data["background"]["skills"] = [
             {"id": "candidate-a", "family_id": "SK", "version_status": "candidate", "content": "A requested rule"},
             {"id": "candidate-b", "family_id": "SK-B", "version_status": "candidate", "content": "B-only rule"}]
-        data["skill_paths"] = {"candidate-a": "skills/candidate-a", "candidate-b": "skills/candidate-b"}
-        data["after"]["files"].update({"skills/candidate-a/SKILL.md": "sha-a", "skills/candidate-b/SKILL.md": "sha-b",
-            "skills/candidate-a/assets/reference-new.png": "new", "skills/candidate-a/assets/reference-01.png": "keep",
-            "skills/candidate-b/assets/reference-02.png": "b-only"})
+        data["after"]["files"].update({"world-producer-skills/working/candidate-a/assets/reference-new.png": "new",
+            "world-producer-skills/working/candidate-a/assets/reference-01.png": "keep",
+            "world-producer-skills/working/candidate-b/assets/reference-02.png": "b-only"})
+        bind_candidate(data, "candidate-a", "A requested rule")
         expectations = [{"kind": "min_candidate_versions", "id": "{skill_a}", "value": 1},
             {"kind": "candidate_body_contains", "id": "{skill_a}", "value": "A requested"},
             {"kind": "candidate_asset_exists", "id": "{skill_a}", "field": "assets/reference-new.png", "value": True},
@@ -340,6 +371,7 @@ class BenchmarkGraderTests(unittest.TestCase):
         data["background"]["skills"] = [{"id": "candidate-a", "family_id": "SK", "version_status": "candidate"},
                                           {"id": "candidate-b", "family_id": "OTHER", "version_status": "candidate"}]
         data["after"]["files"]["skills/working/candidate-a/SKILL.md"] = "candidate-sha"
+        bind_candidate(data, "candidate-a", "new requested rule")
         data["after"]["database"]["content_runs"] = [{"id": "new-run", "topic_id": "TA"}]
         data["after"]["database"]["content_revisions"] = [{"id": "new-revision", "content_run_id": "new-run",
             "production_input_json": {"topic_id": "TA", "execution_spec": {"skills": [{"skill_id": "candidate-a"}]}}}]
