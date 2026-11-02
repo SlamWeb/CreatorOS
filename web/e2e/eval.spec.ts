@@ -1,610 +1,92 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-type Fixture = { run_id: string; failed_run_id: string; long_text: string };
-type Cases = { cases: { id: string; title: string; status: string; run_count: number; definition: { steps: { kind: string; text?: string }[]; manual_checks: string[] } }[] };
-type Report = { run_id: string; status: string; auto_status: string; report_digest: string; review: { decision: string; note: string } | null };
-
-async function seed(request: APIRequestContext) {
-  const response = await request.post("/test/eval-runs", { data: {} });
-  expect(response.ok()).toBe(true);
-  return await response.json() as Fixture;
-}
-async function readReport(request: APIRequestContext, runId: string) {
-  const response = await request.get(`/api/eval/runs/${runId}`);
-  expect(response.ok()).toBe(true);
-  return await response.json() as Report;
-}
-function watchWrites(page: Page) {
-  const writes: string[] = [];
-  page.on("request", event => {
-    if (new URL(event.url()).pathname.startsWith("/api/") && event.method() !== "GET") writes.push(`${event.method()} ${new URL(event.url()).pathname}`);
-  });
-  return writes;
-}
-
-const caseButton = (page: Page, id: string) => page.getByRole("complementary", { name: "评测题目" }).getByRole("button", { name: new RegExp(id) });
-const evidenceBlock = (page: Page) => page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: /完整请求与工具结果/ }) });
-
-test("real isolated empty eval: twelve not-run cases, four categories and refresh never execute", async ({ page, request }, info) => {
+test("current benchmark shows 50 standards and refresh never executes or writes", async ({page, request}, info) => {
   const result = await request.get("/api/eval");
-  expect(result.ok()).toBe(true);
-  const dataset = await result.json() as Cases;
-  expect(dataset.cases).toHaveLength(12);
-  expect(dataset.cases.every(item => item.status === "not_run" && item.run_count === 0)).toBe(true);
-  const writes = watchWrites(page);
-  await page.goto("/");
-  await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "Eval", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Eval", exact: true })).toBeVisible();
-  await expect(page.locator(".eval-page summary")).toHaveCount(0);
-  await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "Eval", exact: true })).toHaveClass(/active/);
-  const nav = page.getByRole("navigation", { name: "题目分类" });
-  await expect(nav.getByRole("button")).toHaveCount(12);
-  for (const category of ["账号边界", "会话持久化", "状态更新", "工具正确性"]) await expect(nav.getByRole("heading", { name: category, exact: true })).toBeVisible();
-  await expect(nav.locator(".eval-status.not_run")).toHaveCount(12);
-  await expect(nav.locator(".eval-status.passed")).toHaveCount(0);
-  await expect(page.getByText("npm --prefix web run eval:live -- --project E01", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /启动|开始执行|运行评测/ })).toHaveCount(0);
-  const definition = page.locator(".eval-case-definition");
-  const firstCase = dataset.cases.find(item => item.id === "E01")!;
-  await expect(definition.getByText(firstCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
-  await expect(definition.getByText(firstCase.definition.manual_checks[0], { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /人工检查标准|程序检查标准/ })).toHaveCount(0);
-  await page.screenshot({ path: info.outputPath("eval-definition-1440.png"), fullPage: true });
-  await page.screenshot({ path: info.outputPath("eval-empty-1440.png"), fullPage: true });
-  await caseButton(page, "E02").click();
-  const secondCase = dataset.cases.find(item => item.id === "E02")!;
-  await expect(definition.getByText(secondCase.definition.steps.find(step => step.kind === "user")!.text!, { exact: true })).toBeVisible();
-  await expect(page.getByText("npm --prefix web run eval:live -- --project E02", { exact: true })).toBeVisible();
-  await caseButton(page, "E10").click();
-  await expect(page.getByText("npm --prefix web run eval:live -- --project E10", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("eval-definition-390.png"), fullPage: true });
-  await page.getByRole("button", { name: "展开题目", exact: true }).click();
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await caseButton(page, "E12").click();
-  await expect(page.getByText("npm --prefix web run eval:live -- --project E12", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
-  await page.reload();
-  expect(new URL(page.url()).searchParams.get("case")).toBe("E12");
-  await expect(caseButton(page, "E12")).toHaveAttribute("aria-current", "true");
-  await page.getByRole("button", { name: "刷新记录", exact: true }).click();
-  await expect(page.getByRole("region", { name: "评测详情" })).not.toHaveAttribute("aria-busy", "true");
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  await expect(nav).toBeHidden();
-  await page.getByRole("button", { name: "展开题目", exact: true }).click();
-  await expect(nav).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("eval-empty-390.png"), fullPage: true });
-  expect(writes).toEqual([]);
-});
-
-test("real isolated recorded report: evidence on demand, long content, history, case switching and deep-link reload", async ({ page, request }, info) => {
-  const fixture = await seed(request);
-  const cases = await (await request.get("/api/eval")).json() as Cases;
-  expect(cases.cases.filter(item => item.id !== "E01").every(item => item.status === "not_run")).toBe(true);
-  const writes = watchWrites(page);
-  const evidenceReads: string[] = [];
-  page.on("request", event => { if (new URL(event.url()).pathname.endsWith("/evidence")) evidenceReads.push(event.url()); });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const results = page.locator(".eval-report-heading");
-  await expect(results).toContainText("待复核");
-  await expect(page.getByRole("region", { name: "自动判分" }).locator(".eval-section-heading")).toContainText("通过");
-  await expect(page.locator(".eval-result-summary")).toContainText("项程序检查通过");
-  await expect(page.getByText("受控执行用于验证接线与交互，不代表真实模型任务成绩。", { exact: true })).toBeVisible();
-  await expect(page.locator(".eval-run-meta")).toContainText("用量未记录");
-  expect(evidenceReads).toEqual([]);
-  await page.getByRole("button", { name: "浏览文件", exact: true }).click();
-  const evidence = evidenceBlock(page);
-  await expect(evidence.getByRole("button", { name: /完整请求与工具结果/ })).toHaveAttribute("aria-expanded", "false");
-  await evidence.getByRole("button", { name: /完整请求与工具结果/ }).click();
-  await expect(evidence.locator("pre")).toContainText("受控请求与工具结果原文");
-  await expect(evidence.locator("pre")).not.toContainText("证据末尾验收标记。");
-  await evidence.getByRole("button", { name: /展开全文/ }).click();
-  await expect(evidence.locator("pre")).toContainText("证据末尾验收标记。");
-  await expect(evidence.locator("pre")).toContainText("[REDACTED]");
-  await expect(evidence.locator("pre")).not.toContainText("synthetic-e2e-value");
-  await expect(evidence.locator("img, iframe, script")).toHaveCount(0);
-  expect(evidenceReads).toHaveLength(1);
-  await evidence.getByRole("button", { name: /收起全文/ }).click();
-  await page.screenshot({ path: info.outputPath("eval-report-1440.png"), fullPage: true });
-  await page.getByRole("combobox", { name: "选择运行", exact: true }).selectOption(fixture.failed_run_id);
-  await expect(results).toContainText("失败");
-  await page.getByRole("button", { name: "补充结论", exact: true }).click();
-  await expect(page.getByText("自动判分未通过或执行失败，不能确认通过。", { exact: true })).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "复核结论", exact: true }).locator("option[value=passed]")).toHaveAttribute("disabled", "");
-  const failed = await readReport(request, fixture.failed_run_id);
-  expect(failed.status).toBe("failed");
-  expect(failed.review).toBeNull();
-  await page.getByRole("combobox", { name: "选择运行", exact: true }).selectOption(fixture.run_id);
-  await expect(results).toContainText("待复核");
-  await caseButton(page, "E04").click();
-  await expect(page.getByRole("heading", { name: cases.cases.find(item => item.id === "E04")!.title, exact: true })).toBeVisible();
-  await expect(page.locator(".eval-report")).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.get("run")).toBeNull();
-  await page.goBack();
-  await expect(page.getByRole("combobox", { name: "选择运行", exact: true })).toHaveValue(fixture.run_id);
-  await page.reload();
-  await expect(results).toContainText("待复核");
-  expect(new URL(page.url()).searchParams.get("run")).toBe(fixture.run_id);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  await page.getByRole("button", { name: "浏览文件", exact: true }).click();
-  await evidenceBlock(page).getByRole("button", { name: /完整请求与工具结果/ }).click();
-  await evidenceBlock(page).getByRole("button", { name: /展开全文/ }).click();
-  await expect(evidenceBlock(page).locator("pre")).toContainText("证据末尾验收标记。");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("eval-evidence-390.png"), fullPage: true });
-  expect(writes).toEqual([]);
-});
-
-test("real isolated human review: save persists, stale digest returns 409 and keeps the draft until explicit re-read", async ({ page, request }, info) => {
-  const fixture = await seed(request);
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  await page.getByRole("button", { name: "补充结论", exact: true }).click();
-  const form = page.getByRole("region", { name: "人工复核" });
-  await form.getByRole("combobox", { name: "复核结论", exact: true }).selectOption("passed");
-  await form.getByRole("textbox", { name: "复核备注", exact: true }).fill("已检查完整合成证据；本结论仅验证复核流程。");
-  await form.getByRole("button", { name: "保存复核", exact: true }).click();
-  await expect(form.getByRole("status")).toContainText("人工复核已保存。");
-  await expect(page.locator(".eval-report-heading")).toContainText("通过");
-  const saved = await readReport(request, fixture.run_id);
-  expect(saved.status).toBe("passed");
-  expect(saved.review?.note).toContain("已检查完整合成证据");
-  await page.reload();
-  await page.getByRole("button", { name: "补充结论", exact: true }).click();
-  await expect(form.getByRole("textbox", { name: "复核备注", exact: true })).toHaveValue(saved.review!.note);
-  await expect(form.getByRole("combobox", { name: "复核结论", exact: true })).toHaveValue("passed");
-  const concurrent = await request.post(`/api/eval/runs/${fixture.run_id}/review`, { data: {
-    expected_digest: saved.report_digest, decision: "failed", note: "并发复核保存的结论。",
-  } });
-  expect(concurrent.ok()).toBe(true);
-  await form.getByRole("combobox", { name: "复核结论", exact: true }).selectOption("failed");
-  const draft = "本页尚未保存的复核草稿，409 后必须保留。";
-  await form.getByRole("textbox", { name: "复核备注", exact: true }).fill(draft);
-  const conflictResponse = page.waitForResponse(response => response.url().endsWith(`/api/eval/runs/${fixture.run_id}/review`) && response.request().method() === "POST");
-  await form.getByRole("button", { name: "保存复核", exact: true }).click();
-  expect((await conflictResponse).status()).toBe(409);
-  await expect(form.getByRole("alert")).toContainText("草稿已保留");
-  await expect(form.getByRole("textbox", { name: "复核备注", exact: true })).toHaveValue(draft);
-  await expect(form.getByRole("button", { name: "保存复核", exact: true })).toBeDisabled();
-  expect((await readReport(request, fixture.run_id)).review!.note).toBe("并发复核保存的结论。");
-  await page.screenshot({ path: info.outputPath("eval-review-conflict-1440.png"), fullPage: true });
-  await form.getByRole("button", { name: "读取最新报告", exact: true }).click();
-  await expect(form.getByRole("status")).toContainText("复核草稿已保留");
-  await expect(form.getByRole("textbox", { name: "复核备注", exact: true })).toHaveValue(draft);
-  await form.getByRole("button", { name: "保存复核", exact: true }).click();
-  await expect(form.getByRole("status")).toContainText("人工复核已保存。");
-  const resolved = await readReport(request, fixture.run_id);
-  expect(resolved.status).toBe("failed");
-  expect(resolved.review!.note).toBe(draft);
-  expect(writes).toEqual(Array(3).fill(`POST /api/eval/runs/${fixture.run_id}/review`));
-});
-
-test("controlled HTTP failures on real reports: explicit GET recovery, evidence retry and draft survives refresh failure", async ({ page, request }, info) => {
-  const fixture = await seed(request);
-  const writes = watchWrites(page);
-  let failOverview = true;
-  let failReport = true;
-  let failEvidence = true;
-  await page.route("**/api/eval", route => {
-    if (failOverview) { failOverview = false; return route.fulfill({ status: 503, json: { error: { message: "受控题集读取失败" } } }); }
-    return route.continue();
-  });
-  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => {
-    if (failReport) { failReport = false; return route.fulfill({ status: 503, json: { error: { message: "受控报告读取失败" } } }); }
-    return route.continue();
-  });
-  await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?*`, route => {
-    if (failEvidence) { failEvidence = false; return route.fulfill({ status: 503, json: { error: { message: "受控证据读取失败" } } }); }
-    return route.continue();
-  });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  await expect(page.getByRole("alert")).toContainText("受控题集读取失败");
-  await page.getByRole("button", { name: "重新读取", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("受控报告读取失败");
-  await page.getByRole("button", { name: "重新读取", exact: true }).click();
-  await expect(page.locator(".eval-report-heading")).toContainText("待复核");
-  await page.getByRole("button", { name: "浏览文件", exact: true }).click();
-  const evidence = evidenceBlock(page);
-  await evidence.getByRole("button", { name: /完整请求与工具结果/ }).click();
-  await expect(evidence.getByRole("alert")).toContainText("受控证据读取失败");
-  await evidence.getByRole("button", { name: "重新读取", exact: true }).click();
-  await expect(evidence.locator("pre")).toContainText("受控请求与工具结果原文");
-  await page.getByRole("button", { name: "补充结论", exact: true }).click();
-  const form = page.getByRole("region", { name: "人工复核" });
-  await form.getByRole("combobox", { name: "复核结论", exact: true }).selectOption("passed");
-  await form.getByRole("textbox", { name: "复核备注", exact: true }).fill("读取错误不能丢掉这份草稿。");
-  failReport = true;
-  await form.getByRole("button", { name: "读取最新报告", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("受控报告读取失败");
-  await expect(form.getByRole("textbox", { name: "复核备注", exact: true })).toHaveValue("读取错误不能丢掉这份草稿。");
-  await expect(form.getByRole("button", { name: "保存复核", exact: true })).toBeDisabled();
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("eval-read-error-390.png"), fullPage: true });
-  await page.getByRole("button", { name: "重新读取", exact: true }).click();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(form.getByRole("textbox", { name: "复核备注", exact: true })).toHaveValue("读取错误不能丢掉这份草稿。");
-  await expect(form.getByRole("button", { name: "保存复核", exact: true })).toBeEnabled();
-  expect(writes).toEqual([]);
-  expect((await readReport(request, fixture.run_id)).review).toBeNull();
-});
-
-test("controlled late GET cannot replace the newly selected case", async ({ page, request }) => {
-  const fixture = await seed(request);
-  const cases = await (await request.get("/api/eval")).json() as Cases;
-  const writes = watchWrites(page);
-  let release: (() => void) | undefined;
-  const held = new Promise<void>(resolve => { release = resolve; });
-  let entered = false;
-  await page.route(`**/api/eval/runs/${fixture.run_id}`, async route => {
-    entered = true;
-    await held;
-    await route.continue().catch(() => {});
-  });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  await expect.poll(() => entered).toBe(true);
-  await caseButton(page, "E04").click();
-  release!();
-  await expect(page.getByRole("heading", { name: cases.cases.find(item => item.id === "E04")!.title, exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "尚未运行", exact: true })).toBeVisible();
-  await expect(page.locator(".eval-report")).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.get("case")).toBe("E04");
-  expect(new URL(page.url()).searchParams.get("run")).toBeNull();
-  expect(writes).toEqual([]);
-});
-
-// Controlled trace documents exercise the projection, not model quality.
-async function structuredChain(page: Page, request: APIRequestContext, changed = false, mutate?: (docs: Record<string, unknown>, runId: string) => void, reportPatch: Record<string, unknown> = {}) {
-  const fixture = await seed(request);
-  const report = await readReport(request, fixture.run_id);
-  const query = "列出当前账号栏目，只查看，不修改。";
-  const calls = [
-    { id: "call-a", name: "list_creator_series", arguments: '{"creator_id":"creator-a"}' },
-    { id: "call-b", name: "list_series_topics", arguments: '{"series_id":"series-a"}' },
-  ];
-  const tree = { kind: "creator_context", creator: { id: "creator-a", display_name: "轨迹测试账号" },
-    series: [{ id: "series-a", name: "轨迹测试栏目", description: "只读目录", skill_bindings: { single: "skill-a" } }],
-    skills: [{ id: "skill-a", name: "样本 Skill", description: "受控介绍" }] };
-  const messages = [{ role: "user", content: query },
-    { role: "assistant", content: "先查看目录。", tool_calls: calls.map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } })) },
-    // Deliberately reverse return order: pair by call ID, never by index.
-    { role: "tool", tool_call_id: "call-b", content: '{"items":[{"title":"选题返回 B"}]}' },
-    { role: "tool", tool_call_id: "call-a", content: '{"items":[{"name":"栏目返回 A"}]}' },
-    { role: "assistant", content: "受控最终回复：只查看了目录，没有修改业务数据。" }];
-  const requests = [{ trace_request_id: "request-a", method: "stream", context: {
-    messages: [{ role: "system", content: "受控系统指令末尾" }, { role: "user", content: JSON.stringify(tree) }, messages[0]],
-    tools: calls.map(call => ({ type: "function", function: { name: call.name, description: "受控只读工具", parameters: { type: "object" } } })),
-  }, events: [{ type: "TextDelta", content: "先查看目录。" }, ...calls.flatMap((call, index) => [
-    { type: "ToolCallDelta", index, id: call.id, name: call.name, arguments: call.arguments.slice(0, 9) },
-    { type: "ToolCallDelta", index, id: null, name: null, arguments: call.arguments.slice(9) },
-  ]),
-    { type: "StreamEnd", finish_reason: "tool_calls" }], finish_reason: "tool_calls" },
-  { trace_request_id: "request-b", method: "stream", context: { messages: [{ role: "user", content: JSON.stringify(tree) }, ...messages], tools: [] },
-    events: [{ type: "TextDelta", content: messages.at(-1)!.content }, { type: "StreamEnd", finish_reason: "stop" }], finish_reason: "stop" }];
-  const before = { database: { creators: [{ id: "creator-a", name: "原名称" }], series: [{ id: "series-a", creator_id: "creator-a" }], topics: [] }, files: {}, metadata: { table_names: ["creators", "series", "topics"], files_complete: true } };
-  const after = structuredClone(before);
-  if (changed) after.database.creators[0].name = "同数量却被改名";
-  const docs: Record<string, unknown> = {
-    "requests.json": requests, "messages.json": messages,
-    "trace.json": requests.flatMap(item => [{ event: "started", request_id: item.trace_request_id, request_kind: "main", account_context: tree },
-      { event: "finished", request_id: item.trace_request_id, request_kind: "main", status: "succeeded", finish_reason: item.finish_reason }]),
-    "oracle.json": { creator: tree.creator, creator_id: "creator-a", series: tree.series, skills: tree.skills, expected_tables: before.metadata.table_names },
-    "before.json": before, "after.json": after,
-    "execution.json": { status: "idle", entries: [{ kind: "user", text: query }, { kind: "assistant", text: messages.at(-1)!.content, terminal: true, complete: true }] },
-    "answer.txt": messages.at(-1)!.content,
-    "probe.json": { name: "list_creators", arguments: { limit: 100 }, content: '{"items":[{"id":"creator-a"}]}', is_error: false },
-  };
-  mutate?.(docs, fixture.run_id);
-  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
-    ...report, execution_mode: "controlled", evidence_files: Object.keys(docs).map(name => ({ name, label: name })),
-    checks: [
-      { id: "tool_protocol", label: "工具配对", status: "passed", detail: "受控调用配对检查。", evidence: ["messages.json"] },
-      { id: "ledger_consistent", label: "账本一致", status: "passed", detail: "受控账本。", evidence: ["messages.json"] },
-      { id: "account_tree", label: "账号目录", status: "passed", detail: "受控当前账号目录。", evidence: ["requests.json", "oracle.json"] },
-      { id: "business_unchanged", label: "数据库不变", status: changed ? "failed" : "passed", detail: changed ? "全行内容有差异。" : "全行内容不变。", evidence: ["before.json", "after.json"] },
-      { id: "guard_probe", label: "边界探针", status: "passed", detail: "测试器发起，不是模型调用。", evidence: ["probe.json"] },
-      { id: "final_answer", label: "最终回复", status: "passed", detail: "仅检查完整回复存在。", evidence: ["answer.txt"] },
-    ], auto_status: changed ? "failed" : "passed", status: changed ? "failed" : "needs_review", ...reportPatch,
-  } }));
-  await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?*`, route => {
-    const name = new URL(route.request().url()).searchParams.get("name")!;
-    return route.fulfill({ json: { name, content: docs[name], format: name.endsWith(".txt") ? "text" : "json" } });
-  });
-  return { ...fixture, query };
-}
-
-test("controlled assessment projection: Codex finding does not impersonate a signed review", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => {
-    docs["assessment.md"] = "评估者：Codex，非用户人工签署。\n\n安全边界达标，但回答把合法 ID 说成无效，本题不计完整通过。";
-  });
+  expect(result.ok()).toBeTruthy();
+  const dataset = await result.json();
+  expect(dataset.cases).toHaveLength(50);
   const writes: string[] = [];
-  page.on("request", event => { if (event.method() !== "GET") writes.push(event.url()); });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("本题不计完整通过");
-  await expect(page.locator(".eval-chain-semantic")).toContainText("未代替用户签署");
-  await expect(page.getByRole("region", { name: "自动判分" })).not.toContainText("回复语义尚未评估");
-  await page.reload();
-  await expect(page.getByRole("region", { name: "本次回答评估" })).toContainText("评估者：Codex");
-  expect(writes).toEqual([]);
-});
-
-test("controlled assessment evidence links: registered current Run only, keyboard and refresh are read-only", async ({ page, request }, info) => {
-  const fixture = await structuredChain(page, request, false, (docs, runId) => {
-    docs["assessment.md"] = [
-      `[读取原回复](D:/CreatorOS/data/agent-eval/${runId}/answer.txt)`,
-      `[读取工具账本](messages.json)`,
-      `[外部资料](https://example.com/docs)`,
-      `[别的运行](D:/CreatorOS/data/agent-eval/other-run/answer.txt)`,
-      `[任意文件](D:/private/answer.txt)`, `[未登记文件](missing.json)`,
-      `[危险协议](javascript:alert(1))`, `[坏编码](#eval-evidence=%broken)`,
-    ].join("\n\n");
-  });
-  const writes: string[] = [];
-  page.on("request", event => { if (event.method() !== "GET") writes.push(event.url()); });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const reading = page.getByRole("region", { name: "本次回答评估" });
-  await expect(reading.getByRole("button", { name: "读取原回复", exact: true })).toBeVisible();
-  await expect(reading.getByRole("link", { name: "外部资料" })).toHaveAttribute("href", "https://example.com/docs");
-  for (const name of ["别的运行", "任意文件", "未登记文件", "危险协议", "坏编码"]) {
-    await expect(reading.getByRole("link", { name, exact: true })).toHaveCount(0);
-    await expect(reading.getByRole("button", { name, exact: true })).toHaveCount(0);
-    await expect(reading.getByText(name, { exact: true })).toBeVisible();
+  page.on("request", req => {if (req.url().includes("/api/eval") && req.method() !== "GET") writes.push(req.method());});
+  await page.goto("/eval?case=B11");
+  await expect(page.getByRole("heading", {name: "Agent Benchmark", exact: true})).toBeVisible();
+  for (const item of dataset.cases) {
+    await page.getByRole("navigation", {name: "50 道评测题目"}).getByRole("button", {name: new RegExp(`^${item.id}\\s`)}).click();
+    await expect(page.getByRole("heading", {name: item.title, exact: true})).toBeVisible();
+    const standard = page.getByRole("region", {name: "现行评分标准"});
+    await expect(standard.getByRole("heading", {name: "程序怎么判"})).toBeVisible();
+    await expect(standard.getByRole("heading", {name: "语义怎么判"})).toBeVisible();
+    if (item.intent) await expect(standard).toContainText(item.intent);
   }
-  await reading.getByRole("button", { name: "读取原回复", exact: true }).press("Enter");
-  const raw = page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: "answer.txt", exact: true }) });
-  await expect(raw.getByRole("button", { name: "answer.txt", exact: true })).toBeFocused();
-  await expect(raw.locator(".eval-evidence-content")).toContainText("受控最终回复：只查看了目录，没有修改业务数据。");
-  await page.screenshot({ path: info.outputPath("assessment-links-desktop.png"), fullPage: true });
+  await page.getByRole("navigation", {name: "50 道评测题目"}).getByRole("button", {name: /^B11\s/}).click();
+  await expect(page.getByRole("navigation", {name: "50 道评测题目"}).getByRole("button")).toHaveCount(50);
+  await expect(page.getByRole("region", {name: "现行评分标准"})).toContainText("borrow与lend");
+  await expect(page.getByRole("heading", {name: "程序怎么判"})).toBeVisible();
+  await expect(page.getByRole("heading", {name: "语义怎么判"})).toBeVisible();
+  await page.getByRole("button", {name: "刷新记录"}).click();
+  await expect(page.getByRole("heading", {name: "单条手动选题入队", exact: true})).toBeVisible();
+  await page.screenshot({path: info.outputPath("benchmark-standards-1440.png"), fullPage: true});
+  await page.setViewportSize({width: 390, height: 844});
+  await page.getByRole("button", {name: "选择题目"}).click();
+  await page.getByRole("navigation", {name: "50 道评测题目"}).getByRole("button", {name: /B50/}).click();
+  await expect(page.getByRole("heading", {name: "同一Codex交付拒绝后修正不重画", exact: true})).toBeVisible();
   await page.reload();
-  await reading.getByRole("button", { name: "读取工具账本", exact: true }).click();
-  const ledger = page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: "messages.json", exact: true }) });
-  await ledger.getByRole("button", { name: /展开全文/ }).click();
-  await expect(ledger).toContainText("栏目返回 A");
-  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", {name: "同一Codex交付拒绝后修正不重画", exact: true})).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("assessment-links-mobile.png"), fullPage: true });
+  await page.screenshot({path: info.outputPath("benchmark-standards-390.png"), fullPage: true});
   expect(writes).toEqual([]);
 });
 
-test("controlled E06 projection: a case without boundary probes does not report missing probes", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => { delete docs["probe.json"]; });
-  const report = await readReport(request, fixture.run_id);
-  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
-    ...report, case_id: "E06", execution_mode: "controlled",
-    evidence_files: ["requests.json", "messages.json", "trace.json", "oracle.json", "before.json", "after.json", "execution.json", "answer.txt"].map(name => ({ name, label: name })),
-    checks: [{ id: "final_answer", label: "最终回复", status: "passed", detail: "仅验证展示。", evidence: ["answer.txt"] }],
-  } }));
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E06&run=${fixture.run_id}`);
-  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "数据库预期与实际", exact: true })).toContainText("中断前授权入队仅落盘一次");
+test("stored scores stay separate, evidence is lazy and switching cases clears old results", async ({page, request}, info) => {
+  const fixture = await (await request.post("/test/benchmark-batches", {data: {}})).json();
+  const reads: string[] = [];
+  page.on("request", req => {if (req.url().includes("/evidence/")) reads.push(req.url());});
+  await page.goto(`/eval?case=B11&batch=${fixture.batch_id}`);
+  const result = page.getByRole("region", {name: "本题运行结果"});
+  await expect(result.locator(".eval-scores")).toContainText("75.0 / 100");
+  await expect(result.locator(".eval-scores")).toContainText("语义分");
+  await expect(result.locator(".eval-scores")).toContainText("未提供完整分数");
+  await expect(result.locator(".eval-scores")).toContainText("覆盖率 50%");
+  await result.getByText("程序逐项结果（4 项）", {exact: true}).click();
+  await expect(result.locator(".eval-score-items").first()).toContainText("程序证据 4");
+  await result.getByText("语义逐项结果（2 项）", {exact: true}).click();
+  await expect(result.locator(".eval-score-items").last()).toContainText("语义证据缺失，等待复核。");
+  await expect(result.getByRole("heading", {name: "原始检查与诊断（不全计入业务分）"})).toBeVisible();
+  expect(reads).toEqual([]);
+  await result.getByRole("button", {name: "读取 calls.json", exact: true}).click();
+  await expect(result.locator("pre")).toContainText("manage_topics");
+  await expect(result.locator("pre")).not.toContainText("synthetic-sensitive-value");
+  expect(reads).toHaveLength(1);
+  await result.getByText("本批实际使用的冻结标准", {exact: true}).click();
+  await expect(result.getByRole("heading", {name: "用户要什么"})).toBeVisible();
+  await page.screenshot({path: info.outputPath("benchmark-result-1440.png"), fullPage: true});
+  await page.getByRole("navigation", {name: "50 道评测题目"}).getByRole("button", {name: /B12/}).click();
+  await expect(page.getByText("本批未计划这道题。", {exact: true})).toBeVisible();
+  await expect(page.getByRole("region", {name: "本题运行结果"})).toHaveCount(0);
+  const saved = await (await request.get(`/api/eval/batches/${fixture.batch_id}`)).json();
+  saved.summary.scores.program.coverage = null;
+  await page.route(`**/api/eval/batches/${fixture.batch_id}`, route => route.fulfill({json: saved}));
+  await page.getByRole("button", {name: "刷新记录"}).click();
+  await expect(page.getByRole("region", {name: "批次结果"})).toContainText("覆盖率 未记录");
+  await page.setViewportSize({width: 390, height: 844});
+  await page.screenshot({path: info.outputPath("benchmark-result-390.png"), fullPage: true});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("historical batches do not gain new scores and failed evidence can retry", async ({page, request}) => {
+  const fixture = await (await request.post("/test/benchmark-batches", {data: {legacy: true}})).json();
+  const evidencePattern = "**/api/eval/batches/*/cases/B11/evidence/*?name=answer.txt";
+  await page.route(evidencePattern, route => route.fulfill({status: 503, json: {error: {message: "受控读取失败"}}}));
+  await page.goto(`/eval?case=B11&batch=${fixture.batch_id}`);
+  const result = page.getByRole("region", {name: "本题运行结果"});
+  await expect(result).toContainText("本批未提供分数，保留历史通过／失败结果。");
+  await result.getByRole("button", {name: "读取 answer.txt", exact: true}).click();
+  await expect(result.getByRole("alert")).toContainText("受控读取失败");
+  await page.unroute(evidencePattern);
+  await result.getByRole("button", {name: "重试", exact: true}).click();
+  await expect(result.locator("pre")).toContainText("受控回复：已在英语辨析加入 borrow与lend，尚未生产。");
+  const before = await (await request.get(`/api/eval/batches/${fixture.batch_id}`)).json();
   await page.reload();
-  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
-  expect(writes).toEqual([]);
-});
-
-test("controlled E10 projection: read-only expectations, result failures and no required probe", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => { delete docs["probe.json"]; });
-  const report = await readReport(request, fixture.run_id);
-  await page.route(`**/api/eval/runs/${fixture.run_id}`, route => route.fulfill({ json: {
-    ...report, case_id: "E10", execution_mode: "controlled", status: "failed", auto_status: "failed",
-    evidence_files: ["requests.json", "messages.json", "trace.json", "oracle.json", "before.json", "after.json", "execution.json", "answer.txt"].map(name => ({ name, label: name })),
-    checks: [
-      { id: "correct_object", label: "当前账号对象", status: "passed", detail: "受控展示。", evidence: ["requests.json"] },
-      { id: "complete_filter", label: "待选筛选完整", status: "failed", detail: "受控排除项失败。", evidence: ["answer.txt"] },
-      { id: "failed_tasks", label: "真实失败任务", status: "passed", detail: "受控展示。", evidence: ["messages.json"] },
-      { id: "task_answer", label: "任务链接准确", status: "failed", detail: "受控错误链接。", evidence: ["answer.txt"] },
-    ],
-  } }));
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E10&run=${fixture.run_id}`);
-  const database = page.getByRole("region", { name: "数据库预期与实际", exact: true });
-  await expect(database).toContainText("预期：只查看");
-  await expect(database).toContainText("完整行一致");
-  await expect(database).not.toContainText("尚未实现数据库预期");
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText(/待选筛选完整\s*失败/);
-  await expect(chain).toContainText(/任务链接准确\s*失败/);
-  await expect(page.getByRole("region", { name: "测试器强制探针", exact: true })).toHaveCount(0);
-  await page.reload();
-  await expect(chain).toContainText(/任务链接准确\s*失败/);
-  expect(writes).toEqual([]);
-});
-
-test("controlled full chain: ordered requests, ID-paired tools, DB comparison and evidence jumps without writes", async ({ page, request }, info) => {
-  const fixture = await structuredChain(page, request);
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText(fixture.query);
-  await expect(chain).toContainText("list_creator_series");
-  await expect(chain).toContainText("栏目返回 A");
-  await expect(chain).toContainText("list_series_topics");
-  await expect(chain).toContainText("选题返回 B");
-  const toolA = chain.locator(".eval-chain-tool").filter({ hasText: "list_creator_series" });
-  await expect(toolA).toContainText("栏目返回 A");
-  await expect(toolA).not.toContainText("选题返回 B");
-  await expect(toolA).toContainText('{"creator_id":"creator-a"}');
-  await expect(chain).toContainText("受控最终回复");
-  await expect(page.getByRole("region", { name: "数据库预期与实际", exact: true })).toContainText("creators");
-  await expect(page.getByRole("heading", { name: /人工检查标准|程序检查标准/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "检查明细", exact: true }).click();
-  await page.getByRole("region", { name: "自动判分" }).locator(".eval-checks > li").filter({ hasText: "工具配对" }).getByRole("button", { name: "messages.json", exact: true }).click();
-  const raw = page.getByRole("region", { name: "原始证据" }).locator(".eval-evidence").filter({ has: page.getByRole("button", { name: "messages.json", exact: true }) });
-  await expect(raw.getByRole("button", { name: "messages.json", exact: true })).toBeFocused();
-  await expect(raw.getByRole("button", { name: "messages.json", exact: true })).toBeInViewport();
-  await expect(raw.getByRole("button", { name: "messages.json", exact: true })).toHaveAttribute("aria-expanded", "true");
-  expect(writes).toEqual([]);
-  await page.screenshot({ path: info.outputPath("chain-desktop.png"), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "收起题目", exact: true }).click();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("chain-mobile.png"), fullPage: true });
-});
-
-test("controlled DB negative: same row counts do not hide changed row contents", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, true);
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const db = page.getByRole("region", { name: "数据库预期与实际", exact: true });
-  await expect(db).toContainText("creators");
-  await expect(db).toContainText(/变化|差异|不一致/);
-  await expect(page.locator(".eval-report-heading")).toContainText("失败");
-  expect(writes).toEqual([]);
-});
-
-test("controlled chain evidence read failure cannot imply unchanged DB, and explicit retry recovers", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request);
-  const writes = watchWrites(page);
-  let failAfter = true;
-  await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?*`, route => {
-    if (new URL(route.request().url()).searchParams.get("name") === "after.json" && failAfter) {
-      failAfter = false;
-      return route.fulfill({ status: 503, json: { error: { message: "受控 after 读取失败" } } });
-    }
-    return route.fallback();
-  });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const db = page.getByRole("region", { name: "数据库预期与实际", exact: true });
-  await expect(db).toContainText("无法比较");
-  await expect(db).not.toContainText("完整行一致");
-  await page.getByRole("button", { name: "重新读取 after.json", exact: true }).click();
-  await expect(db).toContainText("完整行一致");
-  await expect(page.getByRole("region", { name: "执行证据读取失败" })).toHaveCount(0);
-  expect(writes).toEqual([]);
-});
-
-test("controlled incomplete chain: unmatched result, unknown stream and incomplete files are explicit", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => {
-    docs["messages.json"] = (docs["messages.json"] as { role: string; tool_call_id?: string }[]).filter(item => item.tool_call_id !== "call-a");
-    const captured = docs["requests.json"] as { context: { messages: { role: string; tool_call_id?: string }[] }; events: unknown[] }[];
-    captured[1].context.messages = captured[1].context.messages.filter(item => item.tool_call_id !== "call-a");
-    captured[0].events.push({ type: "UnknownEvent", content: "不能投影为正常输出" });
-    (docs["after.json"] as { metadata: { files_complete: boolean } }).metadata.files_complete = false;
-  });
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText("工具调用数未完整确认");
-  await expect(chain).toContainText("未知或损坏的流式事件");
-  const toolA = chain.locator(".eval-chain-tool").filter({ hasText: "list_creator_series" });
-  await expect(toolA).toContainText("未找到该调用 ID 的工具返回");
-  await expect(toolA).not.toContainText("已按调用 ID 配对");
-  await expect(chain).toContainText("文件采集完整性未确认");
-  expect(writes).toEqual([]);
-});
-
-test("controlled compaction: complete response is separate from streamed requests and final reply", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => {
-    const captured = docs["requests.json"] as Record<string, unknown>[];
-    captured.splice(1, 0, { trace_request_id: "request-compact", method: "complete", context: {
-      messages: [{ role: "system", content: "压缩系统原文" }, { role: "user", content: "待压缩历史" }], tools: [],
-    }, response: { role: "assistant", content: "受控压缩摘要，不是最终答复" }, finish_reason: "stop" });
-    (docs["trace.json"] as Record<string, unknown>[]).push({ event: "started", request_id: "request-compact", request_kind: "compaction" });
-  });
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText("3 次模型请求 · 2 次模型工具调用");
-  const compact = chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: "上下文压缩请求 2", exact: true }) });
-  await compact.getByRole("button", { name: "压缩输出", exact: true }).click();
-  await expect(compact).toContainText("受控压缩摘要，不是最终答复");
-  const final = chain.locator(".eval-chain-step").filter({ has: page.getByRole("heading", { name: "最终回复", exact: true }) });
-  await expect(final).toContainText("受控最终回复");
-  await expect(final).not.toContainText("受控压缩摘要");
-  expect(writes).toEqual([]);
-});
-
-test("controlled layout only: long browser queries and URLs wrap on mobile without hiding evidence", async ({ page, request }, info) => {
-  const step = `原前端点击发送：读取这批候选 ${"abcdef0123456789".repeat(12)}，保留来源 https://dictionary.cambridge.org/${"source-".repeat(35)}，不要入队。`;
-  const fixture = await (await request.post("/test/eval-runs", { data: { browser_steps: [step] } })).json() as Fixture;
-  const writes = watchWrites(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路" });
-  await expect(chain.getByText(step, { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.reload();
-  await expect(chain.getByText(step, { exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("eval-long-browser-390.png"), fullPage: true });
-  expect(writes).toEqual([]);
-});
-
-function sdkDocuments(docs: Record<string, unknown>, missingUsage = false) {
-  const event = (method: string, payload: unknown = {}, item_id = "", item_type = "", status = "completed") => ({
-    method, payload, item_id, item_type, status, thread_id: "recorded-thread", turn_id: "recorded-turn", phase: "production", at: "2026-10-11T19:01:00+08:00",
-  });
-  const total = { input_tokens: 440831, output_tokens: 11934, total_tokens: 452765, cached_input_tokens: 393472, reasoning_output_tokens: 7175 };
-  docs["sdk.json"] = { events: [event("capture/started"), event("turn/started"),
-    event("item/started", { item: { text: "" } }, "message-1", "agentMessage", "running"),
-    event("item/completed", { item: { text: "真实输入已处理，公开交付说明。" } }, "message-1", "agentMessage"),
-    event("item/completed", { item: { id: "reason-1" } }, "reason-1", "reasoning"),
-    ...(missingUsage ? [] : [event("thread/tokenUsage/updated", { token_usage: { total, last: { total_tokens: 53023 } } }), event("thread/tokenUsage/updated", { token_usage: { total, last: { total_tokens: 53023 } } })]),
-    event("turn/completed"), event("capture/finished") ] };
-  docs["outputs.json"] = { images: [{ order: 1, width: 1122, height: 1402, sha256: "unchanged-image-hash", digest_matches: true, image_prompt: "实际记录的 Prompt" }], turn_completed: true, receipt_completed: false };
-  docs["recovery_stages.json"] = ["failed", "restored"].map((name, index) => ({ name, at: "2026-10-11T19:05:00+08:00", state: { database: {
-    content_runs: [{ id: "same-run", status: index ? "awaiting_approval" : "failed" }],
-    content_attempts: [{ id: "old-attempt", status: "failed", attempt_number: 1 }, ...(index ? [{ id: "new-attempt", status: "succeeded", attempt_number: 2 }] : [])],
-  } } }));
-  docs["recovery_calls.json"] = [{ phase: "initial", operation: "sdk_client_open" }, { phase: "initial", operation: "native_execute" }];
-}
-
-test("controlled pure Codex projection: actual GUI input, SDK items, separate recovery, expected DB and cumulative usage", async ({ page, request }, info) => {
-  const fixture = await structuredChain(page, request, false, docs => {
-    sdkDocuments(docs);
-    docs["requests.json"] = []; docs["messages.json"] = []; docs["execution.json"] = {}; docs["answer.txt"] = ""; delete docs["probe.json"];
-    docs["browser.json"] = { query: "手动GUI生产四格图", steps: ["手动生产，然后显式恢复"], posts_after_refresh: 0, session_posts: 0, turn_posts: 0 };
-    const base = { creators: [{ id: "creator-a" }], topics: [], content_runs: [], content_revisions: [], content_attempts: [] };
-    docs["before.json"] = { database: base, files: {}, metadata: { files_complete: true } };
-    docs["after.json"] = { database: { ...base, topics: [{ id: "topic" }], content_runs: [{ id: "same-run", status: "awaiting_approval" }], content_revisions: [{ id: "same-revision" }], content_attempts: [{ id: "old-attempt", status: "failed" }, { id: "new-attempt", status: "succeeded" }] }, files: {}, metadata: { files_complete: true } };
-  }, { case_id: "P05", usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 } });
-  const overview = await (await request.get("/api/eval")).json() as Cases;
-  await page.route("**/api/eval", route => route.fulfill({ json: { ...overview, cases: overview.cases.map(item => item.id === "E01" ? { ...item, id: "P05" } : item) } }));
-  await page.route("**/api/eval/runs?case_id=P05", route => route.fulfill({ json: { items: [{ run_id: fixture.run_id, status: "needs_review" }] } }));
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=P05&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText("直接 Codex · 无 DeepSeek 请求");
-  await expect(chain).toContainText("手动GUI生产四格图");
-  await expect(chain).toContainText("真实输入已处理，公开交付说明。");
-  await expect(chain.locator(".eval-chain-sdk-items > li")).toHaveCount(1);
-  await expect(chain).toContainText("原失败阶段"); await expect(chain).toContainText("恢复阶段");
-  await expect(chain).toContainText("线程累计：输入 440,831 · 输出 11,934 · 合计 452,765");
-  await expect(chain).toContainText("离线恢复新增 SDK 入口：0 次");
-  await expect(chain).not.toContainText("没有可识别的最终回复");
-  const db = page.getByRole("region", { name: "数据库预期与实际" });
-  await expect(db.getByRole("columnheader", { name: "预期执行后" })).toBeVisible();
-  await expect(db.getByRole("row").filter({ hasText: "content_attempts" })).toContainText("2 行");
-  await page.screenshot({ path: info.outputPath("codex-timeline-1440.png"), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 }); await page.reload();
-  await expect(chain).toContainText("452,765");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("codex-timeline-390.png"), fullPage: true });
-  expect(writes).toEqual([]);
-});
-
-test("controlled mixed Codex projection: missing usage is not zero and failed SDK GET supports explicit recovery", async ({ page, request }) => {
-  const fixture = await structuredChain(page, request, false, docs => sdkDocuments(docs, true));
-  let fail = true;
-  await page.route(`**/api/eval/runs/${fixture.run_id}/evidence?name=sdk.json`, route => {
-    if (fail) { fail = false; return route.fulfill({ status: 503, json: { error: { message: "SDK公开证据读取失败" } } }); }
-    return route.fallback();
-  });
-  const writes = watchWrites(page);
-  await page.goto(`/eval?case=E01&run=${fixture.run_id}`);
-  const chain = page.getByRole("region", { name: "执行链路", exact: true });
-  await expect(chain).toContainText("2 次模型请求 · 2 次模型工具调用 · Codex 委派");
-  await expect(chain.getByRole("alert")).toContainText("SDK公开证据读取失败");
-  await chain.getByRole("button", { name: "重新读取 sdk.json", exact: true }).click();
-  await expect(chain).toContainText("线程累计：输入 未记录 · 输出 未记录 · 合计 未记录");
-  await expect(chain).toContainText("受控最终回复");
-  expect(writes).toEqual([]);
+  await expect(result).toContainText("本批未提供分数，保留历史通过／失败结果。");
+  const after = await (await request.get(`/api/eval/batches/${fixture.batch_id}`)).json();
+  expect(after).toEqual(before);
 });

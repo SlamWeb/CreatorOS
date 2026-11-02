@@ -1,60 +1,92 @@
 import { request } from "../../api/client";
 
-export type EvalStatus = "not_run" | "passed" | "failed" | "needs_review";
-export interface EvalReadError { run_id: string; code: string; message: string }
-export interface EvalCase {
+export interface Score {
+  score: number | null;
+  observed_score?: number | null;
+  coverage: number | null;
+  passed?: number;
+  total?: number;
+  missing?: number;
+  status?: string;
+  scored_cases?: number;
+  planned_cases?: number;
+  items?: {id: string; label?: string; question?: string; critical?: boolean; status: string; detail?: string}[];
+}
+export interface Scores {
+  protocol?: string;
+  program: Score;
+  semantic: Score;
+  critical_status?: string;
+  combined_score?: null;
+}
+export interface BenchmarkCase {
   id: string;
   title: string;
   category: string;
-  split: "dev" | "acceptance";
-  status: EvalStatus;
-  latest_run_id: string | null;
-  run_count: number;
-  definition?: {
-    steps: { kind: string; text?: string; name?: string; details?: string }[];
-    assertions: { id: string; pass: string; evidence: string[] }[];
-    manual_checks: string[];
+  split: string;
+  intent?: string;
+  expected_outcome?: string | string[];
+  evaluation_scope?: string;
+  steps: {kind: string; text?: string; name?: string; details?: string}[];
+  scoring?: {program_checks?: {id: string; label: string; critical?: boolean}[]; critical_checks?: string[]};
+  rubric: {id: string; question: string; critical?: boolean}[];
+  live_codex: boolean;
+}
+export interface BatchRef {
+  id: string;
+  dataset_id?: string;
+  generated_at_utc?: string;
+  planned?: number;
+  overall_status?: string;
+  scores?: Scores | null;
+}
+export interface BenchmarkRow {
+  case_id: string;
+  title: string;
+  status: string;
+  auto_status?: string | null;
+  semantic_status?: string | null;
+  scores?: Scores | null;
+  record_paths: string[];
+}
+export interface Overview {
+  dataset_id: string;
+  schema_version: number;
+  cases: BenchmarkCase[];
+  batches: BatchRef[];
+  errors: {batch_id: string; message: string}[];
+}
+export interface Batch {
+  batch_id: string;
+  score_note: string;
+  summary: {
+    dataset_id: string;
+    cases: BenchmarkRow[];
+    scores?: Scores | null;
+    planned: number;
+    with_results: number;
+    passed: number;
+    failed: number;
+    needs_review: number;
+    metrics?: unknown;
+    codex?: unknown;
   };
 }
-export interface EvalReview { decision: "passed" | "failed"; note: string; reviewed_at: string }
-export interface EvalRunSummary {
-  run_id: string;
+export interface CaseDetail {
+  batch_id: string;
   case_id: string;
-  dataset_id: string;
-  started_at?: string;
-  finished_at?: string;
-  execution_mode: "live" | "controlled";
-  entrypoint?: "browser";
-  execution_status: "completed" | "failed";
-  auto_status: EvalStatus;
-  status: EvalStatus;
-  model: { name: string | null; provider: string | null };
-  usage: Record<string, number> | null;
-  elapsed_seconds: number | null;
-  review: EvalReview | null;
-  error?: { kind: string; message: string } | null;
+  row: BenchmarkRow;
+  frozen_definition: BenchmarkCase | null;
+  frozen_error?: string | null;
+  records: {record_id: string; report: {checks?: {id: string; label: string; status: string; detail?: string}[]; [key: string]: unknown}; evidence_files: string[]}[];
+  errors: string[];
 }
-export interface EvalReport extends EvalRunSummary {
-  checks: { id: string; label: string; status: string; detail: string; evidence: string[] }[];
-  dimensions: Record<string, string>;
-  manual_checks: string[];
-  report_digest: string;
-  evidence_files: { name: string; label: string }[];
-}
-export interface EvalOverview { dataset_id: string; cases: EvalCase[]; errors?: EvalReadError[] }
-export interface EvalRuns { items: EvalRunSummary[]; errors?: EvalReadError[] }
-export interface EvalEvidence { name: string; content: unknown; format: "json" | "text" }
-
+export interface Evidence {name: string; format: string; content: unknown}
+const base = (batch: string) => `/api/eval/batches/${encodeURIComponent(batch)}`;
 export const evalApi = {
-  overview: (signal?: AbortSignal) => request<EvalOverview>("/api/eval", { signal }),
-  runs: (caseId: string, signal?: AbortSignal) => request<EvalRuns>(
-    `/api/eval/runs?${new URLSearchParams({ case_id: caseId })}`, { signal }),
-  report: (runId: string, signal?: AbortSignal) => request<EvalReport>(
-    `/api/eval/runs/${encodeURIComponent(runId)}`, { signal }),
-  evidence: (runId: string, name: string, signal?: AbortSignal) => request<EvalEvidence>(
-    `/api/eval/runs/${encodeURIComponent(runId)}/evidence?${new URLSearchParams({ name })}`, { signal }),
-  review: (runId: string, input: { expected_digest: string; decision: "passed" | "failed"; note: string }) =>
-    request<EvalReport>(`/api/eval/runs/${encodeURIComponent(runId)}/review`, {
-      method: "POST", body: JSON.stringify(input),
-    }),
+  overview: (signal?: AbortSignal) => request<Overview>("/api/eval", {signal}),
+  batch: (batch: string, signal?: AbortSignal) => request<Batch>(base(batch), {signal}),
+  detail: (batch: string, id: string, signal?: AbortSignal) => request<CaseDetail>(`${base(batch)}/cases/${id}`, {signal}),
+  evidence: (batch: string, id: string, record: string, name: string, signal?: AbortSignal) =>
+    request<Evidence>(`${base(batch)}/cases/${id}/evidence/${record}?${new URLSearchParams({name})}`, {signal}),
 };

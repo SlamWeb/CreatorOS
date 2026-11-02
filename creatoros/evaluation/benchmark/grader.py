@@ -11,7 +11,7 @@ import json
 import re
 
 
-VERSION = "benchmark-v2-deterministic-2"
+VERSION = "benchmark-v3-case-outcomes"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -177,9 +177,185 @@ def _candidate_used(exp, evidence):
     return False, "New topic Run frozen inputs use no newly created candidate from the requested family"
 
 
+def _zip_contents(exp, evidence):
+    """Compare ZIP bytes and manifest identities with independently captured source images."""
+    background = evidence.get("background", {})
+    archives = background.get("export_contents")
+    if not isinstance(archives, list):
+        raise MissingEvidence("ZIP content evidence missing")
+    count = exp.get("count")
+    if type(count) is not int or count < 1:
+        raise MissingEvidence("Expected ZIP image count missing")
+
+    def signature(item):
+        required = ("run_id", "revision_id", "order", "checksum")
+        if not isinstance(item, Mapping) or any(key not in item for key in required):
+            raise MissingEvidence("ZIP/source image identity or checksum missing")
+        return tuple(item[key] for key in required)
+
+    source = exp.get("source")
+    if source == "initial_collection":
+        initial = background.get("initial_collections", {}).get(exp.get("collection_id"))
+        if not isinstance(initial, Mapping) or not isinstance(initial.get("items"), list):
+            raise MissingEvidence("Initial collection selection/order missing")
+        expected = [signature(item) for item in initial["items"]]
+    elif source == "new_runs":
+        old_runs = {row["id"] for row in _rows(evidence, "before", "content_runs")}
+        runs = {row["id"]: row for row in _rows(evidence, "after", "content_runs")
+                if row["id"] not in old_runs and row.get("topic_id") == exp.get("topic_id")}
+        expected = []
+        for row in _rows(evidence, "after", "content_revisions"):
+            run = runs.get(row.get("content_run_id"))
+            if run is None or row.get("revision_number") != run.get("active_revision_number", 1):
+                continue
+            validation = row.get("validation_json")
+            if isinstance(validation, str):
+                validation = json.loads(validation)
+            if not isinstance(validation, Mapping) or not isinstance(validation.get("images"), list):
+                raise MissingEvidence("New Run accepted image metadata missing")
+            for position, image in enumerate(validation["images"], 1):
+                expected.append(signature({"run_id":run["id"], "revision_id":row["id"],
+                    "order":image.get("order", position), "checksum":image.get("sha256")}))
+    else:
+        raise MissingEvidence("Unknown ZIP source contract")
+    if len(expected) != count or any(not item[3] for item in expected):
+        return False, f"Source image count={len(expected)}, expected={count}"
+    for archive in archives:
+        manifest = archive.get("manifest")
+        if archive.get("errors") or not isinstance(manifest, Mapping):
+            continue
+        if source == "initial_collection" and manifest.get("collection_id") != exp.get("collection_id"):
+            continue
+        items, entries = manifest.get("items"), archive.get("entries")
+        if not isinstance(items, list) or not isinstance(entries, list):
+            continue
+        if manifest.get("selected_count") != count or len(items) != count or len(entries) != count:
+            continue
+        names = [item.get("filename") for item in items]
+        if names != [item.get("filename") for item in entries] or len(set(names)) != count:
+            continue
+        if any(item.get("checksum") != entry.get("sha256") for item, entry in zip(items, entries)):
+            continue
+        actual = [signature(item) for item in items]
+        if source == "initial_collection":
+            correct = actual == expected
+        else:
+            current = background.get("collections", {}).get(manifest.get("collection_id"))
+            if not isinstance(current, Mapping) or not isinstance(current.get("items"), list):
+                raise MissingEvidence("Actual collection selection/order missing")
+            selected = [signature(item) for item in current["items"]]
+            # B49 does not prescribe borrow/lend order: preserve the actual collection's order.
+            correct = actual == selected and sorted(actual, key=str) == sorted(expected, key=str)
+        if correct:
+            return True, f"ZIP {archive.get('path')} has {count} source-matched images, manifest order and byte checksums verified"
+    return False, "No ZIP matches the declared source images, selected order and actual member checksums"
+
+
 def _expectation(expectation, evidence):
     exp = _template(expectation, evidence.get("variables", {}))
     kind, value = exp.get("kind"), exp.get("value", True)
+    if kind == "zip_contents":
+        return _zip_contents(exp, evidence)
+    if kind == "video_duration":
+        pages = evidence.get("browser", {}).get("production_pages")
+        if not isinstance(pages, list):
+            raise MissingEvidence("Browser video metadata missing")
+        videos = [page["video"] for page in pages if isinstance(page, Mapping) and isinstance(page.get("video"), Mapping)]
+        if not videos:
+            return False, "No browser-loaded video was observed"
+        lower, upper = exp.get("min_seconds"), exp.get("max_seconds")
+        if not isinstance(lower, (int, float)) or not isinstance(upper, (int, float)) or lower > upper:
+            raise MissingEvidence("Video duration tolerance missing")
+        if any(not isinstance(video.get(field), (int, float)) for video in videos for field in ("width", "height", "duration")):
+            raise MissingEvidence("Browser width, height or duration missing")
+        return all(video["width"] > 0 and video["height"] > 0 and lower <= video["duration"] <= upper for video in videos), \
+            f"Loaded video durations={[video['duration'] for video in videos]}, allowed={lower}..{upper}s"
+    if kind == "library_preserved":
+        creator = exp.get("id", evidence.get("variables", {}).get("creator_a"))
+        def selected(phase):
+            rows = [row for row in _rows(evidence, phase, "creator_skill_refs") if row.get("creator_id") == creator]
+            if len(rows) != 1:
+                raise MissingEvidence("Unique account Skill-library snapshot missing")
+            items = rows[0].get("skill_ids_json")
+            if isinstance(items, str):
+                items = json.loads(items)
+            if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
+                raise MissingEvidence("Skill-library identities missing")
+            return set(items)
+        return selected("before") <= selected("after"), "Original account Skill-library entries preserved"
+    if kind == "codex_image_count":
+        codex = evidence.get("codex")
+        if not isinstance(codex, Mapping) or codex.get("parse_errors") or not isinstance(codex.get("images"), Mapping):
+            raise MissingEvidence("Complete Codex generation evidence missing")
+        coverage = codex.get("generation_coverage", {}).get("status")
+        allowed = {"complete"} if exp.get("require_execution") else {"complete", "no_execution_observed"}
+        if coverage not in allowed:
+            raise MissingEvidence("SDK generation event coverage is missing/partial; default zero is not evidence")
+        count = codex["images"].get("completed_generation_items")
+        if type(count) is not int or type(value) is not int:
+            raise MissingEvidence("Codex generation count missing")
+        return count == value, f"Completed image generations={count}, expected={value}"
+    if kind == "background_count":
+        items = evidence.get("background", {}).get(exp.get("field"))
+        if not isinstance(items, list) or any(not isinstance(x, str) for x in items) or type(value) is not int:
+            raise MissingEvidence("Accepted media paths/count are missing")
+        return len(set(items)) == value, f"Accepted {exp['field']} count={len(set(items))}, expected={value}"
+    if kind == "files_preserved":
+        before, after = evidence.get("before", {}).get("files"), evidence.get("after", {}).get("files")
+        if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+            raise MissingEvidence("File snapshots missing")
+        return all(name in after and after[name] == digest for name, digest in before.items()), "All existing file digests preserved"
+    if kind in {"new_rows_match", "rows_unchanged", "table_delta"}:
+        table = exp.get("table")
+        before, after = _rows(evidence, "before", table), _rows(evidence, "after", table)
+        if kind == "table_delta":
+            if type(value) is not int:
+                raise MissingEvidence("Table delta must be an integer")
+            return len(after) - len(before) == value, f"{table} delta={len(after) - len(before)}, expected={value}"
+        identity = exp.get("identity_field", "id")
+        def indexed(rows):
+            if any(identity not in row or row[identity] is None for row in rows):
+                raise MissingEvidence(f"Missing {table}.{identity}")
+            result = {row[identity]: row for row in rows}
+            if len(result) != len(rows):
+                raise MissingEvidence(f"Duplicate {table}.{identity}")
+            return result
+        old, new = indexed(before), indexed(after)
+        def existing_unchanged():
+            excluded, ignored = set(exp.get("exclude_ids", [])), set(exp.get("except_fields", []))
+            ids = exp.get("ids", list(old))
+            def relevant(row):
+                return {key: val for key, val in row.items() if key not in ignored}
+            return all((identifier not in new if identifier not in old else
+                        identifier in new and relevant(old[identifier]) == relevant(new[identifier]))
+                       for identifier in ids if identifier not in excluded)
+        if kind == "rows_unchanged":
+            return existing_unchanged(), f"Existing {table} rows preserved outside declared fields/IDs"
+        if not isinstance(value, list) or any(not isinstance(x, Mapping) for x in value):
+            raise MissingEvidence("Expected new row patterns must be objects")
+        where = exp.get("where", {})
+        added = [row for identifier, row in new.items() if identifier not in old and _contains_arguments(row, where)]
+        def normalize(item):
+            if isinstance(item, str) and exp.get("normalize_whitespace"):
+                return re.sub(r"\s+", "", item)
+            if isinstance(item, Mapping):
+                return {key: normalize(child) for key, child in item.items()}
+            if isinstance(item, list):
+                return [normalize(child) for child in item]
+            return item
+        # Bipartite matching avoids reusing one row for two overlapping patterns.
+        matched = {}
+        def assign(index, seen):
+            for number, row in enumerate(added):
+                if number not in seen and _contains_arguments(normalize(row), normalize(value[index])):
+                    seen.add(number)
+                    if number not in matched or assign(matched[number], seen):
+                        matched[number] = index
+                        return True
+            return False
+        correct = len(added) == len(value) and all(assign(index, set()) for index in range(len(value)))
+        preserved = not exp.get("preserve_existing") or existing_unchanged()
+        return correct and preserved, f"{table}: new={len(added)}, expected={len(value)}, patterns={correct}, preserved={preserved}"
     delta_tables = {"topics_delta": "topics", "collection_count_delta": "media_collections",
                     "new_runs": "content_runs", "production_tasks": "production_tasks"}
     if kind == "unchanged_business":
@@ -213,7 +389,8 @@ def _expectation(expectation, evidence):
             if not isinstance(items, list) or not isinstance(value, list) or any(not isinstance(item, str) for item in value):
                 raise MissingEvidence(f"Missing {key} items or expected Skill ID list")
             identities = {item.get("id", item.get("skill_id")) for item in items if isinstance(item, Mapping)}
-            return set(value) <= identities, f"Expected Skill IDs included in {key}"
+            matched = set(value) == identities if exp.get("match") == "exact" else set(value) <= identities
+            return matched, f"Expected Skill IDs {exp.get('match', 'included')} in {key}"
         if kind == "series_field" and "id" not in exp:
             existing = {row.get("id") for row in _rows(evidence, "before", "series")}
             creator = evidence.get("variables", {}).get("creator_a")
@@ -235,7 +412,7 @@ def _expectation(expectation, evidence):
     if kind == "min_candidate_versions":
         candidates = _candidates(evidence, exp.get("id"))
         return _minimum(len({item.get("id") for item in candidates if item.get("id")}), value), "Candidate version count"
-    if kind == "candidate_body_contains":
+    if kind in {"candidate_body_contains", "candidate_body_excludes"}:
         texts = evidence.get("skill_texts", {})
         candidates = _candidates(evidence, exp.get("id"))
         bodies = [item.get("content", item.get("body", texts.get(item.get("id")))) for item in candidates]
@@ -244,7 +421,8 @@ def _expectation(expectation, evidence):
         terms = value if isinstance(value, list) else [value]
         if any(not isinstance(term, str) or not term for term in terms):
             raise MissingEvidence("Candidate body terms must be nonempty strings")
-        return any(all(term in body for term in terms) for body in bodies), "Requested terms occur in one candidate body"
+        matches = any(all(term in body for term in terms) for body in bodies) if kind == "candidate_body_contains" else all(all(term not in body for term in terms) for body in bodies)
+        return matches, "Candidate bodies satisfy requested text inclusion/exclusion"
     if kind == "candidate_used":
         return _candidate_used(exp, evidence)
     if kind in {"candidate_asset_exists", "candidate_asset_absent"}:

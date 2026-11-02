@@ -16,16 +16,6 @@ REPO = Path(__file__).resolve().parents[3]
 DATASET = REPO / "docs/agent-eval/benchmark-v2/cases.json"
 
 
-def view_dataset(dataset):
-    return {"schema_version": 1, "dataset_id": dataset["dataset_id"], "cases": [
-        {"id": c["id"], "title": c["title"], "category": c["category"], "split": c["split"],
-         "steps": [{**step, **({"details": "冻结的外部控制事件，不是Agent行动"} if step["kind"] == "event" else {})} for step in c["steps"]],
-         "assertions": [{"id": f"outcome-{n}", "pass": json.dumps(exp, ensure_ascii=False),
-                         "evidence": ["before.json", "after.json"]} for n, exp in enumerate(c["expectations"])],
-         "manual_checks": ["未作人工质量校准；自动语义Judge与程序判分分别展示。"]}
-        for c in dataset["cases"]]}
-
-
 def freeze(root, dataset_path, case_ids=None):
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
@@ -42,13 +32,13 @@ def freeze(root, dataset_path, case_ids=None):
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
     manifest = freeze_manifest(root / "manifest.json", dataset_path, pricing=pricing,
                                model_configuration=configuration, case_ids=case_ids)
-    (root / "view-cases.json").write_text(json.dumps(view_dataset(json.loads(dataset_path.read_text(encoding="utf-8")))), encoding="utf-8")
     return manifest
 
 
 def fallback_report(root, case, manifest, error, stage):
-    from creatoros.evaluation.run import now, write_json
+    from creatoros.evaluation.benchmark.io import now, write_json
     from creatoros.evaluation.benchmark.metrics import aggregate_metrics
+    from creatoros.evaluation.benchmark.scoring import score_case
     if (root / "report.json").exists():
         return
     requests = json.loads((root / "requests.json").read_text(encoding="utf-8")) if (root / "requests.json").exists() else []
@@ -62,6 +52,7 @@ def fallback_report(root, case, manifest, error, stage):
         "execution_status": "failed", "auto_status": "failed", "semantic_status": "needs_review", "review": None,
         "model": {"name": "deepseek-flash", "provider": "deepseek"}, "usage": None, "metrics": metrics,
         "error": {"kind": type(error).__name__, "message": str(error), "stage": stage},
+        "scores": score_case(case, {"checks": []}, None),
         "dimensions": {"task_success": "failed", "boundary_enforced": "needs_review", "state_consistent": "needs_review", "protocol_valid": "failed"},
         "checks": [{"id": "launcher", "label": "真实前端执行完成", "status": "failed", "detail": str(error), "evidence": ["metrics.json"]}],
         "evidence_files": [{"name": "metrics.json", "label": "已观测用量；缺失不记0"}]})
@@ -113,7 +104,7 @@ def execute_case(batch, case, index, manifest, dataset_path):
                 server.kill()
                 server.wait(timeout=10)
         log.close()
-        from creatoros.evaluation.run import now, write_json
+        from creatoros.evaluation.benchmark.io import now, write_json
         write_json(root / "isolation.json", {"trial_root": str(root), "isolated_server_pid": server.pid,
             "server_stopped": server.poll() is not None, "server_exit_code": server.returncode,
             "closed_at": now(), "world_retained_for_audit": True,

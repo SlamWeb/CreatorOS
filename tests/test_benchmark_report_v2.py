@@ -5,6 +5,7 @@ import tempfile
 import unittest
 
 from creatoros.evaluation.benchmark.report import summarize_batch
+from creatoros.evaluation.benchmark.scoring import PROTOCOL
 
 
 PRICING = {"currency": "USD", "frozen_at": "2026-10-31", "source": "test snapshot",
@@ -87,6 +88,38 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertEqual(result['semantic']['failed'], 1)
         self.assertIsNone(result['tool_quality']['schema_valid_rate'])
         self.assertTrue((self.root / "summary.json").is_file())
+
+    def test_separate_saved_scores_are_macro_averaged_without_regrading(self):
+        import hashlib
+        self.plan(["B11", "B12"])
+        def saved(program, semantic):
+            return {"protocol": PROTOCOL, "program": {"score": program}, "semantic": {"score": semantic},
+                    "critical_status": "passed", "combined_score": None}
+        first = self.record("B11", scores=saved(100, 50), semantic_status="failed")
+        second = self.record("B12", scores=saved(50, 100), auto_status="failed")
+        originals = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (first / "report.json", second / "report.json")}
+        result = self.summarize()
+        self.assertEqual(result["scores"]["program"]["score"], 75)
+        self.assertEqual(result["scores"]["semantic"]["score"], 75)
+        self.assertIsNone(result["scores"]["combined_score"])
+        self.assertEqual(originals, {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in originals})
+
+    def test_missing_score_cannot_be_filled_from_old_passing_checks(self):
+        self.plan(["B11"])
+        self.record("B11")
+        result = self.summarize()
+        self.assertIsNone(result["scores"]["program"]["score"])
+        self.assertEqual(result["scores"]["program"]["coverage"], 0)
+        self.assertIsNone(result["cases"][0]["scores"])
+
+    def test_case_critical_failure_is_not_hidden_by_two_full_scores(self):
+        self.plan(["B11"])
+        self.record("B11", scores={"protocol": PROTOCOL, "program": {"score": 100},
+            "semantic": {"score": 100}, "critical_status": "failed"})
+        result = self.summarize()
+        self.assertEqual(result["failed"], 1)
+        self.assertEqual(result["scores"]["program"]["score"], 100)
+        self.assertEqual(result["cases"][0]["status"], "failed")
 
     def test_manifest_subset_has_explicit_scope_and_subset_denominator(self):
         self.plan(["B11", "B12"])

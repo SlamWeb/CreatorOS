@@ -12,6 +12,7 @@ import sqlite3
 import struct
 from uuid import uuid4
 import wave
+from zipfile import BadZipFile, ZipFile
 
 from PIL import Image, ImageDraw
 from sqlalchemy import inspect, text
@@ -44,6 +45,44 @@ def validated_media(directory, validation, world_root):
             if (path.is_relative_to(directory) and path.is_relative_to(world_root) and path.is_file()
                     and hashlib.sha256(path.read_bytes()).hexdigest() == item.get("sha256")):
                 result[index].append(path.relative_to(world_root).as_posix())
+    return result
+
+
+def archive_evidence(path, world_root):
+    """Inspect an isolated ZIP in place, without extracting or following outside paths."""
+    path, world_root = Path(path), Path(world_root).resolve()
+    result = {"path": path.name, "manifest": None, "entries": [], "errors": []}
+    try:
+        if not path.resolve().is_relative_to(world_root) or path.is_symlink():
+            raise ValueError("ZIP is linked or outside the isolated world")
+        result["path"] = path.relative_to(world_root).as_posix()
+        with ZipFile(path) as bundle:
+            files = [item for item in bundle.infolist() if not item.is_dir()]
+            names = [item.filename for item in files]
+            if len(names) != len(set(names)) or names.count("manifest.json") != 1:
+                raise ValueError("ZIP requires one manifest and unique filenames")
+            if sum(item.file_size for item in files) > 256 * 1024 * 1024:
+                raise ValueError("Benchmark ZIP contents exceed 256 MiB")
+            for item in files:
+                name = item.filename.replace("\\", "/")
+                if name.startswith("/") or ":" in name or ".." in name.split("/"):
+                    raise ValueError("Unsafe ZIP member name")
+                if name == "manifest.json":
+                    if item.file_size > 2 * 1024 * 1024:
+                        raise ValueError("ZIP manifest exceeds 2 MiB")
+                    result["manifest"] = json.loads(bundle.read(item))
+                    if not isinstance(result["manifest"], dict):
+                        raise ValueError("ZIP manifest must be an object")
+                    continue
+                checksum, size = hashlib.sha256(), 0
+                with bundle.open(item) as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        checksum.update(chunk)
+                        size += len(chunk)
+                result["entries"].append({"filename": item.filename,
+                    "sha256": checksum.hexdigest(), "size_bytes": size})
+    except (OSError, ValueError, KeyError, BadZipFile, RuntimeError) as error:
+        result["errors"].append({"kind": type(error).__name__, "message": str(error)})
     return result
 
 
@@ -119,6 +158,10 @@ class BenchmarkWorld:
             self.variables["topic_a"] = self.variables["artifact_topic"]
         self.skill_paths = {key: self.catalog.locate(key).relative_to(self.root).as_posix()
                             for key in [self.variables[name] for name in ("skill_a", "skill_b", "shared_skill")]}
+        detail = self.app.state.media_collections.get(self.variables["creator_a"], self.variables["collection_a"])
+        self.initial_collections = {detail["id"]: {
+            "items": [dict(item) for item in detail["items"] if item["included"]],
+            "snapshot_digest": detail["snapshot_digest"]}}
         self.before = self.snapshot()
         self.foreign_before = self.foreign_snapshot(self.before)
 
@@ -238,11 +281,19 @@ class BenchmarkWorld:
         extractions = [self.extractions.get(job["id"]) if job.get("status") in {"ready", "saved"} else job for job in extractions]
         batches = self.research.list("bench-english")
         plans = state["database"].get("agent_plans", [])
+        exports = [p for p in self.root.rglob("*.zip") if "node_modules" not in p.parts]
+        collections = {}
+        for row in self.app.state.media_collections.list(self.variables["creator_a"]):
+            detail = self.app.state.media_collections.get(self.variables["creator_a"], row["id"])
+            collections[row["id"]] = {"items": [dict(item) for item in detail["items"] if item["included"]],
+                                     "snapshot_digest": detail["snapshot_digest"]}
         return {"runs": runs, "images": list(dict.fromkeys(images)), "videos": list(dict.fromkeys(videos)),
             "extractions": extractions, "research": batches, "plans": plans, "skills": versions,
             "skill_texts": texts, "skill_paths": paths, "library": self.app.state.skill_library.get_creator("bench-a"),
             "pool": self.app.state.skill_library.get_series("bench-english"),
-            "exports": [str(p.relative_to(self.root)) for p in self.root.rglob("*.zip") if "node_modules" not in p.parts]}
+            "exports": [p.relative_to(self.root).as_posix() for p in exports],
+            "export_contents": [archive_evidence(p, self.root) for p in exports],
+            "initial_collections": self.initial_collections, "collections": collections}
 
     def close(self):
         self.database.close()

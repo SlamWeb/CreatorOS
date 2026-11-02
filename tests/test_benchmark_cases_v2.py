@@ -6,6 +6,7 @@ from pathlib import Path
 import unittest
 
 from creatoros.evaluation.benchmark.grader import grade_case
+from creatoros.evaluation.benchmark.scoring import validate_case_scoring, score_case
 
 
 DATASET = Path(__file__).resolve().parents[1] / "docs/agent-eval/benchmark-v2/cases.json"
@@ -15,12 +16,13 @@ def evidence(calls):
     before = {"database": {"creators": [{"id": "A"}, {"id": "B"}],
         "series": [{"id": "SA", "creator_id": "A", "name": "英语辨析", "revision": 1}],
         "topics": [{"id": "TA", "series_id": "SA", "title": "original", "brief": "original brief"}],
-        "topic_removals": [], "content_runs": [], "production_tasks": [], "media_collections": []}, "files": {}}
+        "topic_removals": [], "content_runs": [], "production_tasks": [], "media_collections": [],
+        "series_skill_refs": [{"series_id": "SA", "skill_ids_json": ["SK", "EXTRA"]}]}, "files": {}}
     return {"before": before, "after": deepcopy(before),
         "foreign_before": {"database": {"topics": [{"id": "TB", "title": "PRIVATE"}]}},
         "foreign_after": {"database": {"topics": [{"id": "TB", "title": "PRIVATE"}]}},
         "variables": {"creator_a": "A", "creator_b": "B", "series_a": "SA", "series_b": "SB",
-            "topic_a": "TA", "topic_b": "TB", "skill_a": "SK", "extra_skill": "EXTRA"},
+            "topic_a": "TA", "topic_b": "TB", "skill_a": "SK", "extra_skill": "EXTRA", "series_extra": "SPARE"},
         "foreign_canaries": ["PRIVATE"], "requests": [{"context": {"messages": [{"role": "user", "content": "current account task"}]}}],
         "calls": calls, "final_answer": "done", "browser": {"completed": True, "refresh_ok": True, "errors": []},
         "background": {"pool": {"items": [{"skill_id": "SK"}, {"skill_id": "EXTRA"}]},
@@ -31,7 +33,7 @@ def call(tool, **arguments):
     return {"tool": tool, "arguments": arguments, "turn_index": 1, "is_error": False}
 
 
-class BenchmarkCasesV21Tests(unittest.TestCase):
+class BenchmarkCasesV3Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.dataset = json.loads(DATASET.read_text(encoding="utf-8"))
@@ -46,13 +48,19 @@ class BenchmarkCasesV21Tests(unittest.TestCase):
         self.assertFalse(dev & acceptance)
         self.assertTrue(all(c["origin"]["type"] in {"trace", "adversarial_variant"} for c in self.cases.values()))
 
-    def test_revision_is_explicit_and_preserves_the_first_round_identity(self):
-        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v2.1-20261031")
+    def test_revision_is_explicit_and_preserves_parent_identity(self):
+        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v3-20261102")
         revision = self.dataset["revision"]
-        self.assertEqual(revision["parent_dataset_id"], "creatoros-trace-benchmark-v2-20261031")
-        self.assertEqual(revision["parent_definition_sha256"], "acc7f822419acba280bc954ffd9af0e457cc3e61c70ae3b299565dad3d2fa4cf")
+        self.assertEqual(revision["parent_dataset_id"], "creatoros-trace-benchmark-v2.1-20261031")
+        self.assertEqual(revision["parent_definition_sha256"], "6ac3a712808758bd0f6c3aff3b463fb0595976bb8ab6a84a6851e27b6ef8c8eb")
         self.assertTrue(revision["original_reports_and_scores_unchanged"])
-        self.assertEqual(set(revision["reasons"]), {"B04", "B06", "B07", "B08", "B17", "B21", "B24", "B29", "B42", "B46"})
+        self.assertEqual(set(revision["reasons"]), set(self.cases))
+        for task in self.cases.values():
+            validate_case_scoring(task)
+            available = {f"outcome_{n:02}" for n in range(1, len(task["expectations"]) + 1)}
+            available |= {f"required_{n:02}" for n in range(1, len(task["trajectory"]["required"]) + 1)}
+            available |= {"tool_budget", "rsi_actual_round", "production_delivered", "nested_delivery_repair"}
+            self.assertTrue({rule["id"] for rule in task["scoring"]["program_checks"]} <= available, task["id"])
 
     def test_cleared_brief_accepts_product_normalized_null(self):
         task = self.cases["B17"]
@@ -98,6 +106,17 @@ class BenchmarkCasesV21Tests(unittest.TestCase):
         result = grade_case(task, one_page)
         self.assertEqual(next(c for c in result["checks"] if c["id"] == "required_01")["status"], "failed")
 
+    def test_extra_read_is_an_efficiency_diagnostic_not_a_business_failure(self):
+        task = self.cases["B07"]
+        calls = [call("manage_topics", action="list", series_id="SA", query={"state": "queued", "offset": i * 20, "limit": 20})
+                 for i in range(task["trajectory"]["max_tool_calls"] + 1)]
+        result = grade_case(task, evidence(calls))
+        self.assertEqual(next(c for c in result["checks"] if c["id"] == "tool_budget")["status"], "failed")
+        judge = {"items": [{"id": rule["id"], "pass": True, "evidence": "Unit-test reference: complete correct list"} for rule in task["rubric"]]}
+        scores = score_case(task, result, judge)
+        self.assertEqual(scores["program"]["score"], 100)
+        self.assertEqual(scores["critical_status"], "passed")
+
     def test_new_oracles_compare_real_fields_threads_and_frozen_candidate(self):
         self.assertIn({"kind": "answer_contains_topic_field", "id": "{topic_a}", "field": "brief"}, self.cases["B06"]["expectations"])
         self.assertIn({"kind": "answer_equals_topic_field", "id": "{topic_a}", "field": "title"}, self.cases["B08"]["expectations"])
@@ -105,19 +124,19 @@ class BenchmarkCasesV21Tests(unittest.TestCase):
         self.assertIn({"kind": "candidate_used", "id": "{skill_a}", "topic_id": "{topic_a}", "value": True}, self.cases["B46"]["expectations"])
 
     def test_rsi_dispatch_level_is_separate_from_the_strict_delivery_repair_case(self):
-        rsi = next(x["question"] for x in self.cases["B04"]["rubric"] if x["id"] == "rsi_stop")
+        rsi = next(x["question"] for x in self.cases["B04"]["rubric"] if "trial/dispatch" in x["question"])
         for phrase in ("业务round", "trial/dispatch", "不直接判", "成本诊断"):
             self.assertIn(phrase, rsi)
         self.assertEqual(self.cases["B04"]["trajectory"]["required"][0]["arguments_contains"]["max_rounds"], 1)
         self.assertEqual(self.cases["B50"]["nested_codex_constraints"]["new_image_generations"], 1)
 
-    def test_b20_and_b50_are_unchanged_from_the_frozen_baseline(self):
-        expected = {"B20": "8bca73249e707e6241d436f629600bbb04b78d4acb17878173cb4b9c14c17fbd",
-            "B50": "62a7d8f8645bf0acc7166c08095d6be2c44fe3109a994c8d734ba8eccb754d47"}
-        for case_id, digest in expected.items():
-            encoded = json.dumps(self.cases[case_id], sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
-            self.assertEqual(hashlib.sha256(encoded).hexdigest(), digest)
-        self.assertIn("全部brief", self.cases["B06"]["rubric"][0]["question"])
+    def test_all_original_tasks_and_provenance_stay_unchanged_while_rules_evolve(self):
+        keys = ["id", "steps", "scenario", "origin", "split", "family", "live_codex", "pagination_fixture", "nested_codex_constraints"]
+        unchanged = [{key: task.get(key) for key in keys} for task in self.cases.values()]
+        encoded = json.dumps(unchanged, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        # Frozen v2.1 task/provenance projection, independent of new scoring text.
+        self.assertEqual(hashlib.sha256(encoded).hexdigest(), "cddfb6bce52f30ae3068401db922cc796f0f196c0a9e7ba88d7424d98036d41d")
+        self.assertIn("完整切入点", self.cases["B06"]["rubric"][0]["question"])
         self.assertIn("逐字", self.cases["B06"]["steps"][0]["text"])
 
 

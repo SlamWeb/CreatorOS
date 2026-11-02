@@ -22,7 +22,11 @@ class BenchmarkManifestTests(unittest.TestCase):
         self.source.write_text("VALUE = 1\n", encoding="utf-8")
         self.dataset = self.root / "cases.json"
         self.cases = [{"id": f"B{n:02}", "family": f"family-{n}", "split": "acceptance" if n <= 10 else "dev",
-                       "origin": {"type": "trace" if n % 2 else "adversarial_variant"}} for n in range(1, 51)]
+                       "origin": {"type": "trace" if n % 2 else "adversarial_variant"},
+                       "intent": "test intent", "expected_outcome": "test outcome", "evaluation_scope": "outcome",
+                       "scoring": {"program_checks": [{"id": "outcome_01", "label": "test outcome"}],
+                                   "critical_checks": ["no_private_leak"]},
+                       "rubric": [{"id": "r1", "question": "Is the answer supported?"}]} for n in range(1, 51)]
         self.write_dataset()
         self.target = self.root / "frozen/manifest.json"
         self.pricing = {"currency": "USD", "models": {"deepseek-flash": {"output_per_million": [0.6, 1.2]}}}

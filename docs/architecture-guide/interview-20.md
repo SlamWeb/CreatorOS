@@ -162,7 +162,7 @@ CreatorOS 是 Python/FastAPI 实现的本地内容运营工作台，架构上是
 
 **短答：** 单元和回归测试检查确定性规则、状态变化和异常恢复；真实前端 Eval 检查用户 query 到最终回复和数据库结果的整条链路，并记录模型和工具轨迹。测试在隔离数据库和目录中执行，失败保留；要区分产品问题、评测脚本问题和内容质量问题。模拟模型通过不能证明真实 Agent 成功，改题或改判分后也不能直接算成功率提升。
 
-**证据入口：** [可靠性 SPEC](../reliability/SPEC.md)、[Eval SPEC](../agent-eval/SPEC.md)、[失败归因实例](../agent-eval/DISCUSSION-REWORK-2026-10-11.md)、[报告读取](../../creatoros/evaluation/store.py)。
+**证据入口：** [可靠性 SPEC](../reliability/SPEC.md)、[Benchmark SPEC](../agent-eval/benchmark-v2/SPEC.md)、[历史失败归因实例](../agent-eval/archive/DISCUSSION-REWORK-2026-10-11.md)、[报告读取](../../creatoros/evaluation/benchmark/store.py)。
 
 ## 20. 后端和 AI 辅助开发最大的真实问题是什么？
 

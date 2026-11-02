@@ -295,7 +295,7 @@
 ## 任务筛选与显式扩展 Eval 数据集（2026-10-11）
 
 - GET 账号任务允许 statuses 重复查询参数（1–14 个合法状态），默认行为不变；先按账号/栏目筛对象，再过滤状态，再计算统计，拒绝非法/空状态，不放宽其他账号访问。
-- create_app 可显式注入 eval_cases_path，EvalStore 只接受该文件实际定义的 E/A/S/B/P 两位 ID；普通服务仍是原 12 题。独立工作台评测用单独报告根，不自动混入正式业务或声称扩展已运行。
+- 早期可变题集的 EvalStore 已退役；当前 create_app(eval_cases_path=...) 仅注入完整 B01–B50 定义，默认与前端同一标准。
 - 本地真实 SQLite/HTTP、Pydantic 参数边界和默认/独立数据集只读回归通过。正式 8765 不重启、不迁移数据、不生图或发布。
 
 ## 入队回执与账号工具契约（2026-10-11）
@@ -305,13 +305,11 @@
 - Web 账号模式对查询账号/创建栏目参数由宿主补齐；模型显式覆盖不同账号先拒绝，原 API Guard 继续逐资源检查。CLI 原参数兼容，未开放的账号工具不会因 Schema 投影增加。
 - 正常路径使用真实隔离 HTTP/SQLite，前端 DeepSeek 验收与故障注入分列；正式服务和正式数据未操作。验证细节见 `docs/agent-studio/web-chat/CONTRACT_RESULTS.md`。
 
-## 账号 Agent Eval 只读接口（2026-10-10，完成）
+## Agent Benchmark 只读入口（2026-11-02）
 
-- `create_app(eval_root=...)` 注入独立报告根，默认 `data/agent-eval`；EvalStore 构造与 GET 不创建目录、不查 SDK、不调用模型/工具、不更新业务库。复用账号 guard 与本机写入限制，不引入公网权限系统。
-- GET `/api/eval` 返回 12 题公开定义与已有报告状态；`/runs?case_id=...`、`/runs/{id}`、`/runs/{id}/evidence?name=...` 读取白名单证据。没有报告就是未运行，损坏/路径不安全/超限明确错误，不假称通过。
-- POST `/api/eval/runs/{id}/review` 仅显式人工结论，CAS 绑定 report + review，冲突 409；独立原子写 sidecar，不改报告。自动通过要求真实执行完成、全部检查和四维通过；执行失败固定投影失败，不能人工把自动失败改为通过。
-- `tests.test_eval_store` 11 项通过；`tests.smoke_eval_api` 真实 loopback HTTP/SQLite 验证零 GET 写入、账号 scope 403、路径/凭证/错误、复核/CAS/重启持久化。故障注入只验证接线，不冒充模型质量成绩；E01 真实调用另见 `docs/agent-eval/RESULTS.md`。
-- 关联 `smoke_account_scope`、`smoke_account_sessions`、`smoke_account_context` 全通过；正式服务/数据库/Skill 不改，不启动 Codex、生图或发布。
+- 唯一现行题集与逐题评分见 `docs/agent-eval/benchmark-v2/SPEC.md`，B01–B50 程序分与语义分分开，不设权重。
+- `BenchmarkStore` 默认只读 `data/agent-benchmark-v2`；`/api/eval` 返回现行题目与批次索引，`/batches/{batch_id}` 与其题目/证据子路由读取已有报告。GET 不调用模型、不写库或改分。
+- 旧 12/20 题读取、复核写入与执行入口已删除。历史批次沿用原冻结定义；缺分数不按新标准补算。路径限制、脱敏和证据归题由读取层核验。
 
 ## 选题移除（2026-10-09，完成）
 
