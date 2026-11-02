@@ -453,6 +453,12 @@ class MediaCollectionMigrationTests(unittest.TestCase):
             try:
                 after = business_snapshot(database)
                 self.assertEqual(after.pop("production_tasks"), [])
+                # Migrations after the collection feature added these tables.
+                # Require each to be empty, then still compare every v17
+                # table and every original row exactly.
+                for table in ("agent_plan_steps", "agent_plans", "creator_skill_refs",
+                              "managed_materials", "series_skill_refs"):
+                    self.assertEqual(after.pop(table), [])
                 for row in after["content_runs"]:
                     self.assertIsNone(row.pop("task_id"))
                 self.assertEqual(after, before)
