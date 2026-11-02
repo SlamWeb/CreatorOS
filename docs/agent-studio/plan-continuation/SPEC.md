@@ -6,6 +6,7 @@
 
 - `web/e2e/live-plan-review.mjs`：真实 DeepSeek 创建一个含 `request_review` 的计划，原定后续步骤是查询选题。检查点触发后台续接后，Agent 将这个尚未执行的原步骤改为查询账号 BGM 材料，再恢复计划并汇报。
 - `web/e2e/live-plan-recovery.mjs`：首轮只让真实 DeepSeek 理解恢复要求，测试随后注入一个确定会失败的只读 `get_producer_skill` 步骤及其依赖步骤。后台续接必须保留失败错误、显式 skip、把原依赖步骤改为查询 BGM 并去除失败依赖，再完成计划、续接汇报。
+- `web/e2e/live-plan-checkpoint.mjs`：检验一次真实对话结束后，由检查点触发后台 Agent 调整并执行计划。检查点暂由测试夹具门闩控制，原对话必须结束、选题查询必须仍待执行、此前没有续接与业务工具执行，才允许放开门闩。门闩不替代模型、不替模型改计划；它只让先后顺序可观察。原 `review` 场景及其历史评分保持原样。
 
 用确定失败注入替代原 `review ... failure` 的“请模型制造失败”：后者可能绕过失败，无法证明恢复路径执行。读取不存在的 Skill 不涉及生产、文件修改或发布。BGM 库是本轮账号的全新空库；此处检验查询工具、步骤调整与计划续接，不检验音频文件或分析质量。
 
@@ -49,6 +50,12 @@ node web/e2e/live-plan-review.mjs (Join-Path $planRun 'server') (Join-Path $plan
 恢复场景另建 fresh root，服务器改 `--scenario recovery`，浏览器改 `live-plan-recovery.mjs`。两个场景都不能连接原 staged-production 生产夹具。`--check` 不创建结果目录，也不预留 root；`--live` 才实际创建独立结果并打开 Chrome。
 
 失败时保留浏览器 `browser-report.json`、Trace、失败截图及 server root 中的 SQLite、会话/请求 Trace 和三个提交标记。标记存在时先通过原服务 GET session/plans 或检查原文件，不删除标记，不盲目重试，也不另建 root 重复同一项结果未知的任务。服务器不接受既有 root；重新启动原任务属于另一次明确恢复工作。
+
+## 检查点时序验收
+
+在全新隔离 root 启动 `--scenario checkpoint --controlled`，可通过 `live-plan-checkpoint.mjs <server-root> <new-evidence-dir> --controlled` 先验证夹具；这使用本地确定性 provider，不是模型表现。真正验收需新 root，服务器使用 `--scenario checkpoint --live-models`，浏览器使用 `--live`。`--check` 只验证路径和环境，不启动浏览器或发送请求。
+
+门闩放开前，夹具检查原用户轮已成功结束，原始计划仍是待执行的检查点和依赖它的选题查询，且没有后台续接；不满足则拒绝放开。它将放开时的时间和计划快照写入 `gate-release.json`。调度仍运行产品原有代码；夹具仅为实际执行的计划工具追加 `plan-dispatches.jsonl`，不更改调用与返回。验收要求检查点执行成功、后台续接中有成功的计划更新、BGM 查询实际执行一次、原选题查询未执行、最终计划完成，刷新无重复。调整可以替换尚未执行的步骤 ID，不把相同 ID 当成产品目标。浏览器报告保留门闩前后的计划、续接 Trace 和真实工具调用。
 
 ## 本地验证与限制
 

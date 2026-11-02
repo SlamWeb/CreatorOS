@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import socket
 import tempfile
+from datetime import datetime, timezone
+from threading import Event, Lock
 from uuid import uuid4
 
 REPO = Path(__file__).resolve().parents[1]
@@ -64,7 +66,7 @@ def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--scenario", choices=("review", "recovery"), required=True)
+    parser.add_argument("--scenario", choices=("review", "recovery", "checkpoint"), required=True)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--live-models", action="store_true", help="Explicitly authorize real DeepSeek; never production")
     mode.add_argument("--controlled", action="store_true", help="Deterministic local provider, no model calls")
@@ -134,6 +136,25 @@ def main():
         topic_research_service=TopicResearchService(database, catalog, researcher=Forbidden()),
         publication_client=Forbidden(),
         chat_provider_factory=(lambda: ControlledPlanProvider(state, args.scenario)) if args.controlled else None)
+    checkpoint_gate = Event()
+    dispatch_lock = Lock()
+    dispatch_path = root / "plan-dispatches.jsonl"
+    if args.scenario == "checkpoint":
+        # Gate only this fixture's scheduler, leaving the model and product
+        # decision-making untouched. Record the real plan-tool dispatches.
+        original_gate = app.state.agent_plans.start_gate
+        app.state.agent_plans.start_gate = lambda: checkpoint_gate.is_set() and original_gate()
+        import creatoros.agent.plans as plan_module
+        original_execute = plan_module.execute_tool_call
+
+        def observed_execute(call, **kwargs):
+            with dispatch_lock, dispatch_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"tool": call.name, "tool_call_id": call.id,
+                    "arguments": call.arguments, "started_at": datetime.now(timezone.utc).isoformat()},
+                    ensure_ascii=False) + "\n")
+            return original_execute(call, **kwargs)
+
+        plan_module.execute_tool_call = observed_execute
     sid = app.state.chat.create(creator)["id"]
     state.update(app=app, session_id=sid)
     setup = {"kind": "plan-continuation-v1", "fixture_id": str(uuid4()), "root": str(root), "dist": str(dist),
@@ -154,6 +175,10 @@ def main():
             agent = (request.headers.get("x-creatoros-origin") == "agent"
                      and request.headers.get("x-creatoros-agent-session") == sid)
             if method == "POST" and path == "/test/plan/reserve":
+                return await call_next(request)
+            if method == "POST" and path == "/test/plan/release":
+                if not active or not admission.authorized(token):
+                    return JSONResponse({"error": "Fixture release is not authorized"}, status_code=403)
                 return await call_next(request)
             if not active or not (agent or admission.authorized(token)):
                 return JSONResponse({"error": "Fixture is not authorized for this write"}, status_code=403)
@@ -189,9 +214,13 @@ def main():
             requests = app.state.chat._read(sid)["requests"]
             continuations = [{key: item.get(key) for key in ("id", "event_id", "status")}
                 for item in requests if item.get("kind") == "plan_continuation"]
+        with dispatch_lock:
+            dispatches = ([json.loads(line) for line in dispatch_path.read_text(encoding="utf-8").splitlines()]
+                          if dispatch_path.exists() else [])
         return {**setup, "background_services_started": app.state.background_services_started,
             "forbidden_calls": forbidden, "reserved": (root / "reservation.json").exists(),
             "continuations": continuations,
+            "checkpoint_gate_released": checkpoint_gate.is_set(), "plan_dispatches": dispatches,
             "initial_turn_claimed": (root / "initial-turn.json").exists(),
             "plan_claimed": (root / "plan-submission.json").exists()}
 
@@ -202,8 +231,44 @@ def main():
         except FileExistsError:
             raise HTTPException(409, "This root was already reserved; inspect the first invocation")
 
-    app.router.routes[0:0] = app.router.routes[-2:]
-    del app.router.routes[-2:]
+    @app.post("/test/plan/release")
+    def release_checkpoint():
+        if args.scenario != "checkpoint" or not active or checkpoint_gate.is_set():
+            raise HTTPException(409, "This fixture cannot release the checkpoint")
+        doc = app.state.chat.get(sid)
+        items = app.state.agent_plans.list(sid)["items"]
+        if (doc.get("status") != "idle" or doc.get("error") or len(items) != 1
+                or len([entry for entry in doc.get("entries", []) if entry.get("kind") == "user"]) != 1
+                or not (root / "initial-turn.json").exists() or not (root / "plan-submission.json").exists()):
+            raise HTTPException(409, "Initial user turn must finish before checkpoint release")
+        plan = app.state.agent_plans.get(sid, items[0]["id"])
+        original = json.loads((root / "plan-submission.json").read_text(encoding="utf-8"))
+        if (original.get("plan_id") != plan["id"] or len(plan["steps"]) != 2
+                or [step["tool"] for step in plan["steps"]] != ["request_review", "manage_topics"]
+                or any(step["status"] != "pending" for step in plan["steps"])
+                or plan["steps"][0]["id"] not in plan["steps"][1]["depends_on"]):
+            raise HTTPException(409, "Initial plan is not an untouched pending checkpoint and topic lookup")
+        fields = ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion")
+        def shape(step):
+            return {key: step.get(key, [] if key == "depends_on" else False if key == "wait_for_completion" else {})
+                    for key in fields}
+        if [shape(step) for step in original["payload"]["steps"]] != [shape(step) for step in plan["steps"]]:
+            raise HTTPException(409, "Initial turn changed the submitted plan before the checkpoint")
+        with app.state.chat.lock:
+            requests = app.state.chat._read(sid)["requests"]
+            if any(item.get("kind") == "plan_continuation" for item in requests):
+                raise HTTPException(409, "A continuation ran before the checkpoint was released")
+        try:
+            admission.claim("gate-release", {"released_at": datetime.now(timezone.utc).isoformat(),
+                "session_status": doc["status"], "plan_before": plan})
+        except FileExistsError:
+            raise HTTPException(409, "This checkpoint was already released")
+        checkpoint_gate.set()
+        app.state.agent_plans._wake.set()
+        return {"released": True, "plan_id": plan["id"]}
+
+    app.router.routes[0:0] = app.router.routes[-3:]
+    del app.router.routes[-3:]
     original_lifespan = app.router.lifespan_context
 
     @asynccontextmanager

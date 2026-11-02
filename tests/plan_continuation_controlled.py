@@ -30,7 +30,7 @@ class ControlledPlanProvider:
         with chat.lock:
             continuation = chat._read(sid)["requests"][-1].get("kind") == "plan_continuation"
         arguments = None
-        if not plans and self.scenario == "review":
+        if not plans and self.scenario in {"review", "checkpoint"}:
             arguments = {"action": "create", "title": "受控检查点", "steps": initial_steps("review")}
         elif plans and continuation:
             plan = service.get(sid, plans[0]["id"])
@@ -42,7 +42,7 @@ class ControlledPlanProvider:
                 fields = ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion")
                 steps = [{key: step[key] for key in fields} for step in plan["steps"]]
                 steps[1].update(tool="manage_material", arguments={"action": "list"},
-                                depends_on=[first["id"]] if self.scenario == "review" else [])
+                                depends_on=[first["id"]] if self.scenario != "recovery" else [])
                 arguments = {**common, "action": "update", "steps": steps}
             elif plan["status"] == "paused" and next_step["tool"] == "manage_material":
                 arguments = {**common, "action": "resume"}

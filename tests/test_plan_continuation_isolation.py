@@ -93,6 +93,106 @@ class PlanContinuationIsolationTests(unittest.TestCase):
     def test_controlled_known_failure_skip_adjustment_and_continuations_over_http(self):
         self.exercise("recovery")
 
+    def test_checkpoint_waits_for_initial_turn_then_background_replans_once(self):
+        # This scenario uses the real scheduler and HTTP APIs; only the external
+        # model provider is deterministic. A test-only gate controls timing.
+        with (self.base / "checkpoint-server.log").open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(self.command("checkpoint", "--controlled"), cwd=REPO, env=self.env,
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+            try:
+                url = f"http://127.0.0.1:{self.port}"
+                wait_ready(process, url + "/test/plan/fixture")
+                with httpx.Client(base_url=url, trust_env=False, timeout=15) as client:
+                    fixture = client.get("/test/plan/fixture").json()
+                    self.assertFalse(fixture["checkpoint_gate_released"])
+                    self.assertEqual(client.post("/test/plan/release", json={}).status_code, 403)
+                    token = client.post("/test/plan/reserve", json={}).json()["token"]
+                    headers = {"x-creatoros-plan-token": token}
+                    self.assertEqual(client.post("/test/plan/release", headers=headers, json={}).status_code, 409)
+                    session_path = f"/api/agent/sessions/{fixture['session_id']}"
+                    response = client.post(session_path + "/turns", headers=headers,
+                        json={"request_id": str(uuid4()), "expected_version": 0,
+                              "text": "创建计划，本轮不修改，检查点后再调整。"})
+                    self.assertEqual(response.status_code, 202, response.text)
+                    deadline = time.monotonic() + 40
+                    while time.monotonic() < deadline:
+                        doc = client.get(session_path).json()
+                        listing = client.get(session_path + "/plans").json()["items"]
+                        if doc["status"] == "idle" and listing:
+                            break
+                        time.sleep(.1)
+                    else:
+                        self.fail("Initial controlled turn did not settle")
+                    before = client.get(session_path + "/plans/" + listing[0]["id"]).json()
+                    self.assertEqual([(s["tool"], s["status"]) for s in before["steps"]],
+                                     [("request_review", "pending"), ("manage_topics", "pending")])
+                    self.assertEqual(client.get("/test/plan/fixture").json()["continuations"], [])
+                    released = client.post("/test/plan/release", headers=headers, json={})
+                    self.assertEqual(released.status_code, 200, released.text)
+                    self.assertEqual(client.post("/test/plan/release", headers=headers, json={}).status_code, 409)
+                    deadline = time.monotonic() + 40
+                    while time.monotonic() < deadline:
+                        doc = client.get(session_path).json()
+                        plan = client.get(session_path + "/plans/" + listing[0]["id"]).json()
+                        if plan["status"] == "completed" and plan["continuation_state"] == "done" and doc["status"] == "idle":
+                            break
+                        time.sleep(.1)
+                    else:
+                        self.fail(f"Checkpoint plan did not settle: {plan!r}")
+                    final = client.get("/test/plan/fixture").json()
+                    self.assertTrue(final["checkpoint_gate_released"])
+                    self.assertEqual([(s["tool"], s["status"]) for s in plan["steps"]],
+                                     [("request_review", "succeeded"), ("manage_material", "succeeded")])
+                    self.assertEqual(len(final["continuations"]), 2)
+                    self.assertEqual(len({item["event_id"] for item in final["continuations"]}), 2)
+                    self.assertEqual([item["tool"] for item in final["plan_dispatches"]], ["manage_material"])
+                    self.assertEqual(final["forbidden_calls"], [])
+                    self.assertEqual(len([item for item in doc["entries"] if item["kind"] == "user"]), 1)
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=20)
+
+    def test_checkpoint_refuses_release_if_initial_turn_already_changed_plan(self):
+        with (self.base / "changed-plan-server.log").open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(self.command("checkpoint", "--controlled"), cwd=REPO, env=self.env,
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+            try:
+                url = f"http://127.0.0.1:{self.port}"
+                wait_ready(process, url + "/test/plan/fixture")
+                with httpx.Client(base_url=url, trust_env=False, timeout=15) as client:
+                    fixture = client.get("/test/plan/fixture").json()
+                    token = client.post("/test/plan/reserve", json={}).json()["token"]
+                    headers = {"x-creatoros-plan-token": token}
+                    path = f"/api/agent/sessions/{fixture['session_id']}"
+                    response = client.post(path + "/turns", headers=headers, json={"request_id": str(uuid4()),
+                        "expected_version": 0, "text": "创建计划，本轮不修改。"})
+                    self.assertEqual(response.status_code, 202)
+                    deadline = time.monotonic() + 40
+                    while time.monotonic() < deadline:
+                        doc = client.get(path).json()
+                        listing = client.get(path + "/plans").json()["items"]
+                        if doc["status"] == "idle" and listing:
+                            break
+                        time.sleep(.1)
+                    else:
+                        self.fail("Initial controlled turn did not settle")
+                    endpoint = path + "/plans/" + listing[0]["id"]
+                    plan = client.get(endpoint).json()
+                    steps = initial_steps("review")
+                    steps[1].update(tool="manage_material", arguments={"action": "list"})
+                    changed = client.patch(endpoint, headers=headers, json={"expected_version": plan["version"], "steps": steps})
+                    self.assertEqual(changed.status_code, 200, changed.text)
+                    self.assertEqual(client.post("/test/plan/release", headers=headers, json={}).status_code, 409)
+                    final = client.get("/test/plan/fixture").json()
+                    self.assertFalse(final["checkpoint_gate_released"])
+                    self.assertEqual(final["continuations"], [])
+                    self.assertEqual(final["plan_dispatches"], [])
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=20)
+
     def exercise(self, scenario):
         self.env.update(CODEX_HOME=str(self.base / "foreign-codex"),
                         DATABASE_URL=f"sqlite:///{(self.base / 'foreign.db').as_posix()}")
