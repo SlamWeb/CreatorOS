@@ -41,6 +41,7 @@ CASES = [
         "tests.test_reference_protocol_audit", "-v"]),
     ("skill_extraction_delivery", ["-m", "unittest", "tests.test_extraction_batch",
         "tests.test_extraction_host_delivery", "-v"]),
+    ("windows_skill_publication", ["-m", "unittest", "tests.test_freeze_skill_windows", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning", "-v"]),
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
