@@ -17,6 +17,8 @@ CASES = [
     ("plan_duplicate_steps", ["-m", "unittest", "tests.test_plan_duplicate_steps", "-v"]),
     ("production_observation", ["-m", "unittest", "tests.test_production_observation", "-v"]),
     ("run_import_boundary", ["-m", "unittest", "tests.test_runs_import_boundary", "-v"]),
+    ("delivery_boundary", ["-m", "unittest", "tests.test_delivery_boundary", "-v"]),
+    ("video_offline_correction", ["-m", "unittest", "tests.test_video_offline_correction", "-v"]),
     ("background_trace_routes", ["-m", "unittest", "tests.test_background_trace_routes", "-v"]),
     ("image_result_recovery", ["-m", "unittest", "tests.test_received_image_handoff", "-v"]),
     ("media_export_recovery", ["-m", "unittest", "tests.test_media_export_recovery", "-v"]),
@@ -83,7 +85,7 @@ def main():
             try:
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *args], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 status = "passed" if process.returncode == 0 else "failed"

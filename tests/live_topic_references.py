@@ -1,34 +1,61 @@
 """Opt-in isolated frontend -> real DeepSeek/Codex reference workflow server.
 
-python -m tests.live_topic_references --serve --root tmp/reference-live-NEW --port 8895
+python -m tests.live_topic_references --serve --root tmp/reference-live-NEW --dist ABSOLUTE_BUILD --port 8895
 No production database, shared Skills, approval or platform publishing is used.
 """
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
-
-from PIL import Image, ImageDraw
-import uvicorn
-
-from creatoros.config import PROJECT_ROOT
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
-from creatoros.runs import ContentRunService
-from creatoros.storage import ContentRepository, Database, upgrade_database
-from creatoros.web.app import create_app
-from creatoros.web.server import StudioServer
+import socket
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serve", action="store_true", required=True)
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--dist", type=Path, required=True, help="absolute path to an independent built frontend")
     parser.add_argument("--port", type=int, default=8895)
     args = parser.parse_args()
+    project_root = Path(__file__).resolve().parent.parent
     root = args.root.resolve()
-    if not root.is_relative_to(PROJECT_ROOT / "tmp"):
+    if not root.is_relative_to((project_root / "tmp").resolve()) or root == (project_root / "tmp").resolve():
         parser.error("Use a dedicated project tmp directory, never production data.")
-    root.mkdir(parents=True, exist_ok=True)  # Inherit normal sandbox-readable workspace ACLs.
+    if root.exists():
+        parser.error("Use a new root; existing evidence must not be overwritten.")
+    if not args.dist.is_absolute():
+        parser.error("--dist must be an absolute path to an independent build.")
+    dist = args.dist.resolve()
+    if not (dist / "index.html").is_file() or dist.is_relative_to((project_root / "web").resolve()):
+        parser.error("--dist must contain index.html and be outside the shared web directory.")
+    if not 1 <= args.port <= 65535 or args.port == 8765:
+        parser.error("Use a valid, non-production port other than 8765.")
+    try:
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", args.port))
+    except OSError as error:
+        parser.error(f"Requested port is unavailable: {error}")
+    root.mkdir(parents=True, exist_ok=False)
     url = f"sqlite:///{(root / 'studio.db').as_posix()}"
+    temporary = root / "temp"
+    temporary.mkdir()
+    # create_app is instantiated at module import too. Both it and the real
+    # server must see the private database before importing any CreatorOS code.
+    os.environ.update(DATABASE_URL=url, CREATOROS_STUDIO_URL=f"http://127.0.0.1:{args.port}",
+                      TEMP=str(temporary), TMP=str(temporary), TMPDIR=str(temporary),
+                      CREATOROS_XHS_MCP_URL="http://127.0.0.1:1/mcp", CREATOROS_XHS_MCP_TOKEN="",
+                      CREATOROS_XHS_MCP_TOKEN_FILE=str(root / "no-publication-token"),
+                      CREATOROS_XHS_STAGING_ROOT=str(root / "publication-staging"))
+
+    from PIL import Image, ImageDraw
+    import uvicorn
+    from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
+    from creatoros.runs import ContentRunService
+    from creatoros.storage import ContentRepository, Database, upgrade_database
+    from creatoros.web.app import create_app
+    from creatoros.web.server import StudioServer
+
     upgrade_database(url)
     db = Database(url)
     repo = ContentRepository(db)
@@ -57,11 +84,15 @@ def main():
             draw.text((65, 150), heading, fill=color, font_size=58)
             draw.text((65, 310), line, fill="black", font_size=26)
             picture.save(path)
+    files = {path.relative_to(dist).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+             for path in sorted(dist.rglob("*")) if path.is_file()}
     (root / "setup.json").write_text(json.dumps({"creator_id": "reference-live", "series_id": "reference-live-series",
         "skill_id": skill["id"], "references": [str(root / "reference-1.png"), str(root / "reference-2.png")],
-        "url": f"http://127.0.0.1:{args.port}"}, ensure_ascii=False, indent=2), encoding="utf-8")
-    app = create_app(database=db, run_service=ContentRunService(db, output_root=root / "outputs"), chat_root=root / "chats")
-    print(f"isolated_reference_server={args.port} root={root}", flush=True)
+        "url": f"http://127.0.0.1:{args.port}", "studio_dist": str(dist), "studio_dist_files": files},
+        ensure_ascii=False, indent=2), encoding="utf-8")
+    app = create_app(database=db, run_service=ContentRunService(db, output_root=root / "outputs"),
+                     chat_root=root / "chats", eval_root=root / "eval-runs", studio_dist=dist)
+    print(f"isolated_reference_server={args.port} root={root} dist={dist}", flush=True)
     try:
         StudioServer(uvicorn.Config(app, host="127.0.0.1", port=args.port, access_log=False, log_level="warning")).run()
     finally:

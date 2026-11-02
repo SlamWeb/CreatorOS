@@ -8,6 +8,12 @@ import hashlib
 from pathlib import Path
 from time import sleep
 
+# creatoros.web.app creates a module-level app while it is imported. Point that
+# app at the test database too, before any CreatorOS module reads defaults.
+root = Path(os.environ["CREATOROS_E2E_ROOT"]).resolve()
+root.mkdir(parents=True, exist_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'studio.db').as_posix()}"
+
 from PIL import Image
 
 from creatoros.content import CarouselCard, PublicationCopy, SocialContentPack
@@ -22,6 +28,47 @@ execution_counts = {"producer": 0, "extractor": 0}
 
 class E2EProducer:
     native_skill_inputs = True
+
+    @staticmethod
+    def _freeze_task_evidence(request, directory, pack):
+        """Create controlled images with the same frozen-input receipt contract as task-v1.
+
+        This fixture does not claim that an SDK, model, or image service was used.
+        """
+        from creatoros.delivery.image import Artifact, Checkpoint, Delivery, SavedArtifact, request_digest
+        from creatoros.delivery.task_execution import freeze_execution_spec
+        from creatoros.integrations.producer_skills import ProducerSkillCatalog
+        from creatoros.integrations.topic_references import prepare_references
+
+        references = request.get("task_references")
+        if references:
+            prepare_references(references, directory)
+        spec = freeze_execution_spec(request["execution_spec"], ProducerSkillCatalog(request["skills_root"]),
+                                     directory, trusted_skill_roots=[directory.parent.parent / "skill-snapshot",
+                                                                     directory.parent.parent / "revision-inputs"])
+        (directory / "execution_spec.json").write_text(spec.model_dump_json(indent=2), encoding="utf-8")
+        (directory / "production_request.txt").write_text(
+            json.dumps({"fixture": "controlled-e2e", "topic_title": request["topic_title"]}, ensure_ascii=False),
+            encoding="utf-8")
+        partial = directory / "partial-images"
+        partial.mkdir()
+        artifacts, pages = [], []
+        for card in pack.cards:
+            image = directory / card.image_path
+            raw = image.read_bytes()
+            saved = partial / f"{card.order:02d}.png"
+            saved.write_bytes(raw)
+            artifact = Artifact(order=card.order, source_image_path=str(image.resolve()),
+                                image_prompt="隔离测试固定图片，不调用模型")
+            artifacts.append(artifact)
+            pages.append(SavedArtifact(**artifact.model_dump(), image_path=str(saved.resolve()),
+                                       sha256=hashlib.sha256(raw).hexdigest()))
+        checkpoint = Checkpoint(input_digest=request_digest(directory), thread_id="studio-e2e-thread",
+            skill_digests={Path(skill.path).name: skill.digest for skill in spec.skills}, pages=pages,
+            delivery=Delivery(title=pack.publish_copy.title, text=pack.publish_copy.body,
+                              hashtags=pack.publish_copy.hashtags, complete=True, artifacts=artifacts),
+            turn_completed=True)
+        (directory / "native_checkpoint.json").write_text(checkpoint.model_dump_json(indent=2), encoding="utf-8")
 
     def produce_to(self, **request) -> ProducedPack:
         execution_counts["producer"] += 1
@@ -51,13 +98,13 @@ class E2EProducer:
             cards=cards, publish_copy=PublicationCopy(title="Agent 状态怎么理解", body="浏览器 E2E 测试内容。", hashtags=["#Agent"]),
         )
         (directory / "social_content_pack.json").write_text(pack.model_dump_json(indent=2), encoding="utf-8")
+        if getattr(request.get("execution_spec"), "kind", None) == "image":
+            self._freeze_task_evidence(request, directory, pack)
         session = ProductionSession(thread_id="studio-e2e-thread", pack_id=pack.pack_id, created_at=pack.generated_at, usage=CodexUsage())
         (directory / "production_session.json").write_text(session.model_dump_json(indent=2), encoding="utf-8")
         return ProducedPack(directory=directory, pack=pack, session=session)
 
 
-root = Path(os.environ["CREATOROS_E2E_ROOT"]).resolve()
-root.mkdir(parents=True, exist_ok=True)
 database_url = f"sqlite:///{(root / 'studio.db').as_posix()}"
 upgrade_database(database_url)
 database = Database(database_url)
