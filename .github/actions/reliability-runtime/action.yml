@@ -1,0 +1,60 @@
+name: Isolated reliability runtime
+description: Canonical workspace temp, declared dependencies and required local runtimes
+inputs:
+  python-deps:
+    default: 'false'
+    description: Install declared Python application dependencies
+  node:
+    default: 'false'
+    description: Install Node 22 and web lockfile dependencies
+  media:
+    default: 'false'
+    description: Install checksum-pinned ffmpeg/ffprobe and verify real encoding/probing
+  chrome:
+    default: 'false'
+    description: Install the Chrome channel used by the browser drivers
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: |
+          requirements.txt
+          requirements-web.txt
+    - name: Prepare canonical workspace temp before installs or tests
+      shell: pwsh
+      run: python -m tests.ci_environment prepare --workspace "$env:GITHUB_WORKSPACE" --job "$env:GITHUB_JOB" --github-env "$env:GITHUB_ENV"
+    - name: Install declared Python dependencies
+      if: inputs.python-deps == 'true'
+      shell: pwsh
+      run: python -m pip install -r requirements.txt -r requirements-web.txt
+    - uses: actions/setup-node@v4
+      if: inputs.node == 'true'
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - name: Install declared web dependencies
+      if: inputs.node == 'true'
+      shell: pwsh
+      run: npm --prefix web ci
+    - uses: actions/cache@v4
+      if: inputs.media == 'true'
+      with:
+        path: tmp/ci-tools/ffmpeg
+        key: windows-ffmpeg-401dffcf14c301082e1fc03b0bc876b92ea676bfc521fc56e80a1537d137034f
+    - name: Install required checksum-pinned media binaries
+      if: inputs.media == 'true'
+      shell: pwsh
+      run: ./.github/scripts/install-reliability-media.ps1
+    - name: Verify ffmpeg and ffprobe with real H264 and AAC bytes
+      if: inputs.media == 'true'
+      shell: pwsh
+      run: python -m tests.ci_environment media --output "$env:TEMP/media-preflight"
+    - name: Install required Chrome channel
+      if: inputs.chrome == 'true'
+      shell: pwsh
+      working-directory: web
+      run: npx playwright install chrome
