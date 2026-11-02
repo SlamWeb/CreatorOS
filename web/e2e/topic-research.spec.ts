@@ -4,9 +4,10 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   const creator = await page.request.post("/api/creators", {
     data: { display_name: "Research E2E", account_handle: "research_e2e", daily_content_limit: 1 },
   }).then((response) => response.json());
-  const series = await page.request.post(`/api/creators/${creator.id}/series`, {
-    data: { name: "候选实验室", description: "验证候选浏览和编辑。", audience: "测试用户" },
-  }).then((response) => response.json());
+  const series = await page.request.post("/api/series", {
+    data: { creator_id: creator.id, name: "候选实验室", description: "验证候选浏览和编辑。", audience: "测试用户",
+      skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() },
+  }).then((response) => response.json()).then(result => result.series);
   const seeded = await page.request.post(`/test/series/${series.id}/research`, { data: {} });
   expect(seeded.ok(), await seeded.text()).toBeTruthy();
   const batch = await seeded.json();
@@ -18,7 +19,7 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await page.getByRole("button", { name: "← 返回选题库" }).click();
   expect(new URL(page.url()).searchParams.has("research")).toBe(false);
   await page.goto(`/series/${series.id}`);
-  await expect(page.getByRole("heading", { name: "内容" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "选题库" })).toBeVisible();
   await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("button", { name: "开始生产" })).toHaveCount(0);
@@ -97,10 +98,10 @@ test("candidate browsing keeps edits separate from selection", async ({ page }, 
   await expect(staleDetail.getByRole("heading", { name: "分页选题 1" })).toBeVisible();
   await expect(staleDetail.getByRole("button", { name: "挑选本批次" })).toBeDisabled();
   await staleDetail.getByRole("button", { name: "关闭选题详情" }).click();
-  await page.getByRole("button", { name: "下一页" }).click();
+  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "下一页" }).click();
   await expect(page.getByRole("heading", { name: "分页选题 21" })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "分页选题 21" })).toBeVisible();
-  await page.getByRole("button", { name: "上一页" }).click();
+  await page.getByRole("navigation", { name: "选题分页 · 顶部" }).getByRole("button", { name: "上一页" }).click();
   await expect(page.locator(".content-card")).toHaveCount(20);
 });

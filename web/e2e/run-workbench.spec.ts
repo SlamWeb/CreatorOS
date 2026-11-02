@@ -23,12 +23,13 @@ test("content workbench exposes actions, keeps details on demand and archives th
   await page.goto(`/runs/${run.id}`);
   const approve = page.getByRole("button", { name: "批准第 1 版" });
   const revise = page.getByRole("button", { name: "提出返工" });
+  const more = page.getByRole("button", { name: "更多", exact: true });
   const remove = page.getByRole("button", { name: "删除该条内容" });
-  for (const button of [approve, revise, remove]) {
+  for (const button of [approve, revise, more]) {
     await expect(button).toBeVisible();
     expect((await button.boundingBox())!.y).toBeLessThan(400);
   }
-  await expect(page.getByRole("link", { name: "返回栏目", exact: true })).toHaveClass(/button/);
+  await expect(page.getByRole("link", { name: "返回栏目", exact: true })).toHaveAttribute("data-slot", "button");
   await expect(page.getByText("内容正确性请逐张验收")).toHaveCount(0);
   await expect(page.getByText("本次运行使用的 Skill", { exact: true })).toHaveCount(0);
   await expect(page.getByText("只讨论，不会修改图片、文案或审批状态")).toHaveCount(0);
@@ -46,26 +47,29 @@ test("content workbench exposes actions, keeps details on demand and archives th
   await expect(conversation).toBeVisible();
   await expect(conversation.getByLabel("给 Agent 的消息")).toHaveValue(new RegExp(run.id));
   await conversation.getByLabel("给 Agent 的消息").fill("未发送的讨论草稿");
-  await page.getByRole("button", { name: "关闭账号对话", exact: true }).click();
+  await conversation.getByRole("button", { name: "关闭账号对话", exact: true }).click();
   await page.getByRole("button", { name: "打开账号对话", exact: true }).click();
   await expect(conversation.getByLabel("给 Agent 的消息")).toHaveValue("未发送的讨论草稿");
-  await page.getByRole("button", { name: "关闭账号对话", exact: true }).click();
+  await conversation.getByRole("button", { name: "关闭账号对话", exact: true }).click();
   await page.screenshot({ path: info.outputPath("workbench-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("workbench-mobile.png"), fullPage: true });
   await revise.click();
+  await more.click();
   await remove.click();
   await expect(page.getByRole("group", { name: "确认删除内容" })).toBeVisible();
-  expect(await page.locator(".run-actionbar").evaluate(el => getComputedStyle(el).position)).toBe("static");
+  expect(await page.locator(".run-review-console").evaluate(el => getComputedStyle(el).position)).toBe("static");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("workbench-mobile-expanded.png"), fullPage: true });
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await page.getByRole("button", { name: "收起", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("link", { name: "Observation", exact: true }).last().click();
+  await page.getByRole("button", { name: "技术记录", exact: true }).click();
+  await page.getByRole("navigation", { name: "技术记录入口" }).getByRole("link", { name: "Observation", exact: true }).click();
   await expect(page.getByRole("heading", { name: "公开时间线" })).toBeVisible();
   await page.goto(`/runs/${run.id}`);
+  await more.click();
   await remove.click();
   await expect(page.getByRole("group", { name: "确认删除内容" })).toBeVisible();
   expect(writes).toBe(0);
@@ -110,6 +114,7 @@ test("a delayed content removal cannot navigate away from the next Run", async (
     await route.fulfill({ response });
   });
   await page.goto(`/runs/${first.id}`);
+  await page.getByRole("button", { name: "更多", exact: true }).click();
   await page.getByRole("button", { name: "删除该条内容", exact: true }).click();
   const removedResponse = page.waitForResponse(response => response.url().includes(`/api/topics/${first.topic_id}/remove`));
   await page.getByRole("button", { name: "确认删除", exact: true }).click();

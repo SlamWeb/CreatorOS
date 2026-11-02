@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function create(request: APIRequestContext, path: string, data: object) {
   const response = await request.post(path, { data });
@@ -8,7 +9,9 @@ async function create(request: APIRequestContext, path: string, data: object) {
 
 async function seriesFixture(request: APIRequestContext) {
   const creator = await create(request, "/api/creators", { display_name: "移除选题隔离验收" });
-  const series = await create(request, `/api/creators/${creator.id}/series`, { name: "移除选题测试栏目" });
+  const series = (await create(request, "/api/series", { creator_id: creator.id, name: "移除选题测试栏目",
+    skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
+  await configureImageDefault(request, creator.id, series.id);
   return { creator, series };
 }
 
@@ -109,11 +112,12 @@ test("produced card archives while its Run and verified image remain readable", 
   const coverUrl = library.items.find((item: { id: string }) => item.id === id).cover_url as string;
   expect((await request.get(coverUrl)).ok()).toBe(true);
   await page.goto(`/?creator=${creator.id}&series=${series.id}&topics=queued`);
-  const productionTask = page.getByRole("region", { name: "任务" })
-    .getByRole("link", { name: /已生产且待归档的内容/ });
+  await page.getByRole("button", { name: "任务", exact: true }).click();
+  const inbox = page.getByRole("dialog", { name: "任务", exact: true });
+  const productionTask = inbox.getByRole("link", { name: /已生产且待归档的内容/ });
   await expect(productionTask).toBeVisible();
   await expect(productionTask).toHaveAttribute("href", new RegExp(`/runs/${run.id}`));
-  await expect(productionTask).toContainText("生产");
+  await inbox.getByRole("button", { name: "关闭任务" }).click();
   const card = page.getByTestId(`library-${id}`);
   await expect(card.getByRole("img")).toBeVisible();
   await card.locator("summary").click();
@@ -126,9 +130,9 @@ test("produced card archives while its Run and verified image remain readable", 
   await page.screenshot({ path: info.outputPath("archive-confirm-mobile-390.png"), fullPage: true });
   await detail.getByRole("button", { name: "确认移除" }).click();
   await expect(card).toHaveCount(0);
-  await expect(productionTask).toHaveCount(0);
   await page.reload();
   await expect(card).toHaveCount(0);
+  await page.getByRole("button", { name: "任务", exact: true }).click();
   await expect(productionTask).toHaveCount(0);
   const storedRun = await request.get(`/api/runs/${run.id}`);
   expect(storedRun.ok()).toBe(true);

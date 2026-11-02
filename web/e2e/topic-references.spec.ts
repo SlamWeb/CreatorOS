@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
+import { configureImageDefault } from "./fixtures/image-default";
 
 // Valid PNGs. Model execution is the isolated server's explicit deterministic fixture.
 const first = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAACAAAAAwCAIAAAD/zu84AAAAR0lEQVR4nO3RMRHAMAwEQTvo0oeG+deBcG7U7QJ4zZz2+5016RldXw5c8IMkUZIoSZQkShIliZJESaIkUZIoSZQkShKl8UQ/KZgBZ563c68AAAAASUVORK5CYII=", "base64");
@@ -12,7 +13,9 @@ async function fixture(request: APIRequestContext) {
     return result.json();
   };
   const creator = await post("/api/creators", { display_name: "参考选题隔离账号" });
-  const series = await post(`/api/creators/${creator.id}/series`, { name: "参考创作测试栏目" });
+  const series = (await post("/api/series", { creator_id: creator.id, name: "参考创作测试栏目",
+    skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
+  await configureImageDefault(request, creator.id, series.id);
   return { creator, series };
 }
 async function open(page: Page, seriesId: string) {
@@ -98,7 +101,7 @@ test("direct production passes originals and complete requirements to one run wi
   await form.getByRole("button", { name: "直接制作", exact: true }).click();
   await expect(page).toHaveURL(/\/runs\/[^/?]+$/);
   const runId = new URL(page.url()).pathname.split("/").at(-1)!;
-  await expect.poll(async () => (await request.get(`/api/runs/${runId}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${runId}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   const evidenceResponse = await request.get(`/test/topic-references/${runId}`);
   expect(evidenceResponse.ok(), await evidenceResponse.text()).toBe(true);
   expect(evidenceResponse.headers()["content-type"]).toContain("application/json");
@@ -145,7 +148,7 @@ test("lost direct response preserves requirements and retries the same key witho
   expect(keys[0]).toBe(keys[1]);
   expect(uploads).toBe(2);
   expect((await request.get(`/api/series/${series.id}/topics`).then(r => r.json())).page.total).toBe(1);
-  await expect.poll(async () => (await request.get(`/api/runs/${runId}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${runId}`).then(r => r.json())).status, { timeout: 30_000 }).toBe("awaiting_approval");
   const run = await request.get(`/api/runs/${runId}`).then(r => r.json());
   expect(run.revisions).toHaveLength(1);
   expect(run.revisions[0].attempts).toHaveLength(1);

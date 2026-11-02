@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function post(request: APIRequestContext, url: string, data: object) {
   const response = await request.post(url, { data });
@@ -9,6 +10,7 @@ async function post(request: APIRequestContext, url: string, data: object) {
 test("one chronological feed ignores old filters, includes output and keeps page and return state", async ({ page, request }, info) => {
   const account = await post(request, "/api/creators", { display_name: `时间流-${crypto.randomUUID().slice(0, 6)}` });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "按时间排列" });
+  await configureImageDefault(request, account.id, series.id);
   const queued = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(),
     topics: Array.from({ length: 27 }, (_, i) => ({ title: `分组选题 ${i + 1}`, brief: "固定场景与内容，不启动真实模型。" })) });
   const run = await post(request, "/api/runs", { topic_id: queued.topic_ids[0] });
@@ -53,7 +55,7 @@ test("one chronological feed ignores old filters, includes output and keeps page
   expect(writes).toEqual([]);
 });
 
-test("cards name exact task v1 and default v2; producing follows that default without switching the old task", async ({ page, request }, info) => {
+test("each task freezes the explicitly selected Skill version without switching the old task", async ({ page, request }, info) => {
   const suffix = crypto.randomUUID().slice(0, 6);
   const account = await post(request, "/api/creators", { display_name: `版本可见-${suffix}` });
   const draft = await post(request, "/api/skill-extractions/author", { request_id: crypto.randomUUID(),
@@ -81,16 +83,24 @@ test("cards name exact task v1 and default v2; producing follows that default wi
   const next = page.getByTestId(`library-${queued.topic_ids[1]}`);
   await expect(previous.getByLabel("生产使用的 Skill")).toContainText("任务用");
   await expect(previous.getByLabel("生产使用的 Skill")).toContainText("v1");
-  await expect(next.getByLabel("生产使用的 Skill")).toContainText("将用");
-  await expect(next.getByLabel("生产使用的 Skill")).toContainText("v2");
+  // An unproduced topic has no frozen Skill: selection happens per task.
+  await expect(next.getByLabel("生产使用的 Skill")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("versions-desktop.png"), fullPage: false });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("versions-mobile.png"), fullPage: false });
-  const started = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/runs");
-  await next.getByRole("button", { name: "生产", exact: true }).click();
-  const run = await (await started).json();
-  expect(run.input_snapshot.skill_name).toBe(second.id);
+  await next.getByRole("button", { name: "制作", exact: true }).click();
+  const detail = page.getByRole("dialog", { name: "选题详情" });
+  await detail.getByRole("button", { name: "移除任务 2", exact: true }).click();
+  await detail.getByLabel("任务 1 名称").fill("新版故事");
+  await detail.getByLabel("任务 1 制作要求").fill("按新版 Skill 制作一张故事图。");
+  await detail.getByRole("group", { name: "任务 1 选择 Skill" }).locator(`input[value="${second.id}"]`).check();
+  const started = page.waitForResponse(r => r.request().method() === "POST"
+    && new URL(r.url()).pathname === `/api/topics/${queued.topic_ids[1]}/production-tasks`);
+  await detail.getByRole("button", { name: "提交并开始制作（1）", exact: true }).click();
+  const submission = await (await started).json();
+  const run = await request.get(`/api/runs/${submission.items[0].run_id}`).then(r => r.json());
+  expect(run.input_snapshot.execution_spec.skills.map((item: { skill_id: string }) => item.skill_id)).toEqual([second.id]);
   await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
   await page.goto(`/?creator=${account.id}&series=${sid}`);
   const output = page.getByTestId(`library-${queued.topic_ids[1]}`);
@@ -101,5 +111,5 @@ test("cards name exact task v1 and default v2; producing follows that default wi
   await expect(page.getByRole("dialog", { name: "简约故事", exact: true })).toBeVisible();
   const unchanged = await request.get(`/api/runs/${old.id}`).then(r => r.json());
   expect(unchanged.input_snapshot.skill_name).toBe(first.id);
-  expect(writes).toEqual(["/api/runs", `/api/runs/${run.id}/execute`]);
+  expect(writes).toEqual([`/api/topics/${queued.topic_ids[1]}/production-tasks`]);
 });

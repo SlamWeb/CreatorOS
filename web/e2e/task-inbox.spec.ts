@@ -16,9 +16,8 @@ test("waiting video remains findable in inbox, account summary and Observation w
   await row.click();
   await expect(page).toHaveURL(new RegExp(`topic=${seed.topic_id}`));
   await page.goto(`/?creator=${seed.creator_id}&series=${seed.series_id}`);
-  await page.getByRole("button", { name: "查看任务", exact: true }).click();
-  await expect(page.locator(".creator-task-summary")).toContainText(seed.title);
-  await expect(page.locator(".creator-task-summary")).toContainText("等待材料");
+  await page.getByRole("button", { name: "任务", exact: true }).click();
+  await expect(panel.locator(".work-inbox-row").filter({ hasText: seed.title })).toContainText("等待材料");
   await page.goto(`/observation?node=${seed.observation_node}`);
   await expect(page.locator(".observation-page")).toContainText(seed.title);
   await expect(page.getByRole("link", { name: `素材集：${seed.collection_name}`, exact: true })).toBeVisible();

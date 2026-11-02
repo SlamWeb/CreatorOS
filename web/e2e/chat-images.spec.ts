@@ -51,7 +51,11 @@ async function controlledChat(page: Page) {
   });
   return { sessions, attachments, posts, controls };
 }
-const select = (page: Page, name = "参考.png") => page.getByLabel("选择图片文件").setInputFiles({ name, mimeType: "image/png", buffer: png });
+const select = async (page: Page, name = "参考.png") => {
+  const input = page.getByLabel("选择图片文件");
+  await expect(input).toBeEnabled();
+  await input.setInputFiles({ name, mimeType: "image/png", buffer: png });
+};
 
 test("real Ctrl+V image paste uploads to a session, sends once and survives refresh", async ({ page, context }, info) => {
   const state = await controlledChat(page);

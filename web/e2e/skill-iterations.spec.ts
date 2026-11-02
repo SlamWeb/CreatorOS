@@ -174,6 +174,7 @@ test("RSI history loads on demand and opens the same task without starting anoth
   await page.route(`**/api/skill-iterations/${id}`, route => route.fulfill({ json: baseline() }));
   page.on("request", request => { if (request.method() === "POST") posts++; });
   await page.goto("/skills");
+  await expect(page.getByRole("status").filter({ hasText: "正在读取 Skill 库" })).toHaveCount(0, { timeout: 20_000 });
   const toggle = page.getByRole("button", { name: "RSI 迭代记录" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(lists).toBe(0);
