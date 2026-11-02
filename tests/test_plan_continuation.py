@@ -79,6 +79,8 @@ class PlanContinuationTests(unittest.TestCase):
                     self.assertEqual(len(attempts), 1)
                     self.assertEqual(detail()['continuation_state'], 'pending')
                     app.state.chat.plan_continuation_retry_after[sid] = 0
+                    with db.session() as database_session:
+                        database_session.get(AgentPlan, pid).continuation_until = None
                     app.state.chat._resume_plans()
                     wait_for(lambda: detail()['continuation_state'] == 'done')
                     self.assertEqual(len(attempts), 2)

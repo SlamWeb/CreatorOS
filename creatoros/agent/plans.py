@@ -423,7 +423,8 @@ class PlanService:
         with self.db.session() as session:
             return list(dict.fromkeys(session.scalars(select(AgentPlan.session_id).where(
                 AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
-                (AgentPlan.continuation_state == 'pending') |
+                ((AgentPlan.continuation_state == 'pending') &
+                 (AgentPlan.continuation_until.is_(None) | (AgentPlan.continuation_until <= now))) |
                 ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now))))))
 
     def claim_continuation(self, session_id, worker_token, lease_seconds=60):
@@ -431,7 +432,8 @@ class PlanService:
         with self._write() as session:
             p = session.scalar(select(AgentPlan).where(AgentPlan.session_id == session_id,
                 AgentPlan.request_digest.startswith(CONTRACT_PREFIX),
-                (AgentPlan.continuation_state == 'pending') |
+                ((AgentPlan.continuation_state == 'pending') &
+                 (AgentPlan.continuation_until.is_(None) | (AgentPlan.continuation_until <= now))) |
                 ((AgentPlan.continuation_state == 'claimed') & (AgentPlan.continuation_until < now)))
                 .order_by(AgentPlan.updated_at))
             if not p: return None
@@ -451,14 +453,27 @@ class PlanService:
             p.continuation_state, p.continuation_token, p.continuation_until = ('done_checkpoint' if p.status == 'paused' else 'done'), None, None
             return True
 
-    def release_continuation(self, plan_id, event_id, worker_token):
+    def release_continuation(self, plan_id, event_id, worker_token, *, retry_seconds=0):
         with self._write() as session:
             p = session.get(AgentPlan, plan_id)
             if not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}' or p.continuation_token != worker_token:
                 return False
-            p.continuation_state, p.continuation_token, p.continuation_until = 'pending', None, None
+            if p.continuation_state != 'claimed': return False
+            p.continuation_state, p.continuation_token = 'pending', None
+            p.continuation_until = datetime.now(timezone.utc) + timedelta(seconds=retry_seconds) if retry_seconds else None
         self._wake.set()
         return True
+
+    def fail_continuation(self, plan_id, event_id, worker_token, *, outcome):
+        if outcome not in {'failed', 'unknown'}:
+            raise ValueError('续接失败必须区分已失败和结果未知。')
+        with self._write() as session:
+            p = session.get(AgentPlan, plan_id)
+            if (not p or not _current_contract(p) or event_id != f'{p.id}:{p.continuation_version}'
+                    or p.continuation_state != 'claimed' or p.continuation_token != worker_token):
+                return False
+            p.continuation_state, p.continuation_token, p.continuation_until = outcome, None, None
+            return True
 
     def start(self):
         with self._lock:
@@ -523,6 +538,7 @@ class PlanService:
                         if s.tool == 'request_review':
                             s.status, s.result_json = 'succeeded', {'question': s.arguments_json['question']}
                             p.status, p.continuation_state = 'paused', 'pending'
+                            p.continuation_token = p.continuation_until = None
                             p.continuation_version += 1; p.version += 1
                             # Already claimed independent work may finish, but no
                             # later step is started until an explicit resume.
@@ -545,6 +561,7 @@ class PlanService:
                 if p.status == 'running' and rows and all(s.status in {'succeeded','failed','blocked','unknown','skipped'} for s in rows):
                     p.status = 'completed' if all(s.status in {'succeeded','skipped'} for s in rows) else 'needs_attention'
                     p.continuation_state = 'pending'; p.continuation_version += 1; p.version += 1
+                    p.continuation_token = p.continuation_until = None
         for item in dispatch:
             if self._pool:
                 future = self._pool.submit(self._execute, *item)
