@@ -33,7 +33,7 @@ from creatoros.events import AgentEvent
 from creatoros.web.chat_links import tool_links, turn_links
 from creatoros.web.chat_attachments import ChatAttachments, MAX_IMAGES
 from creatoros.web.plan_continuations import (ContinuationProvider, PROTOCOL, RETRY_SECONDS,
-    can_retry, new_retry_at, retry_delay, settled_outcome)
+    can_retry, exhausted_before_output, new_retry_at, retry_delay, settled_outcome)
 
 STUDIO_TOOLS = frozenset({"manage_media_collection", "query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "manage_topics",
                           "manage_skill_library", "manage_material",
@@ -603,12 +603,20 @@ class AgentChatService:
                     plans.ack_continuation(event["plan_id"], event["event_id"], token)
                     return False
                 if not (matching and outcome in {"running", "retry_pending"} and can_retry(record)):
-                    outcome = "failed" if matching and outcome == "failed" else "unknown"
+                    exhausted = (matching and outcome in {"running", "retry_pending"}
+                                 and exhausted_before_output(record))
+                    outcome = "failed" if matching and (outcome == "failed" or exhausted) else "unknown"
                     if matching:
                         record["continuation_outcome"] = outcome
-                        if outcome == "unknown" and doc["requests"][-1] is record:
-                            doc.update(status="interrupted", error="计划续接结果未知；请先核对原任务。",
-                                       version=doc["version"] + 1)
+                        if exhausted:
+                            record["status"] = "failed"
+                        if doc["requests"][-1] is record:
+                            if exhausted:
+                                doc.update(status="failed", error="计划续接在首个本地输出前中断且已达重试上限；本次续接未派发工具，远端模型请求可能已产生用量。",
+                                           version=doc["version"] + 1)
+                            elif outcome == "unknown":
+                                doc.update(status="interrupted", error="计划续接结果未知；请先核对原任务。",
+                                           version=doc["version"] + 1)
                         self._save(doc)
                     plans.fail_continuation(event["plan_id"], event["event_id"], token, outcome=outcome)
                     return False

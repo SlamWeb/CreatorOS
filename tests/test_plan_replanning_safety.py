@@ -46,6 +46,10 @@ class ReplanningSafetyTests(unittest.TestCase):
                         if plan['status'] == 'needs_attention': break
                         time.sleep(.05)
                     self.assertEqual([s['status'] for s in plan['steps']], ['failed', 'blocked'])
+                    # A real automatic continuation owns the notification until
+                    # its model/tool turn completes; edited work must wait for it.
+                    event = app.state.agent_plans.claim_continuation(sid, 'replanning')
+                    self.assertTrue(app.state.agent_plans.begin_continuation_output(pid, event['event_id'], 'replanning'))
                     context = RuntimeContext(project_root=root, studio_url=url, creator_id='review-lab',
                         agent_session_id=sid, plan_continuation_id=pid, allowed_tools=frozenset({'manage_plan'}))
                     def call(args):
@@ -61,6 +65,7 @@ class ReplanningSafetyTests(unittest.TestCase):
                     changed = call({'action': 'update', 'plan_id': pid, 'expected_version': skipped_view['version'],
                                     'steps': [pending]})
                     self.assertFalse(changed.is_error, changed)
+                    self.assertTrue(app.state.agent_plans.ack_continuation(pid, event['event_id'], 'replanning'))
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
                         completed = read()

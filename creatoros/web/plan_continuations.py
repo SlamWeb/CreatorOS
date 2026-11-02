@@ -28,6 +28,14 @@ def can_retry(record):
             and record.get("continuation_attempts", MAX_ATTEMPTS) < MAX_ATTEMPTS)
 
 
+def exhausted_before_output(record):
+    """Require durable current-protocol evidence before declaring exhaustion."""
+    attempts = record.get("continuation_attempts")
+    return (record.get("continuation_protocol") == PROTOCOL
+            and record.get("continuation_stage") in {"prepared", "model_started"}
+            and type(attempts) is int and attempts >= MAX_ATTEMPTS)
+
+
 def settled_outcome(record, status):
     if status == "idle":
         return "done"

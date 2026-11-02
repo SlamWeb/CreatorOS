@@ -372,9 +372,9 @@ class PlanService:
                 row.arguments_json,row.depends_on_json,row.wait_for_completion = item['arguments'],item['depends_on'],item['wait_for_completion']
             p.version += 1
             if p.status in {'completed','needs_attention'}: p.status = 'running'
-            # Editing does not resolve an interrupted continuation: keep its
-            # pending work frozen until an explicit recovery action.
-            if p.continuation_state not in {'claimed', 'executing', 'unknown', 'done_checkpoint'}: p.continuation_state = 'none'
+            # Editing does not settle a continuation or resolve its failure.
+            if p.continuation_state not in {'pending', 'claimed', 'executing', 'unknown', 'failed', 'done_checkpoint'}:
+                p.continuation_state = 'none'
         self._wake.set()
         return self.get(sid, identity)
 
@@ -390,7 +390,7 @@ class PlanService:
             elif action == 'resume':
                 if p.status != 'paused': raise ValueError('当前计划未暂停。')
                 p.status = 'running'
-                if p.continuation_state in {'pending', 'done_checkpoint', 'unknown'}: p.continuation_state = 'none'
+                if p.continuation_state in {'pending', 'done_checkpoint', 'unknown', 'failed'}: p.continuation_state = 'none'
             elif action == 'retry':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
                 if not row or not self._retryable(row):
@@ -405,7 +405,7 @@ class PlanService:
                 for blocked in self._rows(session, identity):
                     if blocked.status == 'blocked': blocked.status, blocked.error = 'pending', None
                 p.status = 'running'
-                if p.continuation_state != 'executing': p.continuation_state = 'none'
+                if p.continuation_state not in {'claimed', 'executing'}: p.continuation_state = 'none'
             elif action == 'skip':
                 row = next((s for s in self._rows(session, identity) if s.step_key == step_id), None)
                 if not row or not self._skippable(row):
@@ -444,8 +444,10 @@ class PlanService:
             if not p: return None
             p.continuation_state, p.continuation_token = 'claimed', worker_token
             p.continuation_until = now + timedelta(seconds=lease_seconds)
+            reason = ('checkpoint' if p.status == 'paused' else 'failure' if p.status == 'needs_attention'
+                      else 'completed' if p.status == 'completed' else 'plan_updated')
             return dict(event_id=f'{p.id}:{p.continuation_version}', plan_id=p.id, session_id=p.session_id,
-                        creator_id=p.creator_id, status=p.status, reason='checkpoint' if p.status == 'paused' else ('failure' if p.status == 'needs_attention' else 'completed'), studio_url=p.studio_url,
+                        creator_id=p.creator_id, status=p.status, reason=reason, studio_url=p.studio_url,
                         steps=[dict(id=s.step_key,title=s.title,status=s.status,result=deepcopy(s.result_json),error=s.error)
                                for s in self._rows(session,p.id)])
 
@@ -564,9 +566,9 @@ class PlanService:
             plans = list(session.scalars(select(AgentPlan).where(AgentPlan.status == 'running',
                 AgentPlan.request_digest.startswith(CONTRACT_PREFIX))))
             for p in plans:
-                # No newly scheduled work while an executing continuation may
-                # still change the plan, or after that continuation was lost.
-                if p.continuation_state in {'executing', 'unknown'}: continue
+                # Unresolved continuation work may still change the plan.
+                # A failed/unknown attempt needs explicit recovery, not an edit.
+                if p.continuation_state in {'pending', 'claimed', 'executing', 'unknown', 'failed'}: continue
                 rows = self._rows(session, p.id)
                 by_key = {s.step_key:s for s in rows}
                 for s in rows:
