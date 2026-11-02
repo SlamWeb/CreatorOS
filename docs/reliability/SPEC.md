@@ -13,6 +13,7 @@
 - 已安全审查的8个受控交付模块归为 native_delivery_protocol（动态工具、artifact/file submission、native recovery/assets/thread continuity、graphic contract、structured handoff），组预算600秒；真实SDK事件是受控传输，不调用真实模型。
 - 已隔离验证的6个计划/后台模块归为 plan_workflows，预算600秒。旧 checkout 中 test_agent_plans/test_plan_tool_contract 的硬编码 operational URL 会在子进程启动前被拒绝并保留失败日志；必须合入对应隔离夹具修复后才能运行，不能把拒绝记为通过。
 - 素材、BGM、拆分任务、跨账号 Skill 及归档等10个已隔离模块归为 media_task_lifecycle，预算600秒。旧迁移测试先失败：后续版本新增了空表，旧断言误以为新增表是旧数据变化；现在逐个核实新表为空，同时继续完整比较旧表旧行、检查模型与迁移一致、外键和升级/降级。修订后58/58受控测试通过，原失败不覆盖。
+- Skill 编写、图片附件、反馈查询、干净重做、栏目改名和发布适配等15个本地模块归为 skill_chat_feedback 和 business_workflows；使用模拟发布传输，不会发布真实内容。本地受控回归91/91通过。栏目改名迁移测试通过历史 SQL 模式播种旧 Run 与版本，依然检查升级、降级、原行和约束，不再用新版 ORM 查询旧表。
 
 ## 2026-11-01 生图结果恢复小回归
 
