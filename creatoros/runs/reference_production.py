@@ -3,15 +3,15 @@ from hashlib import sha256
 import json
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from creatoros.integrations.topic_references import TopicReferenceStore
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, TopicDraft
 from creatoros.operations.service import PendingOperationError
-from creatoros.storage import ContentRun, ContentRevision, ContentAttempt, Series, WriteReceipt
-from creatoros.storage.models import ProductionQueueItem
+from creatoros.storage import ContentRun, Series, WriteReceipt
 from .errors import ContentRunError
 from .skill_selection import resolve_task_skill_ids, resolve_image_skills
+from .submission import ProductionSubmission
 from .task_contracts import TaskExecutionSpec
 
 
@@ -27,6 +27,7 @@ class ReferenceProductionInput(BaseModel):
 class ReferenceProductionService:
     def __init__(self, database, runs, executor, operations, *, library, references=None):
         self.database, self.runs, self.executor = database, runs, executor
+        self.submissions = ProductionSubmission(database, runs, executor)
         self.operations, self.library = operations, library
         self.references = references or TopicReferenceStore(database)
 
@@ -54,30 +55,22 @@ class ReferenceProductionService:
             TopicDraft(topic_id=topic_id, title=request.title, brief=reference.instructions,
                        source="manual", reference_id=reference.id)])])
         try:
-            # Same lock order as ProductionTaskService. The dispatcher cannot
-            # observe a Topic, Run or queue authorization before commit.
-            with self.executor._lock:
-                self.executor.start()
-                if self.executor._readiness_error():
-                    raise ContentRunError("生产队列暂不可用，请核对后重试。", code="executor_unavailable")
-                with self.runs._write_lock, self.database.session() as session:
-                    if self.database.engine.dialect.name == "sqlite":
-                        session.execute(text("BEGIN IMMEDIATE"))
-                    series = self._owned_series(session, series_id, creator_id)
+            with self.submissions.transaction(sqlite_immediate=True,
+                    unavailable_message="生产队列暂不可用，请核对后重试。") as submission:
+                session = submission.session
+                series = self._owned_series(session, series_id, creator_id)
+                receipt = session.get(WriteReceipt, request.request_id)
+                selection = self._selection(session, series, topic_id, request, receipt)
+                self.operations.execute_direct(
+                    "按参考作品与用户要求直接制作，不生成候选。", plan, scope_series_id=series_id,
+                    request_id=request.request_id, origin=origin if origin in {"web", "agent", "cli"} else "web",
+                    bound_session=session)
+                run = submission.create_reference_run(topic_id, execution_spec=selection,
+                                                      origin_session_id=origin_session_id)
+                if receipt is None:
                     receipt = session.get(WriteReceipt, request.request_id)
-                    selection = self._selection(session, series, topic_id, request, receipt)
-                    self.operations.execute_direct(
-                        "按参考作品与用户要求直接制作，不生成候选。", plan, scope_series_id=series_id,
-                        request_id=request.request_id, origin=origin if origin in {"web", "agent", "cli"} else "web",
-                        bound_session=session)
-                    run = self.runs._create(topic_id, idempotency_key=f"content:{topic_id}", bound_session=session,
-                                            execution_spec=selection, origin_session_id=origin_session_id)
-                    if receipt is None:
-                        receipt = session.get(WriteReceipt, request.request_id)
-                        receipt.response_json = {**receipt.response_json, "reference_production": {
-                            "skill_ids": request.skill_ids, "run_id": run.id}}
-                    self._enqueue_unstarted(session, run)
-                self.executor._wake.set()
+                    receipt.response_json = {**receipt.response_json, "reference_production": {
+                        "skill_ids": request.skill_ids, "run_id": run.id}}
         except PendingOperationError as error:
             raise ContentRunError(str(error), code="conflict") from error
         return run
@@ -110,18 +103,3 @@ class ReferenceProductionService:
             spec = existing.input_snapshot_json.get("execution_spec")
             return TaskExecutionSpec.model_validate(spec) if spec else None
         return None
-
-    def _enqueue_unstarted(self, session, run):
-        first = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run.id,
-                               ContentRevision.revision_number == 1))
-        attempted = session.scalar(select(ContentAttempt.id).where(ContentAttempt.revision_id == first.id).limit(1))
-        if run.status.value == "queued" and run.active_revision_number == 1 and not attempted:
-            item = session.scalar(select(ProductionQueueItem).where(
-                ProductionQueueItem.run_id == run.id, ProductionQueueItem.revision_id == first.id))
-            # A dispatch may have been marked running before a crash, even
-            # though no Attempt exists. Replaying the request cannot turn its
-            # reconciled needs_attention (or another terminal queue state) into
-            # a fresh authorization; only explicit recovery may do that.
-            if item is not None and item.status not in {"pending", "running"}:
-                return
-            self.executor.queue.enqueue(run.id, run.version, bound_session=session)
