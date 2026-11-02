@@ -18,7 +18,8 @@ from sqlalchemy import select, text
 from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
-from creatoros.storage.models import AgentPlan, AgentPlanStep, ContentRun, ContentRevision, ProductionTask, Topic, Series, MediaCollection
+from creatoros.storage.models import AgentPlan, AgentPlanStep, MediaCollection
+from creatoros.runs.observation import observe_production, only_revision_matches, run_topic_id
 from creatoros.runs.service import ContentRunError
 from creatoros.tools.execution import execute_tool_call
 from creatoros.tools.plans import validate_plan_arguments
@@ -79,16 +80,16 @@ def _production_scope(session, arguments, result=None):
         scope = {('reference', series, title)} if isinstance(series, str) and isinstance(title, str) else None
     elif action == 'fresh':
         source_id = arguments.get('source_run_id')
-        source = session.get(ContentRun, source_id) if isinstance(source_id, str) else None
-        scope = {source.topic_id} if source else None
+        source_topic = run_topic_id(session, source_id)
+        scope = {source_topic} if source_topic is not None else None
     else:
         topics = arguments.get('topic_ids') if action == 'start' else [arguments.get('topic_id')]
         scope = set(topics) if isinstance(topics, list) and all(isinstance(t, str) for t in topics) else None
     if scope is not None:
         receipts = (result or {}).get('items', [(result or {})])
         for item in receipts:
-            run = session.get(ContentRun, item.get('run_id')) if isinstance(item, dict) and item.get('run_id') else None
-            if run: scope.add(run.topic_id)
+            topic_id = run_topic_id(session, item.get('run_id')) if isinstance(item, dict) else None
+            if topic_id is not None: scope.add(topic_id)
     return scope
 
 
@@ -185,9 +186,7 @@ def _validate_plan_inputs(session, step, args, by_key):
         for item in row.result_json.get('items', []):
             if item.get('kind', 'image') != 'image':
                 raise ValueError('本计划收图步骤只能接收生图任务。')
-            revisions = list(session.scalars(select(ContentRevision).where(ContentRevision.content_run_id == item.get('run_id'))))
-            if (len(revisions) != 1 or revisions[0].id != item.get('revision_id')
-                    or revisions[0].artifact_digest != item.get('artifact_digest')):
+            if not only_revision_matches(session, item.get('run_id'), item.get('revision_id'), item.get('artifact_digest')):
                 raise ValueError('本次生图的版本已变化，请重新确认收图范围。')
     if step.tool == 'start_content_run':
         raw_tasks = (step.arguments_json or {}).get('tasks') or []
@@ -614,65 +613,7 @@ class PlanService:
 
     @staticmethod
     def _watch(session, plan, step):
-        data = deepcopy(step.result_json or {})
-        action = step.arguments_json.get('action')
-        items = data.get('items', []) if action in {'start', 'tasks'} else [data]
-        if not items or not isinstance(items, list): return ('failed','未获得可等待的制作任务。')
-        pending, failed = False, []
-        for item in items:
-            if not isinstance(item, dict): return ('failed', '制作回执格式无效。')
-            identity, task = item.get('id'), None
-            expected_run = item.get('run_id')
-            run = session.get(ContentRun, expected_run) if expected_run else None
-            if action == 'tasks':
-                task = session.get(ProductionTask, identity) if identity else None
-                if (not task or (expected_run and not run)
-                        or (run and (run.task_id != identity or run.topic_id != task.topic_id))):
-                    return ('failed', '制作任务与产物不匹配。')
-                if not run:
-                    run = session.scalar(select(ContentRun).where(ContentRun.task_id == identity)
-                                         .order_by(ContentRun.created_at).limit(1))
-                if run and not expected_run: item['run_id'] = run.id
-            topic = session.get(Topic, run.topic_id if run else task.topic_id) if run or task else None
-            series = session.get(Series, topic.series_id) if topic else None
-            if (run or task) and (not series or series.creator_id != plan.creator_id):
-                return ('failed', '制作任务不存在或账号范围不符。')
-            if (action == 'start' and run and run.topic_id != item.get('topic_id')) or (
-                    action == 'tasks' and isinstance(step.arguments_json.get('topic_id'), str)
-                    and task.topic_id != step.arguments_json['topic_id']):
-                return ('failed', '制作任务与选题不匹配。')
-            if not run:
-                if task and task.dispatch_state not in {'needs_attention', 'cancelled'}:
-                    pending = True
-                    item.pop('terminal_status', None); item.pop('error', None)
-                else:
-                    state = task.dispatch_state if task else 'failed'
-                    message = task.last_error if task else item.get('message')
-                    item['terminal_status'], item['error'] = state, message or '未获得可等待的制作任务。'
-                    failed.append(item['error'])
-                continue
-            if run.status.value in {'failed','interrupted','cancelled'}:
-                item['terminal_status'], item['error'] = run.status.value, run.error_message or '制作任务未完成。'
-                failed.append(item['error'])
-                continue
-            if run.status.value not in {'awaiting_approval','approved','published'}:
-                pending = True
-                item.pop('terminal_status', None); item.pop('error', None)
-                continue
-            revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id==run.id,
-                ContentRevision.revision_number==run.active_revision_number))
-            if not revision or not revision.artifact_digest:
-                item['terminal_status'], item['error'] = 'failed', '制作任务没有可核验产物。'
-                failed.append(item['error'])
-                continue
-            if item.get('revision_id') and (item['revision_id'] != revision.id or item.get('artifact_digest') != revision.artifact_digest):
-                item['terminal_status'], item['error'] = 'failed', '制作任务产物版本发生变化，请重新核对。'
-                failed.append(item['error'])
-                continue
-            item['revision_id'], item['artifact_digest'] = revision.id, revision.artifact_digest
-            item['terminal_status'] = 'succeeded'
-            item.pop('error', None)
-        step.result_json = data
-        if pending: return None
-        if failed: return ('failed', f'{len(failed)} 项制作未完成；其余已完成项目已保留。' + failed[0])
-        return ('succeeded',None)
+        observed = observe_production(session, plan.creator_id, step.arguments_json, step.result_json)
+        if observed.result is not None:
+            step.result_json = observed.result
+        return observed.terminal

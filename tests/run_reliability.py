@@ -15,6 +15,7 @@ from time import monotonic
 
 CASES = [
     ("plan_duplicate_steps", ["-m", "unittest", "tests.test_plan_duplicate_steps", "-v"]),
+    ("production_observation", ["-m", "unittest", "tests.test_production_observation", "-v"]),
     ("background_trace_routes", ["-m", "unittest", "tests.test_background_trace_routes", "-v"]),
     ("image_result_recovery", ["-m", "unittest", "tests.test_received_image_handoff", "-v"]),
     ("media_export_recovery", ["-m", "unittest", "tests.test_media_export_recovery", "-v"]),
