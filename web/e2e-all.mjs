@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { controlledEnvironment } from "./e2e-safety.mjs";
+import { classifyGroup } from "./e2e-results.mjs";
 
 // New specs require a deliberate safety/fixture review before joining this run.
 const groups = [
@@ -138,7 +139,7 @@ if (planning) {
         entry.unexpected_specs = [...seen].filter(name => !group.specs.includes(name));
         for (const key of ["expected", "unexpected", "skipped", "flaky"]) entry[key] = report.stats?.[key] ?? 0;
         entry.errors = (report.errors ?? []).map(error => error.message ?? String(error));
-        if (!result.error && result.status === 0 && !entry.missing_specs.length && !entry.unexpected_specs.length && !entry.unexpected) entry.status = "passed";
+        entry.status = classifyGroup({ ...entry, exitCode: result.status, launchError: result.error });
       } catch (error) {
         entry.errors = [`Invalid Playwright report: ${error.message}`];
       }

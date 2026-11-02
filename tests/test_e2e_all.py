@@ -19,6 +19,20 @@ def plan(*args, env=None):
 
 
 class AllBrowserSuitePlanTest(unittest.TestCase):
+    def test_a_skipped_or_flaky_group_is_not_reported_as_full_success(self):
+        script = '''
+import { classifyGroup } from './e2e-results.mjs';
+const clean = { exitCode: 0, expected: 2, unexpected: 0, skipped: 0, flaky: 0,
+  missing_specs: [], unexpected_specs: [], errors: [] };
+const result = [classifyGroup(clean), classifyGroup({...clean, skipped: 1}),
+  classifyGroup({...clean, flaky: 1}), classifyGroup({...clean, expected: 0}),
+  classifyGroup({...clean, unexpected: 1}), classifyGroup({...clean, missing_specs: ['x']})];
+if (JSON.stringify(result) !== JSON.stringify(['passed', 'incomplete', 'flaky', 'incomplete', 'failed', 'failed'])) process.exit(1);
+'''
+        result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=WEB,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_plan_accounts_for_every_spec_and_labels_live_as_not_run(self):
         env = os.environ.copy()
         env.update(CREATOROS_LIVE_REFERENCE_ROOT="must-not-be-read", AGENT_BASELINE="1")
