@@ -36,7 +36,7 @@ npm run build
 
 `web/node_modules` 可能是指向另一工作树的 Junction。隔离启动器和默认浏览器配置通过 Vite 的 `runner` 配置加载器与实例内缓存避免写入该共享目录；`npm run typecheck` 为每次调用使用独立的临时 TypeScript 缓存。手工调用不带 `--configLoader runner` 的 Vite 仍可能写入共享 `node_modules/.vite-temp`，也不要并行修改或安装共享依赖。
 
-本次不覆盖 `playwright.media.config.ts`（其夹具读取指定源库和现有产物）及各 `*-live` / `live-images` / `context-focus` / `media-agent` 配置；其中仍可能有固定端口、固定结果目录或外部调用，使用前须另行确认隔离，不能把上面的结论套用到它们。
+本次不覆盖各 `*-live` / `live-images` / `context-focus` / `media-agent` 配置；其中可能有固定端口、固定结果目录或外部调用，使用前须逐个确认隔离，不能把上面的结论套用到它们。素材集 `playwright.media.config.ts` 已要求显式隔离源库、产物目录、构建和结果目录；受控夹具与独立运行方式见 [浏览器回归入口](../web/E2E_RUNBOOK.md)。
 
 这些隔离措施不改变系统凭证或外部服务：启动器报告 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`CODEX_API_KEY` 是否来自进程环境或仓库 `.env`，不输出值。`CODEX_HOME` 若未单独设置，默认指向用户 `.codex`，其中的配置、登录状态、会话和 `generated_images` 仍可能被共享；Codex 还可能使用系统凭证存储。外部模型账户、网络服务、XHS MCP 服务以及 standalone CLI 的默认 `sessions/latest.json` 也未按本启动器自动隔离。自定义 `CODEX_HOME` 的登录和生图能力须另行验证；不要复制或打印凭证。
 
