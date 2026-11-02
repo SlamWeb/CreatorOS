@@ -186,6 +186,7 @@ def create_app(
             return None
 
     skill_library = SkillLibraryService(db, skill_installs.catalog, source_owner=skill_source_owner)
+    research.skill_library = skill_library
     agent_scope.skill_library = skill_library
     account_context.skill_library = skill_library
     scope_request_lock = asyncio.Lock()
