@@ -25,6 +25,7 @@ test("fifteen references reach one real Codex extraction and all remain in its d
   writeFileSync(info.outputPath("reservation.json"), JSON.stringify({ fixture_id: setup.fixture_id, reserved: true }));
   await page.goto("/skills");
   await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
+  const extraction = page.getByRole("form", { name: "从作品提炼" });
   const images = await page.evaluate(() => Array.from({ length: 15 }, (_, index) => {
     const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 400;
     const ctx = canvas.getContext("2d")!;
@@ -41,18 +42,19 @@ test("fifteen references reach one real Codex extraction and all remain in its d
     if (response.request().method() === "POST" && new URL(response.url()).pathname === "/api/skill-extractions/uploads")
       uploads.push((async () => { expect(response.status()).toBe(201); uploadResponses.push(await response.json()); })());
   });
-  await page.getByLabel("参考图片", { exact: true }).setInputFiles(images.map((data, index) => ({
+  await extraction.getByLabel("参考图片", { exact: true }).setInputFiles(images.map((data, index) => ({
     name: `sample-${String(index + 1).padStart(2, "0")}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64"),
   })));
-  await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(15);
+  await expect(extraction.getByLabel("已选图片").getByRole("img")).toHaveCount(15);
+  await extraction.getByLabel("提炼要求", { exact: true }).fill("综合全部15张同类示例，提炼一个可复用的色块标签卡片Skill，用于新颜色、新英文标签，不是复刻这15张。将全部15张原图保留在assets供用户检查。正文简短即可；不要生图、不要试生产、不要入库。");
+  const posts: unknown[] = [];
+  page.on("request", req => { if (req.method() === "POST" && new URL(req.url()).pathname === "/api/skill-extractions") posts.push(req.postDataJSON()); });
+  // The form uploads its selected files during submit, before creating a Job.
+  await extraction.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect.poll(() => uploads.length, { timeout: 60_000 }).toBe(15);
   await Promise.all(uploads);
   expect(uploadResponses).toHaveLength(15);
   expect(uploadResponses.map(item => item.id).sort()).toEqual([...expectedHashes].sort());
-  await page.getByLabel("提炼要求", { exact: true }).fill("综合全部15张同类示例，提炼一个可复用的色块标签卡片Skill，用于新颜色、新英文标签，不是复刻这15张。将全部15张原图保留在assets供用户检查。正文简短即可；不要生图、不要试生产、不要入库。");
-  const posts: unknown[] = [];
-  page.on("request", req => { if (req.method() === "POST" && new URL(req.url()).pathname === "/api/skill-extractions") posts.push(req.postDataJSON()); });
-  await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(page).toHaveURL(/extraction=[a-f0-9]{64}/, { timeout: 60_000 });
   const jobId = new URL(page.url()).searchParams.get("extraction")!;
   let job: any;
@@ -67,6 +69,7 @@ test("fifteen references reach one real Codex extraction and all remain in its d
   expect(job.uploads).toHaveLength(15); expect(job.status).toBe("ready");
   expect(job.uploads.map((item: { id: string }) => item.id).sort()).toEqual([...expectedHashes].sort());
   expect(job.skills).toHaveLength(1); expect(job.saved_skills).toEqual([]);
+  expect(job.files.some((file: {path: string}) => file.path === "SKILL.md")).toBe(true);
   expect(job.files.filter((file: {kind: string}) => file.kind === "image")).toHaveLength(15);
   const retainedHashes = await Promise.all(job.files.filter((file: { kind: string }) => file.kind === "image")
     .map(async (file: { role: string; path: string }) => {
@@ -77,7 +80,7 @@ test("fifteen references reach one real Codex extraction and all remain in its d
   expect(retainedHashes.sort()).toEqual([...expectedHashes].sort());
   await page.reload();
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Skill 文件" }).getByRole("button")).toHaveCount(16);
+  await expect(page.getByRole("navigation", { name: "Skill 文件" }).getByRole("button")).toHaveCount(job.files.length);
   expect(posts).toHaveLength(1);
   expect((await (await request.get("/api/skill-extractions")).json()).items.map((item: { id: string }) => item.id)).toEqual([jobId]);
   persist();

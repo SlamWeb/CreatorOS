@@ -76,13 +76,19 @@ def main():
                  for path in directory.rglob("production_usage.json")}
         activity = service.events(job["id"])
         assert any(e["kind"] == "message" for e in activity["items"]), "Real public Codex messages must be visible"
-        assert any(e["kind"] == "tool" for e in activity["items"]), "Real tool activity must be visible"
+        protocol = json.loads((directory / "draft_protocol.json").read_text(encoding="utf-8"))["protocol"]
+        if protocol == "creatoros-skill-files/v1":
+            assert any(e["item_id"] == "host-delivery" and e["status"] == "completed" for e in activity["items"])
+            assert (directory / "draft_delivery.json").is_file()
+        else:
+            assert any(e["kind"] == "tool" for e in activity["items"]), "Native file delivery needs real tool activity"
         assert service.list()[0].get("events") is None, "Full activity must not enter job list"
         report = {"passed": True, "thread_id": job["thread_id"], "extraction_thread_id": extraction_thread,
                   "skills": [s["name"] for s in job["skills"]], "mode": args.mode, "registered": not args.no_save,
                   "public_event_count": len(activity["items"]),
                   "model": EXTRACTION_MODEL, "effort": EXTRACTION_EFFORT, "revised": args.revise,
                   "native_draft_written": True, "reference_bytes_preserved": True,
+                  "draft_protocol": protocol, "draft_writer": "host" if protocol == "creatoros-skill-files/v1" else "codex-tools",
                   "usage": usage, "no_generation_or_search_observed": not forbidden, "quality_evaluated": False}
         (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(report, ensure_ascii=False), flush=True)
