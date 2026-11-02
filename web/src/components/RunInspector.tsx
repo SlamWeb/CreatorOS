@@ -112,7 +112,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
           {usedSkills.map(item => {
             const current = skills.data?.items.find(skill => skill.id === item.id);
             return <SkillReferenceButton key={`${item.role}-${item.id}`} id={item.id} known={current} fallback={item.name}
-              className="run-skill-link" onInspect={setInspectedSkill} />;
+              resolving={skills.isPending} className="run-skill-link" onInspect={setInspectedSkill} />;
           })}
           {skills.isError ? <button type="button" className="text-link" onClick={() => void skills.refetch()}>Skill 读取失败，重试</button> : null}
         </section> : null}

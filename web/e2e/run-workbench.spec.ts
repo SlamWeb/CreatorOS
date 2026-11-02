@@ -7,6 +7,69 @@ async function post(request: APIRequestContext, path: string, data: object) {
   return response.json();
 }
 
+test("a Run Skill waits for the catalog and opens after the first click", async ({ page, request }) => {
+  const account = await post(request, "/api/creators", { display_name: "Skill 读取时序" });
+  const series = await post(request, `/api/creators/${account.id}/series`, { name: "查看作品 Skill" });
+  await configureImageDefault(request, account.id, series.id);
+  const queue = await post(request, `/api/series/${series.id}/queue`, {
+    request_id: crypto.randomUUID(), topics: [{ title: "加载中的 Skill" }],
+  });
+  const run = await post(request, "/api/runs", { topic_id: queue.topic_ids[0] });
+  const catalog = await request.get("/api/producer-skills").then(response => response.json());
+  const builtin = catalog.items.find((item: { id: string }) => item.id === "knowledge-to-carousel");
+  expect(builtin).toBeTruthy();
+  let releaseCatalog!: () => void;
+  const catalogGate = new Promise<void>(resolve => { releaseCatalog = resolve; });
+  let catalogWaiting = false;
+  let versionRequests = 0;
+  await page.route(/\/api\/producer-skills$/, async route => {
+    const response = await route.fetch();
+    catalogWaiting = true;
+    await catalogGate;
+    await route.fulfill({ response });
+  });
+  await page.route(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/, route => {
+    versionRequests++;
+    return route.fulfill({ status: 422, json: { error: { message: "内置 Skill 没有版本列表" } } });
+  });
+  try {
+    await page.goto(`/runs/${run.id}`);
+    await expect.poll(() => catalogWaiting).toBe(true);
+    const skill = page.getByRole("region", { name: "本次运行使用的 Skill" })
+      .getByRole("button", { name: "knowledge-to-carousel", exact: true });
+    await expect(skill).toBeVisible();
+    await expect(skill).toBeDisabled();
+    expect(versionRequests).toBe(0);
+    releaseCatalog();
+    await expect(skill).toBeEnabled();
+    await skill.click();
+    await expect(page.getByRole("dialog", { name: "knowledge-to-carousel" })).toBeVisible();
+    expect(versionRequests).toBe(0);
+    await page.getByRole("button", { name: "关闭 Skill 详情" }).click();
+
+    // A historic version may be absent from the current catalog. A successful
+    // retry should open it immediately rather than requiring a second click.
+    await page.unroute(/\/api\/producer-skills$/);
+    await page.unroute(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/);
+    await page.route(/\/api\/producer-skills$/, route => route.fulfill({ json: { items: [] } }));
+    let attempts = 0;
+    await page.route(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/, route => {
+      attempts++;
+      return attempts === 1
+        ? route.fulfill({ status: 503, json: { error: { message: "暂时无法读取版本" } } })
+        : route.fulfill({ json: { family_id: builtin.id, items: [builtin], bindings: [] } });
+    });
+    await page.reload();
+    await expect(skill).toBeEnabled();
+    expect(attempts).toBe(1);
+    await skill.click();
+    await expect(page.getByRole("dialog", { name: "knowledge-to-carousel" })).toBeVisible();
+    expect(attempts).toBe(2);
+  } finally {
+    releaseCatalog();
+  }
+});
+
 test("content workbench exposes actions, keeps details on demand and archives through the existing API", async ({ page, request }, info) => {
   const account = await post(request, "/api/creators", { display_name: "工作台隔离验收" });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "词汇工作台" });
