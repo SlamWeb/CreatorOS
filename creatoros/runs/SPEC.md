@@ -1,5 +1,11 @@
 # ContentRun SPEC
 
+## 2026-11-03 参考图重放与未确认队列
+
+- 参考图请求重放时，即使首个 Revision 尚无 Attempt，只要原队列项已经进入 `needs_attention` 或其他非 `pending`/`running` 状态，也保留该队列项及其时间、错误和已有回执，不借重放重新授权生产。崩溃可能发生在队列标记 `running` 之后、创建 Attempt 之前；没有 Attempt 本身不能说明可以自动恢复。
+- 首次提交与正常 `pending` 重放继续使用已有原子入队语义。需要恢复时仍走现有显式授权入口；历史未标记回执保持相同保护，不改写旧回执。数据库外的冻结文件和模型调用不受事务回滚保护。
+- 真实隔离 SQLite 和受控执行器复现重启后的未确认状态，验证新旧回执重放、四路并发、既有数据库记录不变和显式恢复。相关参考图、持久队列、RSI 与锁顺序共 42 项测试通过；使用隔离文件及受控 Producer，不调用真实模型。
+
 ## 2026-11-03 参考图制作应用服务
 
 - 公开入口为 `creatoros.runs.ReferenceProductionService.submit(series_id, ReferenceProductionInput, creator_id=..., origin=..., origin_session_id=...)`。调用者提供已建立的账号身份；服务先校验归属，再在原子授权事务中复核。它不读取 HTTP 对象，也不返回 Web 查询 DTO。
