@@ -34,6 +34,7 @@ CASES = [
                           "tests.test_topic_edit_migration", "tests.test_topic_tool_contract",
                           "tests.test_host_tool_contract", "-v"]),
     ("reference_skill_boundary", ["-m", "unittest", "tests.test_reference_skill_boundary", "-v"]),
+    ("production_submission", ["-m", "unittest", "tests.test_production_submission", "-v"]),
     ("reference_production", ["-m", "unittest", "tests.test_reference_production_service",
         "tests.test_reference_skill_selection", "tests.test_reference_production_api",
         "tests.test_reference_tool_handoff", "tests.test_topic_references",

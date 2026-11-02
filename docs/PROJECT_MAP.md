@@ -28,7 +28,7 @@
 | 账号 Agent 对话 | [`web/src/features/agent`](../web/src/features/agent) | 会话状态、流式消息和记录展示；执行事实来自后端。 |
 | HTTP 接口 | [`creatoros/web`](../creatoros/web) | 把请求和响应接到业务服务，包含普通 API、SSE、文件等不同入口。 |
 | Agent 和工具 | [`creatoros/agent`](../creatoros/agent)、[`creatoros/tools`](../creatoros/tools) | 上下文、模型循环、工具权限及计划；计划只观察生产模块提供的结果，不自己判定产物有效。 |
-| 制作任务与执行 | [`creatoros/runs`](../creatoros/runs) | 任务、Run / Revision / Attempt、队列、执行权与状态；[production_tasks.py](../creatoros/runs/production_tasks.py) 管理拆分任务。 |
+| 制作任务与执行 | [`creatoros/runs`](../creatoros/runs) | 任务、Run / Revision / Attempt、队列、执行权与状态；[production_tasks.py](../creatoros/runs/production_tasks.py) 管拆分任务，[submission.py](../creatoros/runs/submission.py) 协调普通批量与参考图制作的初次事务和队列授权。 |
 | 图片/视频交付 | [`creatoros/delivery`](../creatoros/delivery) | 冻结输入、接收和核验文件及凭据；不启动 Codex，也不代替人工验收。 |
 | 生产和外部服务 | [`creatoros/integrations`](../creatoros/integrations) | Codex、Skill、图片视频和其他外部适配；当前仍有一些可继续拆分的共同依赖。 |
 | 数据表与数据库 | [`creatoros/storage`](../creatoros/storage) | SQLite 模型、数据库连接和迁移。 |
