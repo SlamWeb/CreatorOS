@@ -3,6 +3,8 @@
 ## 2026-11-02 完成视频回执的离线纠正
 
 - 对已完成但路径无效的旧视频回执，新增需要明确选择文件、先检查再显式执行的本地纠正；新 Attempt、双阶段归属复核及失败队列回执更新沿用 Run 的租约和事务边界，不重写旧回执，不调用 Codex。操作入口、前置条件、fingerprint、v2 摘要与证据局限见 [交付 SPEC](../delivery/SPEC.md)。`submit-tool-v1` 已完成但没有接收回执时禁止自动重试，保留现场核查。
+- 复制后或最终验收前发现栏目归属变化时，离线纠正写入不可技术重试的 `offline_video_correction_failed`，显示原 Attempt 和回执已保留、需要核对归属及纠正记录；旧失败队列不变，不自动启动生产。即使栏目恢复原归属，同一未完成纠正请求也只提示核查，不再创建 Attempt；当前没有自动接续这个未完成纠正的入口。
+- 对 checkpoint 尚未标完成但 worker 已记录最后同线程生产回合完成的窗口，显式恢复先核对两份证据；未接收视频时记为不可重试的 `video_delivery_unconfirmed`，不再发起 SDK 回合。会话或回执冲突单独以 `video_delivery_evidence_conflict` 停止，不能据此断言回合完成。历史 Attempt 原文件和原错误不重写。
 - 最初 `tests.test_video_delivery_contract.VideoDeliveryContractTests.test_invalid_completed_receipt_can_be_repaired_on_explicit_retry` 标为 expectedFailure；重构基线 `a28ad5b9bbc8` 的归档源码去掉标记后，在隔离文件和受控 SDK 替身下复现第二次 Attempt 报 `CodexProducerError: 文件缺失或过大`，同一失败在重构后再现两次：原回执指向 `missing.mp4`，工作目录另有 `finished.mp4`。旧断言要求重试自动修复，但原回执并不能证明应选择哪个文件；现改为测试普通重试拒绝猜测、显式选文件成功及缺证据/并发/取消/归属变化等拒绝。验证使用隔离 SQLite、受控 SDK 替身和可完整解码的本地 MP4，不代表真实 Codex 成片质量。
 
 ## 2026-11-02 生产与交付职责拆分

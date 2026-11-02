@@ -336,10 +336,15 @@ class OfflineVideoCorrectionTests(unittest.TestCase):
 
     def test_transfer_during_file_copy_cannot_finalize_for_new_owner(self):
         from creatoros.runs import video_correction
+        from creatoros.web.composition import SeriesCompositionService
+        from uuid import uuid4
 
         preview = video_correction.inspect_video_correction(self.service, self.run.id, self.old_attempt.id, 'finished.mp4')
         with self.database.session() as session:
             session.add(Creator(id='other', display_name='Other', platform=CreatorPlatform.XIAOHONGSHU))
+            series_version = session.get(Series, 'series').revision
+            session.add(ProductionQueueItem(run_id=self.run.id, revision_id=self.revision.id,
+                expected_version=preview['run_version'], status='failed', last_error='original failure'))
         reached, proceed = Event(), Event()
         original_validate = video_correction.validate_artifact
         outcomes = []
@@ -364,15 +369,44 @@ class OfflineVideoCorrectionTests(unittest.TestCase):
             worker.start()
             try:
                 self.assertTrue(reached.wait(30))
-                with self.database.session() as session:
-                    session.get(Series, 'series').creator_id = 'other'
+                SeriesCompositionService(self.database, self.fixture.catalog).assign_series(
+                    'series', creator_id='other', expected_revision=series_version,
+                    request_id=uuid4().hex, origin='web')
             finally:
                 proceed.set()
                 worker.join(timeout=30)
         self.assertFalse(worker.is_alive())
         self.assertEqual(len(outcomes), 1)
         self.assertIsInstance(outcomes[0], ContentRunError)
-        self.assertNotEqual(self.service.get(self.run.id).status, ContentRunStatus.AWAITING_APPROVAL)
+        failed = self.service.get(self.run.id)
+        self.assertEqual(failed.status, ContentRunStatus.FAILED)
+        self.assertFalse(failed.retryable)
+        self.assertEqual(failed.error_type, 'offline_video_correction_failed')
+        self.assertIn('原 Attempt', failed.error_message)
+        self.assertIn('不会自动生产', failed.error_message)
+        attempts = self.service.repository.list_attempts(self.revision.id)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0].id, self.old_attempt.id)
+        self.assertEqual(attempts[0].status, self.old_attempt.status)
+        self.assertEqual(attempts[0].error_type, self.old_attempt.error_type)
+        self.assertEqual(attempts[1].status.value, 'failed')
+        self.assertFalse(attempts[1].retryable)
+        with self.database.session() as session:
+            item = session.scalar(select(ProductionQueueItem).where(ProductionQueueItem.run_id == self.run.id))
+            self.assertEqual((item.status, item.last_error), ('failed', 'original failure'))
+        with patch.object(self.service, 'producer_factory', side_effect=AssertionError('must not start model')):
+            with self.assertRaises(ContentRunError):
+                self.service.execute(self.run.id)
+        with self.database.session() as session:
+            moved_revision = session.get(Series, 'series').revision
+        SeriesCompositionService(self.database, self.fixture.catalog).assign_series(
+            'series', creator_id='creator', expected_revision=moved_revision,
+            request_id=uuid4().hex, origin='web')
+        with patch.object(self.service, 'producer_factory', side_effect=AssertionError('must not start model')):
+            with self.assertRaisesRegex(ContentRunError, '此前恢复未完成'):
+                video_correction.apply_video_correction(self.service, self.run.id, self.old_attempt.id, 'finished.mp4',
+                    expected_version=preview['run_version'], expected_fingerprint=preview['fingerprint'])
+        self.assertEqual(len(self.service.repository.list_attempts(self.revision.id)), 2)
         self.assertEqual(tree_bytes(self.old_dir), self.old_files)
 
     def test_transfer_before_validation_does_not_succeed_or_finish_queue(self):
@@ -394,7 +428,12 @@ class OfflineVideoCorrectionTests(unittest.TestCase):
             with self.assertRaises(ContentRunExecutionError):
                 apply_video_correction(self.service, self.run.id, self.old_attempt.id, 'finished.mp4',
                     expected_version=preview['run_version'], expected_fingerprint=preview['fingerprint'])
-        self.assertEqual(self.service.get(self.run.id).status, ContentRunStatus.FAILED)
+        failed = self.service.get(self.run.id)
+        self.assertEqual(failed.status, ContentRunStatus.FAILED)
+        self.assertFalse(failed.retryable)
+        self.assertEqual(failed.error_type, 'offline_video_correction_failed')
+        self.assertIn('原 Attempt', failed.error_message)
+        self.assertIn('不会自动生产', failed.error_message)
         with self.database.session() as session:
             item = session.scalar(select(ProductionQueueItem).where(ProductionQueueItem.run_id == self.run.id))
             self.assertEqual(item.status, 'failed')
@@ -448,6 +487,50 @@ class OfflineVideoCorrectionTests(unittest.TestCase):
         with patch.object(self.service, 'producer_factory', side_effect=AssertionError('must not run')):
             with self.assertRaises(ContentRunError):
                 self.service.execute(run.id)
+
+    def test_completed_worker_receipt_without_checkpoint_never_restarts_sdk(self):
+        from creatoros.integrations.video_production import VideoCheckpoint, _identity
+
+        with self.database.session() as session:
+            session.add(Topic(id='checkpoint-gap-topic', series_id='series', title='Gap',
+                              source=TopicSource.MANUAL, position=3))
+        run = self.service._create('checkpoint-gap-topic', execution_spec=self.spec)
+
+        async def completed_before_checkpoint(producer, directory, spec, payload, checkpoint, request):
+            saved = VideoCheckpoint(input_digest=_identity(spec, payload), thread_id='gap-thread',
+                                    handoff_protocol='submit-tool-v1')
+            atomic_json(directory / VIDEO_CHECKPOINT, saved)
+            shutil.copyfile(self.fixture.clip, directory / 'work/finished.mp4')
+            record_thread(directory, saved.thread_id)
+            record_turn(directory, 'gap-turn', 'production', 'completed')
+            request['on_thread_started'](saved.thread_id)
+            raise OSError('injected checkpoint persistence failure')
+
+        with patch('creatoros.integrations.video_production._execute_video', completed_before_checkpoint):
+            with self.assertRaises(ContentRunExecutionError):
+                self.service.execute(run.id)
+        before = self.service.get(run.id)
+        self.assertTrue(before.retryable)
+        revision = self.service.get_active_revision(run.id)
+        first = self.service.repository.list_attempts(revision.id)[0]
+        first_files = tree_bytes(Path(first.output_directory))
+        self.assertIn('injected checkpoint persistence failure', first.error_message)
+        with patch('creatoros.integrations.video_production._execute_video', side_effect=AssertionError('must not start SDK')) as sdk:
+            with self.assertRaises(ContentRunExecutionError):
+                self.service.execute(run.id)
+        sdk.assert_not_called()
+        failed = self.service.get(run.id)
+        self.assertEqual(failed.error_type, 'video_delivery_unconfirmed')
+        self.assertFalse(failed.retryable)
+        attempts = self.service.repository.list_attempts(revision.id)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0].error_message, first.error_message)
+        self.assertEqual(attempts[0].error_type, first.error_type)
+        self.assertEqual(tree_bytes(Path(first.output_directory)), first_files)
+        with patch.object(self.service, 'producer_factory', side_effect=AssertionError('must not start model')):
+            with self.assertRaises(ContentRunError):
+                self.service.execute(run.id)
+        self.assertEqual(len(self.service.repository.list_attempts(revision.id)), 2)
 
 
 if __name__ == '__main__':

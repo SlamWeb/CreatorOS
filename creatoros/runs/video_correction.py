@@ -165,6 +165,14 @@ class _OfflineVideoProducer:
     def __init__(self, service: ContentRunService, preview: dict):
         self.service, self.preview = service, preview
 
+    def record_commit_failure(self, prepared, owner_id, error, elapsed, *, stage):
+        class CorrectionFailure(RuntimeError):
+            error_type = 'offline_video_correction_failed'
+
+        self.service._mark_failed(prepared['run_id'], prepared['attempt_id'], stage=stage,
+            error=CorrectionFailure(f'离线纠正未完成：{error} 原 Attempt 与回执已保留；请核对栏目归属和纠正记录，不会自动生产。'),
+            elapsed=elapsed, owner_id=owner_id)
+
     def guard_and_reconcile_commit(self, session, run, revision):
         """Recheck ownership at each commit; finish any failed queue receipt atomically."""
         _assert_current_scope(session, self.service, run, revision)

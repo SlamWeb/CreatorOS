@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 from pathlib import Path
 
@@ -9,6 +10,14 @@ from creatoros.integrations.media_tools import decode_media, probe_media
 from .files import atomic_json, safe_file
 from .task_execution import file_sha256
 from .video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery, _require_playable_mp4
+
+
+class VideoRecoveryUnconfirmed(ValueError):
+    """A completed turn did not durably acknowledge a video delivery."""
+
+
+class VideoRecoveryEvidenceConflict(ValueError):
+    """The worker receipt cannot be matched to the frozen video session."""
 
 
 def _delivery_source(directory, delivery):
@@ -70,6 +79,32 @@ class VideoSubmission:
                     "instruction": "现有视频保留；停止，不要重新渲染。"}
 
 
+def _check_unfinished_submission(previous, checkpoint):
+    if checkpoint.handoff_protocol != "submit-tool-v1" or checkpoint.accepted_sha256 or checkpoint.turn_completed:
+        return
+    path = previous / "worker_receipt.json"
+    if not path.exists() and not path.is_symlink():
+        return  # Older or interrupted attempts may not have a worker receipt.
+    try:
+        value = json.loads(safe_file(previous, path, 256_000).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise VideoRecoveryEvidenceConflict("视频执行回执不可读取，请核对原任务；不会自动重启。") from error
+    if (not checkpoint.thread_id.strip() or not isinstance(value, dict) or value.get("protocol") != "creatoros-worker-v1"
+            or value.get("thread_id") != checkpoint.thread_id or not isinstance(value.get("turns"), list)):
+        raise VideoRecoveryEvidenceConflict("视频执行回执与原会话不匹配，请核对原任务；不会自动重启。")
+    turns = value["turns"]
+    if not turns:
+        return
+    last = turns[-1]
+    if (not isinstance(last, dict) or not isinstance(last.get("id"), str) or not last["id"].strip()
+            or not isinstance(last.get("phase"), str) or not last["phase"].strip()
+            or not isinstance(last.get("status"), str)
+            or last["status"] not in {"running", "completed", "failed", "interrupted"}):
+        raise VideoRecoveryEvidenceConflict("视频执行回执不完整，请核对原任务；不会自动重启。")
+    if last["phase"] in {"production", "delivery_repair"} and last["status"] == "completed":
+        raise VideoRecoveryUnconfirmed("视频回合已结束但未确认交付；现有文件保留，请核对原任务，不会自动重启。")
+
+
 def _recover_work(directory, expected):
     for previous in sorted(directory.parent.glob("attempt-*"), reverse=True):
         if previous.name >= directory.name or previous.is_symlink() or getattr(previous, "is_junction", lambda: False)():
@@ -80,6 +115,7 @@ def _recover_work(directory, expected):
         checkpoint = VideoCheckpoint.model_validate_json(safe_file(previous, path).read_text(encoding="utf-8"))
         if checkpoint.input_digest != expected:
             raise ValueError("视频恢复输入与本 Revision 固定输入不同。")
+        _check_unfinished_submission(previous, checkpoint)
         for file in (previous / "work").rglob("*"):
             if file.is_file():
                 safe_file(previous / "work", file)

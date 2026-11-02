@@ -611,22 +611,37 @@ class ContentRunService:
             self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
             raise ContentRunExecutionError(run_id, "本次生产已停止，保留文件等待显式恢复。")
         commit_guard = getattr(producer_override, "guard_and_reconcile_commit", None)
-        self._mark_produced(
-            run_id, prepared["attempt_id"], produced, monotonic() - started, owner_id=owner,
-            commit_guard=commit_guard,
-        )
+        try:
+            self._mark_produced(
+                run_id, prepared["attempt_id"], produced, monotonic() - started, owner_id=owner,
+                commit_guard=commit_guard,
+            )
+        except ContentRunError as error:
+            # An explicit offline producer can preserve its own non-retryable
+            # failure semantics when the final ownership guard rejects a result.
+            failed_commit = getattr(producer_override, "record_commit_failure", None)
+            if commit_guard is not None and failed_commit is not None:
+                try:
+                    failed_commit(prepared, owner, error, monotonic() - started, stage="producing")
+                except ContentRunLeaseError:
+                    pass  # A newer owner must never be overwritten.
+            raise
         try:
             validation = self._validate_active(run_id, owner_id=owner, commit_guard=commit_guard)
         except Exception as error:
             try:
-                self._mark_failed(
-                    run_id,
-                    prepared["attempt_id"],
-                    stage="validating",
-                    error=error,
-                    elapsed=monotonic() - started,
-                    owner_id=owner,
-                )
+                failed_commit = getattr(producer_override, "record_commit_failure", None)
+                if commit_guard is not None and failed_commit is not None and isinstance(error, ContentRunError):
+                    failed_commit(prepared, owner, error, monotonic() - started, stage="validating")
+                else:
+                    self._mark_failed(
+                        run_id,
+                        prepared["attempt_id"],
+                        stage="validating",
+                        error=error,
+                        elapsed=monotonic() - started,
+                        owner_id=owner,
+                    )
             except ContentRunLeaseError:
                 pass
             raise ContentRunExecutionError(run_id, str(error)) from error

@@ -15,7 +15,8 @@ from creatoros.delivery.task_execution import file_sha256, freeze_execution_spec
 from creatoros.delivery.video import (VIDEO_MANIFEST, VIDEO_CHECKPOINT, VideoArtifact, VideoCheckpoint,
     VideoDelivery, _decoded_video_metadata, _identity, _require_playable_mp4,
     validate_video_artifact, video_delivery_schema)
-from creatoros.delivery.video_receipt import VideoSubmission, _delivery_source, _recover_work
+from creatoros.delivery.video_receipt import (VideoRecoveryEvidenceConflict, VideoRecoveryUnconfirmed,
+                                               VideoSubmission, _delivery_source, _recover_work)
 
 from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAME,
                     CodexProducerError, CodexUsage, ProductionSession,
@@ -193,7 +194,12 @@ def _produce_video(producer, **request):
     record_task(directory, kind="production", scope={key: payload[key] for key in
                 ("pack_id", "creator_id", "series_id", "topic_id")},
                 input_ref="production_request.txt", deliverable=VIDEO_MANIFEST)
-    checkpoint = _recover_work(directory, _identity(spec, payload))
+    try:
+        checkpoint = _recover_work(directory, _identity(spec, payload))
+    except VideoRecoveryUnconfirmed as error:
+        raise CodexProducerError(str(error), error_type="video_delivery_unconfirmed") from error
+    except VideoRecoveryEvidenceConflict as error:
+        raise CodexProducerError(str(error), error_type="video_delivery_evidence_conflict") from error
     accepted = checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
     if checkpoint is not None and checkpoint.turn_completed and checkpoint.handoff_protocol == "submit-tool-v1" and not accepted:
         raise CodexProducerError("视频回合已结束但未确认交付；现有文件保留，请核对原任务，不会自动重启。",
