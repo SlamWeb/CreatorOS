@@ -1,5 +1,10 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-03 计划续接的结束回执
+
+- 自动续接不再在 finally 或遇到已有 request_id 时无条件确认完成。完整处理才 done；首次无输出的瞬时连接失败按同一事件/请求有界重试，任何输出或工具后的失败保留 unknown 并提示核对，确定失败与耗尽保留 failed。
+- 尝试阶段由宿主在 provider 输出转交 Agent 前持久化；同一事件的宿主观察消息去重，重启保留预算与 SQLite 退避。旧已失败/中断而没有阶段证据的请求不自动重放，也不改写已有 done 事件。授权范围仍由原 continuation 工具声明、账号和计划服务守卫执行，详见 agent/SPEC.md。
+
 ## 2026-11-03 · 选题卡片的实际 Skill
 
 - 选题卡片读取已冻结 Run 的 `execution_spec.skills` 显示实际 Skill 版本；单项制作直接预览时也展示，多个制作任务不合并成误导性的单一版本。旧单 Skill、旧双 Skill 和外部导入仍按原格式显示，不更改快照。
