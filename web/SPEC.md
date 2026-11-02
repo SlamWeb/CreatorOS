@@ -1,5 +1,12 @@
 # CreatorOS Studio Web SPEC
 
+## Skill 批量换图真实评测入口隔离（2026-11-03）
+
+- `e2e:skill-edit-live` 为原六旧参考图→两新图及 Markdown 批量更新评测建立独立入口；每次新建 SQLite、随机账号/栏目、私有 Skill/本地 PNG、独立构建、非生产端口与结果目录。普通 `e2e:all` 和旧素材集 Agent 配置均不发现该 live 用例；不改产品业务实现。
+- 默认只有显式 `--prepare-only`，不启动模型或浏览器。`--live` 同时要求 `CREATOROS_SKILL_EDIT_LIVE=1` 和环境中的 DeepSeek 密钥，仅启聊天；封住生产、研究、安装、发布和无关账号/Skill 家族写入。
+- 服务启动、浏览器归属、首次写入 claim、会话和唯一用户 turn 均有独占标记；失败/超时/结果未知时不删标记、不自动重试或重发，保留现场。真实执行及证据检查命令见 [E2E_RUNBOOK](E2E_RUNBOOK.md)。本轮先验证零模型隔离与配置，不宣称真实 DeepSeek 浏览器评测已运行。
+- 实际验证：`tests.test_skill_edit_batch_isolation` 8/8（154.148 秒），含真实 loopback HTTP、ASGI 六旧图换两图与正文/旧版保护、账号/Skill 家族写入边界、独占与未知结果保护、配置发现及敏感变量不进入报告；无模型调用。类型检查、独立 Vite 构建与 `--prepare-only` 通过，证据 `tmp/skill-edit-batch-5gfdNw/summary.json`，明确 `prepared_not_run` / 0 passed；未启动付费浏览器任务。
+
 ## 栏目归属与删除的在途状态（2026-11-02）
 
 - 栏目归属调整和删除按栏目记录在途状态；用户离开栏目或页面后返回，未完成操作仍显示处理中并禁止同栏目的重复提交，失败后仍可查看错误。同栏目归属和删除互斥，不同栏目互不阻塞。服务器仍负责归属、revision 与权限校验。
