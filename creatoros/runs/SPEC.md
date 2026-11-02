@@ -1,5 +1,10 @@
 # ContentRun SPEC
 
+## 2026-11-03 初始生产授权事务边界
+
+- `ProductionSubmission.transaction()` 统一执行器就绪检查、执行器锁 → Run 写锁、数据库事务，以及提交成功后的唤醒。事务对象提供普通制作任务和参考图的初始 Run/队列授权操作；参考图保留 `BEGIN IMMEDIATE` 与未确认队列不自动重入队的规则。批量请求仍使用原来的延迟事务，staged 的冻结、素材导出和 dispatch 未迁移。
+- 业务调用方继续使用事务对象暴露的 SQLAlchemy session 维护各自选题、任务、归属、请求回执及幂等规则；这个边界不阻止调用方自行提交 session，也不是新的认证或独立进程协调机制。事务回滚不回滚 Skill/素材冻结文件，执行器启动恢复仍先于本次授权事务。
+
 ## 2026-11-03 参考图重放与未确认队列
 
 - 参考图请求重放时，即使首个 Revision 尚无 Attempt，只要原队列项已经进入 `needs_attention` 或其他非 `pending`/`running` 状态，也保留该队列项及其时间、错误和已有回执，不借重放重新授权生产。崩溃可能发生在队列标记 `running` 之后、创建 Attempt 之前；没有 Attempt 本身不能说明可以自动恢复。

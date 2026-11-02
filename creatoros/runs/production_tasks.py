@@ -11,10 +11,9 @@ from pydantic import Field, model_validator
 from sqlalchemy import func, select
 
 from creatoros.storage import ContentRun, MediaCollection, ProductionTask, Topic, TopicRemoval, WriteReceipt
-from creatoros.storage.models import ProductionQueueItem
 from .models import RunModel, SkillOverrides
 from .service import ContentRunError
-from .repository import ContentRunRepository
+from .submission import ProductionSubmission
 
 
 class SelectedTaskSkill(RunModel):
@@ -68,6 +67,7 @@ def _digest(value):
 class ProductionTaskService:
     def __init__(self, database, runs, executor, *, library=None, collections=None, materials=None):
         self.database, self.runs, self.executor = database, runs, executor
+        self.submissions = ProductionSubmission(database, runs, executor)
         from .staged_tasks import StagedTasks
         self.stages = StagedTasks(self, library, collections, materials)
         executor.advance_tasks = self.stages.advance
@@ -95,75 +95,66 @@ class ProductionTaskService:
             if item.get("inputs") is not None and item["inputs"].get("bgm_reference") is None:
                 item["inputs"].pop("bgm_reference", None)  # Keep old file-only replay hashes stable.
         digest = _digest(dict(topic_id=topic_id, tasks=canonical_tasks))
-        # Keep dispatcher and writes out until every queue authorization commits.
-        with self.executor._lock:
-            self.executor.start()
-            blocked = self.executor._readiness_error()
-            if blocked:
-                raise ContentRunError(blocked, code="executor_unavailable")
-            with self.runs._write_lock, self.database.session() as session:
-                topic = session.get(Topic, topic_id)
-                if topic is None or session.get(TopicRemoval, topic_id) is not None:
-                    raise ContentRunError("选题不存在或已移除。", code="not_found", status_code=404)
-                series = topic.series
-                if (not series.is_active or not series.creator_id or not series.creator or not series.creator.is_active):
-                    raise ContentRunError("账号或栏目未启用。")
-                receipt = session.get(WriteReceipt, request_id)
-                if receipt is not None:
-                    saved = receipt.response_json
-                    if (receipt.operation != "queue_topics" or receipt.resource_id != topic_id
-                            or saved.get("kind") != "production_tasks" or saved.get("request_digest") != digest
-                            or saved.get("creator_id") != series.creator_id):
-                        raise ContentRunError("请求标识已用于不同的制作要求。", code="idempotency_conflict")
-                    identifiers = saved["task_ids"]
-                else:
-                    self.runs._assert_no_active_iteration(session, topic_id)
-                    collection_id = session.scalar(select(ProductionTask.collection_id).where(
-                        ProductionTask.topic_id == topic_id, ProductionTask.collection_id.is_not(None)).limit(1))
-                    if collection_id is not None:
-                        collection = session.get(MediaCollection, collection_id)
-                        if collection is None or collection.creator_id != series.creator_id or collection.topic_id != topic_id:
-                            raise ContentRunError("制作素材集的归属与当前选题不一致。", code="scope_conflict", status_code=403)
-                    if collection_id is None:
-                        collection_id = str(uuid4())
-                        session.add(MediaCollection(id=collection_id, creator_id=series.creator_id, topic_id=topic_id,
-                            name=topic.title[:120], request_id=f"production-tasks:{topic_id}",
-                            create_digest=_digest(dict(kind="production_tasks", topic_id=topic_id)),
-                            run_ids_json=[], order_ids_json=[], excluded_ids_json=[]))
-                        session.flush()
-                    position = session.scalar(select(func.max(ProductionTask.position)).where(
-                        ProductionTask.topic_id == topic_id))
-                    position = 0 if position is None else position + 1
-                    identifiers = []
-                    for index, item in enumerate(inputs):
-                        task = ProductionTask(id=str(uuid4()), topic_id=topic_id, title=item.title, brief=item.brief,
-                            position=position + index, collection_id=collection_id, create_request_id=request_id)
-                        session.add(task)
-                        session.flush()
-                        try:
-                            staged = self.stages.prepare(session, task, topic, item,
-                                                        origin_session_id, context_snapshot_ref)
-                            if staged:
-                                if not task.dependency_json:
-                                    self.stages.dispatch(session, task, topic)
-                                identifiers.append(task.id)
-                                continue
-                        except ContentRunError:
-                            raise
-                        except ValueError as error:
-                            raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
-                        run = self.runs._create(topic_id, task_id=task.id, bound_session=session,
-                            skill_overrides=item.skill_overrides, origin_session_id=origin_session_id,
-                            context_snapshot_ref=context_snapshot_ref)
-                        revision = ContentRunRepository(self.database, session=session).get_revision_number(run.id, 1)
-                        session.add(ProductionQueueItem(run_id=run.id, revision_id=revision.id,
-                            expected_version=run.version, status="pending"))
-                        identifiers.append(task.id)
-                    session.add(WriteReceipt(request_id=request_id, operation="queue_topics", resource_id=topic_id,
-                        origin="web", response_json=dict(kind="production_tasks", request_digest=digest,
-                            creator_id=series.creator_id, task_ids=identifiers)))
+        with self.submissions.transaction() as submission:
+            session = submission.session
+            topic = session.get(Topic, topic_id)
+            if topic is None or session.get(TopicRemoval, topic_id) is not None:
+                raise ContentRunError("选题不存在或已移除。", code="not_found", status_code=404)
+            series = topic.series
+            if (not series.is_active or not series.creator_id or not series.creator or not series.creator.is_active):
+                raise ContentRunError("账号或栏目未启用。")
+            receipt = session.get(WriteReceipt, request_id)
+            if receipt is not None:
+                saved = receipt.response_json
+                if (receipt.operation != "queue_topics" or receipt.resource_id != topic_id
+                        or saved.get("kind") != "production_tasks" or saved.get("request_digest") != digest
+                        or saved.get("creator_id") != series.creator_id):
+                    raise ContentRunError("请求标识已用于不同的制作要求。", code="idempotency_conflict")
+                identifiers = saved["task_ids"]
+            else:
+                self.runs._assert_no_active_iteration(session, topic_id)
+                collection_id = session.scalar(select(ProductionTask.collection_id).where(
+                    ProductionTask.topic_id == topic_id, ProductionTask.collection_id.is_not(None)).limit(1))
+                if collection_id is not None:
+                    collection = session.get(MediaCollection, collection_id)
+                    if collection is None or collection.creator_id != series.creator_id or collection.topic_id != topic_id:
+                        raise ContentRunError("制作素材集的归属与当前选题不一致。", code="scope_conflict", status_code=403)
+                if collection_id is None:
+                    collection_id = str(uuid4())
+                    session.add(MediaCollection(id=collection_id, creator_id=series.creator_id, topic_id=topic_id,
+                        name=topic.title[:120], request_id=f"production-tasks:{topic_id}",
+                        create_digest=_digest(dict(kind="production_tasks", topic_id=topic_id)),
+                        run_ids_json=[], order_ids_json=[], excluded_ids_json=[]))
                     session.flush()
-            self.executor._wake.set()
+                position = session.scalar(select(func.max(ProductionTask.position)).where(
+                    ProductionTask.topic_id == topic_id))
+                position = 0 if position is None else position + 1
+                identifiers = []
+                for index, item in enumerate(inputs):
+                    task = ProductionTask(id=str(uuid4()), topic_id=topic_id, title=item.title, brief=item.brief,
+                        position=position + index, collection_id=collection_id, create_request_id=request_id)
+                    session.add(task)
+                    session.flush()
+                    try:
+                        staged = self.stages.prepare(session, task, topic, item,
+                                                    origin_session_id, context_snapshot_ref)
+                        if staged:
+                            if not task.dependency_json:
+                                self.stages.dispatch(session, task, topic)
+                            identifiers.append(task.id)
+                            continue
+                    except ContentRunError:
+                        raise
+                    except ValueError as error:
+                        raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
+                    submission.create_task_run(topic_id, task_id=task.id,
+                        skill_overrides=item.skill_overrides, origin_session_id=origin_session_id,
+                        context_snapshot_ref=context_snapshot_ref)
+                    identifiers.append(task.id)
+                session.add(WriteReceipt(request_id=request_id, operation="queue_topics", resource_id=topic_id,
+                    origin="web", response_json=dict(kind="production_tasks", request_digest=digest,
+                        creator_id=series.creator_id, task_ids=identifiers)))
+                session.flush()
         return self._list(topic_id, identifiers)
 
     def list(self, topic_id):
