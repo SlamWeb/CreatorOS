@@ -30,6 +30,14 @@ STEP_KEY = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 CONTRACT_PREFIX = 'v2:'
 
 
+class PlanEditRejected(ContentRunError):
+    """Edit validation failed before the transaction committed and rolled back."""
+
+    def __init__(self, message, *, conflict=False):
+        super().__init__(message, code='plan_edit_conflict' if conflict else 'plan_validation_rejected',
+                         status_code=409 if conflict else 422)
+
+
 def _hash(value):
     return sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
@@ -321,23 +329,48 @@ class PlanService:
         return row.tool in {'get_content_run', 'get_producer_skill'} or (
             (row.result_json or {}).get('_error_type') in {'invalid_arguments', 'agent_scope_rejected'})
 
-    def edit(self, sid, identity, expected_version, steps):
+    def edit(self, sid, identity, expected_version, steps, mode='replace', remove_step_ids=None):
         owner = self._owner(sid)
         normalized = [dict(id=x['id'],title=x['title'],tool=x['tool'],arguments=x.get('arguments',{}),
             depends_on=x.get('depends_on',[]),wait_for_completion=x.get('wait_for_completion',False)) for x in steps]
         with self._write() as session:
             p = self._find(session, sid, owner, identity)
             _require_current_contract(p)
-            _validate_steps(normalized, owner)
-            if p.version != expected_version: raise ContentRunError('计划已变化，请刷新。', code='plan_conflict', status_code=409)
+            if p.version != expected_version: raise PlanEditRejected('计划已变化，请刷新。', conflict=True)
             existing = {s.step_key:s for s in self._rows(session, identity)}
+            edits = {s['id'] for s in normalized}
+            removals = list(remove_step_ids or [])
+            if mode not in {'replace', 'merge'}:
+                raise PlanEditRejected('不支持的计划编辑方式。')
+            if len(edits) != len(normalized) or len(set(removals)) != len(removals):
+                raise PlanEditRejected('步骤 ID 不能重复。')
+            if mode == 'replace' and removals:
+                raise PlanEditRejected('完整替换时不能额外指定删除步骤。')
+            if mode == 'merge':
+                if not edits and not removals:
+                    raise PlanEditRejected('请至少修改、新增或明确删除一步。')
+                if edits.intersection(removals):
+                    raise PlanEditRejected('同一步骤不能同时修改和删除。')
+                if set(removals) - set(existing):
+                    raise PlanEditRejected('要删除的步骤不存在，请刷新计划。')
+                updates = {step['id']: step for step in normalized}
+                fields = ('id', 'title', 'tool', 'arguments', 'depends_on', 'wait_for_completion')
+                prior = [dict(id=row.step_key, title=row.title, tool=row.tool, arguments=row.arguments_json,
+                              depends_on=row.depends_on_json, wait_for_completion=row.wait_for_completion)
+                         for row in existing.values()]
+                normalized = [updates.pop(step['id'], {key: step[key] for key in fields})
+                              for step in prior if step['id'] not in removals] + list(updates.values())
+            try:
+                _validate_steps(normalized, owner)
+            except ValueError as error:
+                raise PlanEditRejected(str(error)) from error
             supplied = {s['id']:s for s in normalized}
             prior_production = [s for s in existing.values() if s.tool == 'start_content_run' and s.status not in {'pending', 'blocked'}]
             added_production = [s for s in normalized if s['tool'] == 'start_content_run' and (
                 s['id'] not in existing or (existing[s['id']].status in {'pending', 'blocked'} and
-                (existing[s['id']].tool != s['tool'] or existing[s['id']].arguments_json != s['arguments'])))]
+                (existing[s['id']].tool != s['tool'] or _hash(existing[s['id']].arguments_json) != _hash(s['arguments']))))]
             if added_production and any(s.status in {'running', 'waiting', 'failed', 'unknown'} for s in prior_production):
-                raise ContentRunError('已有生产仍在运行、失败或结果未知；请核对原任务，不能添加替代生产。', code='plan_conflict', status_code=409)
+                raise PlanEditRejected('已有生产仍在运行、失败或结果未知；请核对原任务，不能添加替代生产。', conflict=True)
             for new in added_production:
                 for old in prior_production:
                     previous = old.arguments_json or {}
@@ -348,14 +381,14 @@ class PlanService:
                     old_titles, new_titles = _image_titles(previous), _image_titles(current)
                     if old_titles == set() or new_titles == set(): continue  # video is not image replay
                     if old_titles is None or new_titles is None or old_titles & new_titles:
-                        raise ContentRunError('该选题的同名生图任务已有提交记录，不能另建步骤重复提交。', code='plan_conflict', status_code=409)
+                        raise PlanEditRejected('该选题的同名生图任务已有提交记录，不能另建步骤重复提交。', conflict=True)
             for key,row in existing.items():
                 prior = dict(id=key,title=row.title,tool=row.tool,arguments=row.arguments_json,
                              depends_on=row.depends_on_json,wait_for_completion=row.wait_for_completion)
-                changed = supplied.get(key) != prior
+                changed = key not in supplied or _hash(supplied[key]) != _hash(prior)
                 repairable = self._safe_production_validation_failure(row) and key in supplied and supplied[key]['tool'] == row.tool
                 if row.status not in {'pending', 'blocked'} and changed and not repairable:
-                    raise ContentRunError('已开始的步骤不能修改或移除。', code='plan_conflict', status_code=409)
+                    raise PlanEditRejected('已开始的步骤不能修改或移除。', conflict=True)
                 if changed and repairable:
                     history = list((row.result_json or {}).get('_repair_history', []))
                     history.append({'arguments': deepcopy(row.arguments_json), 'error': row.error,
@@ -367,7 +400,8 @@ class PlanService:
                 if row is None:
                     row = AgentPlanStep(id=identity+':'+item['id'],plan_id=identity,step_key=item['id'],status='pending')
                     session.add(row)
-                if row.status == 'blocked': row.status, row.error = 'pending', None
+                if row.status == 'blocked' and (mode == 'replace' or item['id'] in edits):
+                    row.status, row.error = 'pending', None
                 row.title,row.position,row.tool = item['title'],pos,item['tool']
                 row.arguments_json,row.depends_on_json,row.wait_for_completion = item['arguments'],item['depends_on'],item['wait_for_completion']
             p.version += 1

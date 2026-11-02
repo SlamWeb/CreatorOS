@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-03 · 计划增量编辑
+
+模型 `manage_plan(update)` 可只提交需改动的完整步骤；原 ID 修改、全新 ID 追加。明确删除使用 `remove_step_ids`，不可删除已开始步骤，也不可留下悬空依赖。Schema 和运行时均要求至少一项变更；事务、版本与未知回执规则见 [Agent SPEC](../agent/SPEC.md#2026-11-03-普通对话与续接统一增量编辑)。
+
 ## 2026-11-03 · 参考图本次 Skill
 
 既有 start_content_run 的 reference action 可选一份或多份精确 skill_ids，复用制作任务的账号权限与版本冻结；省略沿用默认，不改栏目绑定。宿主请求键不随 Skill 改选变化，同一请求改选返回幂等冲突，未知结果先核对原 Run。

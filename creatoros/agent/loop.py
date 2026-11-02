@@ -66,6 +66,10 @@ def _unknown_continuation_write(tool_call, result, context):
     if (status in {403, 415} and result.error_type in
             {"agent_scope_rejected", "origin_rejected", "json_required"}):
         return False  # Studio middleware rejected the request before its route
+    if action == "update" and (status, result.error_type) in {
+        (422, "plan_validation_rejected"), (409, "plan_edit_conflict")
+    }:
+        return False  # The plan transaction rejected and rolled back this edit.
     # Transport loss, invalid replies, exceptions and other HTTP failures after
     # write dispatch cannot prove that the plan transaction did not commit.
     return True

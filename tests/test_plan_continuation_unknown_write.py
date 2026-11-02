@@ -105,7 +105,8 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
                         owner.plans.action(owner.sid, owner.pid, current["version"], payload["action"],
                                            payload.get("step_id"))
                     else:
-                        owner.plans.edit(owner.sid, owner.pid, current["version"], payload["steps"])
+                        owner.plans.edit(owner.sid, owner.pid, current["version"], payload["steps"],
+                                         payload.get("mode", "replace"), payload.get("remove_step_ids"))
                     owner.committed += 1
                 if owner.mode == "commit_success":
                     return owner.plans.get(owner.sid, owner.pid)
@@ -117,6 +118,8 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
                     raise StudioClientError("invalid response after commit", "studio_invalid_response")
                 if owner.mode == "commit_409":
                     raise StudioClientError("ambiguous response after commit", "conflict", status_code=409)
+                if owner.mode == "commit_422":
+                    raise StudioClientError("ambiguous validation after commit", "invalid_request", status_code=422)
                 raise StudioClientError("write response lost", "studio_outcome_unknown")
 
         client_patch = patch("creatoros.tools.studio.StudioClient", IsolatedClient)
@@ -186,8 +189,8 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
         images = next(message for message in messages if message.get("creatoros_source") == "tool_images")
         self.assertEqual(images["content"][1]["attachment"], {"id": "isolated-image"})
 
-    def test_write_response_500_invalid_json_or_ambiguous_409_is_unknown(self):
-        for mode in ("commit_500", "commit_503_unavailable", "commit_invalid", "commit_409"):
+    def test_write_response_500_invalid_json_or_ambiguous_409_and_422_is_unknown(self):
+        for mode in ("commit_500", "commit_503_unavailable", "commit_invalid", "commit_409", "commit_422"):
             with self.subTest(mode=mode):
                 # Each subtest needs its own pending continuation and account.
                 with ContinuationUnknownWriteTests.isolated_case() as case:
@@ -246,6 +249,16 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
         self.assertEqual([request[0] for request in self.requests], ["GET", "PATCH"])
         self.assert_unknown_and_no_more_calls(doc, 2)
         self.assertEqual(self.committed, 1)
+
+    def test_update_generic_422_after_commit_is_still_unknown(self):
+        self.mode = "commit_422"
+        changed = {**self.steps[1], "title": "changed once"}
+        update = self.plan_call("update", expected_version=self.version, steps=[changed])
+        doc = self.start_continuation([[update], [update], []])
+        self.assertEqual([request[0] for request in self.requests], ["GET", "PATCH"])
+        self.assert_unknown_and_no_more_calls(doc, 2)
+        self.assertEqual(self.committed, 1)
+        self.assertEqual(self.plans.get(self.sid, self.pid)["steps"][1]["title"], "changed once")
 
     def test_read_failure_is_not_an_unknown_write(self):
         self.mode = "read_failed"
@@ -310,7 +323,8 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
                     if method == "GET":
                         return httpx.Response(200, json=case.plans.get(case.sid, case.pid))
                     if method == "PATCH":
-                        case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"])
+                        case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"],
+                                        payload.get("mode", "replace"), payload.get("remove_step_ids"))
                     else:
                         case.plans.action(case.sid, case.pid, payload["expected_version"],
                                           payload["action"], payload.get("step_id"))
@@ -418,7 +432,8 @@ class ContinuationUnknownWriteTests(unittest.TestCase):
                 def transport(request):
                     payload = json.loads(request.content)
                     if request.method == "PATCH":
-                        result = case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"])
+                        result = case.plans.edit(case.sid, case.pid, payload["expected_version"], payload["steps"],
+                                                 payload.get("mode", "replace"), payload.get("remove_step_ids"))
                     else:
                         result = case.plans.action(case.sid, case.pid, payload["expected_version"],
                                                    payload["action"], payload.get("step_id"))

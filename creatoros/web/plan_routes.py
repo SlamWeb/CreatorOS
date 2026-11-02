@@ -20,6 +20,8 @@ class Create(BaseModel):
 class Edit(BaseModel):
     expected_version: int
     steps: list[Step]
+    mode: Literal['replace', 'merge'] = 'replace'
+    remove_step_ids: list[str] = Field(default_factory=list, max_length=100)
 
 class Action(BaseModel):
     expected_version: int
@@ -30,8 +32,7 @@ def routes(service):
     router = APIRouter(prefix='/api/agent/sessions/{session_id}/plans')
     def call(fn, *args):
         try: return fn(*args)
-        except ContentRunError as exc:
-            raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
+        except ContentRunError: raise  # The app's handler preserves the precise domain error code.
         except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
     @router.get('')
     def listing(session_id: str): return service.list(session_id)
@@ -43,7 +44,8 @@ def routes(service):
     def detail(session_id: str, plan_id: str): return service.get(session_id, plan_id)
     @router.patch('/{plan_id}')
     def edit(session_id: str, plan_id: str, body: Edit):
-        return call(service.edit, session_id, plan_id, body.expected_version, [s.model_dump() for s in body.steps])
+        return call(service.edit, session_id, plan_id, body.expected_version, [s.model_dump() for s in body.steps],
+                    body.mode, body.remove_step_ids)
     @router.post('/{plan_id}/actions')
     def action(session_id: str, plan_id: str, body: Action):
         return call(service.action, session_id, plan_id, body.expected_version, body.action, body.step_id)

@@ -1,5 +1,9 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-03 · 计划编辑接口
+
+原有计划 PATCH 默认完整替换，仍允许删除未开始步骤；Agent 显式传 `mode=merge` 使用事务内增量与 `remove_step_ids`，两种方式共享乐观锁和执行中步骤防护。仅事务提交前规则校验/冲突有明确拒绝码，一般 HTTP 错误或断线不能据此断言未提交。
+
 ## 2026-11-03 · 参考图应用服务边界
 
 `reference-production` 路由只做请求解析、入口权限与 RunDetail 投影；业务编排调用 `app.state.reference_production`，由 runs 的公开 ReferenceProductionService 校验账号并在同一事务内冻结、创建、去重、授权队列。Agent 仍经原 HTTP 入口，错误状态/代码及请求字段保持兼容；路由不再访问 Run/执行器私有锁或数据库写事务。

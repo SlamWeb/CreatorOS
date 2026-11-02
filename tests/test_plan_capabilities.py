@@ -82,8 +82,31 @@ class PlanCapabilityTests(unittest.TestCase):
         self.assertEqual((len(tool_registry), len(tools)), (57, 53))
         # 3b8769d -> 21df7fd intentionally adds reference Skill selection; the
         # previous overall digest failed even though the other contracts stayed fixed.
-        self.assertEqual(digest(tools), "6b69a56fd2705222cbedd8a7a75f5e86dda8d20ac0d6469e7ee0beda41301fc7")
+        self.assertEqual(digest(tools), "d04835d7e8a0af253f3c8ebc820ec9b7181319d91718850f89c7f7ecd664934e")
         original = copy.deepcopy(tools)
+        # Restore only the explicitly introduced plan-update contract, then
+        # verify the entire prior 53-tool snapshot still matches exactly.
+        plan = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_plan")
+        updated = ("get 当前计划后 update 只传需修改或新增的完整步骤：修改用原步骤 ID，新 ID 只追加；其他步骤保留。"
+                   "删除未开始或阻塞的步骤须明确填写 remove_step_ids，并同时调整引用它的依赖；已开始步骤不可删除。")
+        previous = "续接后 get 当前计划，update 可只传要修改的未开始或阻塞步骤，其他步骤由宿主保留；"
+        self.assertEqual(plan["description"].count(updated), 1)
+        plan["description"] = plan["description"].replace(updated, previous)
+        update = plan["parameters"]["$defs"]["UpdatePlanArgs"]
+        self.assertEqual(update.pop("anyOf"), [
+            {"required": ["steps"], "properties": {"steps": {"minItems": 1}}},
+            {"required": ["remove_step_ids"], "properties": {"remove_step_ids": {"minItems": 1}}},
+        ])
+        self.assertEqual(update["properties"].pop("remove_step_ids"), {
+            "description": "明确删除的未开始或阻塞步骤 ID；已执行步骤不可删除，不能依靠更换 ID 删除原步骤。",
+            "items": {"type": "string"}, "maxItems": 100, "title": "Remove Step Ids", "type": "array",
+        })
+        self.assertEqual(update["properties"]["steps"].pop("description"),
+                         "要修改或新增的完整步骤；修改现有步骤时保留其 ID，新 ID 只追加，未提及步骤保留。")
+        update["properties"]["steps"]["minItems"] = 1
+        self.assertEqual(update["required"], ["action", "plan_id", "expected_version"])
+        update["required"].append("steps")
+        self.assertEqual(digest(original), "6b69a56fd2705222cbedd8a7a75f5e86dda8d20ac0d6469e7ee0beda41301fc7")
         run = next(tool["function"] for tool in original if tool["function"]["name"] == "start_content_run")
         reference = run["parameters"]["$defs"]["ReferenceProductionRunArgs"]
         self.assertNotIn("skill_ids", reference["required"])

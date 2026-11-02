@@ -80,7 +80,7 @@ CASES = [
         "tests.test_native_image_assets", "tests.test_native_thread_continuity",
         "tests.test_graphic_delivery_contract", "tests.test_structured_handoff", "-v"]),
     ("plan_workflows", ["-m", "unittest", "tests.test_agent_plans", "tests.test_plan_tool_contract",
-        "tests.test_plan_replanning_safety", "tests.test_plan_continuation", "tests.test_plan_continuation_recovery",
+        "tests.test_plan_replanning_safety", "tests.test_plan_incremental_contract", "tests.test_plan_continuation", "tests.test_plan_continuation_recovery",
         "tests.test_plan_unknown_edit", "tests.test_plan_continuation_schedule_gate", "tests.test_plan_continuation_budget_recovery",
         "tests.test_plan_continuation_unknown_write",
         "tests.test_background_agent", "tests.test_background_wait", "-v"]),

@@ -51,8 +51,9 @@ class StaticPlanContractTests(unittest.TestCase):
                 reference = schema['discriminator']['mapping'][arguments['action']]
                 branch = schema['$defs'][reference.rsplit('/', 1)[-1]]
                 self.assertFalse(branch['additionalProperties'])
-                self.assertEqual(set(branch['properties']), set(arguments))
-                self.assertEqual(set(branch['required']), set(arguments))
+                optional = {'remove_step_ids'} if arguments['action'] == 'update' else set()
+                self.assertEqual(set(branch['properties']), set(arguments) | optional)
+                self.assertEqual(set(branch['required']), set(arguments) - ({'steps'} if optional else set()))
                 _validate_argument_shape(arguments, schema, schema)
                 self.assertEqual(tool.parse_arguments(json.dumps(arguments))['action'], arguments['action'])
                 invalid = [{key: value for key, value in arguments.items() if key != missing} for missing in arguments]

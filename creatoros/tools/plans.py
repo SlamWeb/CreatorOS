@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, Union
 from urllib.parse import quote
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from creatoros.integrations.studio import StudioClientError
 from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action
@@ -120,10 +120,25 @@ class GetPlanArgs(PlanArguments):
 
 
 class UpdatePlanArgs(PlanArguments):
+    model_config = ConfigDict(strict=True, extra="forbid", json_schema_extra={
+        "anyOf": [
+            {"required": ["steps"], "properties": {"steps": {"minItems": 1}}},
+            {"required": ["remove_step_ids"], "properties": {"remove_step_ids": {"minItems": 1}}},
+        ],
+    })
     action: Literal["update"]
     plan_id: str = Field(min_length=1, max_length=128)
     expected_version: int = Field(ge=0)
-    steps: list[PlanStepArgs] = Field(min_length=1, max_length=100)
+    steps: list[PlanStepArgs] = Field(default_factory=list, max_length=100,
+        description="要修改或新增的完整步骤；修改现有步骤时保留其 ID，新 ID 只追加，未提及步骤保留。")
+    remove_step_ids: list[str] = Field(default_factory=list, max_length=100,
+        description="明确删除的未开始或阻塞步骤 ID；已执行步骤不可删除，不能依靠更换 ID 删除原步骤。")
+
+    @model_validator(mode="after")
+    def has_changes(self):
+        if not self.steps and not self.remove_step_ids:
+            raise ValueError("请至少修改、新增或明确删除一步。")
+        return self
 
 
 class PlanVersionActionArgs(PlanArguments):
@@ -144,6 +159,15 @@ ManagePlanArgs = ActionContract(Annotated[Union[
 ], Field(discriminator="action")])
 
 
+def _canonical_value(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _same_step_definition(first, second):
+    fields = ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion")
+    return _canonical_value({key: first[key] for key in fields}) == _canonical_value({key: second[key] for key in fields})
+
+
 def _valid_write_receipt(data, *, plan_id, session_id, creator_id, expected_version):
     """A 2xx JSON object is not itself a receipt for the requested plan."""
     if not isinstance(data, dict):
@@ -158,7 +182,8 @@ def _valid_write_receipt(data, *, plan_id, session_id, creator_id, expected_vers
             and isinstance(data.get("steps"), list))
 
 
-def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=None, step_id=None, context=None):
+def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=None, step_id=None,
+                remove_step_ids=None, context=None):
     session = getattr(context, "agent_session_id", None)
     creator = getattr(context, "creator_id", None)
     continuation = getattr(context, "plan_continuation_id", None)
@@ -180,7 +205,9 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
         except StudioClientError as error:
             write_status = error.status_code
             known_rejection = (error.code == "studio_unavailable" and write_status is None or
-                write_status in {403, 415} and error.code in {"agent_scope_rejected", "origin_rejected", "json_required"})
+                write_status in {403, 415} and error.code in {"agent_scope_rejected", "origin_rejected", "json_required"} or
+                action == "update" and (write_status, error.code) in {
+                    (422, "plan_validation_rejected"), (409, "plan_edit_conflict")})
             if not known_rejection:
                 write_outcome_unknown = True
             raise
@@ -211,6 +238,8 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
             return client.request("GET", path)
         if action == "update":
             normalized = [PlanStepArgs.model_validate(item).model_dump(mode="json") for item in steps]
+            requested_updates = normalized
+            removals = list(remove_step_ids or [])
             if len({item["id"] for item in normalized}) != len(normalized):
                 raise StudioClientError("步骤 ID 不能重复；请为每一步使用唯一 ID。", code="invalid_arguments")
             if continuation:
@@ -220,16 +249,27 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                 if current["version"] != expected_version:
                     raise StudioClientError("计划已变化，请重新读取。", code="plan_conflict")
                 old = {item["id"]: item for item in current["steps"]}
+                for removed_id in removals:
+                    removed = old.get(removed_id)
+                    if not removed:
+                        raise StudioClientError("要删除的步骤不存在，请重新读取计划。", code="invalid_arguments")
+                    if removed["status"] not in {"pending", "blocked"}:
+                        raise StudioClientError("已开始的步骤不能删除，请先核对原任务。", code="plan_conflict")
+                    if not allows_tool_action(removed["tool"], removed["arguments"].get("action"),
+                                              scope="continuation_edit"):
+                        raise StudioClientError("自动调整不能删除不在权限范围内的步骤。", code="agent_scope_rejected")
                 # During autonomous recovery, omitted steps mean unchanged,
                 # never delete history or already-submitted work by omission.
                 updates = {item["id"]: item for item in normalized}
                 fields = ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion")
                 normalized = [updates.pop(item["id"], {key: item[key] for key in fields})
-                              for item in current["steps"]] + list(updates.values())
+                              for item in current["steps"] if item["id"] not in removals] + list(updates.values())
                 started = any(item["tool"] == "start_content_run" and item["status"] not in {"pending", "blocked"}
                               for item in current["steps"])
                 for item in normalized:
                     previous = old.get(item["id"])
+                    if previous and _same_step_definition(previous, item):
+                        continue  # An unchanged, previously authorized step is not a new grant.
                     if previous and previous["status"] not in {"pending", "blocked"}:
                         continue  # server also enforces immutable executed steps
                     if not allows_tool_action(item["tool"], item["arguments"].get("action"), scope="continuation_edit"):
@@ -238,7 +278,7 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                         if not previous or previous["tool"] != "start_content_run":
                             raise StudioClientError("已有生产任务，不能自动新增生产步骤；请先核对原任务。", code="production_replay_blocked")
                         old_args, new_args = previous["arguments"], item["arguments"]
-                        if old_args != new_args:
+                        if _canonical_value(old_args) != _canonical_value(new_args):
                             def without_video_inputs(value):
                                 data = json.loads(json.dumps(value))
                                 if data.get('action') != 'tasks': return None
@@ -249,10 +289,11 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                                     task.pop("inputs", None)
                                 return data
                             comparable = without_video_inputs(old_args)
-                            if comparable is None or comparable != without_video_inputs(new_args):
+                            if comparable is None or _canonical_value(comparable) != _canonical_value(without_video_inputs(new_args)):
                                 raise StudioClientError("已有生产任务，不能自动修改其他生产要求；请先核对原任务。", code="production_replay_blocked")
             return write(client, "PATCH", path, expected_id=plan_id, minimum_version=expected_version,
-                         payload={"expected_version": expected_version, "steps": normalized})
+                         payload={"expected_version": expected_version, "steps": requested_updates,
+                                  "mode": "merge", "remove_step_ids": removals})
         return write(client, "POST", path + "/actions", expected_id=plan_id, minimum_version=expected_version,
                      payload={"expected_version": expected_version, "action": action,
                               **({"step_id": step_id} if step_id else {})})
