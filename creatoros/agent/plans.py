@@ -18,25 +18,13 @@ from sqlalchemy import select, text
 from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
+from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action, can_wait
 from creatoros.storage.models import AgentPlan, AgentPlanStep, MediaCollection
 from creatoros.runs.observation import observe_production, only_revision_matches, run_topic_id
 from creatoros.runs.errors import ContentRunError
 from creatoros.tools.execution import execute_tool_call
 from creatoros.tools.plans import validate_plan_arguments
 
-# Only allow actions whose API scope and write replay semantics are known.
-ALLOWED = {
-    'start_content_run': None,
-    'manage_topics': {'get', 'list', 'create', 'update', 'remove'},
-    'manage_material': {'list', 'get'},
-    'manage_media_collection': {'list', 'get', 'create', 'export'},
-    'manage_skill_library': {'get', 'add'},
-    'get_content_run': None,
-    'get_creator_tasks': None,
-    'get_producer_skill': None,
-    # Host-owned checkpoint: no model call or side effect is executed here.
-    'request_review': None,
-}
 STEP_KEY = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 CONTRACT_PREFIX = 'v2:'
 
@@ -116,9 +104,11 @@ def _validate_steps(steps, owner):
             raise ValueError('步骤标识无效或重复。')
         if not isinstance(item.get('title'), str) or not 1 <= len(item['title']) <= 240:
             raise ValueError('请为每步填写名称。')
-        if tool not in ALLOWED or not isinstance(args, dict):
+        if tool not in PLAN_TOOL_NAMES or not isinstance(args, dict):
             raise ValueError('该步骤不是支持的工具。')
-        if ALLOWED[tool] is not None and args.get('action') not in tuple(ALLOWED[tool]):
+        if not allows_tool_action(tool, args.get('action'), scope='plan'):
+            if tool == 'start_content_run':
+                raise ValueError('生产步骤需要明确当前契约的 action。')
             raise ValueError('该工具动作尚不支持计划执行。')
         if 'creator_id' in args:
             raise ValueError('账号由会话确定，不能在步骤中指定。')
@@ -128,10 +118,8 @@ def _validate_steps(steps, owner):
         if not isinstance(deps, list) or len(set(deps)) != len(deps) or any(dep not in known for dep in deps):
             raise ValueError('依赖必须引用前面已定义的步骤。')
         _validate_references(args, set(deps))
-        if item.get('wait_for_completion', False) and tool != 'start_content_run':
+        if item.get('wait_for_completion', False) and not can_wait(tool):
             raise ValueError('当前仅支持等待生产任务完成。')
-        if tool == 'start_content_run' and args.get('action') not in ('start', 'tasks', 'fresh', 'reference'):
-            raise ValueError('生产步骤需要明确当前契约的 action。')
         if tool == 'start_content_run' and args.get('action') == 'tasks' and isinstance(args.get('tasks'), list):
             if any(not isinstance(task, dict) or task.get('kind') not in ('image', 'video') for task in args['tasks']):
                 raise ValueError('制作步骤中的每项任务需要明确 kind。')

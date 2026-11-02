@@ -23,6 +23,7 @@ from creatoros.ai.deepseek import (
 from creatoros.ai.types import TextDelta
 from creatoros.config import PROJECT_ROOT
 from creatoros.context import RuntimeContext
+from creatoros.plan_capabilities import CONTINUATION_TOOLS
 from creatoros.session.snapshot import load_messages, new_messages, save_messages
 from creatoros.session.context_trace import read_trace, trace_path
 from creatoros.session.request_trace import RequestSnapshots, redact
@@ -789,10 +790,7 @@ class AgentChatService:
             if host_observation:
                 # A continuation acts on this plan only. It cannot directly submit
                 # new production; permitted plan edits are additionally checked.
-                permitted_tools = permitted_tools & frozenset({"manage_plan", "manage_topics", "manage_material",
-                    "manage_media_collection", "manage_skill_library", "get_content_run", "get_producer_skill",
-                    "get_creator_tasks", "list_creators", "list_creator_series", "list_producer_skills",
-                    "read_image", "read_tool_result"})
+                permitted_tools = permitted_tools & CONTINUATION_TOOLS
             run_agent(provider, console=WebConsole(text or "（用户发送了图片，请根据上下文判断用途；用途不明时先询问。）"),
                       user_attachments=attachments,
                       host_observation=host_observation,

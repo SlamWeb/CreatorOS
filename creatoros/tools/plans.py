@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from creatoros.integrations.studio import StudioClientError
+from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action
 from .argument_contract import ActionContract
 from .studio import _call
 
@@ -92,8 +93,7 @@ class PlanStepArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$", description="本计划内唯一的简短步骤标识。")
     title: str = Field(min_length=1, max_length=240, description="用户能理解的步骤目标。")
-    tool: Literal["request_review", "start_content_run", "manage_topics", "manage_material", "manage_media_collection",
-                  "manage_skill_library", "get_content_run", "get_creator_tasks", "get_producer_skill"]
+    tool: Literal[PLAN_TOOL_NAMES]
     arguments: dict[str, Any] = Field(description="对应工具当前契约的参数；生产必须明确action与任务kind，仅用skill_ids。依赖结果可用 {$ref: '步骤ID.字段'}，保存前检查固定字段、执行前完整校验。")
     depends_on: list[str] = Field(default_factory=list, max_length=100)
     wait_for_completion: bool = Field(default=False, description="提交长任务后等待其真实终态，再解锁依赖步骤。")
@@ -183,13 +183,12 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                               for item in current["steps"]] + list(updates.values())
                 started = any(item["tool"] == "start_content_run" and item["status"] not in {"pending", "blocked"}
                               for item in current["steps"])
-                safe_actions = {"manage_topics": {"list", "get"}, "manage_skill_library": {"get"},
-                    "manage_material": {"list", "get"},
-                    "manage_media_collection": {"list", "get", "create", "export"}}
                 for item in normalized:
                     previous = old.get(item["id"])
                     if previous and previous["status"] not in {"pending", "blocked"}:
                         continue  # server also enforces immutable executed steps
+                    if not allows_tool_action(item["tool"], item["arguments"].get("action"), scope="continuation_edit"):
+                        raise StudioClientError("自动调整不能加入删除或更改账号数据的步骤。", code="agent_scope_rejected")
                     if item["tool"] == "start_content_run" and started:
                         if not previous or previous["tool"] != "start_content_run":
                             raise StudioClientError("已有生产任务，不能自动新增生产步骤；请先核对原任务。", code="production_replay_blocked")
@@ -207,8 +206,6 @@ def manage_plan(action, plan_id=None, title=None, steps=None, expected_version=N
                             comparable = without_video_inputs(old_args)
                             if comparable is None or comparable != without_video_inputs(new_args):
                                 raise StudioClientError("已有生产任务，不能自动修改其他生产要求；请先核对原任务。", code="production_replay_blocked")
-                    elif item["tool"] in safe_actions and item["arguments"].get("action") not in safe_actions[item["tool"]]:
-                        raise StudioClientError("自动调整不能加入删除或更改账号数据的步骤。", code="agent_scope_rejected")
             return client.request("PATCH", path, payload={"expected_version": expected_version, "steps": normalized})
         return client.request("POST", path + "/actions", payload={"expected_version": expected_version,
                               "action": action, **({"step_id": step_id} if step_id else {})})

@@ -14,6 +14,7 @@ from pathlib import Path
 from time import monotonic
 
 CASES = [
+    ("plan_capabilities", ["-m", "unittest", "tests.test_plan_capabilities", "-v"]),
     ("plan_duplicate_steps", ["-m", "unittest", "tests.test_plan_duplicate_steps", "-v"]),
     ("production_observation", ["-m", "unittest", "tests.test_production_observation", "-v"]),
     ("run_import_boundary", ["-m", "unittest", "tests.test_runs_import_boundary", "-v"]),
