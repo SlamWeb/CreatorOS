@@ -212,10 +212,9 @@ export function WorkspacePage() {
       {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
     </aside>
     <main className="workspace-main">
-      {assign.error && <p className="form-error" role="alert">{assign.error.message}</p>}
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {params.has("creator") && !account && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && (series || !["data", "materials", "skills"].includes(params.get("view") ?? "")) && <CreatorTaskSummary key={`${account.id}:${seriesId ?? ""}`} creatorId={account.id} seriesId={seriesId} />}
+      {account && !series && !["data", "materials", "skills"].includes(params.get("view") ?? "") && <CreatorTaskSummary key={account.id} creatorId={account.id} />}
       {!series && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={beginNewSeries}>新建栏目</button>}
@@ -233,6 +232,8 @@ export function WorkspacePage() {
         skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
         onDiscuss={discuss}
         onAssign={(creatorId) => assign.mutate({ series, creatorId })}
+        assignPending={assign.isPending && assign.variables?.series.id === series.id}
+        assignError={assign.variables?.series.id === series.id ? assign.error?.message ?? null : null}
         onDelete={() => {
           if (series.topic_count > 0 && !window.confirm("从工作区移除，保留选题、图片与记录")) return;
           deleteSeries.mutate(series);
@@ -274,12 +275,13 @@ export function WorkspacePage() {
   </div>;
 }
 
-function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, onDiscuss, onDelete, deletePending = false, deleteError }: {
+function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, assignPending = false, assignError, onDiscuss, onDelete, deletePending = false, deleteError }: {
   series: SeriesView;
   accounts: { id: string; name: string }[];
   skills: ProducerSkillItem[];
   onInspectSkill: (skill: ProducerSkillItem) => void;
   onAssign: (creatorId: string | null) => void;
+  assignPending?: boolean; assignError?: string | null;
   onDiscuss?: (title: string, topic?: TopicView) => void;
   onDelete?: () => void; deletePending?: boolean; deleteError?: string | null;
 }) {
@@ -344,11 +346,14 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
   const headerActions = <>
     <button ref={addTrigger} type="button" className="button button-secondary workspace-add-trigger" aria-expanded={addOpen} aria-controls={addId}
       onClick={() => setAddOpen(value => !value)}><Plus size={16} aria-hidden="true" />{addOpen ? "收起添加" : "添加选题"}</button>
-    <button type="button" className="button button-quiet workspace-settings-trigger" aria-expanded={settingsOpen} aria-controls={settingsId}
-      onClick={() => setSettingsOpen(value => !value)}><Settings2 size={16} aria-hidden="true" /><span>栏目设置</span></button>
+    <button type="button" className="button button-quiet workspace-settings-trigger" aria-expanded={settingsOpen} aria-controls={settingsId} aria-haspopup="dialog"
+      onClick={() => setSettingsOpen(true)}><Settings2 size={16} aria-hidden="true" /><span>栏目设置</span></button>
   </>;
   const headerPanels = <>
-    <div id={settingsId} className="workspace-series-settings" hidden={!settingsOpen}>
+    {settingsOpen && <WorkspaceDialog id={settingsId} title="栏目设置" className="series-settings-drawer"
+      busy={rename.isPending || assignPending || deletePending} onClose={() => setSettingsOpen(false)}>
+      <div className="series-settings-body">
+      <p className="series-settings-name">{series.name}</p>
       <form className="workspace-rename" onSubmit={event => {
         event.preventDefault();
         const name = nameDraft?.trim();
@@ -362,17 +367,21 @@ function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onAssign, o
         {rename.isSuccess && <small role="status">名称已保存</small>}
       </form>
       {series.description && <p className="workspace-meta">{series.description}</p>}
-      <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""}
+      <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""} disabled={assignPending}
         onChange={event => onAssign(event.target.value || null)}>
         <option value="">未分配</option>
         {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
       </select></label>
-      {onDelete && <button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
-        disabled={deletePending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>}
       </div>
-      {settingsOpen && series.creator_id && <SeriesSkillPool key={`${series.id}:${series.creator_id}`} seriesId={series.id} creatorId={series.creator_id} />}
-    </div>
-    {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+      {assignPending && <p role="status" className="series-settings-note">正在调整归属…</p>}
+      {assignError && <p className="form-error" role="alert">{assignError}</p>}
+      {series.creator_id && <SeriesSkillPool key={`${series.id}:${series.creator_id}`} seriesId={series.id} creatorId={series.creator_id} />}
+      {onDelete && <div className="series-settings-danger"><button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
+        disabled={deletePending || assignPending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>
+        {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+      </div>}
+      </div>
+    </WorkspaceDialog>}
     <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {
       event.preventDefault();
       if (topicTitle.trim()) addTopic.mutate(topicTitle.trim());

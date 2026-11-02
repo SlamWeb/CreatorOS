@@ -3,8 +3,8 @@ import { X } from "lucide-react";
 import "./workspace-dialog.css";
 
 /** Native modal owns focus trapping, Escape and the top layer, outside rail scrolling. */
-export function WorkspaceDialog({ title, children, onClose, busy = false, className = "" }: {
-  title: string; children: ReactNode; onClose: () => void; busy?: boolean; className?: string;
+export function WorkspaceDialog({ title, children, onClose, busy = false, className = "", id }: {
+  title: string; children: ReactNode; onClose: () => void; busy?: boolean; className?: string; id?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -14,7 +14,7 @@ export function WorkspaceDialog({ title, children, onClose, busy = false, classN
     element.querySelector<HTMLInputElement>("[data-initial-focus]")?.focus();
     return () => { element.close(); if (previous?.isConnected) previous.focus(); };
   }, []);
-  return <dialog ref={dialog} aria-label={title} className={`workspace-dialog ${className}`}
+  return <dialog ref={dialog} id={id} aria-label={title} className={`workspace-dialog ${className}`}
     onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header className="workspace-dialog-head"><h2>{title}</h2>
       <button type="button" aria-label={`关闭${title}`} className="workspace-icon-button" disabled={busy} onClick={onClose}><X size={18} /></button>
