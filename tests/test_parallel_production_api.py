@@ -26,7 +26,7 @@ class ParallelProductionApiTests(unittest.TestCase):
             self.assertEqual(web.status_code, 202, web.text)
             sid = client.post('/api/agent/sessions', json={'creator_id': 'creator'}).json()['id']
             context = RuntimeContext(Path.cwd(), creator_id='creator', agent_session_id=sid, studio_url=base)
-            args = json.dumps({'topic_ids': [f'topic-{i}' for i in range(4, 7)]})
+            args = json.dumps({'action': 'start', 'topic_ids': [f'topic-{i}' for i in range(4, 7)]})
             tool = execute_tool_call(ToolCall('parallel', 'start_content_run', args), context, model_requested=True)
             self.assertFalse(tool.is_error, tool.content)
             agent = json.loads(tool.content)

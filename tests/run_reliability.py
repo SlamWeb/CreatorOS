@@ -83,6 +83,8 @@ CASES = [
         "tests.test_fresh_skill_ids", "tests.test_manage_production_task_tool", "tests.test_publication_matching",
         "tests.test_publication_mcp_client", "tests.test_research_model_contract", "tests.test_series_rename",
         "tests.test_single_task_preview", "tests.test_topic_delivery", "-v"]),
+    ("parallel_run_ownership", ["-m", "unittest", "tests.test_concurrent_execution_guard",
+        "tests.test_parallel_production", "tests.test_parallel_production_api", "-v"]),
     *[(name, ["-m", "tests." + name]) for name in (
         "smoke_codex_completed_turn", "smoke_production_progress", "smoke_extraction_activity",
         "smoke_codex_public_events", "smoke_skill_extraction", "smoke_skill_draft_files",
@@ -191,7 +193,7 @@ def main(argv=None):
                 reject_operational_plan_fixture(workspace, command)
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 if is_unittest:
