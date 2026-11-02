@@ -25,6 +25,8 @@
 
 ## 可复现入口与原始证据
 
+本节保留 2026-10-27 的历史入口和续验过程。2026-11-03 后当前入口采用 fresh-only、显式模式及独立结果目录，已不支持下述 `CREATOROS_TASKS_EXISTING_SESSION`；新运行请遵循 [当前运行说明](LIVE_E2E_RUNBOOK.md)，不要照搬旧证据路径。
+
 - 真模型服务器：`tests/live_production_tasks_server.py`，只允许新建在项目 tmp 内的目录，实际使用 DeepSeek/Codex。
 - 真前端脚本：`web/playwright.production-tasks-live.config.ts` 与 `web/production-tasks-live/tasks.spec.ts`。`CREATOROS_TASKS_EXISTING_SESSION` 仅用于原任务只读续验，不再次发消息。
 - 本地证据：`tmp/production-tasks-real-20261027-b/{conversation,accepted,completed,verification}.json`、`collected-images.zip`、`outputs/`。

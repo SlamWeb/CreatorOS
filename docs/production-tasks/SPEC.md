@@ -20,6 +20,10 @@
 
 故障与并发测试可使用受控生产器注入失败；此类测试不作为真实 Codex 效果证明。
 
+### 2026-11-03 当前 live E2E 入口
+
+`tests/live_production_tasks_server.py` 默认只准备全新隔离夹具，禁用后台服务及 HTTP 写入；只有显式 `--live-models` 才开放真实模型聊天入口。root、数据、输出、会话、Codex 用户目录和临时目录隔离，构建须为本工作树 tmp 下独立产物，端口须明确且非 8765；不读取旧历史夹具。Playwright 必须声明准备/付费模式、匹配 fixture 的本机 URL、全新结果目录，并在真正提交前校验实例及排他预留，禁止同 root 再次生产。历史 session 续验不属于此 fresh-only 入口。运行及恢复边界见 [当前运行说明](LIVE_E2E_RUNBOOK.md)。此调整不构成新的真实模型验收结果。
+
 ## 已实现的契约
 
 - GET/POST `/api/topics/{topic_id}/production-tasks`；POST 使用稳定 request_id 和 tasks（1–100 项）。一个批次的 Task、Run、Revision、队列授权、素材集和回执同时提交。同键不同内容拒绝；相同请求仅返回原任务，不再授权执行。
