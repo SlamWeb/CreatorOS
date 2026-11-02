@@ -1,4 +1,5 @@
 """Shared plan permissions at the schema, host and continuation interfaces."""
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -74,10 +75,35 @@ class PlanCapabilityTests(unittest.TestCase):
     def test_registered_model_schemas_and_tool_inventory_are_unchanged(self):
         from creatoros.tools.definitions import tools, tool_registry
 
-        encoded = json.dumps(tools, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
-        # Captured from 0e9c7e0 before extracting the capability declarations.
-        self.assertEqual(hashlib.sha256(encoded).hexdigest(), "4b9c15b61a476117e54714716a09d2c2c59f7fa184d9f302e8e4a6b8098cfafb")
+        def digest(value):
+            encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+            return hashlib.sha256(encoded).hexdigest()
+
         self.assertEqual((len(tool_registry), len(tools)), (57, 53))
+        # 3b8769d -> 21df7fd intentionally adds reference Skill selection; the
+        # previous overall digest failed even though the other contracts stayed fixed.
+        self.assertEqual(digest(tools), "6b69a56fd2705222cbedd8a7a75f5e86dda8d20ac0d6469e7ee0beda41301fc7")
+        original = copy.deepcopy(tools)
+        run = next(tool["function"] for tool in original if tool["function"]["name"] == "start_content_run")
+        reference = run["parameters"]["$defs"]["ReferenceProductionRunArgs"]
+        self.assertNotIn("skill_ids", reference["required"])
+        self.assertEqual(reference["properties"].pop("skill_ids"), {
+            "anyOf": [
+                {"items": {"maxLength": 120, "minLength": 1,
+                           "pattern": "^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$", "type": "string"},
+                 "maxItems": 12, "minItems": 1, "type": "array"},
+                {"type": "null"},
+            ],
+            "default": None,
+            "description": "本次参考制作使用的一份或多份精确 Skill 版本 ID；省略沿用栏目默认，不改栏目绑定。",
+            "title": "Skill Ids",
+        })
+        added_description = "，可用skill_ids选择本次一份或多份精确版本，不改栏目绑定；省略时沿用默认。同一参考请求改选Skill会冲突，先核对原记录"
+        self.assertEqual(run["description"].count(added_description), 1)
+        run["description"] = run["description"].replace(added_description, "")
+        # Removing only the intended additions must reproduce every old schema,
+        # including all other fields on this tool and all 52 other tools.
+        self.assertEqual(digest(original), "4b9c15b61a476117e54714716a09d2c2c59f7fa184d9f302e8e4a6b8098cfafb")
 
     def test_plan_service_rejects_undeclared_tools_actions_and_waits_without_saving(self):
         from tests.studio_review_fixtures import make_fixture
