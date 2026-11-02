@@ -11,6 +11,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 from functools import wraps
@@ -132,15 +133,35 @@ def freeze_skill(source: Path, target: Path, expected_digest: str) -> None:
         shutil.copytree(source, staging)
         if _digest(staging) != expected_digest or _digest(source) != expected_digest:
             raise ValueError("复制期间 Skill 已变化，请重新开始本次调用。")
-        try:
-            staging.rename(target)
-        except OSError:
+
+        def matching_target_exists() -> bool:
             if not target.exists():
-                raise
+                return False
             if not target.is_dir() or target.is_symlink() or _digest(target) != expected_digest:
                 raise ValueError("已有 Skill 快照与本次输入不一致。")
-        else:
-            inherit_copy_permissions(target)
+            return True
+
+        # A Windows handle on a child without FILE_SHARE_DELETE can transiently
+        # reject a directory rename with ERROR_ACCESS_DENIED (5). Limit retries
+        # to this operation/code; permanent denial retains its original error.
+        waits = (0.05, 0.1, 0.2)
+        for attempt in range(len(waits) + 1):
+            try:
+                staging.rename(target)
+            except OSError as error:
+                if matching_target_exists():
+                    return
+                if os.name != "nt" or getattr(error, "winerror", None) != 5 or attempt == len(waits):
+                    raise
+                time.sleep(waits[attempt])
+                if matching_target_exists():
+                    return
+                if (not staging.is_dir() or staging.is_symlink() or not source.is_dir() or source.is_symlink()
+                        or _digest(staging) != expected_digest or _digest(source) != expected_digest):
+                    raise ValueError("复制期间 Skill 已变化，请重新开始本次调用。")
+            else:
+                inherit_copy_permissions(target)
+                return
 
 
 class InstallReceipt(BaseModel):
