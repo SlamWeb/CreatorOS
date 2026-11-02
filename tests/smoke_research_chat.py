@@ -57,6 +57,12 @@ class ControlledProvider:
     def stream(self, context):
         messages, _ = context.to_request()
         self.requests.append(messages)
+        # Current account turns append request-only host capability data after
+        # the conversation; this controlled provider responds to the ledger.
+        tail = messages[-1].get("content")
+        if (isinstance(tail, list) and tail and tail[0].get("type") == "text"
+                and tail[0]["text"].startswith("[宿主当前工具能力事实；")):
+            messages = messages[:-1]
         if messages[-1]["role"] == "user":
             if messages[-1]["content"] == "other conversation":
                 yield TextDelta("这是独立的对话。")

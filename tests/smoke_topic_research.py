@@ -41,6 +41,10 @@ def main():
         with serve(app) as base_url, httpx.Client(base_url=base_url, timeout=20, trust_env=False) as client:
             creator = client.post("/api/creators", json={"display_name": "隔离测试"}).json()
             sid = client.post(f"/api/creators/{creator['id']}/series", json={"name": "测试栏目"}).json()["id"]
+            # This legacy-context regression later creates Run snapshots; fresh
+            # columns no longer inherit a production Skill implicitly.
+            with db.session() as session:
+                session.get(Series, sid).skill_name = service.catalog.BUILTIN_ID
             seed_batch(service, sid)
             snapshot = service.snapshot(sid)
             assert snapshot["creator"]["id"] == creator["id"]

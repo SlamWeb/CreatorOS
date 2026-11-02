@@ -1,5 +1,14 @@
 # 栏目选题调研与选择
 
+## 可选 Skill 的调研上下文（2026-11-03）
+
+- 栏目可以先创建再选 Skill。存在新 Skill 池时，仅使用明确配置的图片阶段默认项，保留 primary/supporting 的声明顺序；池中未设默认的成员不是调研输入，不任意选取，也不回退到残留旧绑定。无默认或未配置 Skill 时仍可依据栏目资料、用户要求和本任务参考作品调研，明确没有提供任何 Skill 正文或样例，不宣称读过。
+- 无新池记录的旧栏目沿用单 Skill 或 mind 绑定；旧组合中的 production Skill 不替代 mind。`skill_context.source` 为 `image_defaults` / `legacy` / `none`，`skills` 中每份 Skill 各自保存 ID、角色、完整正文、已载入的链接样例及 omitted 说明、目录和 digest。选中资料读取前先验证当前账号使用权，读取前后 digest 不一致则拒绝提交；不会修改共享 Skill。
+- 新活跃请求身份比较当前栏目/账号与有序的实际 Skill 来源、ID、角色、digest；未选池成员及池版本不是身份。旧快照缺少新字段时，仅在旧绑定语义未变的情况下沿用原先栏目字段 + 单 digest 的比较，不升级或重写旧记录。模型请求中每份正文/样例只传一次，兼容旧字段，不把首份正文配上多份组合 digest。
+- 此处只影响调研输入、活跃去重及既有运行中配置变化检查。已保存候选不因 Skill、配置或时间变化过期，保留原内容入队、历史证据和原有 Preview 确认事务，不新增 Skill 版本确认门槛；入队与生产时选择哪个 Skill 继续解耦。
+- 本地验证入口：`python -m unittest tests.test_topic_research_skill_context` 使用全新 SQLite、临时目录、真实 loopback HTTP 与受控 researcher；覆盖无 Skill、多默认全文/顺序/摘要、未选资料不读取、旧绑定/旧活跃复用、跨账号拒绝，以及历史候选改默认后入队且批次原字节不变。真实联网/模型质量另验，本切片不调用模型。
+- 实际验证：新增 11/11，既有 queue / research_model_contract / skill_library 合计 20/20；topic_research、SDK、observation、reference_research、research_chat 五份 smoke 通过，compileall / diff 检查通过。旧 smoke 最初分别暴露隐式生产 Skill、不同参考请求忙拒绝、把宿主资料当用户消息三处过时 fixture，已按现行契约更新并保留原业务断言；参考 smoke 一次固定等待超时也保留为失败事实，未放宽等待门槛。observation 仅运行本地 Codex `--version`，没有模型调用、浏览器生产或正式数据操作。
+
 ## 独立调研持久化排队（2026-10-20，隔离验证）
 
 - 不同调研请求不再因单 worker 忙而拒绝；SQLite 保存明确提交的 FIFO 队列，批次 JSON 继续保存快照、进度和候选，Web/Agent 返回 `queued` 后可查询同一批次。一个 worker 串行消费，单个失败不阻塞后项。

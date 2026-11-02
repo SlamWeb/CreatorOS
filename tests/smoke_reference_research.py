@@ -113,20 +113,21 @@ def main():
             try:
                 assert service.submit(series, 1, "同一要求", reference_id=ref.id)["id"] == job["id"]
                 different = references.freeze(series, image_ids, instruction, True)
-                try:
-                    service.submit(series, 1, "同一要求", reference_id=different.id)
-                except ValueError as error:
-                    assert "进行中" in str(error)
-                else:
-                    raise AssertionError("different references must not reuse an active research batch")
+                # Distinct references authorize a separate FIFO item, never
+                # reuse the current request or invoke the second model early.
+                queued = service.submit(series, 1, "同一要求", reference_id=different.id)
+                assert queued["id"] != job["id"] and queued["status"] == "queued"
+                assert len(captured) == 1
                 with database.session() as session:
                     session.get(Series, series).description = "新的栏目定位"
             finally:
                 release.set()
                 service.worker.join(8)
             assert service.get(job["id"])["status"] == "ready"
-            assert len(captured) == 2
-            assert all(snapshot["task_references"] == ref.model_dump(mode="json") for snapshot in captured)
+            assert service.get(queued["id"])["status"] == "ready"
+            assert len(captured) == 3
+            assert all(snapshot["task_references"] == ref.model_dump(mode="json") for snapshot in captured[:2])
+            assert captured[2]["task_references"] == different.model_dump(mode="json")
             assert captured[1]["series"]["description"] == "新的栏目定位"
             # No-reference clients still receive the pre-existing shape.
             legacy = service.submit(series, 1)
