@@ -22,6 +22,11 @@ from tests.smoke_production_progress import FakeTurn, assistant_item, completed_
 from tests.smoke_skill_draft_files import write_native_drafts
 from tests.smoke_topic_research_sdk import ControlledSdk, ControlledTurn
 
+# These cases test an interrupted reply, not the wall-clock timeout. Their
+# fixture performs real filesystem work before the instant fake SDK starts;
+# leave room for slower Windows CI while separate tests exercise timeouts.
+FAKE_TURN_TIMEOUT_SECONDS = 30
+
 
 def assert_interrupted(call):
     try:
@@ -111,7 +116,7 @@ def research_case(root):
                 yield turn_completed("interrupted") if event.method == "turn/completed" else event
         return events()
 
-    researcher = CodexTopicResearcher(timeout_seconds=2)
+    researcher = CodexTopicResearcher(timeout_seconds=FAKE_TURN_TIMEOUT_SECONDS)
     with patch("openai_codex.AsyncCodex", side_effect=controlled.build), \
          patch.object(ControlledTurn, "stream", interrupted_stream):
         error = assert_interrupted(lambda: researcher.research(
@@ -137,7 +142,7 @@ def discussion_case(root):
     original.write_bytes(b"immutable original artifact")
     client, _, turn, calls = client_for("图片没有问题，讨论完成。")
     with patch("creatoros.integrations.content_discussion._production_client", client):
-        assert_interrupted(lambda: CodexDiscussionReviewer(timeout_seconds=2).review(
+        assert_interrupted(lambda: CodexDiscussionReviewer(timeout_seconds=FAKE_TURN_TIMEOUT_SECONDS).review(
             directory, "analyze only", [], None, None, Event(), lambda *_: None, lambda *_: None))
     assert len(calls) == 1 and turn.stream_calls == 1
     assert original.read_bytes() == b"immutable original artifact"
@@ -145,7 +150,7 @@ def discussion_case(root):
     receipt = json.loads((directory / "worker_receipt.json").read_text(encoding="utf-8"))
     assert receipt["turns"][-1]["status"] == "interrupted"
 
-    service = ContentDiscussionService(None, None, root / "discussion-state", CodexDiscussionReviewer(timeout_seconds=2))
+    service = ContentDiscussionService(None, None, root / "discussion-state", CodexDiscussionReviewer(timeout_seconds=FAKE_TURN_TIMEOUT_SECONDS))
     record = {"id": "interrupted-discussion", "status": "queued", "thread_id": None,
               "source_thread_id": None, "context": {}, "reply": "", "events": []}
     client, _, _, worker_calls = client_for("讨论完成")
@@ -166,7 +171,7 @@ def legacy_case(root):
     final = json.dumps({"research_brief": "source", "causal_chain": "a -> b",
                         "pages": [{"order": 1, "page_spec": "valid page"}]})
     _, start_turn, turn, calls = client_for(final)
-    producer = CodexSdkProducer(project_root=root, generated_images_root=root / "generated", timeout_seconds=2)
+    producer = CodexSdkProducer(project_root=root, generated_images_root=root / "generated", timeout_seconds=FAKE_TURN_TIMEOUT_SECONDS)
     assert_interrupted(lambda: asyncio.run(producer._execute_stage_async(
         "test", directory, skill_name="mind", skill_path=skill,
         receipt_model=StoryboardReceipt, stage="mind", on_thread_started=None, cancel_event=Event(),
@@ -185,7 +190,7 @@ def native_case(root, *, interrupt_review):
     marker = directory / "old-valid-file.txt"
     marker.write_bytes(b"retain accepted evidence")
     NativeTransport.reset(case / "generated")
-    producer = CodexSdkProducer(project_root=case, generated_images_root=case / "generated", timeout_seconds=2)
+    producer = CodexSdkProducer(project_root=case, generated_images_root=case / "generated", timeout_seconds=FAKE_TURN_TIMEOUT_SECONDS)
     original_stream = Turn.stream
     refs = [("local-mind", directory / "skills/mind/SKILL.md"),
             ("local-maker", directory / "skills/production/SKILL.md")]

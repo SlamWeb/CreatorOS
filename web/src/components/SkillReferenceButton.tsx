@@ -18,8 +18,9 @@ export function SkillReferenceButton({ id, known, fallback, className, onInspect
     const found = result.data?.items.find(item => item.id === id);
     if (found) onInspect(found);
   };
-  return <button type="button" className={className} disabled={loading}
-    title={skill ? "查看 Skill 版本" : history.error?.message ?? "查看 Skill 版本"} onClick={() => void inspect()}>
+  return <button type="button" className={className} disabled={loading} aria-busy={loading}
+    title={loading ? "正在读取 Skill…" : skill ? "查看 Skill 版本" : history.error?.message ?? "查看 Skill 版本"}
+    onClick={() => void inspect()}>
     {skill?.display_name ?? skill?.name ?? fallback ?? (loading ? "正在读取 Skill…" : "Skill 读取失败，重试")}
     {showVersion && skill && <small className="skill-reference-version">{skill.id === "knowledge-to-carousel" ? "内置"
       : `v${skill.version_number ?? 1}${skill.version_status === "candidate" ? " · 候选" : ""}`}</small>}

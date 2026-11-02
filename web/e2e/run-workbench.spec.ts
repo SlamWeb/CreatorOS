@@ -39,6 +39,7 @@ test("a Run Skill waits for the catalog and opens after the first click", async 
       .getByRole("button", { name: "knowledge-to-carousel", exact: true });
     await expect(skill).toBeVisible();
     await expect(skill).toBeDisabled();
+    await expect(skill).toHaveAttribute("aria-busy", "true");
     expect(versionRequests).toBe(0);
     releaseCatalog();
     await expect(skill).toBeEnabled();

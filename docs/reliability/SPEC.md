@@ -4,6 +4,7 @@
 
 - 参考图直接制作的业务服务、账号归属、原图和 Skill 冻结、幂等回执及 Agent/Web 接线纳入 reference_production；结构化 Skill 草稿与多图提炼纳入 skill_extraction_delivery。新参考图选择页面作为第六组 reference-selection 浏览器测试，保留原 general 组。
 - Skill 快照发布纳入 windows_skill_publication；真实 Windows 文件句柄会复现并释放 WinError 5，持续拒绝和摘要变化仍须失败。已有现场无法确认由该机制造成。
+- 模拟 Codex 中断的完整回合测试主要验证“有文件也不能把中断算成功、不能重试”；Windows 并行回归时，文件准备已包含在原有 2 秒预算内，可能先触发超时。该用例给受控 SDK 留出 30 秒，不更改产品时限；独立短时限测试仍覆盖超时行为。原失败保留。
 - 独立的 --suite isolation 明确列入浏览器与 Agent 夹具安全、双 worktree 的构建和并行服务验证。CI 安装第二份独立 checkout 的依赖后运行；不会启动付费探针。若依赖缺失、夹具没执行或任何测试跳过，不算完整通过。
 
 - 后端显式 allowlist 拆为两个不重叠分片；Benchmark 契约、前端类型/构建/本地状态、完整受控浏览器和 Chrome 刷新回归分别执行，不再共用一个 35 分钟任务。浏览器直接使用 `web/e2e-all.mjs --group` 的 general、agent-plan、staged、compact、media、reference-selection 六组，继续拒绝未分类 spec；真实模型探针不加入 CI。
