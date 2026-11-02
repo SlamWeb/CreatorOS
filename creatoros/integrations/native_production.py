@@ -277,7 +277,9 @@ def structured_prompt(checkpoint, *, continuing=False, repair=False, rules=COMPO
             "原生生图完成后宿主自动收图。直接用生图工具实际返回的图片路径填写source_image_path，"
             "正常取得结果时无需额外读取目录或抄写宿主asset_id。"
             "code-mode中的生图结果用generatedImage(result)输出，不要假定返回值有content数组或仅打印JSON。"
-            "若结果为空或没有图片路径，先等已发出的调用结束并读取当前工作目录的generated-assets.json，"
+            "若结果为空或没有图片路径，先等已发出的调用结束。只有一张已接收图片时，"
+            "在submit_artifacts的source_image_path填received:only即可由宿主认领；"
+            "多张图片时工具会返回已接收图片路径供选择，也可读取当前工作目录的generated-assets.json，"
             "使用images中的source_image_path和revised_prompt交付已有图片，不因输出为空就重新生图。"
             "库存为空时先核对调用状态，只有明确生成失败才重试，不把未显示结果当成生成失败。"
             "artifacts按最终展示顺序排列，order从1连续编号。"
@@ -452,8 +454,12 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                     submission.turn_id = turn.id
                 if assets:
                     assets.expected_turn_id = turn.id
+                def observe_image_event(event):
+                    assets.observe(event)
+                    if submission is not None:
+                        submission.observe_image_event(event)
                 collector = asyncio.create_task(collect_observed_turn(turn, progress,
-                    public_observer=assets.observe if assets else None, public_observer_is_diagnostic=False))
+                    public_observer=observe_image_event if assets else None, public_observer_is_diagnostic=False))
                 terminal_received = False
                 try:
                     while not collector.done():

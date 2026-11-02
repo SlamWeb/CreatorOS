@@ -11,6 +11,7 @@ from creatoros.delivery.image_materials import FileDelivery, accept_delivery_val
 
 from creatoros.delivery.image import SUBMISSION, accepted_submission
 MAX_FAILURES = 3
+RECEIVED_ONLY = "received:only"
 
 
 def canonical(value):
@@ -24,6 +25,25 @@ class ImageSubmission:
         self.generated_root, self.bundle = generated_root, bundle
         self.turn_id = None
         self._lock = asyncio.Lock()
+        self._inflight_images = set()
+
+    def observe_image_event(self, event):
+        """Track observed generation events; a pending image makes the alias ambiguous."""
+        def value(item):
+            return getattr(item, "root", item)
+        payload = event.payload
+        item = value(getattr(payload, "item", None))
+        if (getattr(item, "type", "") != "imageGeneration"
+                or value(getattr(payload, "thread_id", None)) != self.checkpoint.thread_id
+                or value(getattr(payload, "turn_id", None)) != self.turn_id):
+            return
+        item_id = getattr(item, "id", None)
+        if not item_id:
+            return
+        if event.method == "item/started":
+            self._inflight_images.add(item_id)
+        elif event.method == "item/completed":
+            self._inflight_images.discard(item_id)
 
     async def __call__(self, arguments):
         # SDK server requests and event consumption use separate queues. Give
@@ -36,11 +56,17 @@ class ImageSubmission:
             paths = [p.get("source_image_path") for p in artifacts if isinstance(p, dict)] if isinstance(artifacts, list) else []
             store = ImageAssetStore(self.directory, self.generated_root, self.checkpoint.thread_id,
                                     self.checkpoint.input_digest)
-            for _ in range(10):
-                known = {p.source_image_path for p in store.read().assets}
-                if not paths or all(p in known for p in paths):
-                    break
-                await asyncio.sleep(0.1)
+            try:
+                for _ in range(10):
+                    known = {p.source_image_path for p in store.read().assets}
+                    if (not paths or any(not isinstance(path, str) for path in paths)
+                            or (all(path in known or (path == RECEIVED_ONLY and known) for path in paths)
+                                and not (RECEIVED_ONLY in paths and self._inflight_images))):
+                        break
+                    await asyncio.sleep(0.1)
+            except ValueError:
+                return {"accepted": False, "retryable": False,
+                        "error": "已接收图片记录无法核对，图片保留；请停止，不要重新生图。"}
             return self.submit(arguments)
 
     def submit(self, arguments):
@@ -71,8 +97,36 @@ class ImageSubmission:
             return saved["receipt"]
         if checkpoint.submission_failures >= MAX_FAILURES:
             return {"accepted": False, "retryable": False, "error": "交付修正已达3次上限，已有图片保留。"}
+        from creatoros.delivery.image_assets import ImageAssetStore
+        artifacts = arguments.get("artifacts")
+        resolved_arguments = arguments
+        if isinstance(artifacts, list) and any(isinstance(item, dict) and
+                item.get("source_image_path") == RECEIVED_ONLY for item in artifacts):
+            try:
+                assets = ImageAssetStore(self.directory, self.generated_root, checkpoint.thread_id,
+                                         checkpoint.input_digest).read().assets
+            except ValueError:
+                return {"accepted": False, "retryable": False,
+                        "error": "已接收图片记录无法核对，图片保留；请停止，不要重新生图。"}
+            if self._inflight_images:
+                return {"accepted": False, "retryable": True,
+                        "error": "仍有图片正在生成或接收，请等待完成后明确选择，不要重新生图。",
+                        "received_images": [{"source_image_path": item.source_image_path,
+                                             "image_prompt": item.revised_prompt} for item in assets]}
+            if len(assets) != 1:
+                return {"accepted": False, "retryable": True,
+                        "error": "本次已接收图片不是恰好一张，请从已接收图片中明确选择。",
+                        "received_images": [{"source_image_path": item.source_image_path,
+                                             "image_prompt": item.revised_prompt} for item in assets],
+                        "instruction": "图片仍在接收中时等待；否则按实际图片路径选择，不要重新生图。"}
+            # Freeze the actual source in the host receipt. A later image event
+            # must not change the meaning of an already accepted submission.
+            resolved_arguments = {**arguments, "artifacts": [
+                {**item, "source_image_path": assets[0].source_image_path}
+                if isinstance(item, dict) and item.get("source_image_path") == RECEIVED_ONLY else item
+                for item in artifacts]}
         try:
-            value = FileDelivery.model_validate(arguments)
+            value = FileDelivery.model_validate(resolved_arguments)
             accept_delivery_value(self.directory, checkpoint, self.generated_root, self.bundle,
                                   value.model_dump())
             ingest(self.directory, checkpoint, self.generated_root)
@@ -101,6 +155,8 @@ class ImageSubmission:
 
 SUBMIT_DESCRIPTION = (
     "提交本次已生成的最终图片及文案。图片使用生图工具实际返回的路径，按展示顺序从1编号。"
+    "如果拿不到图片路径，且本次只接收了一张，可将source_image_path写为received:only；"
+    "若有多张，宿主会返回已接收图片供明确选择，不要重新生图。"
     "宿主当场检查；accepted=false时只修正交付信息后重试，不重新生图；retryable=false时停止。"
     "accepted=true后交付已保存，再向用户简短汇报。重复提交相同清单复用同一回执。"
 )

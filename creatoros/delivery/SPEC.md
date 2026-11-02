@@ -10,6 +10,10 @@
 - `video_receipt` 接收并持久确认视频交付，允许相同提交重放，并从前一 Attempt 恢复已接收文件；`video` 验证固定输入、回执、摘要和真实媒体编码及完整解码。无效或结果未知的交付仍按原有规则保留与处理，恢复不代表自动重渲染。
 - `integrations.native_production`、`integrations.video_production` 负责 Codex 会话、提示词和执行，使用上述交付逻辑；旧的模块级导入保留兼容。Run 侧从交付结果更新权威状态，生产执行器不直接决定人工验收。
 
+## 接收单张图片的快捷提交
+
+当图片生成事件已被当前 Attempt 收到，但 Codex 没拿到路径时，`submit_artifacts` 的 `source_image_path` 可写 `received:only`。宿主仅在当前线程和冻结输入下恰好有一张已接收图片时解析，并照常校验保存的图片与摘要；0 张或多张都不会猜测，返回当前可选择的图片，且不消耗交付修正次数。异步提交会短暂等待已发出的接收事件；已观察到其他生图仍在进行时拒绝使用该别名。确认后宿主回执冻结具体图片路径，不再依赖后来库存是否变化。该别名只表示确认时库存中唯一的图片；SDK 事件和工具调用分属不同队列，若另一生图事件尚未被宿主观察，不能保证识别所有在途图片。多张图片的顺序仍由 Codex 明确指定；此机制不能强制模型遵守“不要重画”，真实模型效果需另行验证。
+
 ## 已完成视频的显式离线纠正（2026-11-02）
 
 - 旧 `final-json-v1` 回执已完成、声明成功但视频路径无效时，回执本身不足以证明工作目录里哪个文件是交付。普通重试不会猜测或启动新回合来修复路径；若需要挽救，用户先明确选中原 Attempt 的 `work` 内相对 MP4 路径。`python -m creatoros.runs.video_correction --run-id ... --source-attempt-id ... --work-relative-mp4 ... --database-url ... --output-root ...` 默认只检查，显示原回执、视频属性、Run version 和 fingerprint。执行时再次提供相同参数并加 `--apply --expected-version <检查结果> --fingerprint <检查结果>`；这是会写入同一 Revision 新 Attempt 和 Run 状态的显式操作，数据库和输出目录应指向事先核实的目标。

@@ -27,6 +27,116 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertEqual(len(self.store.read().assets), 1)
         self.assertEqual(self.checkpoint.pages[0].asset_id, asset.asset_id)
 
+    def test_only_received_image_can_be_submitted_without_reading_a_path(self):
+        asset, source = self.receive("only-image", (10, 80, 120))
+        source.unlink()  # The SDK file can disappear after the host captured it.
+        handler = self.handler()
+        payload = self.payload("received:only")
+        first = handler.submit(payload)
+        self.assertTrue(first["accepted"], first)
+        self.assertEqual(handler.submit(payload), first)
+        self.assertEqual(self.checkpoint.pages[0].asset_id, asset.asset_id)
+        self.assertEqual(len(self.store.read().assets), 1)
+
+    def test_accepted_only_reference_remains_stable_if_another_event_arrives_later(self):
+        from creatoros.delivery.image import accepted_submission, ingest
+        from creatoros.delivery.image_materials import accept_delivery_value
+        first, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        payload = self.payload("received:only")
+        accepted = handler.submit(payload)
+        self.assertTrue(accepted["accepted"], accepted)
+        self.receive("late", (90, 30, 10))
+        saved = accepted_submission(self.directory, self.checkpoint)
+        self.assertEqual(saved["submission"]["artifacts"][0]["source_image_path"], str(path))
+        accept_delivery_value(self.directory, self.checkpoint, self.generated, self.bundle,
+                              saved["submission"])
+        ingest(self.directory, self.checkpoint, self.generated)
+        self.assertEqual(self.checkpoint.pages[0].asset_id, first.asset_id)
+        self.assertEqual(handler.submit(payload), accepted)
+
+    def test_only_received_image_refuses_ambiguous_inventory_and_keeps_existing_images(self):
+        first, first_path = self.receive("first", (10, 80, 120))
+        second, _ = self.receive("second", (90, 30, 10))
+        handler = self.handler()
+        response = handler.submit(self.payload("received:only"))
+        self.assertFalse(response["accepted"])
+        self.assertTrue(response["retryable"])
+        self.assertEqual(len(response["received_images"]), 2)
+        self.assertEqual(self.checkpoint.submission_failures, 0)
+        self.assertEqual(self.checkpoint.pages, [])
+        accepted = handler.submit(self.payload(first_path))
+        self.assertTrue(accepted["accepted"], accepted)
+        self.assertEqual(self.checkpoint.pages[0].asset_id, first.asset_id)
+        self.assertEqual(len(self.store.read().assets), 2)
+
+    def test_only_reference_waits_while_another_image_is_in_flight(self):
+        from types import SimpleNamespace
+        first, _ = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        def event(method):
+            return SimpleNamespace(method=method, payload=SimpleNamespace(
+                thread_id=self.checkpoint.thread_id, turn_id="turn-1",
+                item=SimpleNamespace(type="imageGeneration", id="pending-image")))
+        handler.observe_image_event(event("item/started"))
+        response = handler.submit(self.payload("received:only"))
+        self.assertFalse(response["accepted"])
+        self.assertTrue(response["retryable"])
+        self.assertIn("正在生成", response["error"])
+        self.assertEqual(self.checkpoint.submission_failures, 0)
+        self.assertEqual(self.checkpoint.pages, [])
+        second, second_path = self.receive("second", (90, 30, 10))
+        handler.observe_image_event(event("item/completed"))
+        response = handler.submit(self.payload("received:only"))
+        self.assertFalse(response["accepted"])
+        self.assertEqual(len(response["received_images"]), 2)
+        accepted = handler.submit(self.payload(second_path))
+        self.assertTrue(accepted["accepted"], accepted)
+        self.assertEqual(self.checkpoint.pages[0].asset_id, second.asset_id)
+
+    def test_only_received_image_with_no_images_never_invents_a_file(self):
+        response = self.handler().submit(self.payload("received:only"))
+        self.assertFalse(response["accepted"])
+        self.assertTrue(response["retryable"])
+        self.assertEqual(response["received_images"], [])
+        self.assertEqual(self.checkpoint.submission_failures, 0)
+        self.assertEqual(self.checkpoint.pages, [])
+
+    def test_only_received_image_fails_closed_if_inventory_is_invalid(self):
+        self.receive("only-image", (10, 80, 120))
+        self.store.path.write_text("invalid", encoding="utf-8")
+        response = self.handler().submit(self.payload("received:only"))
+        self.assertFalse(response["accepted"])
+        self.assertFalse(response["retryable"])
+        self.assertEqual(self.checkpoint.pages, [])
+        import asyncio
+        async_response = asyncio.run(self.handler()(self.payload("received:only")))
+        self.assertFalse(async_response["accepted"])
+        self.assertFalse(async_response["retryable"])
+
+    def test_async_submission_reports_invalid_path_type_as_validation_error(self):
+        import asyncio
+        value = self.payload("unused")
+        value["artifacts"][0]["source_image_path"] = ["not", "a", "path"]
+        response = asyncio.run(self.handler()(value))
+        self.assertFalse(response["accepted"])
+        self.assertTrue(response["retryable"])
+        self.assertEqual(self.checkpoint.pages, [])
+
+    def test_async_submission_waits_briefly_for_the_image_event(self):
+        import asyncio
+        async def execute():
+            async def capture():
+                await asyncio.sleep(0.15)
+                self.receive("only-image", (10, 80, 120))
+            pending = asyncio.create_task(capture())
+            result = await self.handler()(self.payload("received:only"))
+            await pending
+            return result
+        result = asyncio.run(execute())
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(len(self.store.read().assets), 1)
+
     def test_recovered_paths_keep_selected_order_and_duplicate_submission_is_idempotent(self):
         first, _ = self.receive("first", (10, 80, 120))
         second, _ = self.receive("second", (90, 30, 10))
@@ -56,6 +166,7 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertIn("generatedImage(result)", prompt)
         self.assertIn("结果为空或没有图片路径", prompt)
         self.assertIn("generated-assets.json", prompt)
+        self.assertIn("received:only", prompt)
         self.assertNotIn("不需要读取generated-assets.json", prompt)
 
 
