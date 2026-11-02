@@ -2,6 +2,7 @@ from pydantic import ValidationError
 
 from ..ai.types import ToolCall
 from ..context import RuntimeContext
+from ..plan_capabilities import allows_tool_action
 from .definitions import tool_registry
 from .results import ToolResult
 from .host_contract import AccountArgumentRejected, bind_account_arguments
@@ -39,14 +40,12 @@ def execute_tool_call(
                          if model_requested else tool_call.arguments)
         arguments = tool.parse_arguments(raw_arguments)
         if model_requested and context and context.plan_continuation_id:
-            actions = {"manage_topics": {"get", "list"}, "manage_material": {"get", "list"},
-                       "manage_media_collection": {"get", "list"}, "manage_skill_library": {"get"}}
-            if tool_name in actions and arguments.get("action") not in actions[tool_name]:
-                raise AccountArgumentRejected("自动续接只能查看数据；调整操作需写入当前计划。")
             if tool_name == "manage_plan":
                 if (arguments.get("plan_id") != context.plan_continuation_id
-                        or arguments.get("action") not in {"get", "update", "resume", "retry", "skip"}):
+                        or not allows_tool_action(tool_name, arguments.get("action"), scope="continuation")):
                     raise AccountArgumentRejected("自动续接只能检查和调整触发本次通知的计划。")
+            elif not allows_tool_action(tool_name, arguments.get("action"), scope="continuation"):
+                raise AccountArgumentRejected("自动续接只能查看数据；调整操作需写入当前计划。")
         if model_requested and tool_name == "manage_material" and arguments.get("action") == "import_link":
             return ToolResult(content="BGM 分享链接无需导入或解析。请把用户完整分享文本放入视频任务 inputs.bgm_reference，和素材集、剪辑 Skill、剪辑要求一起提交给 Codex；不要再请求上传音轨。",
                               is_error=True, error_type="bgm_direct_handoff_required")
