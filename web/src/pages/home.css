@@ -16,11 +16,19 @@
 .home-hero h1 > span + span { margin-top:6px; }
 .home-hero h1 > span { white-space:nowrap; animation:home-title-reveal 650ms cubic-bezier(.16,1,.3,1) both; }
 .home-hero h1 > span + span { animation-delay:90ms; }
-.home-icon-mark { display:inline-flex; align-items:center; justify-content:center; width:1.05em; height:1.05em; margin-left:.12em; vertical-align:-.14em; transition:rotate .3s; }
+.home-icon-mark { position:relative; display:inline-flex; align-items:center; justify-content:center; width:1.05em; height:1.05em; margin:0 0 0 .12em; padding:0; border:0; border-radius:8px; background:transparent; font:inherit; line-height:1; vertical-align:-.14em; cursor:pointer; }
 .home-icon-mark img { display:block; width:100%; height:100%; object-fit:contain; }
-.home-icon-work { rotate:-3deg; }
-.home-icon-reuse { rotate:3deg; }
-@media (hover:hover) and (pointer:fine) { .home-icon-mark:hover { rotate:0deg; } }
+.clapper-scene, .puzzle-scene { position:absolute; inset:0; pointer-events:none; }
+.clapper-scene { filter:grayscale(1) contrast(1.8) brightness(.85); }
+.clapper-body { clip-path:inset(37% 0 0); }
+.clapper-arm { position:absolute; inset:0; transform-origin:15% 36%; }
+.clapper-arm img { clip-path:inset(0 0 63%); }
+.clapper-hinge { position:absolute; left:13.6%; top:35%; width:4%; height:7%; border-radius:2px; background:#363638; }
+.puzzle-scene { overflow:clip; }
+.puzzle-base, .puzzle-arrival { position:absolute; inset:0; transform-origin:top left; transition:transform 480ms cubic-bezier(.16,1,.3,1),opacity 200ms; }
+.puzzle-arrival { opacity:0; transform:translate(90%,-18%) scale(.65); }
+.home-icon-reuse[data-joined="true"] .puzzle-base { transform:translateY(17.5%) scale(.65); }
+.home-icon-reuse[data-joined="true"] .puzzle-arrival { opacity:1; transform:translate(38%,22%) scale(.65); }
 @keyframes home-title-reveal { from { filter:blur(4px); opacity:.55; transform:translateY(7px); } to { filter:blur(0); opacity:1; transform:translateY(0); } }
 .home-hero > p { margin:30px 0 0; color:#62626b; font-size:clamp(16px,1.5vw,20px); font-weight:400; line-height:1.8; }
 .home-actions { display:flex; justify-content:center; flex-wrap:wrap; gap:14px; margin-top:36px; }

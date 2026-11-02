@@ -5,8 +5,7 @@ import { request } from "../api/client";
 import type { CreatorView, PageResponse } from "../api/types";
 import { BrandMark } from "../components/BrandMark";
 import { Button } from "../components/ui/button";
-import pictureIcon from "../assets/3dicons/picture.webp";
-import puzzleIcon from "../assets/3dicons/puzzle.webp";
+import { HomeHeroIcons } from "../components/HomeHeroIcons";
 import "./home.css";
 
 export function HomePage() {
@@ -51,8 +50,8 @@ export function HomePage() {
     <main id="home-main">
       <section className="home-hero" aria-labelledby="home-title">
         <h1 id="home-title" aria-label="每个好作品 都不止于一次">
-          <span>每个好作品<span className="home-icon-mark home-icon-work" aria-hidden="true"><img src={pictureIcon} alt="" /></span></span>
-          <span>都不止于一次<span className="home-icon-mark home-icon-reuse" aria-hidden="true"><img src={puzzleIcon} alt="" /></span></span>
+          <span>每个好作品<HomeHeroIcons kind="clapper" /></span>
+          <span>都不止于一次<HomeHeroIcons kind="puzzle" /></span>
         </h1>
         <p>把这一次的创作经验，变成下一次的起点。</p>
         <div className="home-actions">

@@ -12,8 +12,8 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   await expect(page.locator(".home-hero h1")).toHaveCSS("color", "rgb(29, 29, 31)");
   await expect(page.getByRole("link", { name: "进入工作台", exact: true })).toHaveCount(1);
   await expect(page.locator(".home-page svg")).toHaveCount(1);
-  await expect(page.locator(".home-icon-mark img")).toHaveCount(2);
-  await expect.poll(() => page.locator(".home-icon-mark img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth >= 400))).toBe(true);
+  await expect(page.locator(".home-icon-mark img")).toHaveCount(4);
+  await expect.poll(() => page.locator(".home-icon-mark img").evaluateAll(images => images.every(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth >= 256))).toBe(true);
   await expect(page.locator(".home-icon-mark").first()).toHaveCSS("border-top-width", "0px");
   await expect(page.locator("#home-title")).not.toContainText(/[，。]/);
   await expect(page.locator(".home-page footer")).toHaveCount(0);
@@ -65,19 +65,39 @@ test("entry home links to real workspaces and keeps old deep links", async ({ pa
   expect(evidence.protected_records).toEqual(fixture.baseline_records);
 });
 
-test("home motion is bounded and respects keyboard, touch and reduced motion", async ({ page, browser }) => {
+test("home motion is bounded and respects keyboard, touch and reduced motion", async ({ page, browser }, testInfo) => {
   await page.goto("/");
   const line = page.locator("#home-title > span").first();
   await expect(line).toHaveCSS("animation-name", "home-title-reveal");
   await expect(line).toHaveCSS("filter", "blur(0px)");
   const icon = page.locator(".home-icon-work");
-  await expect(icon).toHaveCSS("rotate", "-3deg");
-  await expect(page.locator(".home-icon-reuse")).toHaveCSS("rotate", "3deg");
+  const arm = page.locator(".clapper-arm");
+  const puzzle = page.getByRole("button", { name: "拼接积木" });
+  await expect(page.locator(".clapper-scene")).toHaveCSS("filter", "grayscale(1) contrast(1.8) brightness(0.85)");
   await icon.hover();
-  await expect(icon).toHaveCSS("rotate", "0deg");
-  await expect(icon).toHaveCSS("transition-duration", "0.3s");
-  await page.locator(".home-icon-reuse").hover();
-  await expect(page.locator(".home-icon-reuse")).toHaveCSS("rotate", "0deg");
+  await expect.poll(() => arm.evaluate(el => el.getAnimations().filter(a => a.playState === "running").length)).toBe(1);
+  await arm.evaluate(el => { const animation = el.getAnimations()[0]; animation.pause(); animation.currentTime = 270; });
+  await expect.poll(() => arm.evaluate(el => {
+    const matrix = new DOMMatrix(getComputedStyle(el).transform);
+    return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI);
+  })).toBe(18);
+  await page.screenshot({ path: testInfo.outputPath("home-clap-closed.png"), fullPage: true });
+  await arm.evaluate(el => el.getAnimations()[0].finish());
+  await expect(arm).toHaveCSS("transform", "none");
+  await puzzle.hover();
+  await expect(puzzle).toHaveAttribute("data-joined", "true");
+  await expect(page.locator(".puzzle-arrival")).toHaveCSS("opacity", "1");
+  await expect(page.locator(".puzzle-base")).toHaveCSS("transform", /matrix\(0\.65/);
+  await page.screenshot({ path: testInfo.outputPath("home-puzzle-joined.png"), fullPage: true });
+  await page.mouse.move(0, 0);
+  await expect(puzzle).toHaveAttribute("data-joined", "false");
+  await expect(page.locator(".puzzle-arrival")).toHaveCSS("opacity", "0");
+  await puzzle.focus();
+  await puzzle.press("Enter");
+  await expect(puzzle).toHaveAttribute("data-joined", "true");
+  await icon.focus();
+  await icon.press("Enter");
+  await expect.poll(() => arm.evaluate(el => el.getAnimations().filter(a => a.playState === "running").length)).toBe(1);
   const hit = page.locator(".home-action-hit");
   const primary = page.locator(".home-cta");
   const box = (await hit.boundingBox())!;
@@ -90,7 +110,8 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
   await expect(primary).toHaveCSS("translate", "0px");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(line).toHaveCSS("animation-name", "none");
-  await icon.hover();
+  await icon.click();
+  expect(await arm.evaluate(el => el.getAnimations().filter(a => a.playState === "running").length)).toBe(0);
   await expect(icon).toHaveCSS("transition-property", "none");
   await primary.press("Enter");
   await expect(page).toHaveURL(/\/workspace$/);
@@ -100,6 +121,8 @@ test("home motion is bounded and respects keyboard, touch and reduced motion", a
     await mobile.goto("/");
     await expect(mobile.locator(".home-cta")).toBeVisible();
     await expect(mobile.locator("#home-title > span").first()).toHaveCSS("animation-name", "none");
+    await mobile.getByRole("button", { name: "拼接积木" }).tap();
+    await expect(mobile.locator(".home-icon-reuse")).toHaveAttribute("data-joined", "true");
     expect(await mobile.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
     await mobile.locator(".home-action-hit").dispatchEvent("pointermove", { pointerType: "touch", clientX: 200, clientY: 400 });
     await expect(mobile.locator(".home-cta")).toHaveCSS("translate", "0px");
