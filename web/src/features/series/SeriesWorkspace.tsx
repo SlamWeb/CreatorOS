@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Plus, Settings2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, studioApi } from "../../api/client";
 import type { ProducerSkillItem, SeriesView, TopicView, SkillLibraryView } from "../../api/types";
 import { TopicLibrary } from "../../components/TopicLibrary";
@@ -9,39 +9,46 @@ import { SkillReferenceButton } from "../../components/SkillReferenceButton";
 import { SeriesSkillPool } from "../../components/SkillLibrary";
 import { WorkspaceDialog } from "../../components/WorkspaceDialog";
 import { refreshWorkspace } from "../workspace/workspaceData";
+import { operationKey, operationView, startSeriesOperation } from "./operationState";
 
-export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDiscuss, onSelected, onDeleted }: {
+export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDiscuss }: {
   series: SeriesView;
   accounts: { id: string; name: string }[];
   skills: ProducerSkillItem[];
   onInspectSkill: (skill: ProducerSkillItem) => void;
   onDiscuss?: (title: string, topic?: TopicView) => void;
-  onSelected: (id: string, owner: string | null) => void;
-  onDeleted: (id: string) => void;
 }) {
   const client = useQueryClient();
   const assign = useMutation({
     retry: false,
+    mutationKey: operationKey(series.id, "assign"),
+    gcTime: Infinity,
     mutationFn: (creatorId: string | null) => studioApi.assignSeries(series.id, {
       creator_id: creatorId, expected_revision: series.revision, request_id: crypto.randomUUID().replaceAll("-", ""),
     }),
-    onSuccess: async result => { await refreshWorkspace(client); onSelected(result.series.id, result.series.creator_id); },
+    onSuccess: () => refreshWorkspace(client),
     onError: () => refreshWorkspace(client),
   });
   const remove = useMutation({
     retry: false,
+    mutationKey: operationKey(series.id, "remove"),
+    gcTime: Infinity,
     mutationFn: () => studioApi.deleteSeries(series.id, {
       expected_revision: series.revision, request_id: crypto.randomUUID().replaceAll("-", ""),
     }),
-    onSuccess: async result => { await refreshWorkspace(client); onDeleted(result.id); },
+    onSuccess: () => refreshWorkspace(client),
   });
-  const assignPending = assign.isPending;
-  const assignError = assign.error?.message ?? null;
-  const deletePending = remove.isPending;
-  const deleteError = remove.error?.message ?? null;
+  const assignState = operationView(useMutationState({ filters: { mutationKey: operationKey(series.id, "assign"), exact: true },
+    select: mutation => mutation.state }));
+  const deleteState = operationView(useMutationState({ filters: { mutationKey: operationKey(series.id, "remove"), exact: true },
+    select: mutation => mutation.state }));
+  const assignPending = assignState.pending;
+  const assignError = assignState.error instanceof Error ? assignState.error.message : null;
+  const deletePending = deleteState.pending;
+  const deleteError = deleteState.error instanceof Error ? deleteState.error.message : null;
   const onDelete = () => {
     if (series.topic_count > 0 && !window.confirm("从工作区移除，保留选题、图片与记录")) return;
-    remove.mutate();
+    startSeriesOperation(client, series.id, () => remove.mutate());
   };
   const [topicTitle, setTopicTitle] = useState("");
   const skillPool = useQuery({ queryKey: ["series-skills", series.id], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(series.id)}/skills`), enabled: !!series.creator_id, retry: false });
@@ -124,8 +131,9 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
         {rename.isSuccess && <small role="status">名称已保存</small>}
       </form>
       {series.description && <p className="workspace-meta">{series.description}</p>}
-      <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""} disabled={assignPending}
-        onChange={event => assign.mutate(event.target.value || null)}>
+      <div className="workspace-series-controls"><label>归属账号<select className="workspace-assign" aria-label="归属账号" value={series.creator_id ?? ""} disabled={assignPending || deletePending}
+        onChange={event => { const creatorId = event.target.value || null;
+          startSeriesOperation(client, series.id, () => assign.mutate(creatorId)); }}>
         <option value="">未分配</option>
         {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
       </select></label>

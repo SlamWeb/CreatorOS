@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 
 // Each page loads on demand. In particular the public home page does not need
 // to download the workspace, Agent, evaluation and production interfaces.
@@ -22,7 +23,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 5_
 
 export function App() {
   return <QueryClientProvider client={queryClient}><BrowserRouter><Routes>
-    <Route path="/studio-preview" element={<Suspense fallback={pageLoading}><StudioPreview /></Suspense>} />
+    <Route path="/studio-preview" element={<RouteErrorBoundary><Suspense fallback={pageLoading}><StudioPreview /></Suspense></RouteErrorBoundary>} />
     <Route element={<AppShell />}>
       <Route element={<PageOutlet />}>
       <Route path="/" element={<HomeEntry />} />
@@ -49,10 +50,11 @@ function HomeEntry() {
 function AppShell() {
   const location = useLocation();
   // Keep the same Layout/Agent provider between workspace and legacy deep links.
-  return location.pathname === "/" && !location.search ? <Outlet /> : <Suspense fallback={pageLoading}><Layout /></Suspense>;
+  return location.pathname === "/" && !location.search ? <Outlet /> : <RouteErrorBoundary><Suspense fallback={pageLoading}><Layout /></Suspense></RouteErrorBoundary>;
 }
 
 function PageOutlet() {
   // Keep the shell and its Agent session mounted while another page loads.
-  return <Suspense fallback={pageLoading}><Outlet /></Suspense>;
+  const location = useLocation();
+  return <RouteErrorBoundary key={location.pathname}><Suspense fallback={pageLoading}><Outlet /></Suspense></RouteErrorBoundary>;
 }

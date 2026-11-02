@@ -138,6 +138,102 @@ test("a late assignment response keeps the user's newer workspace location", asy
   await expect(page).toHaveURL(url => url.searchParams.get("creator") === data.account.id && !url.searchParams.has("series"));
 });
 
+test("a pending assignment survives leaving and returning; its late failure is visible", async ({ page, request }) => {
+  const data = await fixture(request);
+  const other = await post(request, "/api/creators", { display_name: `迟到失败账号-${data.suffix}` });
+  await page.goto(`/?creator=${data.account.id}`);
+  await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  let release!: () => void;
+  let captured!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { captured = resolve; });
+  let writes = 0;
+  await page.route(`**/api/series/${data.series.id}/assignment`, async route => {
+    writes++;
+    captured();
+    await hold;
+    await route.fulfill({ status: 409, json: { error: { message: "受控迟到归属冲突" } } });
+  });
+  await page.getByRole("dialog", { name: "栏目设置" }).getByLabel("归属账号").selectOption(other.id);
+  await ready;
+  await page.goBack();
+  await page.goForward();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "栏目设置" });
+  await expect(drawer.getByText("正在调整归属…")).toBeVisible();
+  await expect(drawer.getByLabel("归属账号")).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: `删除栏目 ${data.series.name}` })).toBeDisabled();
+  expect(writes).toBe(1);
+  release();
+  await expect(drawer.getByRole("alert")).toContainText("受控迟到归属冲突");
+  await expect(drawer.getByLabel("归属账号")).toBeEnabled();
+  expect(writes).toBe(1);
+  expect(await request.get(`/api/series/${data.series.id}`).then(r => r.json())).toMatchObject({ creator_id: data.account.id });
+});
+
+test("a pending removal survives leaving and returning; its late failure is visible", async ({ page, request }) => {
+  const data = await fixture(request);
+  await page.goto(`/?creator=${data.account.id}`);
+  await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  let release!: () => void;
+  let captured!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { captured = resolve; });
+  let writes = 0;
+  await page.route(`**/api/series/${data.series.id}`, async route => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    writes++;
+    captured();
+    await hold;
+    await route.fulfill({ status: 409, json: { error: { message: "受控迟到删除冲突" } } });
+  });
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("dialog", { name: "栏目设置" }).getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
+  await ready;
+  await page.goBack();
+  await page.goForward();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "栏目设置" });
+  await expect(drawer.getByRole("button", { name: `删除栏目 ${data.series.name}` })).toBeDisabled();
+  await expect(drawer.getByLabel("归属账号")).toBeDisabled();
+  expect(writes).toBe(1);
+  release();
+  await expect(drawer.getByRole("alert")).toContainText("受控迟到删除冲突");
+  expect(writes).toBe(1);
+  expect((await request.get(`/api/series/${data.series.id}`)).ok()).toBe(true);
+});
+
+test("a successful assignment finishes in the workspace revisited across routes", async ({ page, request }) => {
+  const data = await fixture(request);
+  const other = await post(request, "/api/creators", { display_name: `跨页面接收账号-${data.suffix}` });
+  await page.goto(`/?creator=${data.account.id}`);
+  await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  let release!: () => void;
+  let captured!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { captured = resolve; });
+  await page.route(`**/api/series/${data.series.id}/assignment`, async route => {
+    captured();
+    await hold;
+    await route.fulfill({ response: await route.fetch() });
+  });
+  await page.getByRole("dialog", { name: "栏目设置" }).getByLabel("归属账号").selectOption(other.id);
+  await ready;
+  await page.goBack();
+  await page.getByRole("link", { name: "Skill", exact: true }).click();
+  await expect(page).toHaveURL(/\/skills$/);
+  await page.goBack();
+  await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
+  await page.getByRole("button", { name: "栏目设置", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "栏目设置" }).getByLabel("归属账号")).toBeDisabled();
+  release();
+  await expect(page).toHaveURL(url => url.searchParams.get("creator") === other.id && url.searchParams.get("series") === data.series.id);
+  expect(await request.get(`/api/series/${data.series.id}`).then(r => r.json())).toMatchObject({ creator_id: other.id });
+});
+
 test("column title and actions remain separate with the chat drawer open", async ({ page, request }, info) => {
   const account = await post(request, "/api/creators", { display_name: `布局账号-${crypto.randomUUID().slice(0, 8)}` });
   const series = await post(request, `/api/creators/${account.id}/series`, { name: "一个较长的栏目标题需要完整显示并且不能被按钮遮挡" });

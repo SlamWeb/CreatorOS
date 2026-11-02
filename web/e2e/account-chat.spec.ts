@@ -18,6 +18,26 @@ async function createSession(request: APIRequestContext, creatorId: string | nul
   return response.json() as Promise<{ id: string; creator_id: string | null; scope_kind: "overview" | "creator" }>;
 }
 
+test("a page chunk failure keeps the account chat and lets the user reload", async ({ page, request }) => {
+  const creator = await createCreator(request, "页面加载失败时的草稿");
+  await page.goto(`/?creator=${creator.id}`);
+  await page.getByRole("button", { name: "打开账号对话" }).click();
+  const panel = page.locator(".account-chat-panel");
+  const draft = panel.getByRole("textbox", { name: "给 Agent 的消息" });
+  await draft.fill("页面失败后请保留这段草稿");
+  await page.route(/\/assets\/SkillsPage-[^/]+\.js$/, route => route.abort("failed"));
+  await page.getByRole("link", { name: "Skill", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "页面暂时加载失败" })).toBeVisible();
+  await expect(panel).toBeVisible();
+  await expect(draft).toHaveValue("页面失败后请保留这段草稿");
+  await page.unrouteAll({ behavior: "wait" });
+  await page.getByRole("button", { name: "重新加载页面", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  await expect(page.locator(".account-chat-panel")).toBeVisible();
+  await expect(page.locator(".account-chat-panel").getByRole("textbox", { name: "给 Agent 的消息" }))
+    .toHaveValue("页面失败后请保留这段草稿");
+});
+
 test("the account launcher waits for the workspace owner instead of opening overview during loading", async ({ page, request }) => {
   const account = await createCreator(request, "延迟载入账号");
   let release!: () => void;

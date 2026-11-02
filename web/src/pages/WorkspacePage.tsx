@@ -16,6 +16,7 @@ import { AccountNavigator } from "../components/AccountNavigator";
 import { AccountOverview } from "../components/AccountOverview";
 import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SeriesWorkspace } from "../features/series/SeriesWorkspace";
+import { useSeriesOperationNavigation } from "../features/series/useSeriesOperationNavigation";
 import { useWorkspaceNavigation } from "../features/workspace/useWorkspaceNavigation";
 import { refreshWorkspace } from "../features/workspace/workspaceData";
 import "./workspace.css";
@@ -43,6 +44,7 @@ export function WorkspacePage() {
   const { params, setParams, scopedCreatorId, account, series, accountSeries, treeOpen, setTreeOpen,
     confirmingAccount, setConfirmingAccount, selectAccount, selectSeries, completeAssignment, accountDeleted, seriesDeleted } =
     useWorkspaceNavigation(creators.data?.items, seriesAll.data);
+  useSeriesOperationNavigation(completeAssignment, seriesDeleted);
   useEffect(() => {
     if (!inspectedSkill) { viewedSkill.current = null; return; }
     if (inbox.data && viewedSkill.current !== inspectedSkill.id) {
@@ -135,9 +137,7 @@ export function WorkspacePage() {
       {series && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
         skills={skills.data?.items ?? []} onInspectSkill={setInspectedSkill}
-        onDiscuss={discuss}
-        onSelected={completeAssignment}
-        onDeleted={seriesDeleted} />}
+        onDiscuss={discuss} />}
     </main>
     {accountDraft && <WorkspaceDialog title="新建账号" busy={createAccount.isPending} onClose={() => setAccountDraft(null)}>
       <form className="workspace-create-form" onSubmit={event => {
