@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { referenceApi } from "../api/reference-inputs";
+import { request } from "../api/client";
+import type { SkillLibraryView } from "../api/types";
 import { imageBase64 } from "./AgentAttachments";
 import { ExtractionImagePicker } from "./ExtractionImagePicker";
 import "./artifact-skill-extraction.css";
@@ -16,6 +18,9 @@ export function TopicReferenceComposer({ seriesId, onResearch, onBusy }: {
   const [instructions, setInstructions] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [presentation, setPresentation] = useState(false);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const skillPool = useQuery({ queryKey: ["series-skills", seriesId], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(seriesId)}/skills`), retry: false });
+  const skillChoices = skillPool.data?.available_versions ?? skillPool.data?.items ?? [];
   const [error, setError] = useState("");
   const [activity, setActivity] = useState("");
   const busy = useRef(false);
@@ -29,6 +34,9 @@ export function TopicReferenceComposer({ seriesId, onResearch, onBusy }: {
     if (busy.current) return;
     if (action === "produce" && (!files.length || !instructions.trim())) {
       setError("请添加参考图片，并写下这次想制作的内容。"); return;
+    }
+    if (action === "produce" && !selectedSkills.length && !skillPool.data?.defaults.image?.length) {
+      setError("请从栏目 Skill 池勾选本次使用的版本。"); return;
     }
     busy.current = true;
     onBusy(true);
@@ -70,7 +78,7 @@ export function TopicReferenceComposer({ seriesId, onResearch, onBusy }: {
           try { sessionStorage.setItem(storageKey, requestId); } catch { /* Storage may be unavailable. */ }
           requests.current.set(signature, requestId);
         }
-        const run = await referenceApi.produce(seriesId, referenceId!, Array.from(instructions.trim()).slice(0, 240).join(""), requestId);
+        const run = await referenceApi.produce(seriesId, referenceId!, Array.from(instructions.trim()).slice(0, 240).join(""), requestId, selectedSkills.length ? selectedSkills : undefined);
         await Promise.all([["topics"], ["runs"], ["overview"]].map(queryKey => queryClient.invalidateQueries({ queryKey })));
         if (mounted.current) navigate(`/runs/${encodeURIComponent(run.id)}`);
       }
@@ -91,9 +99,17 @@ export function TopicReferenceComposer({ seriesId, onResearch, onBusy }: {
         <label>本次偏好<textarea maxLength={3000} rows={3} placeholder={files.length ? "想借鉴哪个选题、切入点？直接制作时，请写下本次具体要求。" : "例如：面向初学者，暂不讨论模型训练"} value={instructions} onChange={event => setInstructions(event.target.value)} /></label>
       </div>
       {!!files.length && <label className="topic-reference-presentation"><input type="checkbox" checked={presentation} onChange={event => setPresentation(event.target.checked)} />同时参考呈现<span>默认只借鉴内容</span></label>}
+      {!!files.length && <fieldset className="topic-reference-skills">
+        <legend>本次制作 Skill</legend>
+        <small>可勾选一份或多份精确版本，仅用于本次制作，不更改栏目设置。{!!skillPool.data?.defaults.image?.length && " 不勾选时沿用图片阶段默认。"}</small>
+        {skillPool.isPending ? <p role="status">加载栏目 Skill…</p> : skillPool.isError ? <p role="alert">栏目 Skill 加载失败，请重新打开后再制作。</p> : !skillChoices.length ? <p>栏目 Skill 池为空，请先在栏目设置中添加 Skill。</p> : <div className="topic-reference-skill-options">{skillChoices.map(skill => <label key={skill.id}>
+          <input type="checkbox" checked={selectedSkills.includes(skill.id)} onChange={event => { setSelectedSkills(previous => event.target.checked ? [...previous, skill.id] : previous.filter(id => id !== skill.id)); setError(previous => previous === "请从栏目 Skill 池勾选本次使用的版本。" ? "" : previous); }} />
+          <span>{skill.id === "knowledge-to-carousel" ? "知识点轮播（内置）" : skill.display_name || skill.name}{skill.version_number ? ` · v${skill.version_number}` : ""}{skill.version_status === "candidate" ? " · 候选" : ""}</span>
+        </label>)}</div>}
+      </fieldset>}
       <div className="topic-reference-actions">
         <button className="button button-primary" type="submit">{files.length ? "扩展选题" : "开始联网调研"}</button>
-        {!!files.length && <button className="button button-secondary" type="button" onClick={() => void submit("produce")}>直接制作</button>}
+        {!!files.length && <button className="button button-secondary" type="button" disabled={skillPool.isPending || skillPool.isError} onClick={() => void submit("produce")}>直接制作</button>}
         <small>{files.length ? "扩展为待选；直接制作进入生产队列。" : "使用 Codex 额度，结果保存为待选。"}</small>
       </div>
     </fieldset>

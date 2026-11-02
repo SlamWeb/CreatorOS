@@ -18,6 +18,19 @@ class ImageSkillSelection:
     input_fields: dict[str, Any]
 
 
+def resolve_task_skill_ids(library, creator_id, skill_ids, *, kind):
+    """One-off selection uses the same account-use authority as staged tasks."""
+    if not skill_ids or len(skill_ids) > 12 or len(set(skill_ids)) != len(skill_ids):
+        raise ContentRunError("请选择1～12份不重复的精确 Skill。", code="invalid_skill_selection", status_code=422)
+    if any(not library.can_use(creator_id, skill_id) for skill_id in skill_ids):
+        raise ContentRunError("所选 Skill 不在当前账号的 Skill 库中。", code="scope_conflict", status_code=403)
+    try:
+        return TaskExecutionSpec(kind=kind, skills=[dict(skill_id=skill_id,
+            digest=library.describe(skill_id)["digest"], role="selected") for skill_id in skill_ids])
+    except (ValueError, OSError, KeyError) as error:
+        raise ContentRunError("所选 Skill 版本不可用，请重新读取。", code="invalid_skill_selection", status_code=422) from error
+
+
 def resolve_image_skills(database, session, series, *, protocol, selected=None, topic_source=None, catalog=None):
     """Resolve defaults or an explicit selection without creating a Topic or Run.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from uuid import uuid4
 import json
@@ -327,6 +328,7 @@ class PendingOperationService:
         request_id: str,
         origin: str,
         generated_topic_ids: bool = False,
+        bound_session=None,
     ) -> tuple[PendingOperation, bool]:
         """A 策略：明确指令在一次事务里完成 校验→写入→审计，token 生成即消费。
 
@@ -334,7 +336,7 @@ class PendingOperationService:
         同一 request_id 及相同内容回放返回首次结果；执行中状态变化则整体回滚。
         Agent 未知结果只查回执；新指令由用户另行授权，不自动重发。
         """
-        with self.database.session() as session:
+        with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
             existing = session.get(WriteReceipt, request_id)
             if existing is not None:
                 return self._replay_queue(existing, plan, scope_series_id, generated_topic_ids), True
@@ -351,7 +353,7 @@ class PendingOperationService:
         assert prepared.plan_json is not None and prepared.confirmation_token is not None
 
         try:
-            with self.database.session() as session:
+            with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:
                     return self._replay_queue(existing, plan, scope_series_id, generated_topic_ids), True
@@ -409,6 +411,10 @@ class PendingOperationService:
                 session.flush()
                 return pending, False
         except IntegrityError:
+            if bound_session is not None:
+                # The owning command must roll back its entire Topic/Run/queue
+                # transaction; this failed Session cannot be used for a replay.
+                raise PendingOperationError("写入冲突；未提交本次事务，请核对同一请求。")
             with self.database.session() as session:
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:

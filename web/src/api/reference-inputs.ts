@@ -14,7 +14,7 @@ export const referenceApi = {
   research: (seriesId: string, count: number, instructions: string, reference_id?: string) => request<{ id: string }>(`${seriesPath(seriesId)}/topic-research`, {
     method: "POST", body: JSON.stringify({ count, instructions, ...(reference_id ? { reference_id } : {}) }),
   }),
-  produce: (seriesId: string, reference_id: string, title: string, request_id: string) => request<RunDetail>(`${seriesPath(seriesId)}/reference-production`, {
-    method: "POST", body: JSON.stringify({ reference_id, title, request_id }),
+  produce: (seriesId: string, reference_id: string, title: string, request_id: string, skill_ids?: string[]) => request<RunDetail>(`${seriesPath(seriesId)}/reference-production`, {
+    method: "POST", body: JSON.stringify({ reference_id, title, request_id, ...(skill_ids ? { skill_ids } : {}) }),
   }),
 };
