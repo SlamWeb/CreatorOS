@@ -3,6 +3,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from creatoros.agent.plans import _validate_plan_inputs, PlanService
 
 import httpx
@@ -24,7 +25,7 @@ class PlanTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, '参数无效'):
                     service.create(sid, 'invalid', '测试', [{'id':'images','title':'生图',
                         'tool':'start_content_run','arguments':{'action':'tasks','topic_id':'review-1',
-                        'tasks':[{'kind':'image','title':'缺少 brief'}]}}], 'http://127.0.0.1:8765')
+                        'tasks':[{'kind':'image','title':'缺少 brief'}]}}], 'http://127.0.0.1:1')
                 self.assertEqual(service.list(sid)['items'], [])
             finally: db.close()
 
@@ -35,7 +36,7 @@ class PlanTests(unittest.TestCase):
                 sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
                 step = {'id':'images','title':'生图','tool':'start_content_run',
                     'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'图','brief':'画一张'}]}}
-                plan = service.create(sid, 'pre-dispatch', '测试', [step], 'http://127.0.0.1:8765')
+                plan = service.create(sid, 'pre-dispatch', '测试', [step], 'http://127.0.0.1:1')
                 self.assertIn('是否提交', plan['message'])
                 with db.session() as session:
                     row = session.get(AgentPlanStep, plan['id'] + ':images')
@@ -65,7 +66,7 @@ class PlanTests(unittest.TestCase):
             plan = service.create(sid, 'checkpoint', '判断后继续', [
                 {'id':'review','title':'检查素材','tool':'request_review','arguments':{'question':'图片够吗？'}},
                 {'id':'next','title':'继续','tool':'get_producer_skill','arguments':{'skill_id':'missing--0000000000000000'},'depends_on':['review']},
-            ], 'http://127.0.0.1:8765')
+            ], 'http://127.0.0.1:1')
             service.advance()
             view = service.get(sid, plan['id'])
             self.assertEqual((view['status'], view['pause_reason']), ('paused', 'checkpoint'))
@@ -78,8 +79,12 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'pending')
             view = service.get(sid, plan['id'])
             service.action(sid, plan['id'], view['version'], 'resume')
-            service.advance()
-            self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'running')
+            # This checks the claim, not an external Studio tool. Holding the
+            # worker keeps the assertion deterministic and avoids contacting
+            # any separately running user service.
+            with patch.object(service, '_execute', return_value=None):
+                service.advance()
+                self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'running')
             db.close()
 
     def test_batch_waits_for_every_sibling_even_when_one_failed(self):
@@ -107,7 +112,7 @@ class PlanTests(unittest.TestCase):
             plan = service.create(sid, 'checkpoint-restart', '检查点恢复', [
                 {'id':'review','title':'检查','tool':'request_review','arguments':{'question':'是否继续？'}},
                 {'id':'next','title':'后续','tool':'get_producer_skill','arguments':{'skill_id':'missing--0000000000000000'},'depends_on':['review']},
-            ], 'http://127.0.0.1:8765')
+            ], 'http://127.0.0.1:1')
             service.advance(); event = service.claim_continuation(sid, 'one')
             self.assertTrue(service.ack_continuation(plan['id'], event['event_id'], 'one'))
             service.start()
@@ -125,7 +130,7 @@ class PlanTests(unittest.TestCase):
             sid = app.state.chat.create('review-lab')['id']; service = app.state.agent_plans
             original = {'id':'images','title':'生图','tool':'start_content_run',
                 'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'同一图片','brief':'制作该图片'}]}}
-            plan = service.create(sid, 'no-repeat', '不重画', [original], 'http://127.0.0.1:8765')
+            plan = service.create(sid, 'no-repeat', '不重画', [original], 'http://127.0.0.1:1')
             with db.session() as session: session.get(AgentPlanStep, plan['id'] + ':images').status = 'unknown'
             extra = {'id':'retry-as-new','title':'另起','tool':'start_content_run',
                      'arguments':{'action':'tasks','topic_id':'review-1','tasks':[{'kind':'image','title':'同一图片','brief':'制作该图片'}]}}
@@ -142,7 +147,7 @@ class PlanTests(unittest.TestCase):
             plan = service.create(sid, 'skip-safe', '失败处理', [
                 {'id':'read','title':'读取','tool':'get_content_run','arguments':{'run_id':'x'}},
                 {'id':'produce','title':'生产','tool':'start_content_run','arguments':{'action':'start','topic_ids':['x']}},
-            ], 'http://127.0.0.1:8765')
+            ], 'http://127.0.0.1:1')
             with db.session() as session:
                 for key in ['read', 'produce']:
                     row = session.get(AgentPlanStep, plan['id'] + ':' + key)
@@ -246,7 +251,7 @@ class PlanTests(unittest.TestCase):
             service.set_continuation_callback(None)
             plan = service.create(sid, 'restart-test', '恢复测试', [
                 {'id':'write','title':'修改选题','tool':'manage_topics',
-                 'arguments':{'action':'update','topic_id':'x','changes':{'title':'新标题'},'expected_digest':'a'*64},'depends_on':[]}], 'http://127.0.0.1:8765')
+                 'arguments':{'action':'update','topic_id':'x','changes':{'title':'新标题'},'expected_digest':'a'*64},'depends_on':[]}], 'http://127.0.0.1:1')
             with db.session() as session:
                 row = session.get(AgentPlanStep, plan['id']+':write')
                 row.status = 'running'

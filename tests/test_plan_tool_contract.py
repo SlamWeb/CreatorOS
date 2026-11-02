@@ -96,7 +96,7 @@ class DurablePlanContractTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def create(self, steps, request='new'):
-        return self.service.create(self.sid, request, '计划', steps, 'http://127.0.0.1:8765')
+        return self.service.create(self.sid, request, '计划', steps, 'http://127.0.0.1:1')
 
     def test_real_http_save_references_and_reject_legacy_parameters(self):
         self.service.start_gate = lambda: False
