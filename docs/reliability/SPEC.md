@@ -14,7 +14,7 @@
 - CI 配置合入不代表远端工作流已通过；本地定向验证与 GitHub runner 的实际执行结果分别交付。
 - 后端和 Benchmark 的显式模块清单共同用于逐模块库存；`python -m tests.run_reliability --inventory` 只读取 `tests/test_*.py` 文件名，不导入、不 discovery 执行。报告列出本次未运行、任何 Python 门禁都未声明及当前 checkout 缺失的模块，不能将 allowlist 或浏览器分组通过写成全仓全量通过。含 8765、真实 SDK 或外部依赖的未审查模块继续不运行，先修为随机端口/独立服务夹具再单独纳入。
 - 已安全审查的8个受控交付模块归为 native_delivery_protocol（动态工具、artifact/file submission、native recovery/assets/thread continuity、graphic contract、structured handoff），组预算600秒；真实SDK事件是受控传输，不调用真实模型。
-- 已隔离验证的6个计划/后台模块归为 plan_workflows，预算600秒。旧 checkout 中 test_agent_plans/test_plan_tool_contract 的硬编码 operational URL 会在子进程启动前被拒绝并保留失败日志；必须合入对应隔离夹具修复后才能运行，不能把拒绝记为通过。
+- 已隔离验证的计划/后台模块及续接跨进程执行权、退避、未知状态恢复回归归为 plan_workflows，预算600秒。旧 checkout 中 test_agent_plans/test_plan_tool_contract 的硬编码 operational URL 会在子进程启动前被拒绝并保留失败日志；必须合入对应隔离夹具修复后才能运行，不能把拒绝记为通过。
 - 素材、BGM、拆分任务、跨账号 Skill 及归档等10个已隔离模块归为 media_task_lifecycle，预算600秒。旧迁移测试先失败：后续版本新增了空表，旧断言误以为新增表是旧数据变化；现在逐个核实新表为空，同时继续完整比较旧表旧行、检查模型与迁移一致、外键和升级/降级。修订后58/58受控测试通过，原失败不覆盖。
 - Skill 编写、图片附件、反馈查询、干净重做、栏目改名和发布适配等15个本地模块归为 skill_chat_feedback 和 business_workflows；使用模拟发布传输，不会发布真实内容。本地受控回归91/91通过。栏目改名迁移测试通过历史 SQL 模式播种旧 Run 与版本，依然检查升级、降级、原行和约束，不再用新版 ORM 查询旧表。
 - Benchmark 组包括真实 loopback HTTP 与独立 SQLite 的测试世界预检；首次在未配置 ffprobe 的本地环境失败，配置媒体工具后1/1通过，旧失败日志保留。该预检不调用模型，不能当成真实 Benchmark 成绩。
