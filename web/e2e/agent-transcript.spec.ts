@@ -87,6 +87,31 @@ test("usage stays out of chat while named links and lazy tool details survive re
   expect(writes).toBe(0);
 });
 
+test("an uncertain continuation distinguishes unknown writes from unexecuted calls", async ({ page }) => {
+  const doc = { id: "uncertain-tools", title: "结果核对", version: 1, status: "failed",
+    error: "计划写入结果未知，请先核对原计划。", scope_kind: "overview", creator_id: null,
+    stream_revision: 1, has_older: false, updated_at: "2026-11-03T00:00:00Z",
+    entries: [
+      { id: "user", kind: "user", text: "调整计划", turn_id: "turn" },
+      { id: "uncertain", kind: "tool", name: "manage_plan", status: "unknown",
+        turn_id: "turn", tool_call_id: "call-1", model_request_id: "request" },
+      { id: "not-sent", kind: "tool", name: "manage_plan", status: "not_dispatched",
+        turn_id: "turn", tool_call_id: "call-2", model_request_id: "request" },
+    ] };
+  await page.route("**/api/agent/sessions**", route => {
+    const url = new URL(route.request().url());
+    return route.fulfill({ json: url.pathname.endsWith("/uncertain-tools") ? doc : { items: [doc] } });
+  });
+  await page.goto("/agent?chat=uncertain-tools");
+  await page.getByRole("button", { name: /执行记录.*2 次调用/ }).click();
+  await expect(page.locator('[data-entry-id="uncertain"]')).toContainText("结果未确认");
+  await expect(page.locator('[data-entry-id="not-sent"]')).toContainText("未执行");
+  await page.reload();
+  await page.getByRole("button", { name: /执行记录.*2 次调用/ }).click();
+  await expect(page.locator('[data-entry-id="uncertain"]')).toContainText("结果未确认");
+  await expect(page.locator('[data-entry-id="not-sent"]')).toContainText("未执行");
+});
+
 test("stream patches preserve expanded tools, ignore replay, and recover gaps without writes", async ({ page }) => {
   await page.clock.install();
   await page.addInitScript(() => {
