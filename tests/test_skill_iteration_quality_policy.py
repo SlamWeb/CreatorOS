@@ -8,7 +8,7 @@ import json
 import unittest
 
 from creatoros.integrations.skill_iteration_judge import (INSTRUCTIONS, REPLIES,
-    ReplyFormatError, evaluation_scope, parse_reply, system_prompt)
+    QualityRubricReply, ReplyFormatError, evaluation_scope, parse_reply, system_prompt)
 from creatoros.integrations.skill_iterations import SkillIterationService
 from creatoros.storage import SkillIteration
 from tests import test_skill_iteration_service as fixtures
@@ -29,6 +29,28 @@ def parsed(kind, result, payload):
 
 
 class QualitySchemaTests(unittest.TestCase):
+    def test_exact_echoed_schema_definitions_do_not_discard_quality_data(self):
+        criteria = [quality_criterion(), quality_criterion(), quality_criterion("presentation")]
+        expected = dict(criteria=criteria, workflow_constraints=["只跑1轮", "不发布"])
+        echoed = {"$defs": QualityRubricReply.model_json_schema()["$defs"], **deepcopy(expected)}
+        self.assertEqual(parsed("rubric", echoed, policy("overall")), expected)
+
+    def test_only_exact_v2_rubric_schema_definitions_can_be_ignored(self):
+        criteria = [quality_criterion(), quality_criterion(), quality_criterion("presentation")]
+        echoed = {"$defs": QualityRubricReply.model_json_schema()["$defs"], "criteria": criteria}
+        different = deepcopy(echoed)
+        different["$defs"]["QualityCriterion"]["title"] = "different"
+        extra = {**deepcopy(echoed), "extra": "not part of the contract"}
+        wrong_scope = deepcopy(echoed)
+        wrong_scope["criteria"][0]["quality_kind"] = "workflow"
+        legacy = {"$defs": REPLIES["rubric"].model_json_schema()["$defs"],
+                  "criteria": [{key: value for key, value in c.items() if key != "quality_kind"}
+                               for c in criteria]}
+        for response, payload in ((different, policy("overall")), (extra, policy("overall")),
+                                  (wrong_scope, policy("overall")), (legacy, {})):
+            with self.subTest(response=response, payload=payload), self.assertRaises(ReplyFormatError):
+                parsed("rubric", response, payload)
+
     def test_roles_resolve_to_explicit_quality_domains(self):
         self.assertEqual(evaluation_scope("mind"), "content")
         self.assertEqual(evaluation_scope("production"), "presentation")

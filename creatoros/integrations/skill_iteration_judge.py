@@ -107,6 +107,18 @@ def parse_reply(kind, response, payload=None):
             if "\n" not in raw:
                 raise ValueError("JSON代码围栏中没有可解析的正文。")
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        if kind == "rubric" and _quality_policy(payload):
+            # Some providers echo the exact input JSON Schema alongside the
+            # actual rubric. Discard only that identical, non-scoring metadata;
+            # all substantive fields still pass the original strict validator.
+            document = json.loads(raw)
+            definitions = QualityRubricReply.model_json_schema().get("$defs")
+            if isinstance(document, dict) and "$defs" in document and definitions is not None:
+                actual_schema = json.dumps(document["$defs"], sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                expected_schema = json.dumps(definitions, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+                if actual_schema == expected_schema:
+                    del document["$defs"]
+                    raw = json.dumps(document, ensure_ascii=False)
         result = _reply_type(kind, payload).model_validate_json(raw).model_dump()
         if kind == "rubric":
             _check_quality_scope(result["criteria"], payload, require_coverage=True)
