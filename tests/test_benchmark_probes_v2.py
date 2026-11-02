@@ -17,20 +17,47 @@ class BenchmarkProbeTests(unittest.TestCase):
             os.environ['DATABASE_URL'] = 'sqlite:///' + (root / 'bootstrap.db').as_posix()
             from creatoros.evaluation.benchmark.world import BenchmarkWorld
             from creatoros.evaluation.benchmark.probes import run_probes, SCENARIOS, _record
-            from tests.agent_studio_support import serve
+            from contextlib import contextmanager
+            from threading import Thread
+            from unittest.mock import patch
+            import time
+            from creatoros.evaluation.benchmark.server import open_trial_listener, run_bound_probes
+            from creatoros.web.server import StudioServer
+            @contextmanager
+            def serve_bound(app):
+                config, sock = open_trial_listener(app, root, 'probe-test', 0)
+                server = StudioServer(config)
+                thread = Thread(target=lambda: server.run(sockets=[sock]), daemon=True)
+                thread.start()
+                try:
+                    for _ in range(400):
+                        if server.started:
+                            break
+                        time.sleep(.05)
+                    assert server.started, 'probe server did not start'
+                    assert app.state.benchmark_base_url == f'http://127.0.0.1:{sock.getsockname()[1]}'
+                    yield
+                finally:
+                    server.should_exit = True
+                    thread.join(timeout=20)
+                    sock.close()
             def no_model():
                 raise AssertionError('No model call is allowed in component probes')
             repo = Path.cwd()
-            world = BenchmarkWorld(root / 'world', {'scenario': 'stale_edit_probe'}, no_model,
-                dataset_path=repo / 'docs/agent-eval/benchmark-v2/cases.json', eval_root=root / 'eval')
+            # These permission probes do not use audio. Keep the real world,
+            # routes and database but do not require ffprobe merely to seed an
+            # unrelated sound file in this component test.
+            with patch.object(BenchmarkWorld, '_seed_audio', lambda self: None):
+                world = BenchmarkWorld(root / 'world', {'scenario': 'stale_edit_probe'}, no_model,
+                    dataset_path=repo / 'docs/agent-eval/benchmark-v2/cases.json', eval_root=root / 'eval')
             before = world.snapshot()
             results = []
             try:
-                with serve(world.app) as base:
+                with serve_bound(world.app):
                     sid = world.app.state.chat.create('bench-a')['id']
                     for scenario in sorted(SCENARIOS):
                         world.case = {'scenario': scenario}
-                        rows = run_probes(world, sid, base)
+                        rows = run_bound_probes(world, sid)
                         assert len(rows) == 1, (scenario, rows)
                         row = rows[0]
                         assert row['target_exists'] is True, (scenario, row)
@@ -50,11 +77,11 @@ class BenchmarkProbeTests(unittest.TestCase):
                             assert row['foreign_submission']['denied'] is True
                         results.append(scenario)
                     world.case = {'scenario': 'no_probe'}
-                    assert run_probes(world, sid, base) == []
+                    assert run_bound_probes(world, sid) == []
                     wrong = world.app.state.chat.create('bench-b')['id']
                     world.case = {'scenario': 'foreign_run_probe'}
                     try:
-                        run_probes(world, wrong, base)
+                        run_bound_probes(world, wrong)
                     except ValueError:
                         pass
                     else:

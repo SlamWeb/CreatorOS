@@ -26,12 +26,22 @@ def open_trial_listener(app, root: Path, case_id: str, port: int = 0):
                             timeout_graceful_shutdown=4)
     sock = config.bind_socket()
     try:
+        # The caller may request port 0. Every in-process tool probe must use
+        # the actual bound port rather than the requested placeholder.
+        app.state.benchmark_base_url = f"http://127.0.0.1:{sock.getsockname()[1]}"
         write_json(root / "server-address.json", {"case_id": case_id, "run_id": root.name,
                                                   "pid": os.getpid(), "port": sock.getsockname()[1]})
     except BaseException:
         sock.close()
         raise
     return config, sock
+
+
+def run_bound_probes(world, session_id):
+    """Exercise the same isolated listener used by this trial's browser."""
+    from creatoros.evaluation.benchmark.probes import run_probes
+
+    return run_probes(world, session_id, world.app.state.benchmark_base_url)
 
 
 def main():
@@ -252,9 +262,8 @@ def main():
                     sleep(1)
                 else:
                     raise TimeoutError("Background task did not reach a terminal state")
-            from creatoros.evaluation.benchmark.probes import run_probes
             stage = "harness_probes"
-            probes = run_probes(world, session_id, f"http://127.0.0.1:{args.port}")
+            probes = run_bound_probes(world, session_id)
             stage = "evidence_collection"
             messages, calls = collect_calls(session_id, browser)
             after = world.snapshot()

@@ -51,6 +51,7 @@ jobs:
           tests.test_benchmark_report_v2 tests.test_benchmark_server_v2
           tests.test_benchmark_cases_v2 tests.test_benchmark_capture_v2
           tests.test_benchmark_isolation
+          tests.test_benchmark_probes_v2
           tests.test_benchmark_scoring tests.test_benchmark_store_v3
           tests.test_benchmark_media_oracles_v3
           tests.test_action_contract tests.test_production_contract -q
