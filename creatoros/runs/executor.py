@@ -82,15 +82,17 @@ class ManagedRunExecutor:
                 self._pause(str(error))
                 raise
 
-    def submit(self, run_id: str, *, expected_version: int) -> RunSubmission:
+    def submit(self, run_id: str, *, expected_version: int, initial_only: bool = False,
+               creator_id: str | None = None) -> RunSubmission:
         with self._lock:
             self.start()
             blocked = self._readiness_error()
             if blocked:
                 raise ExecutionOwnershipError(blocked)
-            item = self.queue.enqueue(run_id, expected_version)
-            self._wake.set()
-            return RunSubmission(run_id, accepted=True, queue_status=item.status)
+            item = self.queue.enqueue(run_id, expected_version, initial_only=initial_only, creator_id=creator_id)
+            if item.status == "pending":
+                self._wake.set()
+            return RunSubmission(run_id, accepted=item.status in {"pending", "running"}, queue_status=item.status)
 
     def is_submitted(self, run_id: str) -> bool:
         with self._lock:

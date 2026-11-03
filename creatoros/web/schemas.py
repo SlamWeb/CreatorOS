@@ -236,6 +236,7 @@ class RunDetail(RunSummary):
     production_progress: ProductionProgress | None = None
     partial_cards: list[PartialCardView] = Field(default_factory=list)
     production_queue: dict[str, Any] | None = None
+    submission_accepted: bool | None = None
 
 
 class ManualPublicationRequest(ApiModel):
@@ -385,6 +386,7 @@ class RunBatchResponse(ApiModel):
 
 class RunExecuteRequest(WriteRequest):
     expected_version: int = Field(gt=0)
+    initial_only: bool = False
 
 
 class RunCancelRequest(WriteRequest):

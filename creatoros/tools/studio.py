@@ -544,14 +544,22 @@ def start_content_run(action, context=None, **arguments):
                 return client.run_summary(run)
             try:
                 result = client.request("POST", f"/api/runs/{quote(run['id'], safe='')}/execute",
-                                        payload={"expected_version": run["version"]})
+                                        payload={"expected_version": run["version"], "initial_only": True})
             except StudioClientError as error:
                 _production_write_error(error)
                 error.run_id = run["id"]
                 error.details.update(request_id=request_id, topic_id=source["topic_id"],
                                      source_run_id=request.source_run_id)
                 raise
-            return client.run_summary(result, accepted=True)
+            queue = result.get("production_queue") or {}
+            summary = client.run_summary(result, accepted=result.get("submission_accepted") is True)
+            if queue.get("status") in {"failed", "cancelled", "needs_attention"}:
+                notice = "当前任务需要核对；相同请求不会再次授权。"
+                summary["message"] = notice
+                summary["error_message"] = " ".join(filter(None, [summary.get("error_message"), notice]))
+            elif queue.get("status") == "succeeded":
+                summary["message"] = "当前任务已结束，请查看结果；相同请求不会再次授权。"
+            return summary
         return _call(fresh, context)
 
 

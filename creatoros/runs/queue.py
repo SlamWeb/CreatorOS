@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from contextlib import nullcontext
 
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select, or_, and_, text
 
-from creatoros.storage.models import ContentRun, ContentRevision, ContentRunStatus, ProductionQueueItem, TopicRemoval
+from creatoros.storage.models import ContentAttempt, ContentRun, ContentRevision, ContentRunStatus, ProductionQueueItem, TopicRemoval
 from .service import ContentRunError
 
 
@@ -16,15 +16,19 @@ class ProductionQueue:
         self.service = service
         self.database = service.database
 
-    def enqueue(self, run_id: str, expected_version: int, *, bound_session=None) -> ProductionQueueItem:
+    def enqueue(self, run_id: str, expected_version: int, *, bound_session=None,
+                initial_only: bool = False, creator_id: str | None = None) -> ProductionQueueItem:
         with self.service._write_lock, (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
+            # First authorization is read-and-write in one SQLite write transaction,
+            # not a client-side status check followed by a separate submission.
+            if initial_only and bound_session is None and self.database.engine.dialect.name == 'sqlite':
+                session.execute(text('BEGIN IMMEDIATE'))
             run = session.get(ContentRun, run_id)
             if run is None:
                 raise ContentRunError("运行不存在。", code="not_found", status_code=404)
             self.service._assert_no_active_iteration(session, run.topic_id)
-            revision = (session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run_id,
-                        ContentRevision.revision_number == run.active_revision_number))
-                        if bound_session is not None else self.service.get_active_revision(run_id))
+            revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run_id,
+                                      ContentRevision.revision_number == run.active_revision_number))
             if revision is None:
                 raise ContentRunError("当前内容版本不存在。", code="not_found", status_code=404)
             item = session.scalar(select(ProductionQueueItem).where(
@@ -33,6 +37,22 @@ class ProductionQueue:
                 raise ContentRunError("外部导入作品不进入生产执行器。", code="external_import_readonly")
             if session.get(TopicRemoval, run.topic_id) is not None:
                 raise ContentRunError("选题已移除，不能启动或恢复生产。", code="topic_removed")
+            if initial_only:
+                if not isinstance(run.idempotency_key, str) or not run.idempotency_key.startswith('fresh:'):
+                    raise ContentRunError("仅从头重做可使用首次授权。", code="invalid_request", status_code=422)
+                self.service._assert_existing_scope(session, run.topic_id, run)
+                if creator_id is not None and run.input_snapshot_json.get('creator_id') != creator_id:
+                    raise ContentRunError("任务不属于当前账号。", code="scope_conflict", status_code=403)
+                # Any prior queue row is the original authorization, including
+                # a crash reconciled to needs_attention before an Attempt exists.
+                if item is not None:
+                    if expected_version not in {item.expected_version, run.version}:
+                        raise ContentRunError("运行状态已变化，请刷新后重试。", code="version_conflict")
+                    return item
+                attempted = session.scalar(select(ContentAttempt.id).where(
+                    ContentAttempt.revision_id == revision.id).limit(1))
+                if (run.status is not ContentRunStatus.QUEUED or revision.revision_number != 1 or attempted):
+                    raise ContentRunError("无法确认首次授权，请核对原任务。", code="initial_submission_unavailable")
             if run.status is ContentRunStatus.CANCELLED:
                 raise ContentRunError("已取消的运行不能开始生产。")
             # Response-loss retries must not create another Attempt or reset FIFO order.

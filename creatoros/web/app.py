@@ -739,9 +739,16 @@ def create_app(
 
     @app.post("/api/runs/{run_id}/resume", response_model=RunDetail, status_code=202)
     @app.post("/api/runs/{run_id}/execute", response_model=RunDetail, status_code=202)
-    def resume_run(run_id: str, payload: RunExecuteRequest) -> RunDetail:
+    def resume_run(run_id: str, payload: RunExecuteRequest, request: Request) -> RunDetail:
+        creator_id = None
+        session_id = request.headers.get("x-creatoros-agent-session")
+        if payload.initial_only and session_id:
+            scope = chat.get(session_id)
+            if scope.get("scope_kind") == "creator":
+                creator_id = scope.get("creator_id")
         try:
-            executor.submit(run_id, expected_version=payload.expected_version)
+            submission = executor.submit(run_id, expected_version=payload.expected_version, initial_only=payload.initial_only,
+                                         creator_id=creator_id)
         except ExecutionOwnershipError:
             raise
         except RuntimeError as error:
@@ -749,7 +756,8 @@ def create_app(
         result = queries.get_run(run_id)
         if result is None:
             raise HTTPException(status_code=404, detail="ContentRun 不存在。")
-        return result.model_copy(update={"production_queue": executor.queue_snapshot(run_id)})
+        return result.model_copy(update={"production_queue": executor.queue_snapshot(run_id),
+                                         "submission_accepted": submission.accepted if payload.initial_only else None})
 
     @app.post("/api/runs/{run_id}/cancel", response_model=RunDetail)
     def cancel_run(run_id: str, payload: RunCancelRequest) -> RunDetail:

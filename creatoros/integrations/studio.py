@@ -140,13 +140,24 @@ class StudioClient:
         if not fresh:
             return self.run_summary(run)
         try:
+            execute_payload = {"expected_version": run["version"]}
+            if mode == "fresh":
+                execute_payload["initial_only"] = True
             result = self.request("POST", f"/api/runs/{quote(run['id'], safe='')}/execute",
-                                  payload={"expected_version": run["version"]})
+                                  payload=execute_payload)
         except StudioClientError as error:
             # Preserve the requested Run even when the response is lost; busy may point to another Run.
             error.run_id = run["id"]
             raise
-        return self.run_summary(result, accepted=True)
+        queue = result.get("production_queue") or {}
+        summary = self.run_summary(result, accepted=result.get("submission_accepted") is True if mode == "fresh" else True)
+        if mode == "fresh" and queue.get("status") in {"failed", "cancelled", "needs_attention"}:
+            notice = "当前任务需要核对；相同请求不会再次授权。"
+            summary["message"] = notice
+            summary["error_message"] = " ".join(filter(None, [summary.get("error_message"), notice]))
+        elif mode == "fresh" and queue.get("status") == "succeeded":
+            summary["message"] = "当前任务已结束，请查看结果；相同请求不会再次授权。"
+        return summary
 
     def start_batch(self, topic_ids: list[str]) -> dict:
         return self.request("POST", "/api/runs/batch", payload={"topic_ids": topic_ids})

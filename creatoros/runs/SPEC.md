@@ -1,5 +1,10 @@
 # ContentRun SPEC
 
+## 2026-11-03 fresh 重放与首次授权
+
+- Agent `start_content_run(action=fresh)` 与 `StudioClient.start(mode=fresh)` 对同一请求只做首次授权；`/api/runs/{id}/execute` 的 `initial_only` 在 SQLite 写事务中复核账号、版本和队列。已存在队列时只读原回执，包括 `needs_attention`、`failed`、`cancelled`，不重排、不清错误、不启动新 Attempt；无队列且仍为全新、未尝试的 fresh Run 才入队。响应丢失时原身份与运行记录用于核对。
+- 未设置 `initial_only` 的用户显式执行/恢复沿用原有规则。此约束不代表其他普通生产入口已做相同事务收敛；数据库外的副作用仍不能回滚。隔离 SQLite、真实本机 HTTP 和受控 Producer 覆盖重放、中断、并发、归属、响应丢失和显式恢复，不调用真实 Codex。
+
 ## 2026-11-03 初始生产授权事务边界
 
 - `ProductionSubmission.transaction()` 统一执行器就绪检查、执行器锁 → Run 写锁、数据库事务，以及提交成功后的唤醒。事务对象提供普通制作任务和参考图的初始 Run/队列授权操作；参考图保留 `BEGIN IMMEDIATE` 与未确认队列不自动重入队的规则。批量请求仍使用原来的延迟事务，staged 的冻结、素材导出和 dispatch 未迁移。
