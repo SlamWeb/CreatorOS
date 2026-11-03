@@ -2,6 +2,10 @@
 
 `creatoros.delivery` 负责本地冻结输入、产物收件和确定性证据验收；它不创建或调度 Run，也不启动模型、批准或发布。Run、Revision、Attempt 与队列仍由 `creatoros.runs` 管理，任务和队列的事务边界不由此模块接管。
 
+## 视频恢复工作区链接边界（2026-11-03）
+
+同 Revision 恢复前检查旧 Attempt 与新 Attempt 工作目录中的每个目录和文件，拒绝符号链接、Windows junction/其他重解析点及特殊文件；不遍历链接目录，普通嵌套文件继续恢复。复制过程不跟随新出现的符号链接，并在复制后再次检查，发现链接时保留现场并停止。此为路径校验，检查和复制之间仍可能被外部并发进程替换文件或 junction；当前实现不是抗恶意并发修改的操作系统沙箱。
+
 ## 入口和职责
 
 - `validate_artifact(directory, composition=..., production_protocol=..., execution_spec=...)` 是统一验收入口。它按已有 `legacy`、`native-v1` 或 `task-v1` 协议检查产物，返回图片或视频各自的 `ArtifactValidation`；不能把检查通过等同于内容质量或人工验收通过。
