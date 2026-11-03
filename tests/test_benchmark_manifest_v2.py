@@ -52,6 +52,15 @@ class BenchmarkManifestTests(unittest.TestCase):
             self.assertEqual(archive.namelist(), ["source.py"])
             self.assertEqual(archive.read("source.py"), self.source.read_bytes())
 
+    def test_nonvideo_policy_survives_freeze_and_verification(self):
+        from creatoros.evaluation.benchmark.nonvideo_guard import policy, validate
+        self.configuration["benchmark_guard"] = policy(["B41", "B49"])
+        self.freeze(case_ids=["B41", "B49"])
+        frozen = manifest.verify_manifest(self.target)["manifest"]
+        self.assertTrue(validate(frozen, "B41"))
+        with self.assertRaises(ValueError):
+            validate(frozen, "B47")
+
     def test_exclusive_freeze_does_not_overwrite_previous_manifest_or_snapshot(self):
         self.freeze()
         before = {p.name: p.read_bytes() for p in self.target.parent.iterdir()}

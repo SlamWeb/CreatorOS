@@ -2,6 +2,12 @@
 
 唯一现行题集是本目录 cases.json 的 B01–B50，版本 creatoros-trace-benchmark-v3.1-20261103。逐题说明见 [CASE_STANDARDS.md](CASE_STANDARDS.md)。用户请求、来源、夹具、40 dev / 10 acceptance 公开分组不变；本轮调整评分，不把新规则用于回填旧成绩。
 
+## 非视频专项守卫
+
+冻结时显式传 `--nonvideo-guard --cases B04,B41,B42,B44,B46,B48,B49,B50` 或其非空子集；选择 B47、其他题、重复或未显式选择均拒绝。manifest 的 `model_configuration.benchmark_guard` 固定策略版本及题目，运行器和每题宿主核对；不得在运行时切换策略。守卫拒绝视频生产入口，并以拒绝所有平台操作的客户端替换真实发布适配器；宿主确认接线后记录 `guard.json`。默认未启用模式保持原样。B47 不属于此实验，拒绝不记作该题通过。
+
+DeepSeek、Codex 图片 SDK 和联网调研仍是真实调用，ffmpeg/ffprobe 保留用于素材种子；此守卫不是进程或网络沙箱，不能保证约束外部模型、子进程或第三方服务的任意行为。受限批次与无此守卫的旧基线执行环境不同，不能视为相同条件的前后对比；守卫本身不证明题目成功。manifest 是本地留存记录而非防篡改签名，归档与比较时须核对其内容及冻结源码。
+
 ## v3.1 判分采证修正
 
 - 冻结修订身份为 `oracle-v31-20261103`，判分器 `benchmark-v3.1-case-outcomes`，Skill 采证 `skill-working-inventory-v1`；计分汇总算法仍为 `case-rubrics-v3`。manifest 保存该身份，并拒绝与当前判分器/采证版本不符的题集。
