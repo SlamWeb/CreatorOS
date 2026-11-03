@@ -111,6 +111,7 @@ database = Database(database_url)
 runs = ContentRunService(database, producer_factory=E2EProducer, output_root=root / "outputs",
                          production_protocol="legacy")
 app = create_app(database=database, run_service=runs, eval_root=root / "eval-runs", studio_dist=os.environ.get("CREATOROS_E2E_DIST"))
+original_skill_publish = app.state.skill_versions.catalog.publish_skill_candidate
 # Browser tests exercise real uploads/snapshots without accidentally starting paid Codex extraction.
 from tests.smoke_skill_extraction import controlled as controlled_extraction
 def counted_extraction(*args, **kwargs):
@@ -229,6 +230,27 @@ app.router.routes.insert(0, app.router.routes.pop())
 def waiting_task_fixture():
     from tests.staged_visibility_fixture import seed_waiting_task
     return seed_waiting_task(database, runs)
+
+
+app.router.routes.insert(0, app.router.routes.pop())
+
+
+@app.post("/test/skill-switch-fault/{phase}")
+def fail_next_skill_switch_publish(phase: str):
+    """Isolated, one-shot fault around real candidate publication; never used by Studio."""
+    from fastapi import HTTPException
+    if phase not in {"before", "after"}:
+        raise HTTPException(400, "unsupported fault")
+    catalog = app.state.skill_versions.catalog
+
+    def fail_once(*args, **kwargs):
+        catalog.publish_skill_candidate = original_skill_publish
+        if phase == "after":
+            original_skill_publish(*args, **kwargs)
+        raise OSError(f"controlled switch fault {phase} publication")
+
+    catalog.publish_skill_candidate = fail_once
+    return {"armed": phase}
 
 
 app.router.routes.insert(0, app.router.routes.pop())

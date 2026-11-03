@@ -42,6 +42,10 @@ export function SkillVersionControls({ skill, digest, history, seriesId, disable
   const [creationPreview, setCreationPreview] = useState<{ item: ProducerSkillItem; content: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkedPending, setCheckedPending] = useState(false);
+  const [resumeReady, setResumeReady] = useState<"prepared" | "published_not_switched" | null>(null);
+  const resuming = useRef(false);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   const [checkedCreation, setCheckedCreation] = useState(false);
   const createRequest = useRef(crypto.randomUUID().replaceAll("-", ""));
   const candidate = skill.version_status === "candidate";
@@ -95,16 +99,18 @@ export function SkillVersionControls({ skill, digest, history, seriesId, disable
       : { kind: "switch" as const, result: await studioApi.switchSeriesSkillVersion(input.series_id,
         { skill_id: input.skill_id, expected_revision: input.expected_revision, expected_digest: input.expected_digest, request_id: input.request_id }, creatorId) },
     onSuccess: result => {
-      clearPending(); setActionError("");
+      clearPending(); setActionError(""); setResumeReady(null);
       setFeedback(result.kind === "publish" ? "版本已保存，栏目保持不变。" : "栏目版本已切换。旧产物和进行中的任务保持不变。");
       if (result.kind === "publish") onChoose(result.result);
       void refresh();
     },
     onError: (error: Error) => {
-      const rejected = error instanceof ApiError && error.status >= 400 && error.status < 500 && !isUnknownSkillWrite(error);
+      const rejected = !resuming.current && error instanceof ApiError && error.status >= 400 && error.status < 500 && !isUnknownSkillWrite(error);
       if (rejected) clearPending();
+      setResumeReady(null);
       setActionError(`${error.message}${rejected ? " 请重新读取并核对后操作。" : " 结果待核对，请先查看当前版本和栏目状态，不要重复提交。"}`);
     },
+    onSettled: () => { resuming.current = false; },
   });
   const submit = (kind: PendingVersionAction["kind"]) => {
     if (disabled || pendingAction || createUnknown || apply.isPending || create.isPending || !digest) return;
@@ -149,14 +155,37 @@ export function SkillVersionControls({ skill, digest, history, seriesId, disable
   };
   const verifyPending = async () => {
     if (!pendingAction || checking) return;
-    setChecking(true); setActionError("");
+    setChecking(true); setActionError(""); setFeedback(""); setResumeReady(null);
     try {
+      if (pendingAction.kind === "switch") {
+        const state = await studioApi.inspectSeriesSkillVersion(pendingAction.series_id, pendingAction.request_id, creatorId);
+        if (disabledRef.current) throw new Error("当前访问范围已变化，请重新核对。");
+        if (!state || state.series_id !== pendingAction.series_id || state.skill_id !== pendingAction.skill_id
+            || state.digest !== pendingAction.expected_digest || state.expected_revision !== pendingAction.expected_revision) {
+          throw new Error("无法确认返回的状态属于本次切换，请保留待核对状态。");
+        }
+        if (state.status === "committed") {
+          clearPending(); setCheckedPending(false);
+          setFeedback(state.current_skill_id === pendingAction.skill_id
+            ? "已核对：栏目已切换到该版本。" : "已核对：上次切换已完成，栏目当前版本已发生变化。");
+          void refresh();
+        } else if (state.status === "prepared" || state.status === "published_not_switched") {
+          setResumeReady(state.status);
+          setFeedback(state.status === "prepared" ? "请求已记录，栏目尚未切换。" : "版本已保存，栏目尚未切换。");
+        } else {
+          const messages = {
+            skill_changed: "Skill 内容已变化，暂不能继续切换。",
+            authorization_changed: "账号对 Skill 的使用范围已变化，暂不能继续切换。",
+            binding_changed: "栏目配置已变化，暂不能继续切换。",
+            unknown: "当前状态仍无法确认，请稍后再核对。",
+          };
+          setActionError(messages[state.status as keyof typeof messages] ?? "当前状态无法确认，请稍后再核对。");
+        }
+        return;
+      }
       const latest = await studioApi.producerSkillVersions(pendingAction.skill_id, undefined, creatorId);
       const item = latest.items.find(value => value.id === pendingAction.skill_id);
-      const applied = pendingAction.kind === "publish"
-        ? item?.version_status === "released" && item.digest === pendingAction.expected_digest
-        : latest.bindings.some(value => value.series_id === pendingAction.series_id
-          && value.skill_id === pendingAction.skill_id && value.revision > pendingAction.expected_revision);
+      const applied = item?.version_status === "released" && item.digest === pendingAction.expected_digest;
       if (applied) {
         clearPending(); setCheckedPending(false);
         setFeedback(pendingAction.kind === "publish" ? "已核对：版本已保存。" : "已核对：栏目已切换到该版本。");
@@ -166,10 +195,15 @@ export function SkillVersionControls({ skill, digest, history, seriesId, disable
         setActionError("当前状态尚不能确认这次操作，未重新提交。请继续核对版本与栏目。");
       }
       void refresh();
-    } catch (error) { setActionError(error instanceof Error ? error.message : "读取状态失败，请稍后再核对。"); }
+    } catch (error) {
+      setActionError(error instanceof ApiError && error.status === 404 ? "找不到原请求记录，请核对当前版本和栏目。"
+        : error instanceof ApiError && error.status === 403 ? "当前账号无法核对这次切换。"
+          : error instanceof Error ? error.message : "读取状态失败，请稍后再核对。");
+    }
     finally { setChecking(false); }
   };
   const pending = create.isPending || apply.isPending || checking;
+  useEffect(() => { if (disabled) setResumeReady(null); }, [disabled]);
   useEffect(() => { onBusy(pending); }, [pending, onBusy]);
   useEffect(() => () => onBusy(false), [onBusy]);
   const locked = disabled || pending || !!pendingAction || !!createUnknown;
@@ -214,8 +248,12 @@ export function SkillVersionControls({ skill, digest, history, seriesId, disable
         }
       }}>已核对，解除锁定</button>}
     </div>}
-    {pendingAction && !apply.isPending && <p className="skill-version-feedback" role="status">上次操作待核对 <button type="button" disabled={pending}
-      onClick={() => void verifyPending()}>核对当前状态</button>{checkedPending && <button type="button" disabled={pending}
+    {pendingAction && !apply.isPending && <p className="skill-version-feedback" role="status">上次操作待核对 <button type="button" disabled={pending || disabled}
+      onClick={() => void verifyPending()}>核对当前状态</button>{resumeReady && pendingAction.kind === "switch" && <button type="button" disabled={pending || disabled}
+        onClick={() => {
+          if (resuming.current || !window.confirm("继续完成上次栏目切换？")) return;
+          resuming.current = true; setResumeReady(null); apply.mutate(pendingAction);
+        }}>确认继续切换</button>}{pendingAction.kind === "publish" && checkedPending && <button type="button" disabled={pending}
         onClick={() => { if (window.confirm("确认已核对版本与栏目，解除待核对状态？此操作不会重新提交。")) { clearPending(); setCheckedPending(false); } }}>已核对，解除锁定</button>}</p>}
   </section>;
 }

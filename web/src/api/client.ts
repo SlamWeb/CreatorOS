@@ -1,6 +1,7 @@
 import type {
   BatchProductionResult,
   CreatorView,
+  CreatorDirectoryItem,
   CreatorTaskList,
   CreatorCreateInput,
   HealthView,
@@ -17,6 +18,7 @@ import type {
   ProducerSkillAssetResult,
   ProducerSkillDeleteResult,
   SkillVersionHistory,
+  SkillSwitchInspection,
   SkillExtractionJob,
   SkillExtractionEvent,
   SkillExtractionEventPage,
@@ -109,6 +111,14 @@ export const studioApi = {
   health: () => request<HealthView>("/api/health"),
   overview: () => request<OverviewView>("/api/overview"),
   creators: () => request<PageResponse<CreatorView>>("/api/creators?limit=100"),
+  creatorDirectory: async (signal?: AbortSignal): Promise<{ items: CreatorDirectoryItem[] }> => {
+    const result = await request<unknown>("/api/creator-directory", { signal });
+    if (!objectValue(result) || !Array.isArray(result.items) || !result.items.every(item =>
+      objectValue(item) && typeof item.id === "string" && !!item.id && typeof item.display_name === "string")) {
+      throw new ApiError("账号目录返回格式无效，请重试。", 0, "invalid_response");
+    }
+    return result as { items: CreatorDirectoryItem[] };
+  },
   creator: (id: string) => request<CreatorView>(`/api/creators/${encodeURIComponent(id)}`),
   creatorTasks: (id: string, seriesId?: string) => {
     const query = new URLSearchParams();
@@ -163,6 +173,8 @@ export const studioApi = {
   switchSeriesSkillVersion: (id: string, input: { skill_id: string; expected_revision: number; expected_digest?: string; request_id: string }, creatorId?: string) =>
     skillWrite(request<{ series_id: string; skill_id: string; revision: number }>(skillScope(`/api/series/${encodeURIComponent(id)}/skill-version`, creatorId), { method: "POST", body: JSON.stringify(input) }),
       value => objectValue(value) && value.series_id === id && value.skill_id === input.skill_id && value.revision === input.expected_revision + 1),
+  inspectSeriesSkillVersion: (id: string, requestId: string, creatorId?: string) =>
+    request<SkillSwitchInspection>(skillScope(`/api/series/${encodeURIComponent(id)}/skill-version?${new URLSearchParams({ request_id: requestId })}`, creatorId)),
   skillCalibrations: (seriesId?: string) => request<{ items: SkillCalibration[] }>(`/api/skill-calibrations${seriesId ? `?series_id=${encodeURIComponent(seriesId)}` : ""}`),
   skillCalibration: (id: string, signal?: AbortSignal) => request<SkillCalibration>(`/api/skill-calibrations/${encodeURIComponent(id)}`, { signal }),
   createSkillCalibration: (input: SkillCalibrationInput) => request<SkillCalibration>("/api/skill-calibrations", { method: "POST", body: JSON.stringify(input) }),

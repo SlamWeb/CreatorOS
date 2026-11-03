@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { Check, ChevronsUpDown, Folder, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
-import type { CreatorView, SeriesView } from "../api/types";
+import type { CreatorDirectoryItem, SeriesView } from "../api/types";
 import { UnseenDot } from "./TaskInbox";
 import { WorkspaceDialog } from "./WorkspaceDialog";
 import "./account-navigator.css";
 
-export function AccountNavigator({ accounts, account, series, selectedSeriesId, unassigned, onSelectAccount, onSelectSeries,
-  onOverview, onCreateAccount, onCreateSeries, hasUnseen, confirmingDelete, onConfirmDelete, onDelete, deletePending }: {
-  accounts: CreatorView[]; account?: CreatorView; series: SeriesView[]; selectedSeriesId: string | null; unassigned: SeriesView[];
+export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete, onRetryAccounts, account, series, selectedSeriesId, unassigned, onSelectAccount, onSelectSeries,
+  onOverview, onCreateAccount, onCreateSeries, createSeriesDisabled, hasUnseen, confirmingDelete, onConfirmDelete, onDelete, deletePending }: {
+  accounts: CreatorDirectoryItem[]; accountsLoading: boolean; accountsIncomplete: boolean; onRetryAccounts: () => void;
+  account?: CreatorDirectoryItem; series: SeriesView[]; selectedSeriesId: string | null; unassigned: SeriesView[];
   onSelectAccount: (id: string) => void; onSelectSeries: (id: string) => void; onOverview: () => void;
-  onCreateAccount: () => void; onCreateSeries: () => void; hasUnseen: (id: string) => boolean;
+  onCreateAccount: () => void; onCreateSeries: () => void; createSeriesDisabled: boolean; hasUnseen: (id: string) => boolean;
   confirmingDelete: boolean; onConfirmDelete: () => void; onDelete: () => void; deletePending: boolean;
 }) {
   const [switching, setSwitching] = useState(false);
@@ -32,7 +33,7 @@ export function AccountNavigator({ accounts, account, series, selectedSeriesId, 
       <LayoutGrid size={16} aria-hidden="true" /><span>账号概览</span>
     </button>
     <div className="account-nav-section-head"><h2>栏目</h2>
-      <button type="button" className="workspace-icon-button" aria-label="新建栏目" title="新建栏目" onClick={onCreateSeries}><Plus size={17} /></button>
+      <button type="button" className="workspace-icon-button" aria-label="新建栏目" title="新建栏目" disabled={createSeriesDisabled} onClick={onCreateSeries}><Plus size={17} /></button>
     </div>
     {series.length > 7 && <label className="account-nav-search"><Search size={15} aria-hidden="true" />
       <input type="search" aria-label="搜索当前账号栏目" placeholder="搜索栏目" value={seriesSearch} onChange={event => setSeriesSearch(event.target.value)} />
@@ -54,7 +55,10 @@ export function AccountNavigator({ accounts, account, series, selectedSeriesId, 
           <span className="account-nav-avatar" aria-hidden="true">{item.display_name.slice(0, 1)}</span><span>{item.display_name}</span>
           {account?.id === item.id && <Check size={16} aria-hidden="true" />}
         </button>)}
-        {!matchingAccounts.length && <p className="account-nav-empty">{accounts.length ? "没有匹配的账号" : "还没有账号"}</p>}
+        {accountsLoading && <p className="account-nav-empty" role="status">正在更新账号列表…</p>}
+        {accountsIncomplete && <div className="account-nav-empty"><p>账号列表读取失败</p>
+          <button type="button" onClick={onRetryAccounts}>重试加载账号</button></div>}
+        {!matchingAccounts.length && !accountsLoading && !accountsIncomplete && <p className="account-nav-empty">{accounts.length ? "没有匹配的账号" : "还没有账号"}</p>}
       </div>
       <footer className="account-switch-footer">
         {!!unassigned.length && <button type="button" onClick={() => { onSelectSeries(unassigned[0].id); setSwitching(false); }}><Folder size={16} />未分配栏目</button>}

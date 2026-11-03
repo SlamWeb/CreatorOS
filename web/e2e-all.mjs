@@ -17,7 +17,7 @@ const groups = [
     "content-navigation.spec.ts", "eval.spec.ts", "fresh-production.spec.ts", "home-page.spec.ts",
     "observation.spec.ts", "polling.spec.ts", "production-progress.spec.ts", "publication-request.spec.ts",
     "reply-trace.spec.ts", "run-workbench.spec.ts", "series-settings.spec.ts", "skill-calibration.spec.ts",
-    "skill-composer.spec.ts", "skill-extraction.spec.ts", "skill-inspector.spec.ts", "skill-iterations.spec.ts",
+    "skill-composer.spec.ts", "skill-extraction.spec.ts", "skill-inspector.spec.ts", "skill-iterations.spec.ts", "skill-switch-intent.spec.ts",
     "studio-preview.spec.ts", "studio-workflow.spec.ts", "task-inbox.spec.ts", "topic-production.spec.ts",
     "topic-references.spec.ts", "topic-removal.spec.ts", "topic-research.spec.ts", "ui-foundation.spec.ts",
     "workbench-locator.spec.ts", "workspace-gallery.spec.ts", "workspace-management.spec.ts",

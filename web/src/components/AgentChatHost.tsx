@@ -53,6 +53,9 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
   const setDefault = useCallback((target: ChatTarget, sourcePath: string) => setState(previous =>
     previous.isOpen || routePathRef.current !== sourcePath ? previous
       : { ...previous, ...target, sessionId: undefined, defaultPath: sourcePath }), []);
+  const clearDefault = useCallback((sourcePath: string) => setState(previous =>
+    routePathRef.current !== sourcePath || previous.defaultPath !== sourcePath ? previous
+      : { ...previous, defaultPath: undefined }), []);
   useEffect(() => {
     try { sessionStorage.setItem(storageKey, JSON.stringify({ creatorId: state.creatorId, accountName: state.accountName, isOpen: state.isOpen })); }
     catch { /* Preserve in-memory state if storage is unavailable. */ }
@@ -68,7 +71,7 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
       restoreFocus.current = false;
     }
   }, [state.isOpen, standalone, launcherReady]);
-  return <AgentChatContext.Provider value={{ isOpen: state.isOpen, creatorId: state.creatorId, open, close, setDefault }}>
+  return <AgentChatContext.Provider value={{ isOpen: state.isOpen, creatorId: state.creatorId, open, close, setDefault, clearDefault }}>
     <div className={visible ? "global-agent-chat-open" : "global-agent-chat-closed"}>{children}</div>
     {!standalone && <button ref={opener} type="button" className="workspace-chat-launcher" aria-label={visible ? "关闭账号对话" : "打开账号对话"}
       disabled={!launcherReady}

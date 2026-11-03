@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { BookOpen, Image as ImageIcon, Package, CircleHelp } from "lucide-react";
 import { studioApi, request } from "../api/client";
-import { useCreators } from "../api/hooks";
+import { useCreatorDirectory } from "../api/useCreatorDirectory";
 import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
@@ -54,7 +54,7 @@ export function SkillsPage() {
   const inbox = useWorkInbox();
   const [initial] = useState(restoreComposer);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
-  const creators = useCreators();
+  const creators = useCreatorDirectory();
   const [selectedIds, setSelectedIds] = useState<string[]>(initial.ids);
   const [name, setName] = useState(initial.name);
   const [creatorId, setCreatorId] = useState(initial.creatorId);
@@ -68,18 +68,19 @@ export function SkillsPage() {
   const [inspected, setInspected] = useState<ProducerSkillItem | null>(null);
   const openedSkill = useRef<string | null>(null);
   const viewedSkill = useRef<string | null>(null);
+  const verifiedSkills = useRef(new Set<string>());
   const requestedSkill = searchParams.get("skill");
   const requestedIteration = searchParams.get("iteration");
-  const requestedVersions = useQuery({ queryKey: ["producer-skill-versions", requestedSkill],
+  const requestedVersioned = !!requestedSkill && requestedSkill.includes("--");
+  const requestedVersions = useQuery({ queryKey: ["producer-skill-versions", requestedSkill, "global"],
     queryFn: ({ signal }) => studioApi.producerSkillVersions(requestedSkill!, signal),
-    enabled: !!requestedSkill && !!skills.data && !skills.data.items.some(item => item.id === requestedSkill), retry: false });
+    enabled: requestedVersioned && !requestedIteration, retry: false });
   useEffect(() => {
     if (!requestedSkill || openedSkill.current === requestedSkill) return;
-    const item = skills.data?.items.find(skill => skill.id === requestedSkill)
-      ?? requestedVersions.data?.items.find(skill => skill.id === requestedSkill);
+    const item = requestedVersioned ? requestedVersions.data?.items.find(skill => skill.id === requestedSkill)
+      : skills.data?.items.find(skill => skill.id === requestedSkill);
     if (item) { openedSkill.current = requestedSkill; setInspected(item); }
-  }, [requestedSkill, skills.data, requestedVersions.data]);
-  useEffect(() => { if (requestedVersions.error) setNotice({ kind: "error", text: `无法打开指定 Skill：${requestedVersions.error.message}` }); }, [requestedVersions.error]);
+  }, [requestedSkill, requestedVersioned, skills.data, requestedVersions.data]);
   useEffect(() => {
     if (!inspected) { viewedSkill.current = null; return; }
     if (inbox.data && viewedSkill.current !== inspected.id) {
@@ -91,6 +92,11 @@ export function SkillsPage() {
     setInspected(null);
     if (requestedSkill) setSearchParams(previous => { const next = new URLSearchParams(previous); next.delete("skill"); return next; });
     openedSkill.current = null;
+  };
+  const inspectSkill = (skill: ProducerSkillItem) => {
+    openedSkill.current = skill.id;
+    setInspected(skill);
+    setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("skill", skill.id); return next; }, { replace: true });
   };
   const [drag, setDrag] = useState<{ payload: DragPayload; x: number; y: number; target: string | null } | null>(null);
   const dragRef = useRef<{ payload: DragPayload; startX: number; startY: number; active: boolean } | null>(null);
@@ -248,31 +254,59 @@ export function SkillsPage() {
     window.addEventListener("keydown", esc);
   };
 
-  if (requestedIteration) return <div className="space-page"><SkillIterationPanel key={requestedIteration} id={requestedIteration} /></div>;
-  if (skills.isPending || creators.isPending) return <LoadingState label="正在读取 Skill 库…" />;
-  if (skills.isError || creators.isError) {
-    const error = skills.error ?? creators.error;
-    return <ErrorState message={error?.message ?? "读取失败"} onRetry={() => void Promise.all([skills.refetch(), creators.refetch()])} />;
-  }
+  const requestedItem = requestedVersioned ? requestedVersions.data?.items.find(item => item.id === requestedSkill)
+    : skills.data?.items.find(item => item.id === requestedSkill);
+  const targetUnavailable = requestedVersioned
+    ? requestedVersions.isError || requestedVersions.isFetching || !requestedItem
+    : skills.isError || skills.isFetching || !requestedItem;
+  useEffect(() => {
+    if (requestedSkill && requestedItem && !targetUnavailable) verifiedSkills.current.add(requestedSkill);
+  }, [requestedSkill, requestedItem, targetUnavailable]);
+  // A manual selection updates both local state and the URL. Wait until they
+  // agree before mounting, otherwise the inspector can mount twice while the
+  // URL catches up and silently repeat a failed file request.
+  const verifiedInspector = inspected && requestedSkill && inspected.id === requestedSkill
+    && (requestedItem || verifiedSkills.current.has(requestedSkill)) ? inspected : null;
+  const inspector = verifiedInspector && <SkillInspector key={verifiedInspector.id} skill={verifiedInspector} onClose={closeInspector}
+    onSelectSkill={inspectSkill}
+    scopeUnavailable={targetUnavailable} onScopeRetry={() => void (requestedVersioned ? requestedVersions.refetch() : skills.refetch())}
+    onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== verifiedInspector.id)); closeInspector(); }}
+    onAdd={() => { addSkill(verifiedInspector); closeInspector(); }} />;
+  const targetFailed = !!requestedSkill && !verifiedInspector && (requestedVersioned
+    ? requestedVersions.isError || (requestedVersions.isSuccess && !requestedItem)
+    : !!skills.data && !requestedItem);
+  const targetLoading = !!requestedSkill && !verifiedInspector && !targetFailed
+    && (requestedVersioned ? requestedVersions.isPending : skills.isPending);
+  const targetProgress = targetLoading && <p className="space-note" role="status">正在读取指定 Skill…</p>;
+  const targetError = targetFailed && <div className="state-panel error-state" role="alert">
+    <div><strong>无法读取指定 Skill</strong><p>{requestedVersions.error?.message ?? "未能确认链接中的版本，请重试。"}</p></div>
+    <button type="button" className="button button-secondary" onClick={() => void (requestedVersioned ? requestedVersions.refetch() : skills.refetch())}>重试读取 Skill</button>
+  </div>;
 
-  const allSkills = skills.data.items;
+  if (requestedIteration) return <div className="space-page"><SkillIterationPanel key={requestedIteration} id={requestedIteration} /></div>;
+
+  const allSkills = skills.data?.items ?? [];
   const minds = allSkills.filter(s => s.role === "mind");
   const visuals = allSkills.filter(s => s.role === "production");
   const others = allSkills.filter(s => s.role === "legacy_end_to_end" || s.role === null);
-  const accounts = creators.data.items;
+  const accounts = creators.items;
+  const accountsLoading = creators.isPending || creators.isFetching;
+  const accountsIncomplete = creators.isError;
+  const selectedAccountMissing = !!creatorId && !accounts.some(account => account.id === creatorId);
+  const accountSelectionUnavailable = creators.isPending || creators.isError;
   const selectedSkills = selectedIds.map(id => allSkills.find(skill => skill.id === id)).filter((skill): skill is ProducerSkillItem => Boolean(skill));
   const missingSkills = selectedSkills.length !== selectedIds.length;
   const busy = compose.isPending || merge.isPending;
   const binding = directBinding(selectedIds, allSkills);
   const isMerge = selectedIds.length > 1 && mode === "merge";
-  const canCreate = !!binding && !!name.trim() && !busy && !missingSkills;
+  const canCreate = !!binding && !!name.trim() && !busy && !missingSkills && !selectedAccountMissing && !accountSelectionUnavailable;
   const draggingSkill = drag?.payload.skill ?? null;
 
   const skillCard = (skill: ProducerSkillItem, enabled: boolean) => {
     return <div key={skill.id} className={`skill-card-wrap ${draggingSkill?.id === skill.id ? "drag-source" : ""}`}>
       <button type="button" className={`skill-card ${enabled ? "" : "view-only"}`}
         onPointerDown={event => { suppressClick.current = false; if (enabled) onDragStart({ kind: "skill", skill })(event); }}
-        onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } setInspected(skill); }}
+        onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } inspectSkill(skill); }}
         aria-haspopup="dialog">
         <span className="skill-icon">{skillIcon(skill.role)}</span>
         <span className="skill-copy"><strong>{skillLabel(skill)}</strong></span>
@@ -282,6 +316,10 @@ export function SkillsPage() {
   };
 
   return <div className="space-page">
+    {targetProgress}
+    {targetError}
+    {skills.isPending ? <LoadingState label="正在读取 Skill 库…" />
+      : skills.isError ? <ErrorState message={skills.error.message} onRetry={() => void skills.refetch()} /> : <>
     <header className="space-head"><h1>Skill 库</h1></header>
     <SkillIterationHistory />
     <ArtifactSkillExtraction onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
@@ -328,7 +366,7 @@ export function SkillsPage() {
               <button type="button" className="basket-remove" disabled={busy} onClick={() => setSelectedIds(ids => ids.filter(id => id !== skill.id))} aria-label={`移除 ${skillLabel(skill)}`}>
                 {skillIcon(skill.role)}<strong>{skillLabel(skill)}</strong><span aria-hidden="true">×</span>
               </button>
-              <button type="button" className="skill-slot-view" onClick={() => setInspected(skill)} aria-label={`查看 ${skillLabel(skill)}`}>查看</button>
+              <button type="button" className="skill-slot-view" onClick={() => inspectSkill(skill)} aria-label={`查看 ${skillLabel(skill)}`}>查看</button>
             </div>)}
             {missingSkills && <p role="alert">部分 Skill 已不在库中。<button type="button" onClick={() => setSelectedIds(selectedSkills.map(s => s.id))}>移除失效选择</button></p>}
           </div>
@@ -342,10 +380,14 @@ export function SkillsPage() {
             {selectedIds.length > 1 && !binding && !missingSkills && <p className="space-note" role="status">直接使用需选择一份 Mind＋一份 Visualize；其他组合可选择融合。</p>}
             <fieldset disabled={busy} className="composer-fields">
             <label>栏目名称<input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
-            <label>归属账号<select value={creatorId} onChange={event => setCreatorId(event.target.value)}>
+            <label>归属账号<select value={creatorId} disabled={accountSelectionUnavailable} onChange={event => setCreatorId(event.target.value)}>
               <option value="">暂不分配</option>
+              {selectedAccountMissing && <option value={creatorId} disabled>{accountsLoading ? "正在查找已选账号…" : "已选账号不在目录中"}</option>}
               {accounts.map(account => <option key={account.id} value={account.id}>{account.display_name}</option>)}
             </select></label>
+            {accountsLoading && <p className="space-note" role="status">正在更新账号列表…</p>}
+            {accountsIncomplete && <p className="space-error" role="alert"><span>账号列表读取失败</span> <button type="button"
+              onClick={() => void creators.refetch()}>重试加载账号</button></p>}
             </fieldset></>}
             <button className="composer-create" disabled={isMerge ? busy || missingSkills || workbenchDirty : !canCreate}>
               {merge.isPending ? "提交中…" : compose.isPending ? "创建中…" : isMerge ? "生成融合草稿" : "创建栏目"}
@@ -361,16 +403,7 @@ export function SkillsPage() {
     {drag && <div className={`drag-ghost ${drag.target ? "on-target" : ""}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
       {skillLabel(drag.payload.skill)}
     </div>}
-    {inspected && <SkillInspector key={inspected.id} skill={inspected} onClose={closeInspector}
-      onSelectSkill={next => {
-        openedSkill.current = next.id;
-        setInspected(next);
-        setSearchParams(previous => { const updated = new URLSearchParams(previous); updated.set("skill", next.id); return updated; }, { replace: true });
-      }}
-      onDeleted={() => { setSelectedIds(ids => ids.filter(id => id !== inspected.id)); closeInspector(); }}
-      onAdd={() => {
-        addSkill(inspected);
-        closeInspector();
-      }} />}
+    </>}
+    {inspector}
   </div>;
 }

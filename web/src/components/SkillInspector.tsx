@@ -101,11 +101,12 @@ function TreeFolder({ node, selected, onSelect, disabled }: {
   </div>;
 }
 
-export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, onAgentEdit, onSelectSkill }: {
+export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, onAgentEdit, onSelectSkill, scopeUnavailable = false, onScopeRetry }: {
   skill: ProducerSkillItem; onClose: () => void; onAdd?: () => void;
   onDeleted?: () => void;
   onSelectSkill?: (skill: ProducerSkillItem) => void;
   editContext?: SkillEditContext; onAgentEdit?: (prompt: string) => void;
+  scopeUnavailable?: boolean; onScopeRetry?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const assetInput = useRef<HTMLInputElement>(null);
@@ -134,6 +135,9 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const [deleteError, setDeleteError] = useState("");
   const creatorId = editContext?.creatorId ?? undefined;
   const scope = creatorId ? `creator:${creatorId}` : "global";
+  const scopeUnavailableRef = useRef(scopeUnavailable);
+  scopeUnavailableRef.current = scopeUnavailable;
+  const requireScope = () => { if (scopeUnavailableRef.current) throw new Error("访问范围暂未确认，修改未提交。"); };
   const [uncertainWrite, setUncertainWrite] = useState(() => readUnknown(scope, skill));
   const [unknownRestored, setUnknownRestored] = useState(() => uncertainWrite !== null);
   const [verifyError, setVerifyError] = useState("");
@@ -203,6 +207,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   };
   const save = useMutation({
     mutationFn: () => {
+      requireScope();
       stageWrite("text", selected);
       return studioApi.saveProducerSkillText(activeSkill.id, { path: selected, content: draft, expected_digest: editDigest }, creatorId);
     },
@@ -216,7 +221,9 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const assetSave = useMutation({
     retry: false,
     mutationFn: async (asset: AssetDraft) => {
+      requireScope();
       const data = await fileBase64(asset.file);
+      requireScope();
       stageWrite("asset", asset.path);
       return studioApi.saveProducerSkillAsset(activeSkill.id, { path: asset.path.trim(), data_base64: data,
         expected_digest: asset.expectedDigest, overwrite: asset.mode === "replace" }, creatorId);
@@ -237,6 +244,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const assetDelete = useMutation({
     retry: false,
     mutationFn: (input: { path: string; digest: string }) => {
+      requireScope();
       stageWrite("asset", input.path);
       return studioApi.deleteProducerSkillAsset(activeSkill.id, { path: input.path, expected_digest: input.digest }, creatorId);
     },
@@ -255,7 +263,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   });
   const skillDelete = useMutation({
     retry: false,
-    mutationFn: (digest: string) => studioApi.deleteProducerSkill(activeSkill.id, { expected_digest: digest }, creatorId),
+    mutationFn: (digest: string) => { requireScope(); return studioApi.deleteProducerSkill(activeSkill.id, { expected_digest: digest }, creatorId); },
     onSuccess: () => {
       if (onDeleted) onDeleted(); else onClose();
       void queryClient.invalidateQueries({ queryKey: ["producer-skills"] });
@@ -286,7 +294,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     uncertainWrite ? "本次写入结果还未核对。离开后请先查看版本和目标文件，不能直接重新提交。仍要离开吗？"
       : "有未保存的修改或待上传图片。离开会丢弃草稿，仍要离开吗？");
   const chooseAsset = (mode: "add" | "replace") => {
-    if (!files.data?.editable || !files.data.digest || busy || save.isPending || uncertainWrite) return;
+    if (scopeUnavailableRef.current || !files.data?.editable || !files.data.digest || busy || save.isPending || uncertainWrite) return;
     if (editing || renaming) { setAssetError("请先保存或取消当前文字、名称编辑，再修改图片。"); return; }
     if (!confirmDiscard()) return;
     assetChoice.current = mode;
@@ -302,7 +310,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     setAssetError("");
   };
   const saveAsset = () => {
-    if (!assetDraft || busy || save.isPending || uncertainWrite) return;
+    if (scopeUnavailableRef.current || !assetDraft || busy || save.isPending || uncertainWrite) return;
     const path = assetDraft.path.trim();
     if (assetDraft.mode === "add" && (!/^assets\/[a-zA-Z0-9][a-zA-Z0-9_./-]*\.(?:png|jpe?g|webp|gif)$/i.test(path)
       || path.length > 512 || path.split("/").some(part => !part || part === "." || part === ".."))) {
@@ -317,7 +325,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     assetSave.mutate({ ...assetDraft, path });
   };
   const deleteAsset = () => {
-    if (file?.kind !== "image" || !files.data?.digest || busy || uncertainWrite) return;
+    if (scopeUnavailableRef.current || file?.kind !== "image" || !files.data?.digest || busy || uncertainWrite) return;
     if (editing || renaming) { setAssetError("请先保存或取消当前文字、名称编辑，再删除图片。"); return; }
     if (!confirmDiscard()) return;
     if (!window.confirm(`确定删除图片「${file.path}」吗？此操作会影响后续使用该 Skill 的生产。`)) return;
@@ -325,7 +333,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     assetDelete.mutate({ path: file.path, digest: files.data.digest });
   };
   const deleteSkill = () => {
-    if (!files.data?.editable || !files.data.digest || busy || renaming || save.isPending || uncertainWrite || !confirmDiscard()) return;
+    if (scopeUnavailableRef.current || !files.data?.editable || !files.data.digest || busy || renaming || save.isPending || uncertainWrite || !confirmDiscard()) return;
     if (!window.confirm(`确定移除 Skill「${name}」吗？已使用的栏目会阻止删除。`)) return;
     setDeleteError(""); skillDelete.mutate(files.data.digest);
   };
@@ -388,7 +396,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     } finally { setVerifying(false); }
   };
   const handToAgent = () => {
-    if (!agentRequest.trim() || save.isPending || busy || renaming || uncertainWrite || !confirmDiscard()) return;
+    if (scopeUnavailableRef.current || !agentRequest.trim() || save.isPending || busy || renaming || uncertainWrite || !confirmDiscard()) return;
     const payload = { ...editContext, skillId: activeSkill.id, skillName: name, path: selected, request: agentRequest.trim() };
     if (onAgentEdit) { onAgentEdit(skillEditPrompt(payload)); return; }
     chat.open({ creatorId: editContext?.creatorId ?? null, draftSeed: skillEditPrompt(payload) });
@@ -430,13 +438,13 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     <header className="skill-inspector-header">
       <div className="skill-inspector-heading"><span className="skill-inspector-mark"><BookOpen size={23} /></span>
         <div><div className="skill-inspector-title"><h2 id={titleId}>{name}</h2>
-          {editable && <button type="button" className="skill-rename-trigger" disabled={editing || renaming || save.isPending || busy || !!assetDraft || !!uncertainWrite}
+          {editable && <button type="button" className="skill-rename-trigger" disabled={scopeUnavailable || editing || renaming || save.isPending || busy || !!assetDraft || !!uncertainWrite}
             onClick={() => setRenaming(true)}>改名</button>}
           <span className="skill-inspector-role">{role === "mind" ? "Mind" : role === "production" ? "Visualize" : role ? "完整 Skill" : "未分类"}</span></div>
           <p>{files.data?.description ?? currentSkill.description}</p>
           {renaming && <SkillRenameForm skillId={activeSkill.id} initialName={name} onDirty={setRenameDirty} onBusy={setRenameBusy}
             scope={scope} creatorId={creatorId}
-            blocked={!!uncertainWrite} onUnknown={error => rememberUnknown(error, "rename", "SKILL.md")}
+            blocked={scopeUnavailable || !!uncertainWrite} onUnknown={error => rememberUnknown(error, "rename", "SKILL.md")}
             onStart={() => stageWrite("rename", "SKILL.md")} onKnown={clearStagedWrite}
             onCancel={() => { setRenaming(false); setRenameDirty(false); }}
             onSaved={result => { applySaved(result); setRenaming(false); setRenameDirty(false); }} />}
@@ -448,6 +456,10 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
         <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending || busy} onClick={close}><X size={20} /></button>
       </div>
     </header>
+    {scopeUnavailable && <div className="skill-edit-feedback" role="alert">
+      <p>{creatorId ? "当前账号已切换或暂时无法确认" : "当前 Skill 版本暂时无法确认"}，修改暂不能保存；未保存的草稿仍保留。</p>
+      {onScopeRetry && <button type="button" onClick={onScopeRetry}>{creatorId ? "重新核验账号" : "重新读取版本"}</button>}
+    </div>}
     {uncertainWrite && <div className="skill-edit-feedback" role="alert">
       <p>{unknownRestored ? "上次写入结果待核对；刷新前的未保存草稿和待上传图片没有保留。" : "上次写入结果待核对，草稿仍保留。"}请先读取实际版本和目标文件，不要再次提交。</p>
       <button type="button" disabled={verifying} onClick={() => void verifyWrite()}>{verifying ? "正在核对…" : "核对写入结果"}</button>
@@ -462,36 +474,39 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
       }}>已核对，解除锁定</button>}
     </div>}
     {versions.data ? <SkillVersionControls key={activeSkill.id} skill={currentSkill} digest={files.data?.digest ?? currentSkill.digest ?? ""}
-      history={versions.data} scope={scope} creatorId={creatorId} seriesId={editContext?.seriesId} disabled={save.isPending || renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending || editing || renaming || !!assetDraft || !!uncertainWrite}
+      history={versions.data} scope={scope} creatorId={creatorId} seriesId={editContext?.seriesId} disabled={scopeUnavailable || save.isPending || renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending || editing || renaming || !!assetDraft || !!uncertainWrite}
       onChoose={chooseVersion} onBusy={setVersionBusy} />
       : <div className="skill-version-loading">{activeSkill.id.includes("--") && versions.isPending ? <span role="status">正在读取版本…</span>
         : files.data?.editable && <span role="alert">{versions.error?.message} <button type="button" onClick={() => void versions.refetch()}>重新读取版本</button></span>}</div>}
     {files.isPending ? <p className="skill-inspector-state" role="status">正在读取 Skill 文件…</p>
-      : files.isError ? <div className="skill-inspector-state" role="alert"><p>{files.error.message}</p>
+      : files.isError && !files.data ? <div className="skill-inspector-state" role="alert"><p>{files.error.message}</p>
         <button type="button" onClick={() => void files.refetch()}>重新读取</button></div>
       : <div className="skill-inspector-body">
         <aside className="skill-inspector-sidebar">
           <button type="button" className="skill-files-trigger" aria-expanded={filesOpen} aria-controls={fileListId}
             onClick={() => setFilesOpen(value => !value)}>文件<span>{filesOpen ? "收起" : "展开"}</span></button>
-          {editable && <button type="button" className="skill-asset-add" disabled={busy || save.isPending || renaming || !!uncertainWrite}
+          {editable && <button type="button" className="skill-asset-add" disabled={scopeUnavailable || busy || save.isPending || renaming || !!uncertainWrite}
             onClick={() => chooseAsset("add")}><Plus size={14} aria-hidden="true" />添加图片</button>}
           <nav id={fileListId} hidden={!filesOpen} aria-label="Skill 文件结构"><TreeItems nodes={tree} selected={selected} onSelect={selectFile} disabled={save.isPending || busy || renaming} /></nav>
         </aside>
         <section className="skill-inspector-preview" aria-label="文件预览">
+          {files.isError && files.data && <div className="skill-inspector-state" role="alert">
+            <p>文件列表刷新失败；当前显示已读取的内容。</p><button type="button" onClick={() => void files.refetch()}>重新读取</button>
+          </div>}
           <div className="skill-file-toolbar"><span className="skill-file-path">{selected}</span>
             {file?.kind === "image" && editable && <div className="skill-asset-toolbar">
-              <button type="button" disabled={busy || save.isPending || renaming || !!uncertainWrite} onClick={() => chooseAsset("replace")}>替换图片</button>
-              <button type="button" className="skill-danger-link" disabled={busy || save.isPending || renaming || !!uncertainWrite} onClick={deleteAsset}>删除图片</button>
+              <button type="button" disabled={scopeUnavailable || busy || save.isPending || renaming || !!uncertainWrite} onClick={() => chooseAsset("replace")}>替换图片</button>
+              <button type="button" className="skill-danger-link" disabled={scopeUnavailable || busy || save.isPending || renaming || !!uncertainWrite} onClick={deleteAsset}>删除图片</button>
             </div>}
             {files.data && <button type="button" className="skill-agent-trigger" aria-expanded={agentOpen}
-              aria-label="让 Agent 帮我修改当前 Skill" disabled={renaming || !!uncertainWrite} onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
+              aria-label="让 Agent 帮我修改当前 Skill" disabled={scopeUnavailable || renaming || !!uncertainWrite} onClick={() => setAgentOpen(!agentOpen)}>Agent 改稿</button>}
             {(file?.kind === "markdown" || file?.kind === "text") && text.data && <div className="skill-file-modes">
               {editing ? <><button type="button" disabled={save.isPending} onClick={() => { if (confirmDiscard()) { setEditing(false); setDraft(text.data?.content ?? ""); setEditError(""); setLatestContent(null); } }}>取消编辑</button>
-                <button type="button" disabled={!dirty || save.isPending || !editDigest || !!uncertainWrite}
+                <button type="button" disabled={scopeUnavailable || !dirty || save.isPending || !editDigest || !!uncertainWrite}
                   onClick={() => { setEditError(""); save.mutate(); }}>{save.isPending ? "正在保存…" : latestContent !== null ? "覆盖保存" : "保存文件"}</button></>
                 : <><button type="button" aria-pressed={!source} onClick={() => setSource(false)}>阅读</button>
                   {file.kind === "markdown" && <button type="button" aria-pressed={source} onClick={() => setSource(true)}>源码</button>}
-                  {editable && <button type="button" disabled={renaming || busy || !!assetDraft || !!uncertainWrite} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
+                  {editable && <button type="button" disabled={scopeUnavailable || renaming || busy || !!assetDraft || !!uncertainWrite} onClick={() => { setEditing(true); setDraft(text.data?.content ?? ""); setEditDigest(text.data?.digest ?? ""); setEditError(""); }}>编辑</button>}</>}
             </div>}
           </div>
           <div className="skill-file-content" key={selected}>
@@ -501,7 +516,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
               {assetDraft.mode === "add" ? <label>保存路径<input value={assetDraft.path} maxLength={512} disabled={assetSave.isPending}
                 onChange={event => { setAssetDraft({ ...assetDraft, path: event.target.value }); setAssetError(""); }} /></label>
                 : <p>保留路径：<code>{assetDraft.path}</code></p>}
-              <div className="skill-asset-draft-actions"><button type="button" className="skill-inspector-add" disabled={busy || save.isPending || !!uncertainWrite} onClick={saveAsset}>
+              <div className="skill-asset-draft-actions"><button type="button" className="skill-inspector-add" disabled={scopeUnavailable || busy || save.isPending || !!uncertainWrite} onClick={saveAsset}>
                 {assetSave.isPending ? "正在保存…" : "保存图片"}</button>
                 <button type="button" disabled={assetSave.isPending} onClick={() => { setAssetDraft(null); setAssetError(""); }}>取消</button></div>
             </div>}
@@ -518,7 +533,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
             </div>}
             {agentOpen && files.data && <div className="skill-agent-edit"><form onSubmit={event => { event.preventDefault(); handToAgent(); }}><label>让 Agent 修改 {name}
               <textarea value={agentRequest} maxLength={6000} rows={3} onChange={event => setAgentRequest(event.target.value)} placeholder="说明希望调整什么，以及需要保留什么。" /></label>
-              <button type="submit" className="skill-inspector-add" disabled={!agentRequest.trim() || save.isPending || busy || renaming}>在 Agent 中继续</button></form></div>}
+              <button type="submit" className="skill-inspector-add" disabled={scopeUnavailable || !agentRequest.trim() || save.isPending || busy || renaming}>在 Agent 中继续</button></form></div>}
             {!file && <p role="alert">此文件不存在，请关闭后重新读取 Skill。</p>}
             {file?.kind === "unsupported" && <p>不支持预览，请在本地查看。</p>}
             {file?.kind === "image" && <SkillImage key={imageUrl} url={imageUrl} path={file.path} />}
@@ -555,7 +570,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
         </section>
       </div>}
     {files.data?.editable && versions.data?.items.length === 1 && <footer className="skill-inspector-footer">
-      <button type="button" className="skill-delete-trigger" disabled={busy || save.isPending || renaming || !!uncertainWrite} onClick={deleteSkill}>
+      <button type="button" className="skill-delete-trigger" disabled={scopeUnavailable || busy || save.isPending || renaming || !!uncertainWrite} onClick={deleteSkill}>
         <Trash2 size={15} />{skillDelete.isPending ? "正在移除…" : "删除这个 Skill"}</button>
       {deleteError && <div role="alert"><p>{deleteError}</p>
         {blockers.length > 0 && <p>被这些栏目使用：{blockers.map(item => `${item.name}（${item.id}）`).join("、")}。请先解除绑定。</p>}

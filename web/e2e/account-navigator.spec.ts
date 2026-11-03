@@ -42,6 +42,154 @@ async function expectLocation(page: Page, creator: string, series: string | null
   }).toEqual({ creator, series });
 }
 
+test("account links and search work beyond the first 100 accounts", async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const suffix = crypto.randomUUID().slice(0, 8);
+  for (let index = 0; index < 101; index++) {
+    await post(request, "/api/creators", { display_name: `目录填充-${suffix}-${index}` });
+  }
+  const target = await post(request, "/api/creators", { display_name: `第二区账号甲-${suffix}` });
+  const other = await post(request, "/api/creators", { display_name: `第二区账号乙-${suffix}` });
+  const targetSeries = await post(request, `/api/creators/${target.id}/series`, { name: `第二区栏目甲-${suffix}` });
+  const otherSeries = await post(request, `/api/creators/${other.id}/series`, { name: `第二区栏目乙-${suffix}` });
+  const first = await request.get("/api/creators?limit=100&offset=0").then(response => response.json());
+  expect(first.page.total).toBeGreaterThan(100);
+  expect(first.items.some((item: { id: string }) => item.id === target.id)).toBe(false);
+  expect(first.items.some((item: { id: string }) => item.id === other.id)).toBe(false);
+
+  let requests = 0;
+  await page.route("**/api/creator-directory", async route => {
+    requests++;
+    if (requests === 1) {
+      return route.fulfill({ status: 503, json: { detail: "受控的账号目录读取故障" } });
+    }
+    return route.continue();
+  });
+  await page.goto(`/workspace?creator=${target.id}&series=${targetSeries.id}`);
+  await expect(page.getByRole("alert")).toContainText("受控的账号目录读取故障");
+  await page.getByRole("button", { name: "重新连接", exact: true }).click();
+  const rail = await openRail(page);
+  await expect(rail.getByRole("button", { name: "切换账号", exact: true })).toContainText(target.display_name, { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: targetSeries.name, exact: true })).toBeVisible();
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  const launcher = page.getByRole("button", { name: "打开账号对话" });
+  await expect(launcher).toHaveAttribute("title", `与 ${target.display_name} 对话`);
+
+  const switcher = await openSwitcher(page);
+  await switcher.getByLabel("搜索账号", { exact: true }).fill(other.display_name);
+  await expect(switcher.getByRole("button", { name: `切换到账号 ${other.display_name}`, exact: true })).toBeVisible();
+  await switcher.getByRole("button", { name: `切换到账号 ${other.display_name}`, exact: true }).click();
+  await expectLocation(page, other.id);
+  await expect(rail.getByRole("button", { name: otherSeries.name, exact: true })).toBeVisible();
+  await expect(rail.getByRole("button", { name: targetSeries.name, exact: true })).toHaveCount(0);
+  await page.reload();
+  await expect(rail.getByRole("button", { name: "切换账号", exact: true })).toContainText(other.display_name, { timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: other.display_name, exact: true })).toBeVisible();
+  const createFromSwitcher = await openSwitcher(page);
+  await createFromSwitcher.getByRole("button", { name: "新建账号", exact: true }).click();
+  const createDialog = page.getByRole("dialog", { name: "新建账号", exact: true });
+  const newName = `超过百个后新建-${suffix}`;
+  await createDialog.getByLabel("新账号名称", { exact: true }).fill(newName);
+  await createDialog.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByRole("heading", { name: newName, exact: true })).toBeVisible({ timeout: 20_000 });
+  await page.goto(`/workspace?creator=${target.id}&series=${otherSeries.id}`);
+  await expect(page.getByText("栏目不存在或不属于当前账号，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: otherSeries.name, exact: true })).toHaveCount(0);
+
+  // A saved Skill composer draft must not silently submit as unassigned if
+  // the single directory read fails.
+  const seeded = await post(request, "/test/skill-files", {});
+  const seriesName = `跨页账号创建栏目-${suffix}`;
+  await page.evaluate(({ skillIds, accountId, name }) => sessionStorage.setItem("creatoros:skill-composer:v1",
+    JSON.stringify({ ids: skillIds, name, creatorId: accountId, instruction: "", mode: "reference" })),
+  { skillIds: [seeded.mind.id, seeded.production.id], accountId: other.id, name: seriesName });
+  await page.unroute("**/api/creator-directory");
+  let skillPageFailed = false;
+  await page.route("**/api/creator-directory", route => {
+    if (!skillPageFailed) {
+      skillPageFailed = true;
+      return route.fulfill({ status: 503, json: { detail: "Skill 库账号目录读取故障" } });
+    }
+    return route.continue();
+  });
+  await page.goto("/skills");
+  await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  await expect(page.getByText("账号列表读取失败", { exact: true })).toBeVisible();
+  const createColumn = page.getByRole("button", { name: "创建栏目", exact: true });
+  await expect(createColumn).toBeDisabled();
+  await page.getByRole("button", { name: "重试加载账号", exact: true }).click();
+  const owner = page.getByRole("combobox", { name: "归属账号", exact: true });
+  await expect(owner).toHaveValue(other.id);
+  await expect(owner.getByRole("option", { name: other.display_name, exact: true })).toBeAttached();
+  await expect(createColumn).toBeEnabled();
+  const created = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === "/api/series");
+  await createColumn.click();
+  const result = await created;
+  expect(result.ok(), await result.text()).toBeTruthy();
+  const saved = await result.json();
+  expect(saved.series).toMatchObject({ name: seriesName, creator_id: other.id });
+  expect((await request.get(`/api/series/${saved.series.id}`).then(response => response.json())).creator_id).toBe(other.id);
+});
+
+test("account directory refreshes after concurrent changes without mixing pages", async ({ page, request }) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const removed = await post(request, "/api/creators", { display_name: `目录旧账号-${suffix}` });
+  const selected = await post(request, "/api/creators", { display_name: `目录当前账号-${suffix}` });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let started = false, snapshot: { id: string }[] = [];
+  await page.route("**/api/creator-directory", async route => {
+    if (started) return route.continue();
+    const response = await route.fetch();
+    snapshot = (await response.json()).items;
+    started = true;
+    await gate;
+    try { await route.fulfill({ response }); } catch { /* navigation may cancel the request */ }
+  });
+  try {
+    await page.goto(`/workspace?creator=${selected.id}`);
+    await expect.poll(() => started).toBe(true);
+    const deletion = await request.post(`/api/creators/${removed.id}/delete`, { data: {} });
+    expect(deletion.ok(), await deletion.text()).toBeTruthy();
+    const added = await post(request, "/api/creators", { display_name: `目录新账号-${suffix}` });
+    expect(snapshot.some(item => item.id === removed.id)).toBe(true);
+    expect(snapshot.some(item => item.id === added.id)).toBe(false);
+    release();
+    await expect(page.getByRole("heading", { name: selected.display_name, exact: true })).toBeVisible();
+    // An already returned snapshot is not live; a fresh load must reflect both changes.
+    await page.reload();
+    const switcher = await openSwitcher(page);
+    await switcher.getByLabel("搜索账号", { exact: true }).fill(added.display_name);
+    await expect(switcher.getByRole("button", { name: `切换到账号 ${added.display_name}`, exact: true })).toBeVisible();
+    await switcher.getByLabel("搜索账号", { exact: true }).fill(removed.display_name);
+    await expect(switcher.getByRole("button", { name: `切换到账号 ${removed.display_name}`, exact: true })).toHaveCount(0);
+    await expect(switcher.getByText("没有匹配的账号", { exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test("target account distinguishes a missing account from a failed detail read", async ({ page, request }) => {
+  const account = await post(request, "/api/creators", { display_name: `账号读取故障-${crypto.randomUUID().slice(0, 8)}` });
+  let failed = false;
+  await page.route(`**/api/creators/${account.id}`, async route => {
+    if (!failed) {
+      failed = true;
+      return route.fulfill({ status: 503, json: { detail: "受控的账号读取故障" } });
+    }
+    return route.continue();
+  });
+  await page.goto(`/workspace?creator=${account.id}`);
+  await expect(page.getByRole("alert")).toContainText("读取当前账号失败");
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "打开账号对话" })).toBeDisabled();
+  await page.getByRole("button", { name: "重新连接", exact: true }).click();
+  await expect(page.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开账号对话" })).toHaveAttribute("title", `与 ${account.display_name} 对话`);
+  await page.goto("/workspace?creator=missing-account-fixture");
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开账号对话" })).toBeDisabled();
+});
+
 test("searchable account switching scopes the rail and survives refresh and browser back", async ({ page, request }) => {
   const data = await accountsFixture(request);
   await page.goto(`/?creator=${data.account.id}&series=${data.first.id}`);

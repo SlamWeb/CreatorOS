@@ -13,7 +13,6 @@ export const useOverview = (enabled = true) => useQuery({
   refetchInterval: (query) => query.state.data?.counts.producing_count ? 2_000 : false,
   ...queryOptions,
 });
-export const useCreators = () => useQuery({ queryKey: ["creators"], queryFn: studioApi.creators, ...queryOptions });
 export const useCreator = (id: string | null | undefined) => useQuery({
   queryKey: ["creator", id], queryFn: () => studioApi.creator(id ?? ""), enabled: Boolean(id), ...queryOptions,
 });

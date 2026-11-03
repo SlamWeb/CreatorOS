@@ -27,6 +27,8 @@ export interface CreatorView {
   series: SeriesView[];
 }
 
+export type CreatorDirectoryItem = Pick<CreatorView, "id" | "display_name">;
+
 export type DiscussionStatus = "queued" | "running" | "completed" | "failed" | "interrupted";
 export interface DiscussionEventView { id: number; kind: string; text: string; at: string }
 export interface DiscussionImageContext { order: number; sha256: string }
@@ -421,6 +423,16 @@ export interface SkillVersionHistory {
   family_id: string;
   items: ProducerSkillItem[];
   bindings: SkillVersionBinding[];
+}
+
+export interface SkillSwitchInspection {
+  status: "prepared" | "published_not_switched" | "committed" | "skill_changed" | "authorization_changed" | "binding_changed" | "unknown";
+  series_id: string;
+  skill_id: string;
+  digest: string;
+  expected_revision: number;
+  current_skill_id: string | null;
+  current_revision: number;
 }
 
 export type ProducerSkillFileKind = "markdown" | "text" | "image" | "unsupported";

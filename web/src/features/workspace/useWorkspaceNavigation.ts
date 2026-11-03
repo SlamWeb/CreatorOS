@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import type { CreatorView, SeriesView } from "../../api/types";
+import type { CreatorDirectoryItem, SeriesView } from "../../api/types";
 import { useAgentChat } from "../agent";
 import { useWorkInbox } from "../../components/TaskInbox";
 import { removeDeletedAccountParams, removeDeletedSeriesParams, resolveWorkspaceSelection, selectAccountParams, selectSeriesParams } from "./navigation";
 
-const noAccounts: CreatorView[] = [];
+const noAccounts: CreatorDirectoryItem[] = [];
 const noSeries: SeriesView[] = [];
 
 // This module owns the URL-to-workspace projection and all navigation effects.
 // Business writes call the completion methods only after the server accepts them.
-export function useWorkspaceNavigation(accountData?: CreatorView[], seriesData?: SeriesView[]) {
+export function useWorkspaceNavigation(accountData?: CreatorDirectoryItem[], seriesData?: SeriesView[], accountVerified = true) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const routePath = `${location.pathname}${location.search}`;
@@ -26,7 +26,8 @@ export function useWorkspaceNavigation(accountData?: CreatorView[], seriesData?:
 
   const accounts = accountData ?? noAccounts;
   const allSeries = seriesData ?? noSeries;
-  const selection = resolveWorkspaceSelection(params, accounts, allSeries);
+  const resolved = resolveWorkspaceSelection(params, accounts, allSeries);
+  const selection = accountVerified ? resolved : { ...resolved, account: undefined, accountSeries: noSeries };
 
   useEffect(() => {
     const id = params.get("series");
@@ -37,16 +38,17 @@ export function useWorkspaceNavigation(accountData?: CreatorView[], seriesData?:
     visitedSeries.current = id;
     inbox.markObjectSeen("series", id);
   }, [params, seriesData, inbox.data]);
-  useEffect(() => {
-    if (!accountData || !seriesData) return;
+  useLayoutEffect(() => {
+    if (!accountData || !seriesData || !accountVerified) { chat.clearDefault(routePath); return; }
     const { account, scopedCreatorId } = resolveWorkspaceSelection(params, accountData, seriesData);
     if (!account) {
       if (!scopedCreatorId && !params.has("creator")) chat.setDefault({ creatorId: null }, routePath);
+      else chat.clearDefault(routePath);
       return;
     }
     if (params.has("skill_edit")) chat.open({ creatorId: account.id, accountName: account.display_name });
     else chat.setDefault({ creatorId: account.id, accountName: account.display_name }, routePath);
-  }, [params, accountData, seriesData, chat.isOpen, chat.open, chat.setDefault, routePath]);
+  }, [params, accountData, seriesData, accountVerified, chat.isOpen, chat.open, chat.setDefault, chat.clearDefault, routePath]);
 
   function selectSeries(id: string, owner?: string | null, keepFilter = false) {
     setTreeOpen(false);

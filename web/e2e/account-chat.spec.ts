@@ -44,7 +44,7 @@ test("the account launcher waits for the workspace owner instead of opening over
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
   let requested = false;
-  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  await page.route(url => url.pathname === "/api/creator-directory", async route => { requested = true; await ready; await route.continue(); });
   try {
     await page.goto(`/?creator=${account.id}`);
     const launcher = page.getByRole("button", { name: "打开账号对话" });
@@ -70,7 +70,7 @@ test("workspace waits for the requested account instead of reusing the previous 
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
   let requested = false;
-  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  await page.route(url => url.pathname === "/api/creator-directory", async route => { requested = true; await ready; await route.continue(); });
   await page.route("**/api/agent/sessions/*/turns", route => route.fulfill({
     status: 503, json: { error: { message: "隔离测试不调用模型" } },
   }));
@@ -110,13 +110,339 @@ test("workspace launcher uses overview for no accounts and refuses a missing sel
   await expect(launcher).toBeDisabled();
   // Represent an empty database at the account-list HTTP boundary; no write or
   // cross-account fallback is involved in this controlled empty-state check.
-  await page.route(url => url.pathname === "/api/creators", route => route.fulfill({
-    json: { items: [], total: 0, offset: 0, limit: 100 },
+  await page.route(url => url.pathname === "/api/creator-directory", route => route.fulfill({
+    json: { items: [] },
   }));
   await page.goto("/workspace");
   await expect(launcher).toBeEnabled();
   await launcher.click();
   await expect(page.locator(".account-chat-panel").getByRole("heading", { name: "全部账号", exact: true })).toBeVisible();
+});
+
+test("a cached account deleted in another session becomes unavailable without closing an open conversation", async ({ page, request }) => {
+  const account = await createCreator(request, `被其他会话删除-${crypto.randomUUID().slice(0, 6)}`);
+  await page.clock.install();
+  await page.goto(`/workspace?creator=${account.id}`);
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  const launcher = page.getByRole("button", { name: "打开账号对话", exact: true });
+  await launcher.click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Skill", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  const deleted = await request.post(`/api/creators/${account.id}/delete`, { data: {} });
+  expect(deleted.ok(), await deleted.text()).toBeTruthy();
+  await page.clock.fastForward(6000);
+  const missing = page.waitForResponse(response => new URL(response.url()).pathname === `/api/creators/${account.id}`
+    && response.status() === 404);
+  await page.goBack();
+  await missing;
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "关闭账号对话", exact: true }).click();
+  await expect(launcher).toBeDisabled();
+});
+
+test("a failed refresh of cached account details reports the error and disables reopening until retry", async ({ page, request }) => {
+  const account = await createCreator(request, `账号刷新故障-${crypto.randomUUID().slice(0, 6)}`);
+  await page.clock.install();
+  await page.goto(`/workspace?creator=${account.id}`);
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  const launcher = page.getByRole("button", { name: "打开账号对话", exact: true });
+  await expect(launcher).toBeEnabled();
+  await page.getByRole("link", { name: "Skill", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  let attempts = 0;
+  await page.route(`**/api/creators/${account.id}`, route => {
+    attempts++;
+    return attempts === 1 ? route.fulfill({ status: 503, json: { detail: "受控账号详情故障" } }) : route.continue();
+  });
+  await page.clock.fastForward(6000);
+  await page.goBack();
+  await expect(page.getByRole("alert")).toContainText("读取当前账号失败");
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  await expect(launcher).toBeDisabled();
+  await page.getByRole("button", { name: "重新连接", exact: true }).click();
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  await expect(launcher).toBeEnabled();
+  await expect(launcher).toHaveAttribute("title", `与 ${account.display_name} 对话`);
+});
+
+test("the default account is verified before enabling its conversation", async ({ page, request }) => {
+  await createCreator(request, `默认账号验证-${crypto.randomUUID().slice(0, 6)}`);
+  const directory = await request.get("/api/creator-directory").then(response => response.json());
+  const account = directory.items[0] as { id: string; display_name: string };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let requested = false;
+  await page.route(`**/api/creators/${account.id}`, async route => {
+    requested = true;
+    await gate;
+    try { await route.continue(); } catch { /* navigation can cancel the request */ }
+  });
+  try {
+    await page.goto("/workspace");
+    await expect.poll(() => requested).toBe(true);
+    const launcher = page.getByRole("button", { name: "打开账号对话", exact: true });
+    await expect(launcher).toBeDisabled();
+    release();
+    await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+    await expect(launcher).toHaveAttribute("title", `与 ${account.display_name} 对话`);
+    await expect(launcher).toBeEnabled();
+  } finally { release(); }
+});
+
+test("a default account deleted before its real detail read does not become a valid account", async ({ page, request }) => {
+  const account = await createCreator(request, `默认账号已删除-${crypto.randomUUID().slice(0, 6)}`);
+  const other = await createCreator(request, `待选择的账号-${crypto.randomUUID().slice(0, 6)}`);
+  // Select the newly created real account as the default, independently of
+  // other accounts left by this shared isolated browser suite.
+  await page.route("**/api/creator-directory", async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = [account.id, other.id].map(id => body.items.find((item: { id: string }) => item.id === id)).filter(Boolean);
+    await route.fulfill({ response, json: body });
+  });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let requested = false;
+  await page.route(`**/api/creators/${account.id}`, async route => {
+    requested = true;
+    await gate;
+    try { await route.continue(); } catch { /* navigation can cancel the request */ }
+  });
+  try {
+    await page.goto("/workspace");
+    await expect.poll(() => requested).toBe(true);
+    const deleted = await request.post(`/api/creators/${account.id}/delete`, { data: {} });
+    expect(deleted.ok(), await deleted.text()).toBeTruthy();
+    release();
+    await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "打开账号对话", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "新建栏目", exact: true })).toBeDisabled();
+    await switchAccount(page, other.display_name);
+    await expect(page.getByRole("heading", { name: other.display_name, level: 1, exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "打开账号对话", exact: true }))
+      .toHaveAttribute("title", `与 ${other.display_name} 对话`);
+  } finally { release(); }
+});
+
+test("a late default-account refresh cannot replace the account chosen afterward", async ({ page, request }) => {
+  const other = await createCreator(request, `切换目标-${crypto.randomUUID().slice(0, 6)}`);
+  const directory = await request.get("/api/creator-directory").then(response => response.json());
+  const initial = directory.items.find((item: { id: string }) => item.id !== other.id) as { id: string; display_name: string } | undefined;
+  if (!initial) {
+    await createCreator(request, `默认账号-${crypto.randomUUID().slice(0, 6)}`);
+  }
+  const refreshed = await request.get("/api/creator-directory").then(response => response.json());
+  const account = refreshed.items[0] as { id: string; display_name: string };
+  const destination = account.id === other.id ? refreshed.items.find((item: { id: string }) => item.id !== account.id) : other;
+  expect(destination).toBeTruthy();
+  await page.clock.install();
+  await page.goto("/workspace");
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Skill", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let captured = false;
+  await page.route(`**/api/creators/${account.id}`, async route => {
+    const response = await route.fetch();
+    captured = true;
+    await gate;
+    try { await route.fulfill({ response }); } catch { /* The old query can be cancelled on switch. */ }
+  });
+  try {
+    await page.clock.fastForward(6000);
+    await page.goBack();
+    await expect.poll(() => captured).toBe(true);
+    await switchAccount(page, destination.display_name);
+    await expect(page.getByRole("heading", { name: destination.display_name, level: 1, exact: true })).toBeVisible();
+    const launcher = page.getByRole("button", { name: "打开账号对话", exact: true });
+    await expect(launcher).toHaveAttribute("title", `与 ${destination.display_name} 对话`);
+    release();
+    await expect(page.getByRole("heading", { name: destination.display_name, level: 1, exact: true })).toBeVisible();
+    await expect(launcher).toHaveAttribute("title", `与 ${destination.display_name} 对话`);
+  } finally { release(); }
+});
+
+test("an open account Skill keeps its scope when the account is deleted elsewhere", async ({ page, request }) => {
+  const account = await createCreator(request, `Skill 归属失效-${crypto.randomUUID().slice(0, 6)}`);
+  const fixtureResponse = await request.post("/test/skill-files", { data: {} });
+  expect(fixtureResponse.ok(), await fixtureResponse.text()).toBeTruthy();
+  const fixture = await fixtureResponse.json();
+  const binding = await request.post(`/api/creators/${account.id}/skills`, {
+    data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() },
+  });
+  expect(binding.ok(), await binding.text()).toBeTruthy();
+  await page.clock.install();
+  await page.goto(`/workspace?creator=${account.id}&view=skills`);
+  const library = page.getByRole("region", { name: "账号 Skill 库", exact: true });
+  await library.getByRole("button", { name: /^inspector-mind/ }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+  const sharedBefore = await request.get(`/api/producer-skills/${fixture.mind.id}/files/content?path=SKILL.md`).then(response => response.json());
+  const createdCandidate = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/producer-skills/${fixture.mind.id}/versions`);
+  await dialog.getByRole("button", { name: "创建修改候选", exact: true }).click();
+  const createdResponse = await createdCandidate;
+  expect(createdResponse.ok(), await createdResponse.text()).toBeTruthy();
+  const candidate = await createdResponse.json() as { id: string };
+  await expect(dialog.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+  await dialog.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = dialog.getByRole("textbox", { name: "编辑 SKILL.md", exact: true });
+  const draft = `${await editor.inputValue()}\n\n账号失效前的未保存草稿。`;
+  await editor.fill(draft);
+  const candidateBefore = await request.get(`/api/producer-skills/${candidate.id}/files/content?path=SKILL.md`).then(response => response.json());
+  const original = await dialog.elementHandle();
+  expect(original).not.toBeNull();
+  const unscoped: string[] = [];
+  const writes: string[] = [];
+  page.on("request", event => {
+    const url = new URL(event.url());
+    if (url.pathname.startsWith("/api/producer-skills/") && event.method() !== "GET") writes.push(event.method());
+    if (url.pathname.startsWith("/api/producer-skills/")
+        && !url.searchParams.has("creator_id")) unscoped.push(url.pathname);
+  });
+  const deleted = await request.post(`/api/creators/${account.id}/delete`, { data: {} });
+  expect(deleted.ok(), await deleted.text()).toBeTruthy();
+  await page.clock.fastForward(6000);
+  const missing = page.waitForResponse(response => new URL(response.url()).pathname === `/api/creators/${account.id}`
+    && response.status() === 404);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await missing;
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect.poll(() => original!.evaluate(element => element.isConnected)).toBe(true);
+  await expect(dialog.getByRole("alert").filter({ hasText: "当前账号已切换或暂时无法确认" })).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+  const save = dialog.getByRole("button", { name: "保存文件", exact: true });
+  await expect(save).toBeDisabled();
+  await save.evaluate((button: HTMLButtonElement) => button.click());
+  expect(unscoped).toEqual([]);
+  expect(writes).toEqual([]);
+  const sharedAfter = await request.get(`/api/producer-skills/${fixture.mind.id}/files/content?path=SKILL.md`).then(response => response.json());
+  const candidateAfter = await request.get(`/api/producer-skills/${candidate.id}/files/content?path=SKILL.md`).then(response => response.json());
+  expect(sharedAfter).toMatchObject({ content: sharedBefore.content, digest: sharedBefore.digest });
+  expect(candidateAfter).toMatchObject({ content: candidateBefore.content, digest: candidateBefore.digest });
+});
+
+test("a temporary account read failure preserves the Skill draft until verified recovery", async ({ page, request }) => {
+  const account = await createCreator(request, `Skill 临时离线-${crypto.randomUUID().slice(0, 6)}`);
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const binding = await request.post(`/api/creators/${account.id}/skills`, {
+    data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() },
+  });
+  expect(binding.ok(), await binding.text()).toBeTruthy();
+  await page.clock.install();
+  await page.goto(`/workspace?creator=${account.id}&view=skills`);
+  await page.getByRole("region", { name: "账号 Skill 库", exact: true }).getByRole("button", { name: /^inspector-mind/ }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  const sharedBefore = await request.get(`/api/producer-skills/${fixture.mind.id}/files/content?path=SKILL.md`).then(response => response.json());
+  const created = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/producer-skills/${fixture.mind.id}/versions`);
+  await dialog.getByRole("button", { name: "创建修改候选", exact: true }).click();
+  const response = await created;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const candidate = await response.json() as { id: string };
+  await expect(dialog.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+  await dialog.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = dialog.getByRole("textbox", { name: "编辑 SKILL.md", exact: true });
+  const draft = `${await editor.inputValue()}\n\n账号恢复前保留的草稿。`;
+  await editor.fill(draft);
+  let attempts = 0;
+  await page.route(`**/api/creators/${account.id}`, route => {
+    attempts++;
+    return attempts === 1 ? route.fulfill({ status: 503, json: { detail: "受控的账号详情故障" } }) : route.continue();
+  });
+  await page.clock.fastForward(6000);
+  const failure = page.waitForResponse(result => new URL(result.url()).pathname === `/api/creators/${account.id}`
+    && result.status() === 503);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await failure;
+  const warning = dialog.getByRole("alert").filter({ hasText: "当前账号已切换或暂时无法确认" });
+  await expect(warning).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+  const save = dialog.getByRole("button", { name: "保存文件", exact: true });
+  await expect(save).toBeDisabled();
+  await warning.getByRole("button", { name: "重新核验账号", exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(editor).toHaveValue(draft);
+  await expect(save).toBeEnabled();
+  const saved = page.waitForResponse(result => result.request().method() === "PUT"
+    && new URL(result.url()).pathname === `/api/producer-skills/${candidate.id}/files/content`);
+  await save.click();
+  const saveResponse = await saved;
+  expect(saveResponse.ok(), await saveResponse.text()).toBeTruthy();
+  expect(new URL(saveResponse.url()).searchParams.get("creator_id")).toBe(account.id);
+  const candidateAfter = await request.get(`/api/producer-skills/${candidate.id}/files/content?path=SKILL.md`).then(result => result.json());
+  const sharedAfter = await request.get(`/api/producer-skills/${fixture.mind.id}/files/content?path=SKILL.md`).then(result => result.json());
+  expect(candidateAfter.content).toBe(draft);
+  expect(sharedAfter).toMatchObject({ content: sharedBefore.content, digest: sharedBefore.digest });
+});
+
+test("switching accounts keeps an open Skill draft bound to its original account", async ({ page, request }) => {
+  const other = await createCreator(request, `Skill 切换乙-${crypto.randomUUID().slice(0, 6)}`);
+  const account = await createCreator(request, `Skill 切换甲-${crypto.randomUUID().slice(0, 6)}`);
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const binding = await request.post(`/api/creators/${account.id}/skills`, {
+    data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() },
+  });
+  expect(binding.ok(), await binding.text()).toBeTruthy();
+  await page.goto(`/workspace?creator=${other.id}`);
+  await switchAccount(page, account.display_name);
+  await page.getByRole("navigation", { name: "账号工作区" }).getByRole("button", { name: "Skill 库", exact: true }).click();
+  await page.getByRole("region", { name: "账号 Skill 库", exact: true }).getByRole("button", { name: /^inspector-mind/ }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  const created = page.waitForResponse(response => response.request().method() === "POST"
+    && new URL(response.url()).pathname === `/api/producer-skills/${fixture.mind.id}/versions`);
+  await dialog.getByRole("button", { name: "创建修改候选", exact: true }).click();
+  const response = await created;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const candidate = await response.json() as { id: string };
+  await expect(dialog.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+  await dialog.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = dialog.getByRole("textbox", { name: "编辑 SKILL.md", exact: true });
+  const draft = `${await editor.inputValue()}\n\n账号切换时保留的草稿。`;
+  await editor.fill(draft);
+  const unscoped: string[] = [], writes: string[] = [];
+  page.on("request", event => {
+    const url = new URL(event.url());
+    if (!url.pathname.startsWith("/api/producer-skills/")) return;
+    if (event.method() !== "GET") writes.push(event.method());
+    if (!url.searchParams.has("creator_id")) unscoped.push(url.pathname);
+  });
+  await page.goBack(); // leave the Skill tab, keeping account A
+  await page.goBack(); // return to account B through the router
+  await expect(page).toHaveURL(url => url.searchParams.get("creator") === other.id);
+  await expect(dialog.getByRole("alert").filter({ hasText: "当前账号已切换或暂时无法确认" })).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+  await expect(dialog.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  expect(unscoped).toEqual([]);
+  expect(writes).toEqual([]);
+  await page.goForward();
+  await expect(page).toHaveURL(url => url.searchParams.get("creator") === account.id);
+  await expect(dialog.getByRole("alert").filter({ hasText: "当前账号已切换或暂时无法确认" })).toHaveCount(0);
+  await expect(editor).toHaveValue(draft);
+  await expect(dialog.getByRole("button", { name: "保存文件", exact: true })).toBeEnabled();
+});
+
+test("a malformed account directory is not mistaken for an empty workspace", async ({ page, request }) => {
+  await createCreator(request, "目录响应损坏的账号");
+  const directory = await request.get("/api/creator-directory").then(response => response.json());
+  const account = directory.items[0] as { id: string; display_name: string };
+  let attempts = 0;
+  await page.route("**/api/creator-directory", route => {
+    attempts++;
+    return attempts === 1 ? route.fulfill({ status: 200, json: {} }) : route.continue();
+  });
+  await page.goto("/workspace");
+  await expect(page.getByRole("alert")).toContainText("账号目录返回格式无效");
+  await expect(page.getByRole("button", { name: "打开账号对话" })).toBeDisabled();
+  await page.getByRole("button", { name: "重新连接", exact: true }).click();
+  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "打开账号对话" })).toHaveAttribute("title", `与 ${account.display_name} 对话`);
 });
 
 test("an explicit different account cannot reuse an old workspace readiness marker", async ({ page, request }) => {
@@ -161,7 +487,7 @@ test("an explicit different account cannot reuse an old workspace readiness mark
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
   let requested = false;
-  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  await page.route(url => url.pathname === "/api/creator-directory", async route => { requested = true; await ready; await route.continue(); });
   try {
     await page.goBack();
     await expect.poll(() => requested).toBe(true);

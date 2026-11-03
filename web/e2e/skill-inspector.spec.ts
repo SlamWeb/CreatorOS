@@ -17,7 +17,10 @@ async function createCandidate(page: Page, dialog: ReturnType<Page["getByRole"]>
   const result = await response;
   expect(result.ok(), await result.text()).toBeTruthy();
   const candidate = await result.json() as { id: string };
-  await expect(dialog.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+  const selectionStarted = Date.now();
+  const selector = dialog.getByRole("combobox", { name: "查看 Skill 版本" });
+  await expect(selector).toHaveValue(candidate.id, { timeout: 20_000 });
+  console.log(`Skill 候选可操作等待 ${Date.now() - selectionStarted}ms，版本数 ${await selector.locator("option").count()}`);
   await expect(dialog.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
   return candidate.id;
 }
@@ -25,6 +28,261 @@ async function createCandidate(page: Page, dialog: ReturnType<Page["getByRole"]>
 test.beforeEach(async ({ request }) => {
   const result = await request.post("/test/skill-files", { data: {} });
   expect(result.ok(), await result.text()).toBeTruthy();
+});
+
+test("early Skill detail opens before the catalog completes", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,
+    { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let catalogBlocked = false, historyGets = 0;
+  await page.route(url => url.pathname === "/api/producer-skills", async route => {
+    catalogBlocked = true;
+    await gate;
+    try { await route.continue(); } catch { /* page may close on failure */ }
+  });
+  page.on("request", req => {
+    if (req.method() === "GET" && new URL(req.url()).pathname === `/api/producer-skills/${candidate.id}/versions`) historyGets++;
+  });
+  try {
+    await page.goto(`/skills?skill=${candidate.id}`);
+    await expect.poll(() => catalogBlocked).toBe(true);
+    const card = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+    await expect(card).toBeVisible({ timeout: 5000 });
+    await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+    await expect(card.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+    expect(historyGets).toBe(1);
+    release();
+    await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test("early Skill editor keeps its draft when the catalog finishes loading", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,
+    { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let blocked = false, fileReads = 0;
+  await page.route(url => url.pathname === "/api/producer-skills", async route => {
+    blocked = true;
+    await gate;
+    try { await route.continue(); } catch { /* The page may already be closed. */ }
+  });
+  page.on("request", req => {
+    if (req.method() === "GET" && new URL(req.url()).pathname === `/api/producer-skills/${candidate.id}/files`) fileReads++;
+  });
+  try {
+    await page.goto(`/skills?skill=${candidate.id}`);
+    await expect.poll(() => blocked).toBe(true);
+    const card = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+    await card.getByRole("button", { name: "编辑", exact: true }).click();
+    const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+    const draft = `${await editor.inputValue()}\n目录加载时的未保存草稿。`;
+    await editor.fill(draft);
+    const original = await card.elementHandle();
+    expect(original).not.toBeNull();
+    release();
+    await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
+    await expect.poll(() => original!.evaluate(element => element.isConnected)).toBe(true);
+    await expect(editor).toHaveValue(draft);
+    expect(fileReads).toBe(1);
+  } finally { release(); }
+});
+
+test("manual Skill selection waits for the chosen version to be verified", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  let attempts = 0, fileReads = 0;
+  await page.route(`**/api/producer-skills/${fixture.mind.id}/versions`, route => {
+    attempts++;
+    if (attempts === 1) return route.fulfill({ status: 503, json: { detail: "受控版本故障" } });
+    return route.continue();
+  });
+  page.on("request", req => {
+    if (req.method() === "GET" && new URL(req.url()).pathname === `/api/producer-skills/${fixture.mind.id}/files`) fileReads++;
+  });
+  await page.goto("/skills");
+  await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
+  const error = page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" });
+  await expect(error).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(fileReads).toBe(0);
+  await error.getByRole("button", { name: "重试读取 Skill", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "inspector-mind", exact: true })).toBeVisible();
+});
+
+test("a failed version refresh keeps the editor draft read only until rechecked", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,
+    { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  await page.clock.install();
+  await page.goto(`/skills?skill=${candidate.id}`);
+  const card = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  const draft = `${await editor.inputValue()}\n版本读取失败时保留的草稿。`;
+  await editor.fill(draft);
+  let attempts = 0;
+  await page.route(`**/api/producer-skills/${candidate.id}/versions`, route => {
+    attempts++;
+    return attempts === 1 ? route.fulfill({ status: 503, json: { detail: "受控版本故障" } }) : route.continue();
+  });
+  await page.clock.fastForward(6000);
+  const failed = page.waitForResponse(response => new URL(response.url()).pathname === `/api/producer-skills/${candidate.id}/versions`
+    && response.status() === 503);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await failed;
+  const warning = card.getByRole("alert").filter({ hasText: "当前 Skill 版本暂时无法确认" });
+  await expect(warning).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  await warning.getByRole("button", { name: "重新读取版本", exact: true }).click();
+  await expect(warning).toHaveCount(0);
+  await expect(editor).toHaveValue(draft);
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeEnabled();
+});
+
+test("Skill library manual selection replaces a failed deep link", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  await page.route(`**/api/producer-skills/${fixture.mind.id}/versions`, route =>
+    route.fulfill({ status: 503, json: { detail: "受控读取故障" } }));
+  await page.goto(`/skills?skill=${fixture.mind.id}&extraction=preserve-existing-task`);
+  await expect(page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" })).toBeVisible();
+  await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "inspector-visual", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
+  expect(new URL(page.url()).searchParams.get("extraction")).toBe("preserve-existing-task");
+  await page.reload();
+  await expect(page.getByRole("dialog", { name: "inspector-visual", exact: true })).toBeVisible();
+});
+
+test("Skill library manual selection wins over a slow valid deep link", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let blocked = false;
+  await page.route(`**/api/producer-skills/${fixture.mind.id}/versions`, async route => {
+    blocked = true;
+    await gate;
+    try { await route.continue(); } catch { /* The old target may have been cancelled. */ }
+  });
+  try {
+    await page.goto(`/skills?skill=${fixture.mind.id}`);
+    await expect.poll(() => blocked).toBe(true);
+    await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "inspector-visual", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
+    release();
+    await expect(dialog).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
+    await page.reload();
+    await expect(page.getByRole("dialog", { name: "inspector-visual", exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test("Skill library opens another card after a successfully opened deep link", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  await page.goto(`/skills?skill=${fixture.mind.id}`);
+  const first = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  await expect(first).toBeVisible();
+  await first.getByRole("button", { name: "关闭 Skill 详情", exact: true }).click();
+  await expect(first).toHaveCount(0);
+  await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "inspector-visual", exact: true })).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
+});
+
+test("Skill library opens a chosen Skill from the composer after a failed deep link", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  await page.route(`**/api/producer-skills/${fixture.mind.id}/versions`, route =>
+    route.fulfill({ status: 503, json: { detail: "受控读取故障" } }));
+  await page.goto("/skills");
+  await page.evaluate(id => sessionStorage.setItem("creatoros:skill-composer:v1",
+    JSON.stringify({ ids: [id], name: "", creatorId: "", instruction: "", mode: "reference" })), fixture.production.id);
+  await page.goto(`/skills?skill=${fixture.mind.id}`);
+  await expect(page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" })).toBeVisible();
+  await page.getByRole("button", { name: "查看 inspector-visual", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "inspector-visual", exact: true })).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
+});
+
+test("early Skill detail shows read failures and retries without enabling an unverified target", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,
+    { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(url => url.pathname === "/api/producer-skills", async route => {
+    await gate;
+    try { await route.continue(); } catch { /* page may close on failure */ }
+  });
+  let attempts = 0;
+  await page.route(`**/api/producer-skills/${candidate.id}/versions`, route => {
+    attempts++;
+    if (attempts <= 2) return route.fulfill({ status: attempts === 1 ? 503 : 404, json: { detail: "受控读取故障" } });
+    return route.continue();
+  });
+  try {
+    await page.goto(`/skills?skill=${candidate.id}`);
+    const error = page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" });
+    await expect(error).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await error.getByRole("button", { name: "重试读取 Skill", exact: true }).click();
+    await expect.poll(() => attempts).toBe(2);
+    await expect(error).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await error.getByRole("button", { name: "重试读取 Skill", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "inspector-mind", exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test("early Skill detail ignores a late previous target and keeps builtin lookup unchanged", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const create = async () => {
+    const response = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,
+      { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json() as Promise<{ id: string }>;
+  };
+  const first = await create(), second = await create();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let pending = false;
+  await page.route(`**/api/producer-skills/${first.id}/versions`, async route => {
+    pending = true; await gate;
+    try { await route.continue(); } catch { /* old target may already be aborted */ }
+  });
+  try {
+    await page.goto(`/skills?skill=${first.id}`);
+    await expect.poll(() => pending).toBe(true);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("status").filter({ hasText: "正在读取指定 Skill" })).toBeVisible();
+    await page.evaluate(id => { history.pushState({}, "", `/skills?skill=${id}`); window.dispatchEvent(new PopStateEvent("popstate")); }, second.id);
+    const card = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+    await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(second.id);
+    release();
+    await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(second.id);
+    expect(new URL(page.url()).searchParams.get("skill")).toBe(second.id);
+  } finally { release(); }
+  await page.unrouteAll({ behavior: "wait" });
+  let builtinHistory = 0;
+  page.on("request", req => {
+    if (new URL(req.url()).pathname === "/api/producer-skills/knowledge-to-carousel/versions") builtinHistory++;
+  });
+  await page.goto("/skills?skill=knowledge-to-carousel");
+  await expect(page.getByRole("dialog", { name: "knowledge-to-carousel", exact: true })).toBeVisible();
+  expect(builtinHistory).toBe(0);
 });
 
 test("real files: full Markdown, source, script, image, local links; viewing never writes", async ({ page }, info) => {
@@ -117,17 +375,20 @@ test("mobile: collapsible files, readable preview, no viewport overflow", async 
 });
 
 test("controlled read failure can retry against real API", async ({ page }) => {
-  let fail = true;
+  let reads = 0;
   await page.route("**/api/producer-skills/*/files", async route => {
-    if (fail) { fail = false; await route.fulfill({ status: 503, json: { error: { message: "临时读取失败" } } }); }
+    reads += 1;
+    if (reads === 1) { await route.fulfill({ status: 503, json: { error: { message: "临时读取失败" } } }); }
     else await route.continue();
   });
   await page.goto("/skills");
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("alert")).toContainText("临时读取失败");
+  expect(reads).toBe(1);
   await dialog.getByRole("button", { name: "重新读取", exact: true }).click();
   await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeAttached();
+  expect(reads).toBe(2);
 });
 
 test("controlled delayed old file cannot replace new preview", async ({ page }) => {
@@ -594,6 +855,9 @@ test("unknown switch is checked after reload without dispatching it again", asyn
 test("incomplete Skill write receipt locks the draft across refresh and only reads to verify", async ({ page, request }) => {
   const card = await openMind(page);
   const candidateId = await createCandidate(page, card);
+  const history = await request.get(`/api/producer-skills/${candidateId}/versions`).then(response => response.json());
+  const candidate = history.items.find((item: { id: string }) => item.id === candidateId);
+  expect(candidate?.version_status).toBe("candidate");
   let writes = 0;
   await page.route("**/api/producer-skills/*/files/content*", async route => {
     if (route.request().method() !== "PUT") return route.continue();
@@ -613,7 +877,7 @@ test("incomplete Skill write receipt locks the draft across refresh and only rea
   const reopened = page.getByRole("dialog");
   await expect(reopened.getByText(/刷新前的未保存草稿和待上传图片没有保留/)).toBeVisible();
   await reopened.getByRole("button", { name: "核对写入结果", exact: true }).click();
-  await reopened.getByRole("button", { name: "查看 v2 · 候选", exact: true }).click();
+  await reopened.getByRole("button", { name: `查看 v${candidate.version_number} · 候选`, exact: true }).click();
   await expect(reopened.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidateId);
   await expect(reopened.getByText("已保存但回执不完整。", { exact: true })).toBeVisible();
   await expect(reopened.getByText(/不能确认它就是本次写入目标/)).toBeVisible();
