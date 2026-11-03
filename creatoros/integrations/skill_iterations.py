@@ -23,7 +23,7 @@ from ..storage import ContentRun, ContentRunStatus, Creator, Series, SkillIterat
 from ..storage.models import ProductionQueueItem
 from .producer_skills import _SKILL_EDIT_LOCK, _digest, _write, freeze_skill
 from .skill_extraction import ExtractionError
-from .skill_iteration_judge import (ReplyFormatError, default_provider, evaluate, evaluation_scope,
+from .skill_iteration_judge import (ReplyEmptyError, ReplyFormatError, ReplyLengthError, ReplyUnavailableError, default_provider, evaluate, evaluation_scope,
     parse_reply, score_result)
 
 log = logging.getLogger(__name__)
@@ -552,6 +552,11 @@ class SkillIterationService:
                     result = parse_reply(kind, raw, payload)
                 except ReplyFormatError as error:
                     repair = {"error": str(error), "previous_response": raw.get("content") or ""}
+                except ReplyUnavailableError:
+                    # This branch runs only after an explicit resume. Keep the
+                    # original provider result and retry the same request without
+                    # issuing an automatic format repair or bypass instruction.
+                    pass
                 else:
                     def recover(record, state):
                         call = state["calls"][key]
@@ -615,16 +620,18 @@ class SkillIterationService:
                 retry = []
                 def repair_once(record, state):
                     call = state["calls"][key]
-                    if (kind == "judge" and record.status in ACTIVE and not self.stopping.is_set()
+                    if (kind in {"rubric", "judge"} and record.status in ACTIVE and not self.stopping.is_set()
                             and call["attempt"] == attempt and call.get("owner") == self.owner
                             and call["status"] == "failed" and call.get("format_retries", 0) < 1):
                         call.update(status="retry_authorized", format_retries=1)
-                        self._event(state, "model_format_retry", "仅重试当前Judge一次；沿用现有图片和冻结标准，不重新生图。", call=key)
+                        self._event(state, "model_format_retry", "仅修复当前评审回复一次；沿用冻结输入和现有图片，不重新生图。", call=key)
                         retry.append(True)
                 self._update(row.id, repair_once)
                 if retry:
                     return self._model(self._row(row.id), kind, key, payload, images)
-                raise ExtractionError("DS评审回复校验失败，原始响应和用量已保存；可恢复当前评审，不增加试产轮数、不重新生图。", 409) from error
+                reason = ("DS评审达到输出长度或上下文限制" if isinstance(error, ReplyLengthError) else
+                          "DS评审返回空正文，原因暂不能确定" if isinstance(error, ReplyEmptyError) else "DS评审回复校验失败")
+                raise ExtractionError(reason + "，原始响应和用量已保存；可恢复当前评审，不增加试产轮数、不重新生图。", 409) from error
             def failed(record, state):
                 call = state["calls"][key]
                 if call.get("owner") == self.owner and call["status"] == "inflight":

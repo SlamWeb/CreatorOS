@@ -98,11 +98,32 @@ class ReplyFormatError(ValueError):
     """A received, billable reply is invalid, not a transport-unknown request."""
 
 
+class ReplyLengthError(ReplyFormatError):
+    """The provider explicitly reported a response-length limit."""
+
+
+class ReplyEmptyError(ReplyFormatError):
+    """The provider returned no usable public content; its cause may be unknown."""
+
+
+class ReplyUnavailableError(RuntimeError):
+    """A received response was blocked or interrupted, not a format repair."""
+
+
 def parse_reply(kind, response, payload=None):
+    finish_reason = response.get("finish_reason")
+    if finish_reason == "length":
+        raise ReplyLengthError("DS评审达到输出长度或上下文限制，公开回复不完整。")
+    if finish_reason == "content_filter":
+        raise ReplyUnavailableError("DS评审内容被供应商过滤，原始响应已保留；请检查后手动恢复。")
+    if finish_reason in {"aborted", "insufficient_system_resource"}:
+        raise ReplyUnavailableError("DS评审被供应商中断，原始响应已保留；请检查后手动恢复。")
     try:
         if response.get("tool_calls"):
             raise ValueError("校准评审返回了非预期工具调用。")
         raw = (response.get("content") or "").strip()
+        if not raw:
+            raise ReplyEmptyError("DS评审返回空正文，原因暂不能确定。")
         if raw.startswith("```") and raw.endswith("```"):
             if "\n" not in raw:
                 raise ValueError("JSON代码围栏中没有可解析的正文。")
@@ -129,6 +150,8 @@ def parse_reply(kind, response, payload=None):
             if result["new_criteria"] and not payload.get("allow_additions"):
                 raise ValueError("Judge试图在固定重评阶段改标准。")
         return result
+    except ReplyFormatError:
+        raise
     except (ValueError, TypeError, KeyError) as error:
         raise ReplyFormatError("DS评审回复格式或准则覆盖不合格：" + str(error)[:3000]) from error
 INSTRUCTIONS = {
@@ -206,16 +229,21 @@ def evaluate(kind, payload, images, provider_factory=default_provider, *, respon
     try:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": blocks}]
         if repair:
-            messages.append({"role": "user", "content": "上次回复未通过宿主校验。只修正JSON结构、字段类型及准则覆盖，"
-                "保留本次冻结输入和评审标准，不增删或放宽准则，不要求重新生图。\n"
-                + json.dumps(repair, ensure_ascii=False)})
-        context = ModelContext.from_messages(messages, [])
-        response = provider.complete(replace(context, max_output_tokens=8192))
+            instruction = ("上次回复未通过宿主校验。请根据同一冻结输入重新输出合法的基础准则JSON，"
+                "不要修改Skill，不要求重新生图。\n" if kind == "rubric" else
+                "上次回复未通过宿主校验。只修正JSON结构、字段类型及准则覆盖，"
+                "保留本次冻结输入和评审标准，不增删或放宽准则，不要求重新生图。\n")
+            messages.append({"role": "user", "content": instruction + json.dumps(repair, ensure_ascii=False)})
+        context = replace(ModelContext.from_messages(messages, []), max_output_tokens=8192)
+        response = provider.complete(context)
         # Preserve the public response and the bill before validation. A bad
         # JSON reply still consumed tokens; hidden reasoning is not a UI log.
         raw = {"content": response.content, "tool_calls": [
             {"id": call.id, "name": call.name, "arguments": call.arguments} for call in response.tool_calls],
-            "usage": response.usage.to_dict() if response.usage else None}
+            "usage": response.usage.to_dict() if response.usage else None,
+            "finish_reason": getattr(response, "finish_reason", None),
+            "max_output_tokens": context.max_output_tokens,
+            "actual_reasoning_effort": getattr(provider, "actual_reasoning_effort", None)}
         if response_sink is not None:
             response_sink(raw)
         return parse_reply(kind, raw, payload), raw["usage"]

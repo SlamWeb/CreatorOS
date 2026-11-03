@@ -35,6 +35,7 @@ class ModelResponse:
     tool_calls: list[ToolCall]
     usage: ModelUsage | None = None
     reasoning_content: str | None = None
+    finish_reason: str | None = None
 
     def to_message(self):
         message = {"role": "assistant", "content": self.content}

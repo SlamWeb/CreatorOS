@@ -22,6 +22,19 @@ from creatoros.web.chat_routes import ChatTurnRequest
 
 
 class ChatContextReasoningTests(unittest.TestCase):
+    def test_complete_exposes_finish_reason_without_adding_it_to_chat_messages(self):
+        from dataclasses import replace
+        provider = DeepSeekProvider("not-a-real-key", reasoning_effort="high")
+        message = SimpleNamespace(content="", tool_calls=[], reasoning_content="private reasoning")
+        response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="length")], usage=None)
+        with patch.object(provider.client.chat.completions, "create", return_value=response) as create:
+            result = provider.complete(replace(ModelContext.from_messages([{"role": "user", "content": "test"}], []), max_output_tokens=8192))
+        self.assertEqual(result.finish_reason, "length")
+        self.assertEqual(create.call_args.kwargs["max_tokens"], 8192)
+        self.assertEqual(create.call_args.kwargs["reasoning_effort"], "high")
+        self.assertNotIn("finish_reason", result.to_message())
+        provider.client.close()
+
     def test_request_validation_and_provider_mapping(self):
         expected = {"none": "none", "low": "low", "medium": "high", "high": "high",
                     "xhigh": "high", "ultra": "max", "max": "max"}

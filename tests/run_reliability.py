@@ -69,7 +69,7 @@ CASES = [
                                "tests.test_rsi_tool_revision_contract", "-v"]),
     ("skill_iteration_service", ["-m", "unittest", "tests.test_skill_iteration_service", "-v"]),
     ("skill_iteration_quality_policy", ["-m", "unittest", "tests.test_skill_iteration_quality_policy", "-v"]),
-    ("skill_iteration_recovery", ["-m", "unittest", "tests.test_skill_iteration_judge_recovery",
+    ("skill_iteration_recovery", ["-m", "unittest", "tests.test_skill_iteration_judge_recovery", "tests.test_skill_iteration_rubric_recovery",
                                   "tests.test_skill_trial_publication", "-v"]),
     ("rsi_production_guard", ["-m", "unittest", "tests.test_rsi_production_guard", "-v"]),
     ("chat_stream", ["-m", "unittest", "tests.test_chat_stream", "tests.test_chat_links", "-v"]),

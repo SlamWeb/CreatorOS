@@ -163,6 +163,7 @@ class DeepSeekProvider:
             ],
             usage=self._to_model_usage(getattr(response, "usage", None)),
             reasoning_content=getattr(assistant_message, "reasoning_content", None),
+            finish_reason=getattr(response.choices[0], "finish_reason", None),
         )
 
     def complete_structured(

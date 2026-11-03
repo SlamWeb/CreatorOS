@@ -29,6 +29,7 @@ class MeasuredProvider(DeepSeekProvider):
         messages, tools = context.to_request()
         return {"request_id": uuid4().hex, "purpose": self.purpose, "model": self.model,
             "started_at": datetime.now(timezone.utc).isoformat(), "method": method,
+            "max_output_tokens": context.max_output_tokens, "actual_reasoning_effort": self.actual_reasoning_effort,
             "context": {"messages": deepcopy(messages), "tools": deepcopy(tools)},
             "context_estimated_tokens": estimate_tokens(text_estimation_view({"messages": messages, "tools": tools})),
             "context_estimate_scope": "text/schema only; excludes image encoding and unknown visual tokens",
@@ -64,7 +65,7 @@ class MeasuredProvider(DeepSeekProvider):
             response = super().complete(context)
             if response.usage:
                 record.update(response.usage.to_dict())
-            record["response"] = {"content": response.content,
+            record["response"] = {"content": response.content, "finish_reason": getattr(response, "finish_reason", None),
                 "tool_calls": [{"name": call.name, "arguments": call.arguments} for call in response.tool_calls]}
             return response
         except Exception as error:
