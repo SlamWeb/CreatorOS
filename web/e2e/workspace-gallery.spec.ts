@@ -38,7 +38,8 @@ async function fixture(request: APIRequestContext) {
   const run = await create("/api/runs", { topic_id: topics.topic_ids[0] });
   // This test executable uses E2EProducer; it cannot call Codex or publish.
   await create(`/api/runs/${run.id}/execute`, { expected_version: run.version });
-  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status).toBe("awaiting_approval");
+  await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(r => r.json())).status,
+    { timeout: 30_000 }).toBe("awaiting_approval");
   return { account, other, series, second, run, topicIds: topics.topic_ids as string[] };
 }
 

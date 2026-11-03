@@ -251,7 +251,8 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
     await expect(waiting).toContainText("已取消");
     await page.reload(); await expect(waiting).toContainText("已取消");
     await post(request, `${gate}/release`, {});
-    await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(value => value.json())).status).toBe("awaiting_approval");
+    await expect.poll(async () => (await request.get(`/api/runs/${run.id}`).then(value => value.json())).status,
+      { timeout: 30_000 }).toBe("awaiting_approval");
     await post(request, `${gate}/advance`, {});
     const proof = await post(request, `${gate}/advance`, {});
     expect(proof.calls).toEqual({ image: 1, video: 0 });

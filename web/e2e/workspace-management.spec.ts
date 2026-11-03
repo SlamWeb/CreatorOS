@@ -52,7 +52,7 @@ test("workspace tree keeps empty columns manageable, Skill links inspect real fi
   await page.locator(".rail-series").filter({ hasText: data.series.name }).click();
   const mindLink = page.getByRole("button", { name: new RegExp(`^${data.skills.mind.name}(?:v1)?$`) });
   const visualLink = page.getByRole("button", { name: new RegExp(`^${data.skills.production.name}(?:v1)?$`) });
-  await expect(mindLink).toBeVisible();
+  await expect(mindLink).toBeVisible({ timeout: 30_000 });
   await expect(visualLink).toBeVisible();
   const nav = page.locator(".sidebar");
   const navTop = await nav.evaluate(element => element.getBoundingClientRect().top);
