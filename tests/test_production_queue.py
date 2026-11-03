@@ -74,12 +74,52 @@ def _restart_after_unknown_unlink(url, output_root, run_id, result):
         service = ContentRunService(database, producer_factory=lambda: producer,
                                     output_root=Path(output_root), production_protocol="legacy")
         executor = ManagedRunExecutor(service, max_concurrency=1)
+        scanned = Event()
+        next_pending = executor.queue.next_pending
+        def observe_scan(**kwargs):
+            item = next_pending(**kwargs)
+            if item is None:
+                scanned.set()
+            return item
+        executor.queue.next_pending = observe_scan
         executor.start()
+        if not scanned.wait(20):
+            raise TimeoutError("dispatcher did not complete an empty scan")
+        executor.shutdown()  # Join workers before taking the immutable evidence snapshot.
         run = service.get(run_id)
         revision = service.get_active_revision(run_id)
         attempts = service.repository.list_attempts(revision.id)
-        result.put((run.status.value, executor.queue_snapshot(run_id)["status"],
-                    [item.status.value for item in attempts], producer.calls))
+        observed = (run.status.value, executor.queue_snapshot(run_id)["status"],
+                    [item.status.value for item in attempts], tuple(producer.calls))
+        result.put(observed)
+    except BaseException:
+        result.put(("error", traceback.format_exc()))
+    finally:
+        if executor is not None:
+            executor.shutdown()
+        database.close()
+
+
+def _restart_after_unknown_replace(url, output_root, run_id, result):
+    database = Database(url)
+    producer = Producer()
+    executor = None
+    try:
+        service = ContentRunService(database, producer_factory=lambda: producer,
+                                    output_root=Path(output_root), production_protocol="legacy")
+        executor = ManagedRunExecutor(service, max_concurrency=1)
+        try:
+            executor.start()
+        except ExecutionOwnershipError:
+            blocked = True
+        else:
+            blocked = False
+        executor.shutdown()
+        run = service.get(run_id)
+        revision = service.get_active_revision(run_id)
+        attempts = service.repository.list_attempts(revision.id)
+        result.put((blocked, run.status.value, executor.queue_snapshot(run_id)["status"],
+                    [item.status.value for item in attempts], tuple(producer.calls)))
     except BaseException:
         result.put(("error", traceback.format_exc()))
     finally:
@@ -218,8 +258,8 @@ class ProductionQueueTests(unittest.TestCase):
                     observed = result.get(timeout=40)
                     child.join(timeout=20)
                     self.assertEqual(child.exitcode, 0)
-                    expected = ("awaiting_approval", "succeeded", ["succeeded"], []) if completed else (
-                        "interrupted", "needs_attention", ["interrupted"], [])
+                    expected = ("awaiting_approval", "succeeded", ["succeeded"], ()) if completed else (
+                        "interrupted", "needs_attention", ["interrupted"], ())
                     self.assertEqual(observed, expected)
                     self.assertEqual(len(producer.calls), 1 if completed else 0)
                 finally:
@@ -227,6 +267,43 @@ class ProductionQueueTests(unittest.TestCase):
                         child.terminate()
                         child.join(timeout=5)
                     result.close()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_restart_after_unknown_successful_replace_blocks_dispatch(self):
+        producer = Producer()
+        service = self.service(producer)
+        run = service.create("topic-0")
+        queue = ProductionQueue(service)
+        item = queue.enqueue(run.id, run.version)
+        queue.transition(item.id, "running")
+        real_replace = Path.replace
+        def replace_then_error(source, destination):
+            real_replace(source, destination)
+            raise ctypes.WinError(5)
+        with service.guard:
+            with patch.object(Path, "replace", autospec=True, side_effect=replace_then_error):
+                with self.assertRaises(ExecutionOwnershipError):
+                    service.claim(run.id, owner_id="fixture-unknown", expected_version=run.version)
+            saved_journal = service.guard.journal.read_bytes()
+            with self.assertRaises(ExecutionOwnershipError):
+                service.guard.assert_dispatchable()
+        ctx = multiprocessing.get_context("spawn")
+        result = ctx.Queue()
+        child = ctx.Process(target=_restart_after_unknown_replace,
+            args=(self.url, str(self.root / "outputs"), run.id, result))
+        try:
+            child.start()
+            observed = result.get(timeout=40)
+            child.join(timeout=20)
+            self.assertEqual(child.exitcode, 0)
+            self.assertEqual(observed, (True, "interrupted", "running", ["interrupted"], ()))
+            self.assertEqual(service.guard.journal.read_bytes(), saved_journal)
+            self.assertEqual(producer.calls, [])
+        finally:
+            if child.is_alive():
+                child.terminate()
+                child.join(timeout=5)
+            result.close()
 
     def test_pending_cancel_is_not_produced(self):
         producer = Producer(block=True)
