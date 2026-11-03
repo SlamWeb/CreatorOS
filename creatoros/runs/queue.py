@@ -5,7 +5,7 @@ from contextlib import nullcontext
 
 from sqlalchemy import select, or_, and_, text
 
-from creatoros.storage.models import ContentAttempt, ContentRun, ContentRevision, ContentRunStatus, ProductionQueueItem, TopicRemoval
+from creatoros.storage.models import ContentAttempt, ContentRun, ContentRevision, ContentRunStatus, ProductionQueueItem, ProductionQueueHistory, TopicRemoval
 from .service import ContentRunError
 
 
@@ -19,9 +19,9 @@ class ProductionQueue:
     def enqueue(self, run_id: str, expected_version: int, *, bound_session=None,
                 initial_only: bool = False, creator_id: str | None = None) -> ProductionQueueItem:
         with self.service._write_lock, (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
-            # First authorization is read-and-write in one SQLite write transaction,
-            # not a client-side status check followed by a separate submission.
-            if initial_only and bound_session is None and self.database.engine.dialect.name == 'sqlite':
+            # Serialize independent SQLite submitters before reading and changing the receipt.
+            # A bound session is already owned by the submission transaction.
+            if bound_session is None and self.database.engine.dialect.name == 'sqlite':
                 session.execute(text('BEGIN IMMEDIATE'))
             run = session.get(ContentRun, run_id)
             if run is None:
@@ -73,6 +73,12 @@ class ProductionQueue:
             if item is None:
                 item = ProductionQueueItem(run_id=run_id, revision_id=revision.id)
                 session.add(item)
+            if item.id is not None and item.status in {"failed", "needs_attention"}:
+                session.add(ProductionQueueHistory(
+                    queue_item_id=item.id, expected_version=item.expected_version,
+                    status=item.status, submitted_at=item.submitted_at, started_at=item.started_at,
+                    completed_at=item.completed_at, last_error=item.last_error,
+                ))
             item.expected_version = expected_version
             item.status = "pending"
             item.submitted_at = datetime.now(timezone.utc)
@@ -159,4 +165,13 @@ class ProductionQueue:
                         "last_error": item.last_error,
                         "blocked_reason": item.last_error if item.status == "pending" else None}
             result = [project(item) for item in items]
+            if run_id is not None and result:
+                history = session.scalars(select(ProductionQueueHistory).where(
+                    ProductionQueueHistory.queue_item_id == items[0].id).order_by(ProductionQueueHistory.id))
+                result[0]["history"] = [{"status": row.status, "expected_version": row.expected_version,
+                    "submitted_at": row.submitted_at.isoformat(),
+                    "started_at": row.started_at.isoformat() if row.started_at else None,
+                    "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+                    "last_error": row.last_error, "archived_at": row.archived_at.isoformat()}
+                    for row in history]
             return (result[0] if result else None) if run_id is not None else result
