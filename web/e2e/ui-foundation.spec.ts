@@ -1,13 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { ensureBuiltinImageSkill } from "./fixtures/image-default";
 
 test("product actions retain form, conflict, navigation and download behavior", async ({ page }, testInfo) => {
   // Bound Skills + a controlled producer in isolated SQLite, never a paid model.
   const setup = await page.request.post("/test/calibration", { data: {} });
   expect(setup.ok()).toBeTruthy();
-  const { series_id } = await setup.json();
-  const catalog = await (await page.request.get("/api/producer-skills?include_versions=true")).json();
-  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
-  expect(skill).toBeTruthy();
+  const { series_id, creator_id } = await setup.json();
+  const skill = await ensureBuiltinImageSkill(page.request, creator_id);
   await page.goto(`/?series=${series_id}`);
   await page.getByRole("button", { name: "添加选题", exact: true }).click();
   await page.getByLabel("新选题标题").fill("UI 控件迁移验收");
