@@ -19,7 +19,7 @@ from tests import test_topic_references as reference_fixtures
 class ToolReferenceHandoffTests(unittest.TestCase):
     setUp = reference_fixtures.ReferencesTest.setUp
 
-    def test_original_order_and_accepted_receipt_resume_without_regeneration(self):
+    def test_original_order_and_interrupted_receipt_requires_inspection(self):
         catalog, pair = create_pair(self.root)
         second_raw, data = reference_fixtures.encoded("red")
         second = self.store.upload("series-a", "second.png", data)
@@ -77,16 +77,22 @@ class ToolReferenceHandoffTests(unittest.TestCase):
         with patch("creatoros.integrations.native_production._production_client", client):
             with self.assertRaises(CodexProducerError):
                 produce(1)
-            result = produce(2)
-            # Complete delivery is resolved offline on subsequent replay.
-            produce(3)
+            original = self.root / "run" / "revision-001" / "attempt-001"
+            before = {path.relative_to(original): path.read_bytes() for path in original.rglob("*") if path.is_file()}
+            image_bytes = [path.read_bytes() for path in paths]
+            for attempt in (2, 3):
+                with self.assertRaises(CodexProducerError) as failure:
+                    produce(attempt)
+                self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
+            self.assertEqual(before, {path.relative_to(original): path.read_bytes() for path in original.rglob("*") if path.is_file()})
+            self.assertEqual(image_bytes, [path.read_bytes() for path in paths])
         self.assertEqual(len(created), 2)
-        self.assertEqual(len(inputs_seen), 2)
+        self.assertEqual(len(inputs_seen), 1)
         self.assertTrue(all(reply["accepted"] for reply in replies), replies)
-        self.assertEqual(replies[0]["receipt_id"], replies[1]["receipt_id"])
-        checkpoint = load_checkpoint(result.directory)
+        self.assertEqual(len(replies), 1)
+        checkpoint = load_checkpoint(original)
         self.assertEqual(checkpoint.handoff_protocol, "tool-v1")
-        self.assertTrue(checkpoint.turn_completed)
+        self.assertFalse(checkpoint.turn_completed)
         self.assertEqual([page.sha256 for page in checkpoint.pages],
                          [hashlib.sha256(path.read_bytes()).hexdigest() for path in reversed(paths)])
         self.assertEqual([Path(item.path).read_bytes() for item in ref.images], originals)

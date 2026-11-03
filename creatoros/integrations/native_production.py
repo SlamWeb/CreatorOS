@@ -513,6 +513,9 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         await asyncio.gather(collector, return_exceptions=True)
                         if interrupt_error is not None and (submission_unknown.is_set() or (cancel_event is not None and cancel_event.is_set())):
                             raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from interrupt_error
+                        if submission_unknown.is_set():
+                            raise CodexProducerError("图片提交结果待核对，原回执和图片保留，不再提交生产。",
+                                                     error_type="image_delivery_unconfirmed")
                     if not structured:
                         try:
                             ingest(directory, checkpoint, producer.generated_images_root)

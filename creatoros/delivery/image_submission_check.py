@@ -17,12 +17,13 @@ def inspect_submission(directory: Path) -> dict:
     receipt_present = receipt.exists() or receipt.is_symlink()
     result = {"status": "none", "intent_present": intent_present,
               "receipt_present": receipt_present, "receipt_matches_checkpoint": False,
-              "matching_completed_turn": False}
+              "matching_completed_turn": False, "checkpoint_turn_completed": False}
     if not intent_present and not receipt_present:
         return result
     result["status"] = "unconfirmed"
     try:
         checkpoint = Checkpoint.model_validate_json(safe_file(directory, directory / CHECKPOINT, 8_000_000).read_text(encoding="utf-8"))
+        result["checkpoint_turn_completed"] = checkpoint.turn_completed
         saved = accepted_submission(directory, checkpoint) if checkpoint.submission_sha256 else None
         result["receipt_matches_checkpoint"] = bool(saved)
         if not intent_present:
@@ -44,7 +45,7 @@ def inspect_submission(directory: Path) -> dict:
             and worker.get("thread_id") == checkpoint.thread_id and isinstance(last, dict)
             and last.get("id") == intent_value["turn_id"]
             and last.get("phase") in {"production", "delivery_repair"} and last.get("status") == "completed")
-        if result["matching_completed_turn"]:
+        if result["matching_completed_turn"] and checkpoint.turn_completed:
             result["status"] = "completed_evidence"
     except (OSError, ValueError, TypeError, AttributeError):
         pass

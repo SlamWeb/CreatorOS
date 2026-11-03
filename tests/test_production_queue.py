@@ -158,6 +158,37 @@ class ProductionQueueTests(unittest.TestCase):
         self.executors.append(executor)
         return executor
 
+    def test_unknown_image_result_wins_over_concurrent_cancellation(self):
+        from creatoros.integrations.codex import CodexProducerError
+        started, release, cancellation = Event(), Event(), []
+        class UnknownProducer:
+            def __init__(self):
+                self.calls = 0
+            def produce_to(self, **request):
+                self.calls += 1
+                cancellation.append(request["cancel_event"])
+                started.set()
+                if not release.wait(10):
+                    raise AssertionError("test did not release producer")
+                raise CodexProducerError("submission outcome unknown", error_type="image_delivery_unconfirmed")
+        producer = UnknownProducer()
+        service = self.service(producer)
+        run = service.create("topic-0")
+        executor = self.executor(service)
+        executor.submit(run.id, expected_version=run.version)
+        self.assertTrue(started.wait(10))
+        cancellation[0].set()  # Concurrent caller cancels while producer is in flight.
+        release.set()
+        wait(lambda: not executor.is_submitted(run.id), timeout=10)
+        actual = service.get(run.id)
+        attempt = service.repository.list_attempts(service.get_active_revision(run.id).id)[0]
+        self.assertEqual(actual.error_type, "image_delivery_unconfirmed")
+        self.assertFalse(actual.retryable)
+        self.assertEqual(actual.status.value, "failed")
+        self.assertEqual(attempt.error_type, "image_delivery_unconfirmed")
+        self.assertFalse(attempt.retryable)
+        self.assertEqual(producer.calls, 1)
+
     def test_migration_matches_metadata_and_never_enqueues_legacy_runs(self):
         with self.database.engine.connect() as connection:
             self.assertEqual(compare_metadata(MigrationContext.configure(connection), Base.metadata), [])

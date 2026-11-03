@@ -152,6 +152,9 @@ class ImageSubmission:
             except FileExistsError:
                 self._outcome_unknown = True
                 return self._unknown_result()
+            # A new submission has not completed its own SDK turn, even when a
+            # reused checkpoint carried a completed flag from an earlier turn.
+            checkpoint.turn_completed = False
             accept_delivery_value(self.directory, checkpoint, self.generated_root, self.bundle,
                                   value.model_dump())
             ingest(self.directory, checkpoint, self.generated_root)
