@@ -97,7 +97,7 @@ class PlanStepArgs(BaseModel):
     tool: Literal[PLAN_TOOL_NAMES]
     arguments: dict[str, Any] = Field(description="对应工具当前契约的参数；生产必须明确action与任务kind，仅用skill_ids。依赖结果可用 {$ref: '步骤ID.字段'}，保存前检查固定字段、执行前完整校验。")
     depends_on: list[str] = Field(default_factory=list, max_length=100)
-    wait_for_completion: bool = Field(default=False, description="提交长任务后等待其真实终态，再解锁依赖步骤。")
+    wait_for_completion: bool = Field(default=False, description="仅用于start_content_run；等待原生产真实终态，再解锁依赖步骤。计划完成或失败后宿主唤醒原会话。")
 
 
 class PlanArguments(BaseModel):

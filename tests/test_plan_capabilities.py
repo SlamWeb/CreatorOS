@@ -10,6 +10,26 @@ import unittest
 
 
 class PlanCapabilityTests(unittest.TestCase):
+    def test_explicit_completion_followup_has_a_waiting_plan_route(self):
+        from creatoros.tools.definitions import tool_registry
+        from creatoros.web.chat import ACCOUNT_INSTRUCTIONS
+
+        # These are model-facing guidance assertions, not evidence that a real
+        # model will always choose the right tool.
+        self.assertIn("明确要求生产完成后核验、继续处理或汇报结果", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("即使只有一项生产", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("只要求提交时仍直接提交", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("wait_for_completion=true", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("用户要求等待或有多步依赖", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("有后续步骤且需要根据结果判断", ACCOUNT_INSTRUCTIONS)
+        self.assertNotIn("生产仍提交后给链接，不轮询等待生图", ACCOUNT_INSTRUCTIONS)
+        plan = tool_registry["manage_plan"].to_schema()["function"]["description"]
+        start = tool_registry["start_content_run"].to_schema()["function"]["description"]
+        self.assertIn("明确要求生产完成后核验、继续处理或汇报结果", plan)
+        self.assertIn("wait_for_completion=true", plan)
+        self.assertIn("仅需提交时调用", start)
+        self.assertIn("完成后核验、继续处理或汇报结果", start)
+
     def test_plan_schema_and_permissions_keep_the_existing_names_and_actions(self):
         from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action, can_wait
         from creatoros.tools.definitions import tool_registry
@@ -82,8 +102,23 @@ class PlanCapabilityTests(unittest.TestCase):
         self.assertEqual((len(tool_registry), len(tools)), (57, 53))
         # The current contract deliberately adds read-only production receipt
         # lookup and clarifies that a shared release may be forked privately.
-        self.assertEqual(digest(tools), "88ae1d91f88d937b0498f7047b24af904f91e1fcb7ac9388180d7945babdec89")
         original = copy.deepcopy(tools)
+        # Only the model-facing waiting guidance changed; restoring it must
+        # recover the exact previous schema and all 53 registered tools.
+        plan = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_plan")
+        guidance = ("明确要求生产完成后核验、继续处理或汇报结果时，即使只有一项生产也创建计划，"
+                    "start_content_run步骤设wait_for_completion=true；宿主观察原任务并在计划完成或失败后唤醒本会话。")
+        self.assertEqual(plan["description"].count(guidance), 1)
+        plan["description"] = plan["description"].replace(guidance, "")
+        wait = plan["parameters"]["$defs"]["PlanStepArgs"]["properties"]["wait_for_completion"]
+        self.assertEqual(wait["description"], "仅用于start_content_run；等待原生产真实终态，再解锁依赖步骤。计划完成或失败后宿主唤醒原会话。")
+        wait["description"] = "提交长任务后等待其真实终态，再解锁依赖步骤。"
+        run = next(tool["function"] for tool in original if tool["function"]["name"] == "start_content_run")
+        guidance = ("用户明确要求生产且仅需提交时调用；明确要求完成后核验、继续处理或汇报结果时，"
+                    "通过manage_plan的生产步骤设置wait_for_completion=true。选择action：")
+        self.assertEqual(run["description"].count(guidance), 1)
+        run["description"] = run["description"].replace(guidance, "用户明确要求生产时选择action：")
+        self.assertEqual(digest(original), "88ae1d91f88d937b0498f7047b24af904f91e1fcb7ac9388180d7945babdec89")
         topics = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_topics")
         full_text_description = "；用户明确要全文时逐字呈现，包括重复段落和结尾，不用次数概括替代。制作结果"
         self.assertEqual(topics["description"].count(full_text_description), 1)

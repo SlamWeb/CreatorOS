@@ -83,6 +83,32 @@ class PlanProductionOutcomeTests(unittest.TestCase):
         self.assertEqual(plan['steps'][0]['result']['items'][0]['queue_status'], 'needs_attention')
         self.assertEqual(self.producer.calls, 0)
 
+    def test_unknown_waiting_production_notifies_without_redispatch(self):
+        self.queue('pending')
+        plan_id = self.plan(True)
+        receipt = {'accepted_count': 1, 'items': [{'topic_id': 'review-1', 'run_id': self.run.id,
+            'status': 'queued', 'accepted': True}]}
+        with patch('creatoros.agent.plans.execute_tool_call',
+                   return_value=ToolResult(content=json.dumps(receipt))) as tool:
+            self.service._execute(plan_id, 'produce', self.sid, 'review-lab', 'http://127.0.0.1:1',
+                                  'start_content_run', self.arguments)
+            with self.db.session() as session:
+                session.query(ProductionQueueItem).filter_by(run_id=self.run.id).one().status = 'needs_attention'
+            self.service.advance()
+            plan = self.service.get(self.sid, plan_id)
+            self.assertEqual((plan['status'], plan['steps'][0]['status']), ('needs_attention', 'unknown'))
+            self.assertEqual(plan['steps'][1]['status'], 'blocked')
+            event = self.service.claim_continuation(self.sid, 'test-worker')
+            self.assertEqual(event['reason'], 'failure')
+            self.assertEqual(event['steps'][0]['result']['items'][0]['run_id'], self.run.id)
+            self.assertTrue(self.service.ack_continuation(plan_id, event['event_id'], 'test-worker'))
+            for _ in range(3):
+                self.service.advance()
+            self.assertEqual(tool.call_count, 1)
+            self.assertIsNone(self.service.claim_continuation(self.sid, 'other-worker'))
+            self.assertEqual(self.service.get(self.sid, plan_id)['steps'][0]['status'], 'unknown')
+        self.assertEqual(self.producer.calls, 0)
+
     def two_run_batch(self, wait):
         second = self.runs.create('review-2')
         revision = self.runs.get_active_revision(second.id)

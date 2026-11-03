@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from threading import Event, Lock
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 import httpx
@@ -13,7 +14,7 @@ import httpx
 from creatoros.ai.types import ModelUsage, StreamEnd, TextDelta, ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.tools.execution import execute_tool_call
-from creatoros.storage.models import AgentPlan
+from creatoros.storage.models import AgentPlan, ContentRun, ProductionTask
 from creatoros.web.app import create_app
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
@@ -50,6 +51,72 @@ def wait_for(predicate, timeout=15):
 
 
 class PlanContinuationTests(unittest.TestCase):
+    def test_single_waiting_production_completes_and_notifies_once(self):
+        # Real HTTP/SQLite and a controlled producer/provider. No paid model is called.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db, runs, producer, fixture_app = make_fixture(root)
+            production_gate, production_started = Event(), Event()
+            gate, started, calls, lock = Event(), Event(), [], Lock()
+            gate.set()
+            original_produce = producer.produce_to
+
+            def gated_produce(**request):
+                production_started.set()
+                if not production_gate.wait(15):
+                    raise RuntimeError('test production gate timed out')
+                return original_produce(**request)
+
+            app = create_app(database=db, run_service=runs, chat_root=root / 'chats',
+                             chat_provider_factory=lambda: ControlledProvider(gate, started, calls, lock))
+            try:
+                with patch.object(producer, 'produce_to', side_effect=gated_produce), \
+                     serve(app) as url, httpx.Client(base_url=url, timeout=10, trust_env=False) as client:
+                    sid = client.post('/api/agent/sessions', json={'creator_id':'review-lab'}).json()['id']
+                    turn = client.post(f'/api/agent/sessions/{sid}/turns', json={
+                        'request_id':str(uuid4()), 'text':'做一张图，完成后告诉我结果', 'expected_version':0})
+                    self.assertEqual(turn.status_code, 202, turn.text)
+                    wait_for(lambda: started.is_set() and app.state.chat._read(sid)['status'] != 'running')
+                    path = f'/api/agent/sessions/{sid}/plans'
+                    created = client.post(path, json={'request_id':str(uuid4()), 'title':'制作并汇报', 'steps':[
+                        {'id':'produce', 'title':'制作图片', 'tool':'start_content_run',
+                         'arguments':{'action':'tasks', 'topic_id':'review-1', 'tasks':[
+                             {'kind':'image', 'title':'图片', 'brief':'一张测试图'}]},
+                         'wait_for_completion':True}]})
+                    self.assertEqual(created.status_code, 200, created.text)
+                    pid = created.json()['id']
+                    detail = lambda: client.get(f'{path}/{pid}').json()
+                    self.assertTrue(production_started.wait(10))
+                    wait_for(lambda: detail()['steps'][0]['status'] == 'waiting')
+                    self.assertEqual(detail()['status'], 'running')
+                    self.assertFalse(any(r.get('kind') == 'plan_continuation'
+                                         for r in app.state.chat._read(sid)['requests']))
+                    production_gate.set()
+                    wait_for(lambda: detail()['status'] == 'completed' and detail()['continuation_state'] == 'done')
+                    wait_for(lambda: app.state.chat._read(sid)['status'] != 'running')
+                    run_id = detail()['steps'][0]['result']['items'][0]['run_id']
+                    with db.session() as database_session:
+                        self.assertEqual(database_session.query(ProductionTask).count(), 1)
+                        self.assertEqual(database_session.query(ContentRun).count(), 1)
+                        self.assertIsNotNone(database_session.get(ContentRun, run_id))
+                    self.assertEqual(producer.calls, 1)
+                    self.assertEqual(sum(r.get('kind') == 'plan_continuation'
+                                         for r in app.state.chat._read(sid)['requests']), 1)
+                    app.state.chat._resume_plans()
+                    app.state.chat._resume_plans()
+                    self.assertEqual(producer.calls, 1)
+                    self.assertEqual(sum(r.get('kind') == 'plan_continuation'
+                                         for r in app.state.chat._read(sid)['requests']), 1)
+                    with lock:
+                        self.assertEqual(len(calls), 2)
+                        self.assertTrue(any(run_id in str(message.get('content'))
+                                            for message in calls[-1]))
+            finally:
+                production_gate.set()
+                app.state.agent_plans.shutdown()
+                app.state.chat.shutdown()
+                db.close()
+
     def test_unavailable_provider_does_not_hot_loop_or_lose_notification(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
