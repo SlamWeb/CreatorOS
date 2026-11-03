@@ -471,7 +471,8 @@ class AgentScopeGuard:
             )
             # A moved Series may contain a Run whose frozen snapshot names its old
             # Creator. Refuse the whole projection so topic DTOs cannot leak that Run.
-            return all((run.input_snapshot_json or {}).get("creator_id") == creator_id for run in runs)
+            return all(isinstance(run.input_snapshot_json, dict)
+                       and run.input_snapshot_json.get("creator_id") == creator_id for run in runs)
 
     def _owns_skill(self, skill_id: str, creator_id: str) -> bool:
         if self.skill_library:
@@ -659,7 +660,7 @@ class AgentScopeGuard:
             run = session.get(ContentRun, run_id)
             if run is None:
                 return False
-            snapshot = run.input_snapshot_json or {}
+            snapshot = run.input_snapshot_json if isinstance(run.input_snapshot_json, dict) else {}
             topic = session.get(Topic, run.topic_id)
             series = session.get(Series, topic.series_id) if topic else None
             return bool(snapshot.get("creator_id") == creator_id and series

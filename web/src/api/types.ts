@@ -240,6 +240,7 @@ export interface RunEventView {
 
 export interface RunDetail extends RunSummary {
   production_queue?: { status: string; position: number | null; submitted_at: string; last_error?: string | null; blocked_reason?: string | null } | null;
+  submission_accepted?: boolean | null;
   input_snapshot: Record<string, unknown>;
   producer_thread_id: string | null;
   revisions: RevisionView[];

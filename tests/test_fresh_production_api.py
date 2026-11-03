@@ -245,7 +245,7 @@ class FreshProductionAPITests(unittest.TestCase):
                 invalid = client.post(f'/api/runs/{source.id}/execute',
                                       json={'expected_version': runs.get(source.id).version, 'initial_only': True},
                                       headers=headers)
-                self.assertEqual(invalid.status_code, 422, invalid.text)
+                self.assertEqual(invalid.status_code, 409, invalid.text)
                 original_enqueue = executor.queue.enqueue
                 def reassign_then_enqueue(*args, **kwargs):
                     with self.database.session() as session:
@@ -293,6 +293,40 @@ class FreshProductionAPITests(unittest.TestCase):
             self.assertIn('当前任务需要核对', result.to_model_content())
             self.assertNotIn('本次没有重新启动', result.to_model_content())
             self.assertEqual(producer.calls, ['topic-0', 'topic-0'])
+
+    def test_fresh_replay_with_corrupt_target_snapshot_fails_closed_without_cross_account_leak(self):
+        producer = fixture.Producer()
+        runs = self.service(producer)
+        source = runs.create('topic-0')
+        runs.execute(source.id)
+        repo = ContentRepository(self.database)
+        repo.create_creator(creator_id='other', display_name='Other', platform=CreatorPlatform.XIAOHONGSHU)
+        repo.create_series(series_id='other-series', creator_id='other', name='Other', description='', audience='', skill_name='knowledge-to-carousel')
+        repo.add_topic(topic_id='other-topic', series_id='other-series', title='Other', source=TopicSource.MANUAL)
+        other = runs.create('other-topic')
+        app = create_app(database=self.database, run_service=runs)
+        with serve(app) as base, httpx.Client(base_url=base, trust_env=False) as client:
+            sid = client.post('/api/agent/sessions', json={'creator_id': 'creator'}).json()['id']
+            other_sid = client.post('/api/agent/sessions', json={'creator_id': 'other'}).json()['id']
+            body = dict(topic_id='topic-0', mode='fresh', source_run_id=source.id,
+                        expected_version=runs.get(source.id).version, request_id='corrupt-fresh-target')
+            created = client.post('/api/runs', json=body, headers={'x-creatoros-agent-session': sid})
+            self.assertEqual(created.status_code, 201, created.text)
+            target = created.json()['id']
+            with self.database.session() as session:
+                session.get(ContentRun, target).input_snapshot_json = None
+            replay = client.post('/api/runs', json=body)
+            self.assertEqual(replay.status_code, 409, replay.text)
+            self.assertIn('核对', replay.text)
+            scoped = client.post('/api/runs', json=body, headers={'x-creatoros-agent-session': sid})
+            self.assertEqual(scoped.status_code, 403, scoped.text)
+            self.assertNotIn(target, scoped.text)
+            foreign = client.post('/api/runs', json={**body, 'topic_id': 'other-topic',
+                'source_run_id': other.id, 'expected_version': runs.get(other.id).version},
+                headers={'x-creatoros-agent-session': other_sid})
+            self.assertEqual(foreign.status_code, 403, foreign.text)
+            self.assertNotIn(target, foreign.text)
+            self.assertEqual(producer.calls, ['topic-0'])
 
     def test_modes_are_explicit_and_cannot_bypass_batch_validation(self):
         from pydantic import ValidationError

@@ -19,15 +19,16 @@ export function RunControls({ run, compact = false }: { run: RunDetail; compact?
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (action: "execute" | "cancel") => action === "execute"
-      ? studioApi.executeRun(run.id, run.version)
+      ? studioApi.executeRun(run.id, run.version, run.status === "queued" && run.production_queue?.status !== "needs_attention")
       : studioApi.cancelRun(run.id, { expected_version: run.version }),
     onSuccess: (_result, action) => { if (action === "cancel" && run.status === "producing") setStopping(true); },
     onSettled: () => queryClient.invalidateQueries(),
   });
   useEffect(() => { if (run.status !== "producing") setStopping(false); }, [run.id, run.status]);
   const queued = run.production_queue?.status === "pending";
+  const dispatching = run.production_queue?.status === "running";
   const blockedReason = queued ? run.production_queue?.blocked_reason : null;
-  const canStart = !queued && (run.allowed_actions.includes("execute") || run.allowed_actions.includes("resume"));
+  const canStart = !queued && !dispatching && (run.allowed_actions.includes("execute") || run.allowed_actions.includes("resume"));
   const active = ["producing", "validating"].includes(run.status);
   const stale = active && run.lease_expires_at && Date.parse(run.lease_expires_at) < Date.now();
   const latest = run.revisions.at(-1)?.attempts.at(-1);
@@ -41,6 +42,8 @@ export function RunControls({ run, compact = false }: { run: RunDetail; compact?
   return <div className="run-controls">
     {queued && <p className="muted" role="status">{blockedReason ? `生产队列已暂停 · ${blockedReason}`
       : `已加入生产队列${run.production_queue?.position ? ` · 排队第 ${run.production_queue.position} 项` : ""}`}</p>}
+    {dispatching && !active && <p className="muted" role="status">正在启动生产…</p>}
+    {run.production_queue?.status === "needs_attention" && <p className="review-warning" role="status">任务状态需要核对；不会自动重新生产。</p>}
     {active ? <p className="muted" role="status"><span className={!stale && !noRecentActivity ? "task-running-text" : undefined}>{stale ? "执行状态待核实，请检查本地服务。" : `${run.status === "validating" ? "正在检查产物" : "Codex 正在生产"}`}</span>{!stale && ` · 已运行 ${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</p> : null}
     {showProgress && progress ? <div className="muted run-live-progress" aria-label="生产阶段进度">
       <p>{stageLabels[progress.stage]} · {collectingReceipt ? "正在整理回执/验收" : ({ running: "进行中", completed: "阶段已完成", failed: "阶段失败", interrupted: "阶段中断" } as const)[progress.status]}</p>

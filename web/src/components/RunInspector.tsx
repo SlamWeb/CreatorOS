@@ -180,7 +180,7 @@ function FreshProductionAction({ run, returnTo }: { run: RunDetail; returnTo: st
       if (mounted.current) setCreated(next.id);
       // Creation replay may already have finished. Never restart that attempt.
       if (next.status === "queued" && next.active_revision_number === 1 && !next.revisions[0]?.attempts.length) {
-        return studioApi.executeRun(next.id, next.version);
+        return studioApi.executeRun(next.id, next.version, true);
       }
       return next;
     },

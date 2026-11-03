@@ -92,6 +92,56 @@ test("partial rejection preserves only rejected selections and HTTP failure does
   expect(posts).toBe(2);
 });
 
+test("accepted tasks that already failed or need inspection are shown accurately", async ({ page, request }) => {
+  const data = await fixture(request);
+  await page.route("**/api/runs/batch", route => route.fulfill({ status: 202, json: { accepted_count: 2, items: [
+    { topic_id: data.topicIds[0], accepted: true, status: "failed", run_id: "controlled-failed-run" },
+    { topic_id: data.topicIds[1], accepted: true, status: "queued", run_id: "controlled-attention-run",
+      error: "当前队列状态需要核对，相同请求不会再次授权。" },
+  ] } }));
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.locator(".library-select-menu summary").click();
+  await page.getByRole("checkbox", { name: "选择生产 第一条等待后台生产", exact: true }).check();
+  await page.getByRole("checkbox", { name: "选择生产 第二条自动接着生产", exact: true }).check();
+  await page.getByRole("button", { name: "批量生产（2，沿用已配置 Skill）", exact: true }).click();
+  const result = page.getByRole("region", { name: "批量提交结果" });
+  await expect(result).toContainText("已受理 2 项");
+  await expect(result).toContainText("已受理 · 当前状态需核对");
+  await expect(result).toContainText("已受理 · 当前队列状态需要核对");
+  await expect(result).not.toContainText("后台依次生产");
+});
+
+test("single-topic production is initial-only while an explicit recovery stays explicit", async ({ page, request }) => {
+  const data = await fixture(request);
+  const first = await request.post("/api/runs", { data: { topic_id: data.topicIds[0] } }).then(r => r.json());
+  const second = await request.post("/api/runs", { data: { topic_id: data.topicIds[1] } }).then(r => r.json());
+  const library = await request.get(`/api/series/${data.series.id}/topic-library?state=all&offset=0&limit=20`).then(r => r.json());
+  const firstTopic = library.items.find((item: { id: string }) => item.id === data.topicIds[0]);
+  const secondTopic = library.items.find((item: { id: string }) => item.id === data.topicIds[1]);
+  firstTopic.available_actions = ["start"];
+  secondTopic.available_actions = ["resume", "view"];
+  secondTopic.production_queue_status = "needs_attention";
+  await page.route(`**/api/series/${data.series.id}/topic-library?**`, route => route.fulfill({ json: library }));
+  const payloads: Record<string, unknown>[] = [];
+  await page.route(`**/api/runs/${first.id}/execute`, route => {
+    payloads.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: { ...first, submission_accepted: false,
+      production_queue: { status: "needs_attention", position: null, submitted_at: new Date().toISOString() } } });
+  });
+  await page.route(`**/api/runs/${second.id}/execute`, route => {
+    payloads.push(route.request().postDataJSON());
+    return route.fulfill({ status: 202, json: { ...second, production_queue: { status: "pending", position: 1,
+      submitted_at: new Date().toISOString() } } });
+  });
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
+  await page.getByTestId(`library-${data.topicIds[0]}`).getByRole("button", { name: "生产", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "当前任务需要核对。" })).toBeVisible();
+  expect(payloads[0]).toEqual({ expected_version: first.version, initial_only: true });
+  await page.getByTestId(`library-${data.topicIds[1]}`).getByRole("button", { name: "恢复生产", exact: true }).click();
+  await expect.poll(() => payloads.length).toBe(2);
+  expect(payloads[1]).toEqual({ expected_version: second.version });
+});
+
 test("durable queue projection distinguishes waiting and attention; blocked worker never looks active", async ({ page, request }) => {
   const data = await fixture(request);
   const created = await request.post("/api/runs", { data: { topic_id: data.topicIds[0] } }).then(r => r.json());

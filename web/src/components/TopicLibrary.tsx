@@ -246,11 +246,14 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     </div>}
     {batch.isError && <p className="form-error" role="alert">{batch.error.message} 请先刷新核对任务状态；选择已保留，不会自动重提。</p>}
     {batch.data && <section className="library-batch-result" aria-label="批量提交结果">
-      <p role="status">{batch.data.accepted_count > 0 ? `已受理 ${batch.data.accepted_count} 项，后台依次生产。` : "本次没有任务被受理。"}</p>
+      <p role="status">{batch.data.accepted_count > 0 ? `已受理 ${batch.data.accepted_count} 项，请查看各任务状态。` : "本次没有任务被受理。"}</p>
       <ul>{batch.data.items.map((item, index) => <li key={`${item.topic_id}-${index}`}>
         {item.run_id ? <Link to={`/runs/${encodeURIComponent(item.run_id)}`}>{item.topic_title ?? batch.variables?.find(topic => topic.id === item.topic_id)?.title ?? "查看任务"}</Link>
           : <span>{item.topic_title ?? batch.variables?.find(topic => topic.id === item.topic_id)?.title ?? "选题"}</span>}
-        <span className={item.accepted ? "batch-accepted" : "form-error"}>{item.accepted ? "已受理" : item.error ?? "未受理，请查看任务状态"}</span>
+        <span className={item.accepted && !item.error && !["failed", "interrupted", "cancelled"].includes(item.status) ? "batch-accepted" : "form-error"}>{item.accepted
+          ? item.error ? `已受理 · ${item.error}` : ["failed", "interrupted", "cancelled"].includes(item.status) ? "已受理 · 当前状态需核对"
+            : item.status === "awaiting_approval" ? "已受理 · 待验收" : "已受理"
+          : item.error ?? "未受理，请查看任务状态"}</span>
       </li>)}</ul>
     </section>}
     {query.isPending && <p role="status">正在读取内容…</p>}

@@ -699,6 +699,11 @@ def create_app(
     def start_batch(payload: RunBatchStartRequest, request: Request) -> RunBatchResponse:
         items = []
         session_id = request.headers.get("x-creatoros-agent-session")
+        creator_id = None
+        if session_id:
+            scope = chat.get(session_id)
+            if scope.get("scope_kind") == "creator":
+                creator_id = scope.get("creator_id")
         for topic_id in payload.topic_ids:
             run_id = None
             try:
@@ -715,12 +720,22 @@ def create_app(
                          and len(detail.revisions) == 1 and not detail.revisions[0].attempts
                          and (queue is None or queue["status"] == "pending"))
                 accepted = False
+                queue_status = queue["status"] if queue else None
                 if fresh or (queue and queue["status"] in {"pending", "running"}):
-                    executor.submit(run_id, expected_version=detail.version)
-                    accepted = True
+                    submission = executor.submit(run_id, expected_version=detail.version, initial_only=True,
+                                                 creator_id=creator_id)
+                    accepted = submission.accepted
+                    queue_status = submission.queue_status
                 current = queries.get_run(run_id)
+                # The authorization receipt and the current queue observation
+                # are distinct: a worker may already have stopped meanwhile.
+                observed_queue = executor.queue_snapshot(run_id)
+                if observed_queue is not None:
+                    queue_status = observed_queue["status"]
                 items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status=current.status,
-                                          accepted=accepted, url=f"/runs/{run_id}"))
+                                          accepted=accepted, url=f"/runs/{run_id}",
+                                          error="当前队列状态需要核对，相同请求不会再次授权。" if queue_status in {"needs_attention", "failed", "cancelled"} else None,
+                                          error_code="queue_needs_attention" if queue_status in {"needs_attention", "failed", "cancelled"} else None))
             except ContentRunError as error:
                 items.append(RunBatchItem(topic_id=topic_id, run_id=run_id, status="rejected",
                                           accepted=False, error=str(error), error_code=error.code,

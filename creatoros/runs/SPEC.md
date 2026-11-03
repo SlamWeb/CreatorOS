@@ -3,7 +3,12 @@
 ## 2026-11-03 fresh 重放与首次授权
 
 - Agent `start_content_run(action=fresh)` 与 `StudioClient.start(mode=fresh)` 对同一请求只做首次授权；`/api/runs/{id}/execute` 的 `initial_only` 在 SQLite 写事务中复核账号、版本和队列。已存在队列时只读原回执，包括 `needs_attention`、`failed`、`cancelled`，不重排、不清错误、不启动新 Attempt；无队列且仍为全新、未尝试的 fresh Run 才入队。响应丢失时原身份与运行记录用于核对。
-- 未设置 `initial_only` 的用户显式执行/恢复沿用原有规则。此约束不代表其他普通生产入口已做相同事务收敛；数据库外的副作用仍不能回滚。隔离 SQLite、真实本机 HTTP 和受控 Producer 覆盖重放、中断、并发、归属、响应丢失和显式恢复，不调用真实 Codex。
+- 未设置 `initial_only` 的用户显式执行/恢复沿用原有规则；数据库外的副作用仍不能回滚。隔离 SQLite、真实本机 HTTP 和受控 Producer 覆盖重放、中断、并发、归属、响应丢失和显式恢复，不调用真实 Codex。
+
+## 2026-11-03 普通生产与 Web 重做重放
+
+- 批量生产、普通 StudioClient 生产和网页从头重做共用首次授权边界：已有队列只返回原回执，避免在查询与提交之间重置 `needs_attention`。旧自定义 key 可用，空标识或无法核实的旧快照提示核对；用户明确点击恢复继续走原执行路径。
+- 栏目及详情“开始生产”按当前 Revision 首次授权（包括新返工版本）；只有明确的“恢复生产”走原恢复接口。受理回执与当前状态分开，快速失败时显示需要核对；重做详情同样显示未确认队列。真实本机 HTTP/隔离 SQLite 配合受控竞争和浏览器交互验证，不调用真实 Codex。
 
 ## 2026-11-03 初始生产授权事务边界
 

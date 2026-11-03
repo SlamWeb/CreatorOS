@@ -26,6 +26,10 @@ class ProductionQueue:
             run = session.get(ContentRun, run_id)
             if run is None:
                 raise ContentRunError("运行不存在。", code="not_found", status_code=404)
+            snapshot = run.input_snapshot_json
+            if not isinstance(snapshot, dict) or any(not isinstance(snapshot.get(field), str) or not snapshot[field]
+                                                     for field in ('creator_id', 'series_id', 'topic_id')):
+                raise ContentRunError("历史任务输入不完整，请先核对原记录。", code="legacy_snapshot_needs_check")
             self.service._assert_no_active_iteration(session, run.topic_id)
             revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run_id,
                                       ContentRevision.revision_number == run.active_revision_number))
@@ -38,8 +42,8 @@ class ProductionQueue:
             if session.get(TopicRemoval, run.topic_id) is not None:
                 raise ContentRunError("选题已移除，不能启动或恢复生产。", code="topic_removed")
             if initial_only:
-                if not isinstance(run.idempotency_key, str) or not run.idempotency_key.startswith('fresh:'):
-                    raise ContentRunError("仅从头重做可使用首次授权。", code="invalid_request", status_code=422)
+                if not isinstance(run.idempotency_key, str) or not run.idempotency_key.strip():
+                    raise ContentRunError("运行标识不可用，请核对原任务。", code="invalid_request", status_code=422)
                 self.service._assert_existing_scope(session, run.topic_id, run)
                 if creator_id is not None and run.input_snapshot_json.get('creator_id') != creator_id:
                     raise ContentRunError("任务不属于当前账号。", code="scope_conflict", status_code=403)
@@ -51,7 +55,7 @@ class ProductionQueue:
                     return item
                 attempted = session.scalar(select(ContentAttempt.id).where(
                     ContentAttempt.revision_id == revision.id).limit(1))
-                if (run.status is not ContentRunStatus.QUEUED or revision.revision_number != 1 or attempted):
+                if run.status is not ContentRunStatus.QUEUED or attempted:
                     raise ContentRunError("无法确认首次授权，请核对原任务。", code="initial_submission_unavailable")
             if run.status is ContentRunStatus.CANCELLED:
                 raise ContentRunError("已取消的运行不能开始生产。")

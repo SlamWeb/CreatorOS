@@ -77,7 +77,7 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
     retry: false,
     mutationFn: async (topic: TopicView) => {
       const run = topic.existing_run_id ? { id: topic.existing_run_id, version: topic.existing_run_version! } : await studioApi.startRun({ topic_id: topic.id });
-      return studioApi.executeRun(run.id, run.version);
+      return studioApi.executeRun(run.id, run.version, !topic.available_actions.includes("resume"));
     },
     onSettled: async () => {
       await Promise.all(["topics", "series", "overview", "runs", "series-all"].map(key => client.invalidateQueries({ queryKey: key === "topics" || key === "series" ? [key, series.id] : [key] })));
@@ -158,7 +158,9 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
       {addTopic.isError && <p className="form-error" role="alert">{addTopic.error.message}</p>}
     </form>
     {runMutation.isError && <p className="form-error" role="alert">{runMutation.error.message}</p>}
-    {runMutation.isSuccess && <p className="queue-submitted" role="status">已加入生产队列。<Link to={`/runs/${runMutation.data.id}`}>查看任务 →</Link></p>}
+    {runMutation.isSuccess && <p className="queue-submitted" role="status">{["needs_attention", "failed", "cancelled"].includes(runMutation.data.production_queue?.status ?? "")
+      ? "当前任务需要核对。" : runMutation.data.production_queue?.status === "succeeded" ? "已有制作结果。"
+      : runMutation.data.submission_accepted === false ? "当前任务未重新启动。" : "已加入生产队列。"}<Link to={`/runs/${runMutation.data.id}`}>查看任务 →</Link></p>}
   </>;
   return <section className="series-content-section">
     <TopicLibrary seriesId={series.id} startButton={startButton} onDiscuss={onDiscuss}

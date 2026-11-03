@@ -253,7 +253,15 @@ class ContentRunService:
             existing = repository.get_by_idempotency_key(f'fresh:{token}')
             if existing is None:
                 return None
-            owner = tuple(existing.input_snapshot_json.get(key) for key in ('creator_id', 'series_id', 'topic_id'))
+            existing_topic = session.get(Topic, existing.topic_id)
+            existing_series = existing_topic.series if existing_topic else None
+            if not existing_series or existing_series.creator_id != expected_owner[0]:
+                raise ContentRunError("原任务与当前账号不一致。", code="scope_conflict", status_code=403)
+            snapshot = existing.input_snapshot_json
+            if not isinstance(snapshot, dict) or any(not isinstance(snapshot.get(key), str) or not snapshot[key]
+                                                     for key in ('creator_id', 'series_id', 'topic_id')):
+                raise ContentRunError("历史任务归属记录不完整，请先核对原记录。", code="legacy_snapshot_needs_check")
+            owner = tuple(snapshot.get(key) for key in ('creator_id', 'series_id', 'topic_id'))
             # A token reused by another account must not expose its receipt. A
             # different topic within this account is instead an ordinary
             # idempotency conflict, after validating the existing run's scope.
@@ -279,7 +287,11 @@ class ContentRunService:
     def _assert_existing_scope(session, topic_id, run, *, require_active=True):
         topic = session.get(Topic, topic_id)
         series = topic.series if topic else None
-        owner = tuple(run.input_snapshot_json.get(field) for field in ('creator_id', 'series_id', 'topic_id'))
+        snapshot = run.input_snapshot_json
+        if not isinstance(snapshot, dict) or any(not isinstance(snapshot.get(field), str) or not snapshot[field]
+                                                 for field in ('creator_id', 'series_id', 'topic_id')):
+            raise ContentRunError("历史任务归属记录不完整，请先核对原记录。", code="legacy_snapshot_needs_check")
+        owner = tuple(snapshot.get(field) for field in ('creator_id', 'series_id', 'topic_id'))
         if (series is None or not series.creator
                 or owner != (series.creator_id, series.id, topic_id)):
             raise ContentRunError("原任务与当前账号不一致。", code="scope_conflict", status_code=403)
