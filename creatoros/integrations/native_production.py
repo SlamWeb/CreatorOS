@@ -361,20 +361,25 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         previous_revision.handoff_protocol == "tool-v1" if previous_revision else
                         DEFAULT_HANDOFF == "tool-v1")
         submission = None
-        submission_unknown = asyncio.Event()
+        from threading import Event
+        submission_unknown = Event()
+        def submission_outcome_unknown():
+            submission_unknown.set()
+            if submission is not None:
+                submission.mark_unknown()
         async def submit_images(arguments):
             if submission is None:
                 return {"accepted": False, "retryable": False, "error": "生产尚未开始，不能在组合检查时提交产物。"}
             result = await submission(arguments)
             if result.get("outcome_unknown"):
-                submission_unknown.set()
+                submission_outcome_unknown()
             return result
         client_options = {}
         if tool_handoff:
             from .codex import CodexDynamicTool
             from .artifact_submission import ImageSubmission, SUBMIT_DESCRIPTION
             client_options["dynamic_tools"] = [CodexDynamicTool("submit_artifacts", SUBMIT_DESCRIPTION,
-                FileDelivery.model_json_schema(), submit_images)]
+                FileDelivery.model_json_schema(), submit_images, submission_outcome_unknown)]
         async with _production_client(deadline, cancel_event, **client_options) as client:
             options = dict(approval_mode=ApprovalMode.deny_all, cwd=str(directory / "work"),
                            model=CODEX_MODEL, sandbox=Sandbox.workspace_write, developer_instructions=PRODUCTION_RULES)

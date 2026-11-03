@@ -112,6 +112,7 @@ class CodexDynamicTool:
     description: str
     input_schema: dict
     handler: Callable
+    on_unknown: Callable | None = None
 
 
 class _DynamicToolClient:
@@ -190,6 +191,11 @@ class _DynamicToolClient:
                         raise
                     continue
         except Exception as error:
+            # The RPC reader is a different thread from the handler's event
+            # loop. Notify the owner before returning an uncertain response;
+            # cancelling the Future cannot undo a file write already underway.
+            if tool.on_unknown is not None:
+                tool.on_unknown()
             future.cancel()
             # Never claim rejection rolled back an interrupted file operation.
             return self._result({"accepted": False, "error": "host_tool_failed",

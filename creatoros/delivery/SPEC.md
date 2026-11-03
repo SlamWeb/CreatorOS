@@ -18,6 +18,8 @@
 
 可执行 `python -m creatoros.delivery.image_submission_check --attempt <原 Attempt 绝对路径>` 只读查看 intent、回执与回合证据的匹配状态；`completed_evidence` 只表示这些元数据匹配，不代替产物文件校验或人工验收，也不解除未知状态或重派。写入标记前崩溃可能没有标记；标记文件 fsync 不保证目录项在断电后持久，也无法发现已在外部运行的幸存进程。旧协议没有新增标记，不声称能补出旧未记录事件。
 
+动态工具适配器在提交处理已经开始后遇取消、超时或异常时，先跨线程通知图片生产器锁存结果未知，再向 SDK 返回未知；取消 Future 不能撤销仍在执行的磁盘写入。即使迟到的 handler 完成写入或 SDK 回合返回完成，也不写入最终完成状态、不启动修复回合。工具请求在派发前已经取消时没有开始写入，保留普通取消语义。
+
 ## 已完成视频的显式离线纠正（2026-11-02）
 
 - 旧 `final-json-v1` 回执已完成、声明成功但视频路径无效时，回执本身不足以证明工作目录里哪个文件是交付。普通重试不会猜测或启动新回合来修复路径；若需要挽救，用户先明确选中原 Attempt 的 `work` 内相对 MP4 路径。`python -m creatoros.runs.video_correction --run-id ... --source-attempt-id ... --work-relative-mp4 ... --database-url ... --output-root ...` 默认只检查，显示原回执、视频属性、Run version 和 fingerprint。执行时再次提供相同参数并加 `--apply --expected-version <检查结果> --fingerprint <检查结果>`；这是会写入同一 Revision 新 Attempt 和 Run 状态的显式操作，数据库和输出目录应指向事先核实的目标。
