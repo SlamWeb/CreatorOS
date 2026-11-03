@@ -28,6 +28,7 @@ class ArtifactSubmissionTests(unittest.TestCase):
                 "complete": True, "artifacts": [self.page(1, source_image_path=str(path))]}
 
     def test_wrong_path_then_correct_same_handler_preserves_one_image(self):
+        from creatoros.delivery.image import SUBMISSION_INTENT
         asset, path = self.receive("first", (10, 80, 120))
         handler = self.handler()
         bad = handler.submit(self.payload(path.with_name("missing.png")))
@@ -35,6 +36,8 @@ class ArtifactSubmissionTests(unittest.TestCase):
         self.assertTrue(bad["retryable"])
         self.assertEqual(bad["received_images"][0]["source_image_path"], str(path))
         self.assertFalse((self.directory / SUBMISSION).exists())
+        self.assertTrue((self.directory / SUBMISSION_INTENT).is_file())
+        self.assertTrue(self.handler().submit(self.payload(path))["outcome_unknown"])
         good = handler.submit(self.payload(path))
         self.assertTrue(good["accepted"])
         self.assertEqual(len(self.store.read().assets), 1)
@@ -51,7 +54,15 @@ class ArtifactSubmissionTests(unittest.TestCase):
         self.assertEqual((self.directory / SUBMISSION).read_bytes(), before)
         second_handler = self.handler()
         second_handler.turn_id = "turn-2"
-        self.assertEqual(second_handler.submit(self.payload(path)), first)
+        self.assertTrue(second_handler.submit(self.payload(path))["outcome_unknown"])
+        from creatoros.integrations.worker_protocol import record_thread, record_turn
+        from creatoros.integrations.visual_production import atomic_json
+        from creatoros.delivery.image import CHECKPOINT
+        record_thread(self.directory, self.checkpoint.thread_id)
+        record_turn(self.directory, "turn-1", "production", "completed")
+        self.checkpoint.turn_completed = True
+        atomic_json(self.directory / CHECKPOINT, self.checkpoint)
+        self.assertEqual(self.handler().submit(self.payload(path)), first)
 
     def test_read_only_inspection_requires_matching_completed_turn(self):
         from creatoros.delivery.image_submission_check import inspect_submission
@@ -229,6 +240,55 @@ class ArtifactSubmissionTests(unittest.TestCase):
             self.assertFalse(handler.submit(self.payload(path))["accepted"])
         self.assertEqual(marker.read_text(encoding="utf-8"), "other owner")
 
+    def test_unknown_before_during_after_correction_marker_update_blocks_rebuilt_handler(self):
+        from creatoros.delivery.image import SUBMISSION_INTENT
+        from creatoros.delivery.image_submission_check import inspect_submission
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.integrations.artifact_submission import json as submission_json
+        real_dump = submission_json.dump
+        for phase in ("before", "during", "after"):
+            with self.subTest(phase=phase):
+                fixture = file_fixtures.FileDeliveryTests()
+                fixture.setUp()
+                try:
+                    _, path = fixture.receive("first", (10, 80, 120))
+                    fixture.checkpoint.handoff_protocol = "tool-v1"
+                    handler = ImageSubmission(fixture.directory, fixture.checkpoint, fixture.generated, fixture.bundle)
+                    handler.turn_id = "turn-1"
+                    def payload(source):
+                        return {"title": "Title", "text": "Caption", "hashtags": [], "complete": True,
+                                "artifacts": [fixture.page(1, source_image_path=str(source))]}
+                    self.assertTrue(handler.submit(payload(path.with_name("missing.png")))["retryable"])
+                    marker = fixture.directory / SUBMISSION_INTENT
+                    self.assertTrue(marker.is_file())
+                    def interrupt_update(value, stream, **kwargs):
+                        if phase == "during":
+                            stream.write('{"partial":')
+                            handler.mark_unknown()
+                        real_dump(value, stream, **kwargs)
+                        if phase == "after":
+                            handler.mark_unknown()
+                    if phase == "before":
+                        handler.mark_unknown()
+                    with patch("creatoros.integrations.artifact_submission.json.dump", side_effect=interrupt_update):
+                        result = handler.submit(payload(path))
+                    self.assertTrue(result["outcome_unknown"])
+                    self.assertTrue(marker.is_file())
+                    self.assertEqual(inspect_submission(fixture.directory)["status"], "unconfirmed")
+                    receipt_path = fixture.directory / SUBMISSION
+                    receipt_before = receipt_path.read_bytes() if receipt_path.exists() else None
+                    new_handler = ImageSubmission(fixture.directory, fixture.checkpoint, fixture.generated, fixture.bundle)
+                    new_handler.turn_id = "turn-2"
+                    self.assertTrue(new_handler.submit(payload(path))["outcome_unknown"])
+                    self.assertEqual(receipt_path.read_bytes() if receipt_path.exists() else None, receipt_before)
+                    next_attempt = fixture.root / "attempt-002"
+                    next_attempt.mkdir()
+                    with self.assertRaises(ImageSubmissionUnconfirmed):
+                        recover_checkpoint(next_attempt, fixture.checkpoint.input_digest, fixture.generated)
+                    self.assertTrue(path.is_file())
+                finally:
+                    fixture.doCleanups()
+
 
 class SubmissionExecutionTests(unittest.TestCase):
     def _adapter_unknown_case(self, cause):
@@ -256,11 +316,16 @@ class SubmissionExecutionTests(unittest.TestCase):
                     if not release.wait(15):
                         raise RuntimeError("adapter fixture release timed out")
                 atomic_write_text(target, raw)
+            def block_validation(*args, **kwargs):
+                writing.set()
+                if not release.wait(15):
+                    raise RuntimeError("adapter fixture release timed out")
+                raise ValueError("injected validation failure after index mutation")
             def control():
                 try:
                     if not writing.wait(15):
                         raise RuntimeError("handler did not reach receipt write")
-                    if cause == "cancel":
+                    if cause in {"cancel", "validation", "not_started"}:
                         cancel.set()
                     if not adapter_done.wait(15):
                         raise RuntimeError("adapter did not report unknown")
@@ -270,6 +335,14 @@ class SubmissionExecutionTests(unittest.TestCase):
                     release.set()
             @asynccontextmanager
             async def client(deadline, cancel_event, dynamic_tools):
+                if cause == "not_started":
+                    from dataclasses import replace
+                    original_handler = dynamic_tools[0].handler
+                    async def delayed_handler(arguments):
+                        writing.set()
+                        await asyncio.to_thread(release.wait, 15)
+                        return await original_handler(arguments)
+                    dynamic_tools = [replace(dynamic_tools[0], handler=delayed_handler)]
                 raw = SimpleNamespace(_client=SimpleNamespace(_sync=SimpleNamespace(_approval_handler=lambda *args: {})))
                 adapter = _DynamicToolClient(raw, dynamic_tools, deadline, cancel_event)
                 adapter.thread_id = "submit-thread"
@@ -310,8 +383,9 @@ class SubmissionExecutionTests(unittest.TestCase):
             controller = Thread(target=control)
             controller.start()
             try:
-                with patch("creatoros.integrations.native_production._production_client", client), patch(
-                        "creatoros.integrations.artifact_submission.atomic_write_text", side_effect=block_write):
+                fault = (patch("creatoros.delivery.image.ingest", side_effect=block_validation) if cause == "validation"
+                         else patch("creatoros.integrations.artifact_submission.atomic_write_text", side_effect=block_write))
+                with patch("creatoros.integrations.native_production._production_client", client), fault:
                     with self.assertRaises(CodexProducerError) as failure:
                         produce(1, cancel)
                 self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
@@ -338,6 +412,12 @@ class SubmissionExecutionTests(unittest.TestCase):
 
     def test_real_adapter_timeout_during_submission_is_unknown(self):
         self._adapter_unknown_case("timeout")
+
+    def test_real_adapter_unknown_then_validation_error_preserves_guard(self):
+        self._adapter_unknown_case("validation")
+
+    def test_real_adapter_unknown_before_image_handler_starts_persists_guard(self):
+        self._adapter_unknown_case("not_started")
 
     def test_interrupted_recovery_keeps_intent_and_third_attempt_never_dispatches(self):
         from openai_codex.generated import v2_all as sdk_types

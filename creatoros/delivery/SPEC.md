@@ -24,6 +24,8 @@
 
 动态工具适配器在提交处理已经开始后遇取消、超时或异常时，先跨线程通知图片生产器锁存结果未知，再向 SDK 返回未知；取消 Future 不能撤销仍在执行的磁盘写入。即使迟到的 handler 完成写入或 SDK 回合返回完成，也不写入最终完成状态、不启动修复回合。工具请求在派发前已经取消时没有开始写入，保留普通取消语义。
 
+图片 intent 在明确校验拒绝后仍保留，同一存活 handler 可在该标记下修正并更新提交摘要；进程中断或重建 handler 后保守要求核对。提交已保存但该回合尚未最终完成时，同一 handler 的相同 payload 仍可幂等重放，新 handler 须等待原 Attempt 的最终完成证据。未知通知早于 handler 创建 intent 时，宿主会尝试独占创建并 fsync 未知标记；如果磁盘无法创建标记，内存仍停止，但重启后不能保证从文件单独发现该未知状态，须结合 Run/Attempt 失败记录人工核对。文件 fsync 仍不保证目录项断电持久。
+
 ## 已完成视频的显式离线纠正（2026-11-02）
 
 - 旧 `final-json-v1` 回执已完成、声明成功但视频路径无效时，回执本身不足以证明工作目录里哪个文件是交付。普通重试不会猜测或启动新回合来修复路径；若需要挽救，用户先明确选中原 Attempt 的 `work` 内相对 MP4 路径。`python -m creatoros.runs.video_correction --run-id ... --source-attempt-id ... --work-relative-mp4 ... --database-url ... --output-root ...` 默认只检查，显示原回执、视频属性、Run version 和 fingerprint。执行时再次提供相同参数并加 `--apply --expected-version <检查结果> --fingerprint <检查结果>`；这是会写入同一 Revision 新 Attempt 和 Run 状态的显式操作，数据库和输出目录应指向事先核实的目标。
