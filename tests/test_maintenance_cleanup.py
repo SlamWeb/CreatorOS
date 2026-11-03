@@ -1,4 +1,5 @@
 """Fast, isolated maintenance cleanup protocol fault injection."""
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -15,6 +16,24 @@ class MaintenanceCleanupTests(unittest.TestCase):
     def status(self, *, held, idle, identity="fixture", pid=123):
         return {"instance_id": identity, "pid": pid, "held": held, "idle": idle,
                 "info": {"busy": [] if idle else ["worker_state_locked"]}}
+
+    def test_child_environment_discards_inherited_settings_and_credentials(self):
+        inherited = {"PATH": "fixture-path", "creatoros_worker_count": "host-config",
+                     "XHS_TOKEN": "sensitive", "SOME_SECRET_FILE": "sensitive",
+                     "DB_PASSWORD": "sensitive", "BROWSER_COOKIE": "sensitive",
+                     "SERVICE_CREDENTIAL": "sensitive", "MIXED_API_KEY_SETTING": "sensitive",
+                     "CODEX_HOME": "host-codex", "DATABASE_URL": "host-db"}
+        root = Path("fixture-root")
+        env = process_fixture.fixture_environment(root, root / "isolated.db", source=inherited)
+        for name in ("creatoros_worker_count", "XHS_TOKEN", "SOME_SECRET_FILE", "DB_PASSWORD",
+                     "BROWSER_COOKIE", "SERVICE_CREDENTIAL", "MIXED_API_KEY_SETTING"):
+            self.assertNotIn(name, env)
+        self.assertEqual(env["PATH"], "fixture-path")
+        self.assertEqual(env["CODEX_HOME"], str(root / "empty-codex-home"))
+        self.assertEqual(env["CREATOROS_XHS_MCP_TOKEN_FILE"], str(root / "nonexistent-platform-token"))
+        self.assertEqual(env["CREATOROS_XHS_MCP_URL"], "http://127.0.0.1:1/mcp")
+        self.assertEqual(env["PYTHON_DOTENV_DISABLED"], "1")
+        self.assertIn("isolated.db", env["DATABASE_URL"])
 
     def test_transient_busy_shutdown_rechecks_before_retry(self):
         sequence = [self.status(held=False, idle=True), self.status(held=True, idle=True),
