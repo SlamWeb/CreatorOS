@@ -39,7 +39,8 @@ def isolated_worker(directory):
         expected = {"creator_a", "creator_b", "series_a", "series_b", "topic_a", "topic_b", "skill_a", "skill_b", "shared_skill", "video_skill", "run_a", "run_b", "collection_a", "foreign_collection", "bgm_material", "artifact_topic"}
         assert expected <= world.variables.keys(), expected - world.variables.keys()
         before = world.snapshot()
-        assert len(before["database"]) == 29, sorted(before["database"])
+        assert len(before["database"]) == 30, sorted(before["database"])
+        assert before["database"]["skill_switch_intents"] == []
         assert all((world_root / name).resolve().is_relative_to(world_root) for name in before["files"])
         assert all((world_root / name).is_file() for name in before["files"])
         for key in ("skill_a", "skill_b", "shared_skill", "extra_skill", "video_skill"):
@@ -91,7 +92,8 @@ def isolated_worker(directory):
                 assert denied.status_code == 403, (foreign, denied.status_code, denied.text)
                 assert denied.json()["error"]["code"] in {"agent_scope_rejected", "skill_scope_rejected"}
             during = world.snapshot()  # Windows exclusive executor lock must not break snapshots.
-            assert len(during["database"]) == 29
+            assert len(during["database"]) == 30
+            assert during["database"]["skill_switch_intents"] == []
             assert during["database"]["content_attempts"] == initial_attempts
 
             collection_path = f"/api/creators/{world.variables['creator_a']}/collections/{world.variables['collection_a']}"
@@ -153,7 +155,7 @@ def isolated_worker(directory):
             assert empty_codex["images"]["received_unique"] == 0
             assert empty_codex["usage"]["total"]["input_tokens"] is None
             check_collector_component_fixture(world, collect_codex_evidence)
-        print(json.dumps({"status": "passed", "tables": 29, "http_scope_checks": 3,
+        print(json.dumps({"status": "passed", "tables": 30, "http_scope_checks": 3,
             "zip_images": 2, "model_calls": 0, "new_attempts": 0, "b19_artifact_target": True}))
     finally:
         world.close()

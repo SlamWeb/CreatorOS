@@ -221,7 +221,7 @@ def main(argv=None):
                 reject_operational_plan_fixture(workspace, command)
                 # Calibration uses real migrations/files per case and already
                 # exceeded the original 120s group budget before queue work.
-                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership", "reference_production", "skill_extraction_delivery", "parallel_worktrees", "browser_fixture_isolation", "agent_fixture_isolation"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership", "reference_production", "skill_extraction_delivery", "parallel_worktrees", "browser_fixture_isolation", "agent_fixture_isolation"} else 300 if name in {"safe_maintenance", "skill_calibration", "skill_libraries", "staged_production", "production_submission", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 if is_unittest:
