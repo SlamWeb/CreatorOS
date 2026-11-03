@@ -144,6 +144,14 @@ class ProductionQueue:
             for item in session.scalars(select(ProductionQueueItem).where(ProductionQueueItem.status == "pending")):
                 item.last_error = reason
 
+    def is_submitted(self, run_id: str) -> bool:
+        # Status polling must not materialize receipt history or the entire FIFO.
+        revision = self.service.get_active_revision(run_id)
+        with self.database.session() as session:
+            status = session.scalar(select(ProductionQueueItem.status).where(
+                ProductionQueueItem.run_id == run_id, ProductionQueueItem.revision_id == revision.id))
+            return status in {"pending", "running"}
+
     def snapshot(self, run_id: str | None = None):
         with self.database.session() as session:
             pending = list(session.scalars(select(ProductionQueueItem.id)
