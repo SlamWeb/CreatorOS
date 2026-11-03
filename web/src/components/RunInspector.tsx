@@ -443,7 +443,10 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
     {recoveredDraft ? <section aria-label="未保存的返工草稿">
       <p>无法确认这份返工要求已保存。草稿仅保存在当前浏览器标签页，请复制或自行恢复，不会自动提交。</p>
       <textarea aria-label="未保存的返工草稿" readOnly value={recoveredDraft} rows={4} />
-      {run.allowed_actions.includes("revise") && !locked ? <Button type="button" variant="secondary" onClick={() => { setInstruction(recoveredDraft); setEditing(true); }}>恢复草稿到返工表单</Button> : null}
+      {run.allowed_actions.includes("revise") && !locked ? <Button type="button" variant="secondary" onClick={() => {
+        if (instruction.length > 0 && instruction !== recoveredDraft && !window.confirm("当前返工表单已有不同内容。确认用保留草稿替换当前内容？此操作不会提交。")) return;
+        setInstruction(recoveredDraft); setEditing(true);
+      }}>恢复草稿到返工表单</Button> : null}
       <Button type="button" variant="ghost" onClick={() => { sessionStorage.removeItem(reviewDraftKey(run.id)); setRecoveredDraft(""); }}>删除已保留草稿</Button>
     </section> : null}
     {receipt && run.status !== "approved" ? <p className="copy-receipt" role="status">{receipt}</p> : null}
