@@ -19,8 +19,25 @@ from creatoros.maintenance.state import Layout, snapshot, verify_snapshot
 from tests import test_maintenance_state as fixtures
 
 
+def fixture_environment(root, database, *, source=None):
+    """Prevent inherited service settings or credentials reaching child processes."""
+    source = os.environ if source is None else source
+    secret_fragments = ("TOKEN", "SECRET", "PASSWORD", "COOKIE", "CREDENTIAL", "API_KEY")
+    environment = {name: value for name, value in source.items()
+                   if not name.upper().startswith("CREATOROS_")
+                   and not any(fragment in name.upper() for fragment in secret_fragments)}
+    environment.update(
+        DATABASE_URL="sqlite:///" + database.as_posix(), PYTHON_DOTENV_DISABLED="1",
+        CODEX_HOME=str(root / "empty-codex-home"), TEMP=str(root), TMP=str(root), TMPDIR=str(root),
+        CREATOROS_XHS_MCP_URL="http://127.0.0.1:1/mcp",
+        CREATOROS_XHS_MCP_TOKEN_FILE=str(root / "nonexistent-platform-token"),
+        PERSONCLONE_BASE_URL="http://127.0.0.1:1", ZHIHU_OPENAPI_BASE_URL="http://127.0.0.1:1",
+    )
+    return environment
+
+
 def close_test_instance(layout, port, *, timeout=15):
-    """Gracefully close only this fixture's unchanged, idle managed instance."""
+    """Retry until the loop deadline; network calls and wait_closed have their own timeouts."""
     original = read_json(layout.instance_file)
     deadline = time.monotonic() + timeout
     trace = []
@@ -74,6 +91,7 @@ class MaintenanceProcessTests(unittest.TestCase):
         self._cleanup_safe = False
         self.addCleanup(self.cleanup_directory)
         self.root = Path(self.temporary.name)
+        (self.root / "empty-codex-home").mkdir()
         self.path = self.root / "isolated.db"
         shutil.copyfile(fixtures.MaintenanceStateTests.seed_db, self.path)
         self.layout = Layout.from_paths(self.path, self.root / "outputs")
@@ -88,11 +106,7 @@ class MaintenanceProcessTests(unittest.TestCase):
         self.addCleanup(self.close_managed)
 
     def command(self, action, *options):
-        environment = os.environ.copy()
-        environment["PYTHON_DOTENV_DISABLED"] = "1"
-        for name in list(environment):
-            if name.endswith(("_API_KEY", "_ACCESS_SECRET", "_SESSION_COOKIE")):
-                environment.pop(name)
+        environment = fixture_environment(self.root, self.path)
         return subprocess.run([sys.executable, "-m", "creatoros.maintenance", action,
             "--database-url", "sqlite:///" + self.path.as_posix(),
             "--output-root", str(self.layout.output), "--port", str(self.port), *options],
