@@ -189,6 +189,8 @@ class TaskVideoExecutionTests(unittest.TestCase):
             session.add(Creator(id="creator", display_name="Test", platform=CreatorPlatform.XIAOHONGSHU))
             session.add(Series(id="series", creator_id="creator", name="Series", description="", audience="", skill_name="knowledge-to-carousel"))
             session.add(Topic(id="topic", series_id="series", title="Title", brief="brief", source=TopicSource.MANUAL, position=1))
+        from creatoros.integrations.skill_library import SkillLibraryService
+        SkillLibraryService(database, catalog).add("creator", record["id"], "video-lifecycle-skill")
         service = ContentRunService(database, producer_factory=lambda: self.producer, output_root=self.root / "outputs")
         run = service._create("topic", execution_spec=spec)
         async def host_fault(*args):
