@@ -355,6 +355,17 @@ class BenchmarkGraderTests(unittest.TestCase):
         del data["before"]["database"]["topics"][0]["brief"]
         self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
 
+    def test_complete_brief_does_not_accept_a_summary_of_repeated_paragraphs(self):
+        data = evidence()
+        paragraph = "一段需要重复保留的创作说明。"
+        original = (paragraph + "\n") * 8 + "最后保留蓝点。"
+        data["before"]["database"]["topics"][0]["brief"] = original
+        task = case({"kind": "answer_contains_topic_field", "id": "{topic_a}", "field": "brief"})
+        data["final_answer"] = "完整原文：\n" + original
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        data["final_answer"] = paragraph + "\n以上重复 8 次。\n最后保留蓝点。"
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+
     def test_title_only_matches_original_title_without_extra_explanation(self):
         data = evidence()
         task = case({"kind": "answer_equals_topic_field", "id": "{topic_a}", "field": "title"})

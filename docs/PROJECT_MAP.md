@@ -54,7 +54,7 @@
 
 ## 后续能力如何接入
 
-完整 Skill 包上传、BGM 分析复用和 Agent 编排图像处理目前只是后续需求，尚未实现。对应的资源归属、版本冻结和执行边界见 [扩展审阅](production-tasks/EXTENSION_REVIEW.md)。
+同账号已有 BGM 分析在结果文件存在时可复用，但当前缓存未区分起点、时长和分析器版本，视频任务也未自动接入该分析。跨账号复用、完整 Skill 包上传和 Agent 编排图像处理尚未实现。对应的资源归属、版本冻结和执行边界见 [扩展审阅](production-tasks/EXTENSION_REVIEW.md)。
 
 ## 还没有完全拆开的地方
 

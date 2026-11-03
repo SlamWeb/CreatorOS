@@ -10,4 +10,6 @@
 
 共同优先事项是可恢复的文件/数据库提交、归属检查与写入的一致性、冻结版本和摘要、外部副作用的幂等/未知结果处理。先把这些规则放进能由网页、Agent 和测试共同调用的少量接口，再按真实需要拆执行进程；目录搬迁本身不提供这些保障。
 
+当前同账号 BGM 分析在文件存在时会复用；它尚未按起点、时长、分析器版本区分缓存，除非强制重算可能沿用旧分析。视频任务会冻结音频素材或分享文本，但不会自动附带分析结果。账号 Agent 当前没有 BGM 上传或链接导入能力；聊天附件仅支持图片。分析器也依赖用户目录下的 Skill，worktree 本身不能隔离它。以上是实现边界，并非已完成的扩展。
+
 本次核对的源码入口：`creatoros/integrations/producer_skills.py`、`creatoros/integrations/skill_library.py`、`creatoros/web/skill_routes.py`、`creatoros/web/skill_library_routes.py`、`creatoros/integrations/managed_materials.py`、`creatoros/web/material_routes.py`、`creatoros/agent/plans.py`、`creatoros/delivery/task_contracts.py`、`creatoros/delivery/task_execution.py`。本审阅未进行未来功能的安全或性能验证。

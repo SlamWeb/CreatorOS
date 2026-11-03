@@ -118,6 +118,8 @@ class ToolIndexContextTests(unittest.TestCase):
         descriptions = {s["function"]["name"]: s["function"]["description"] for s in schemas}
         self.assertIn("完整列表", descriptions["manage_topics"])
         self.assertIn("brief_preview", descriptions["manage_topics"])
+        self.assertIn("用户明确要全文时逐字呈现", descriptions["manage_topics"])
+        self.assertIn("包括重复段落和结尾", descriptions["manage_topics"])
         self.assertIn("复用", descriptions["list_creator_series"])
         self.assertIn("栏目", descriptions["get_creator_tasks"])
 

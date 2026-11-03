@@ -198,7 +198,7 @@ tool_registry = {
              execute=prepare_topic_selection, args_model=SelectResearchArgs),
         Tool(name="queue_topics", description="用户明确指定栏目和条目时直接入队，不生产。查看/建议/调研不要调用。同一会话同一用户轮次的相同入队动作只写一次，重复只查回执；未知结果不要换参数或另起动作重发。新一轮明确入队属于新指令。",
              execute=queue_topics, args_model=QueueTopicsArgs, expose_to_model=False),
-        Tool(name="manage_topics", description="管理选题，不生产。list按栏目/状态分页：已入队仅返回身份、标题、状态和brief_preview；同栏目同筛选的完整列表已在上下文且没有已知增删改时复用，未读完继续翻页；要求最新或状态已变化再查。需要完整场景、来源或编辑摘要时get原topic_id；制作结果未知时get原topic_id及返回的production_request_id只读核对，回执unknown不等于未提交，勿换ID重做。create仅用户明确新增时入队；update用原topic_id、changes和刚读取的edit_digest直接修改标题或完整切入点，不新建替代；remove按用户要求移除，保留旧产物，运行中拒绝。待选remove带真实candidate来源；待选入队用create保留reference_id。management_actions是管理权限，available_actions是生产操作。冲突重读，未知结果不另建；修改选题不等于更新图片。",
+        Tool(name="manage_topics", description="管理选题，不生产。list按栏目/状态分页：已入队仅返回身份、标题、状态和brief_preview；同栏目同筛选的完整列表已在上下文且没有已知增删改时复用，未读完继续翻页；要求最新或状态已变化再查。需要完整场景、来源或编辑摘要时get原topic_id；用户明确要全文时逐字呈现，包括重复段落和结尾，不用次数概括替代。制作结果未知时get原topic_id及返回的production_request_id只读核对，回执unknown不等于未提交，勿换ID重做。create仅用户明确新增时入队；update用原topic_id、changes和刚读取的edit_digest直接修改标题或完整切入点，不新建替代；remove按用户要求移除，保留旧产物，运行中拒绝。待选remove带真实candidate来源；待选入队用create保留reference_id。management_actions是管理权限，available_actions是生产操作。冲突重读，未知结果不另建；修改选题不等于更新图片。",
              execute=manage_topics, args_model=ManageTopicsArgs),
         Tool(name="compose_series", description="用户明确要求创建栏目时使用，可仅提供名称，之后配置账号Skill库、栏目池和阶段默认。兼容完整Skill或Mind＋Visualize旧绑定，无需融合。creator_id可选，未分配栏目生产前须分配。",
              execute=compose_series, args_model=ComposeSeriesArgs),
