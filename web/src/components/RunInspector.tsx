@@ -299,42 +299,128 @@ function Publication({ revision }: { revision: RevisionView }) {
   return <section className="publication" aria-label="发布文案"><div className="publication-head"><Button type="button" variant="secondary" onClick={() => void copyText(`${copy.title}\n\n${copy.body}\n\n${copy.hashtags.join(" ")}`, "文案")}>复制全部</Button></div><h3>{copy.title}</h3><p className="publication-body">{copy.body}</p><p className="hashtags">{copy.hashtags.join(" ")}</p>{copied ? <p className="copy-receipt" role="status">{copied}</p> : null}{revision.sources.length ? <details className="sources"><summary>参考来源 · {revision.sources.length}</summary><ul>{revision.sources.map((source, i) => <li key={i}>{source.url ? <a href={source.url} target="_blank" rel="noopener noreferrer">{source.title} ↗</a> : source.title}</li>)}</ul></details> : null}</section>;
 }
 
+type ReviewPending = { action: "approve" | "revise"; version: number; revisionId: string; instruction: string; kind: "unknown" | "conflict" };
+const reviewPendingKey = (runId: string) => `creatoros.run-review-pending.v1:${encodeURIComponent(runId)}`;
+function validReviewRun(value: RunDetail | null | undefined, id: string): value is RunDetail {
+  return !!value && value.id === id && Number.isInteger(value.version) && Number.isInteger(value.active_revision_number)
+    && typeof value.status === "string" && Array.isArray(value.allowed_actions) && Array.isArray(value.revisions)
+    && !!value.input_snapshot && typeof value.input_snapshot === "object";
+}
+function readReviewPending(run: RunDetail): ReviewPending | null {
+  try {
+    const raw = sessionStorage.getItem(reviewPendingKey(run.id));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<ReviewPending>;
+    if ((value.action === "approve" || value.action === "revise") && Number.isInteger(value.version)
+      && typeof value.revisionId === "string" && typeof value.instruction === "string"
+      && (value.kind === "unknown" || value.kind === "conflict")) return value as ReviewPending;
+  } catch { /* Invalid or inaccessible storage must not unlock a possible write. */ }
+  return { action: "revise", version: run.version, revisionId: "", instruction: "", kind: "unknown" };
+}
+
 function ReviewActions({ run, revision, onRevision, discussion, freshAction, publishAction }: {
   run: RunDetail; revision: RevisionView; onRevision: () => void; discussion: ReactNode; freshAction?: ReactNode; publishAction?: ReactNode;
 }) {
   const queryClient = useQueryClient();
-  const [instruction, setInstruction] = useState("");
-  const [editing, setEditing] = useState(false);
+  const [pending, setPending] = useState<ReviewPending | null>(() => readReviewPending(run));
+  const [instruction, setInstruction] = useState(() => readReviewPending(run)?.instruction ?? "");
+  const [editing, setEditing] = useState(() => readReviewPending(run)?.action === "revise");
   const [receipt, setReceipt] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState("");
+  const [canRelease, setCanRelease] = useState(false);
+  const sending = useRef(false);
+  const clearPending = () => {
+    sessionStorage.removeItem(reviewPendingKey(run.id));
+    setPending(null);
+  };
   const mutation = useMutation({
     mutationFn: async (action: "approve" | "revise") => {
-      if (action === "approve") return studioApi.approveRun(run.id, { expected_version: run.version, revision_id: revision.id, artifact_digest: revision.review_digest! });
-      return studioApi.reviseRun(run.id, { expected_version: run.version, instruction });
+      const marker: ReviewPending = { action, version: run.version, revisionId: revision.id, instruction, kind: "unknown" };
+      try { sessionStorage.setItem(reviewPendingKey(run.id), JSON.stringify(marker)); }
+      catch { throw new ApiError("无法保存待核对状态，本次没有提交。", 422, "review_marker_unavailable"); }
+      setPending(marker);
+      const result = action === "approve"
+        ? await studioApi.approveRun(run.id, { expected_version: run.version, revision_id: revision.id, artifact_digest: revision.review_digest! })
+        : await studioApi.reviseRun(run.id, { expected_version: run.version, instruction });
+      if (!validReviewRun(result, run.id)) {
+        throw new Error("审阅回执不完整，结果待核对。");
+      }
+      return result;
     },
     onSuccess: (result, action) => {
+      try { clearPending(); } catch { setCheckError("无法清除待核对状态，请检查浏览器存储。"); }
       queryClient.setQueryData(["run", run.id], result);
       setReceipt(action === "revise" ? "返工要求已保存，点击开始生产后才会调用 Codex。" : "已批准 · 尚未发布");
       if (action === "revise") { setEditing(false); setInstruction(""); onRevision(); }
     },
+    onError: (error) => {
+      if (error instanceof ApiError && error.status === 409 && ["conflict", "version_conflict", "artifact_changed"].includes(error.code) && !error.outcomeUnknown) {
+        setPending(previous => {
+          if (!previous) return previous;
+          const next = { ...previous, kind: "conflict" as const };
+          try { sessionStorage.setItem(reviewPendingKey(run.id), JSON.stringify(next)); } catch { /* Keep the stricter unknown marker. */ return previous; }
+          return next;
+        });
+      } else if (error instanceof ApiError && error.status >= 400 && error.status < 500
+          && error.status !== 408 && error.status !== 409 && !error.outcomeUnknown) {
+        try { clearPending(); } catch { setCheckError("无法清除待核对状态，请检查浏览器存储。"); }
+      }
+    },
     // A conflict must be shown immediately, even if an unrelated query is
     // still loading. Refresh the Run only after the user explicitly checks it.
-    onSettled: (_result, error) => { if (!error) void queryClient.invalidateQueries(); },
+    onSettled: (_result, error) => { sending.current = false; if (!error) void queryClient.invalidateQueries(); },
   });
-  const conflict = mutation.error instanceof ApiError && mutation.error.status === 409;
+  const locked = !!pending;
+  const submit = (action: "approve" | "revise") => {
+    if (sending.current || locked) return;
+    sending.current = true;
+    mutation.mutate(action);
+  };
+  const check = async () => {
+    if (!pending || checking) return;
+    setChecking(true); setCheckError(""); setCanRelease(false);
+    try {
+      const current = await studioApi.run(run.id);
+      if (!validReviewRun(current, run.id)) {
+        throw new Error("Invalid Run receipt");
+      }
+      if (current.version < pending.version) {
+        setCheckError("读取到的版本早于原请求，请稍后重新核对。");
+        return;
+      }
+      queryClient.setQueryData(["run", run.id], current);
+      if (pending.kind === "unknown" && current.version <= pending.version) {
+        setCheckError("当前状态尚未变化，不能确认原请求已结束；请核实后再决定是否解除锁定。");
+        setCanRelease(true);
+        return;
+      }
+      if (current.version > pending.version) setEditing(false);
+      clearPending(); mutation.reset();
+    } catch {
+      setCheckError("读取或保存核对状态失败；原请求仍待核对，请稍后重试。");
+    } finally { setChecking(false); }
+  };
   return <div className="review-actions">
     <div className="run-primary-actions">
     {publishAction}
-    {run.allowed_actions.includes("approve") ? <Button type="button" variant="default" className="approve-button" disabled={mutation.isPending || conflict || !revision.review_digest || (!revision.cards.length && !revision.video)} onClick={() => mutation.mutate("approve")}>批准第 {revision.revision_number} 版</Button> : null}
+    {run.allowed_actions.includes("approve") ? <Button type="button" variant="default" className="approve-button" disabled={mutation.isPending || locked || !revision.review_digest || (!revision.cards.length && !revision.video)} onClick={() => submit("approve")}>批准第 {revision.revision_number} 版</Button> : null}
     {discussion}
     </div>
     {run.allowed_actions.includes("revise") || freshAction ? <div className="run-rework-actions">
-    {run.allowed_actions.includes("revise") ? <Button type="button" variant="secondary" disabled={mutation.isPending || conflict} aria-expanded={editing} onClick={() => setEditing(!editing)}>提出返工</Button> : null}
+    {run.allowed_actions.includes("revise") ? <Button type="button" variant="secondary" disabled={mutation.isPending || locked} aria-expanded={editing} onClick={() => setEditing(!editing)}>提出返工</Button> : null}
     {freshAction}
     </div> : null}
     {run.status === "approved" ? <p className="approval-receipt">{run.publication ? "已发布" : "已批准 · 尚未发布"}</p> : null}
-    {editing ? <form onSubmit={(e) => { e.preventDefault(); mutation.mutate("revise"); }}><label>告诉生产者要改哪里<Textarea autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder={revision.video ? "例如：开场停留两秒，降低背景音乐音量。" : "例如：第二张的例子太抽象，换成点餐场景。"} /></label><div className="form-actions"><Button type="submit" variant="default" disabled={!instruction.trim() || mutation.isPending || conflict}>保存返工要求</Button><Button variant="ghost" type="button" onClick={() => setEditing(false)}>收起</Button></div><p className="approval-note">保留旧产物，创建新版本；现在不会开始生产。</p></form> : null}
+    {editing ? <form onSubmit={(e) => { e.preventDefault(); submit("revise"); }}><label>告诉生产者要改哪里<Textarea autoFocus readOnly={locked} value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder={revision.video ? "例如：开场停留两秒，降低背景音乐音量。" : "例如：第二张的例子太抽象，换成点餐场景。"} /></label><div className="form-actions"><Button type="submit" variant="default" disabled={!instruction.trim() || mutation.isPending || locked}>保存返工要求</Button><Button variant="ghost" type="button" onClick={() => setEditing(false)}>收起</Button></div><p className="approval-note">保留旧产物，创建新版本；现在不会开始生产。</p></form> : null}
     {receipt && run.status !== "approved" ? <p className="copy-receipt" role="status">{receipt}</p> : null}
-    {mutation.isError ? <div className="form-error" role="alert">{conflict ? "内容已变化，请重新检查；本次操作没有被自动重试。" : mutation.error.message}<button className="text-link" onClick={async () => { await queryClient.refetchQueries({ queryKey: ["run", run.id] }); mutation.reset(); }}>重新检查</button></div> : null}
+    {locked ? <div className="form-error" role="alert">{pending.kind === "conflict" ? "内容已变化，请重新检查；本次操作没有被自动重试。" : "上次操作结果待核对，请先只读检查，不要重复提交。"}<button className="text-link" disabled={checking || mutation.isPending} onClick={() => void check()}>{checking ? "正在检查…" : "重新检查"}</button>{checkError && <p>{checkError}</p>}
+      {canRelease && <button type="button" className="text-link" onClick={() => {
+        if (!window.confirm("状态尚未改变，原请求可能仍在执行。确认已经核实并自行承担重复提交风险，解除锁定？解除不会自动提交。")) return;
+        try { clearPending(); mutation.reset(); setCanRelease(false); setCheckError(""); }
+        catch { setCheckError("无法清除待核对状态，请检查浏览器存储。"); }
+      }}>已核实，解除锁定</button>}</div>
+      : mutation.isError ? <div className="form-error" role="alert">{mutation.error.message}</div> : null}
   </div>;
 }
 
