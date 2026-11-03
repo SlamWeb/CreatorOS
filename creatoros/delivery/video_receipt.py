@@ -9,7 +9,8 @@ import stat
 from pathlib import Path
 
 from creatoros.integrations.media_tools import decode_media, probe_media
-from .files import atomic_json, safe_file
+from .files import (AttemptDirectoryConflict, atomic_json, earlier_attempt_directories,
+                    is_unsafe_attempt_directory, safe_file)
 from .task_execution import file_sha256
 from .video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery, _require_playable_mp4
 
@@ -195,13 +196,13 @@ def _check_plain_tree(root):
 
 
 def _recover_work(directory, expected):
-    for previous in sorted(directory.parent.glob("attempt-*"), reverse=True):
-        info = previous.lstat()
-        if previous.name >= directory.name:
-            continue
-        if (stat.S_ISLNK(info.st_mode) or
-                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
-            raise VideoRecoveryEvidenceConflict("较新的视频 Attempt 是链接或重解析点；请核对原任务。")
+    try:
+        previous_attempts = earlier_attempt_directories(directory)
+    except AttemptDirectoryConflict as error:
+        raise VideoRecoveryEvidenceConflict(str(error)) from error
+    for previous in previous_attempts:
+        if is_unsafe_attempt_directory(previous):
+            raise VideoRecoveryEvidenceConflict("较新的视频 Attempt 不是可核对的普通目录。")
         path = previous / VIDEO_CHECKPOINT
         if path.is_symlink() or (path.exists() and not path.is_file()):
             raise VideoRecoveryEvidenceConflict("视频 checkpoint 不是可核对的普通文件；不会自动重启。")

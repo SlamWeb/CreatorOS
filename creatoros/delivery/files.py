@@ -3,10 +3,50 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import stat
 from pathlib import Path
 
 from creatoros.integrations.atomic_file import atomic_write_text
 from .models import ProductionModel
+
+
+class AttemptDirectoryConflict(ValueError):
+    """Two directory names identify the same numeric Attempt."""
+
+
+def attempt_order(name: str) -> tuple[int, str] | None:
+    """Numeric ordering without a fixed digit width or integer conversion limit."""
+    match = re.fullmatch(r"attempt-([0-9]+)", name)
+    if not match:
+        return None
+    digits = match.group(1).lstrip("0")
+    return (len(digits), digits) if digits else None
+
+
+def earlier_attempt_directories(current: Path) -> list[Path]:
+    """Return legal earlier Attempts newest first; reject ambiguous aliases."""
+    current = Path(current)
+    current_key = attempt_order(current.name)
+    if current_key is None:
+        return []
+    known = {current_key: current}
+    for candidate in current.parent.glob("attempt-*"):
+        key = attempt_order(candidate.name)
+        if key is None or key > current_key:
+            continue
+        other = known.get(key)
+        if other is not None and other.name != candidate.name:
+            raise AttemptDirectoryConflict("Attempt 目录编号存在多个别名，无法安全选择恢复证据。")
+        known[key] = candidate
+    return [known[key] for key in sorted(known, reverse=True) if key < current_key]
+
+
+def is_unsafe_attempt_directory(path: Path) -> bool:
+    info = path.lstat()
+    return bool(stat.S_ISLNK(info.st_mode) or
+                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                or not stat.S_ISDIR(info.st_mode))
 
 
 def safe_file(root: Path, path: Path, limit: int | None = None) -> Path:

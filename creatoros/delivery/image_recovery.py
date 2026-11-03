@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import os
-import re
 import shutil
 from pathlib import Path
 
 from creatoros.integrations.worker_protocol import completed_delivery_turn
 
-from .files import atomic_json, safe_file
+from .files import (AttemptDirectoryConflict, atomic_json, attempt_order,
+                    earlier_attempt_directories, is_unsafe_attempt_directory, safe_file)
 from .image import (CHECKPOINT, RESPONSE, SUBMISSION, SUBMISSION_INTENT, Artifact, Checkpoint, Delivery,
                     accepted_submission, ingest, load_checkpoint, skill_refs)
 from .image_assets import ImageAssetStore
@@ -29,11 +29,15 @@ def _copy_evidence(source: Path, target: Path) -> None:
 
 
 def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None = None) -> Checkpoint | None:
-    if not re.fullmatch(r"attempt-\d{3}", directory.name):
+    if attempt_order(directory.name) is None:
         return None
-    for previous in sorted(directory.parent.glob("attempt-[0-9][0-9][0-9]"), reverse=True):
-        if previous.name >= directory.name:
-            continue
+    try:
+        previous_attempts = earlier_attempt_directories(directory)
+    except AttemptDirectoryConflict as error:
+        raise ImageSubmissionUnconfirmed(str(error)) from error
+    for previous in previous_attempts:
+        if is_unsafe_attempt_directory(previous):
+            raise ImageSubmissionUnconfirmed("原 Attempt 不是可安全核对的普通目录。")
         evidence = inspect_submission(previous)
         if evidence["status"] == "unconfirmed":
             raise ImageSubmissionUnconfirmed("图片提交结果待核对；原 Attempt 回执和图片已保留，不会启动新回合。")

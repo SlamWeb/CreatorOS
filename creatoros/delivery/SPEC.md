@@ -30,6 +30,8 @@
 
 同 Revision 视频恢复遇到更近的 Attempt 目录链接或 Windows 重解析点时，以 `video_delivery_evidence_conflict` 停止；不能跳过该条证据回退到更早 Attempt。正常目录仍按原规则校验恢复。
 
+图片、视频与重启证据检查按 `attempt-N` 的正整数编号从新到旧检查，不限定三位宽度，兼容已有 `attempt-001`。同一编号存在多个名称时拒绝猜测；旧 Attempt 为链接、重解析点或非目录也停止核对，不跟随目标。仅在已经检查到的较新合法 checkpoint 可确定恢复边界时，沿用原有的较新优先规则。
+
 - 旧 `final-json-v1` 回执已完成、声明成功但视频路径无效时，回执本身不足以证明工作目录里哪个文件是交付。普通重试不会猜测或启动新回合来修复路径；若需要挽救，用户先明确选中原 Attempt 的 `work` 内相对 MP4 路径。`python -m creatoros.runs.video_correction --run-id ... --source-attempt-id ... --work-relative-mp4 ... --database-url ... --output-root ...` 默认只检查，显示原回执、视频属性、Run version 和 fingerprint。执行时再次提供相同参数并加 `--apply --expected-version <检查结果> --fingerprint <检查结果>`；这是会写入同一 Revision 新 Attempt 和 Run 状态的显式操作，数据库和输出目录应指向事先核实的目标。
 - 仅允许当前账号下最新、可重试且因 `video_delivery_failed` 失败的 task-v1 视频 Attempt；冻结任务、Revision、当前 Run、thread、输入、宿主记录的已完成生产回合、原始回执与选定文件必须一致。原回执须明确声明成功且没有 error；缺少凭证、发生归属转移、版本/文件变化、取消或仍有排队/运行任务时拒绝。源路径不得穿越或经过链接。文件须完整解码且满足 H.264/AAC MP4 契约。实际交付的 title/text 来自原回执；所选路径及原文件摘要由单独的宿主纠正凭证记录，不伪装成 SDK 回执。原 Attempt 与原回执不改写，过程不启动 Codex。
 - 检查结果的 fingerprint 绑定身份、来源文件和所选视频摘要，执行前再次检查；复制后和提交事务中再核验文件及当前归属，已有失败队列回执与验收成功在同一事务中更新。重复提交同一已验收纠正返回同一 Attempt。纠正产物以 `creatoros-video-artifact-v2` 摘要覆盖新增来源凭证，既有视频摘要仍用原 v1 算法。指纹只能固定检查时看到的本地证据，不证明检查前文件从未被修改，也不证明模型原本打算交付所选文件；用户仍需人工判断内容。
