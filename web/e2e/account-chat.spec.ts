@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { configureImageDefault } from "./fixtures/image-default";
 
 async function createCreator(request: APIRequestContext, name: string) {
   const response = await request.post("/api/creators", { data: { display_name: name } });
@@ -42,14 +43,134 @@ test("the account launcher waits for the workspace owner instead of opening over
   const account = await createCreator(request, "延迟载入账号");
   let release!: () => void;
   const ready = new Promise<void>(resolve => { release = resolve; });
-  await page.route("**/api/creators", async route => { await ready; await route.continue(); });
-  await page.goto(`/?creator=${account.id}`);
+  let requested = false;
+  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  try {
+    await page.goto(`/?creator=${account.id}`);
+    const launcher = page.getByRole("button", { name: "打开账号对话" });
+    await expect.poll(() => requested).toBe(true);
+    await expect(launcher).toBeDisabled();
+    release();
+    await expect(launcher).toBeEnabled();
+    await launcher.click();
+    await expect(page.locator(".account-chat-panel").getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+test("workspace waits for the requested account instead of reusing the previous account", async ({ page, request }) => {
+  const a = await createCreator(request, "旧账号甲");
+  const b = await createCreator(request, "目标账号乙");
+  await page.goto(`/workspace?creator=${a.id}`);
+  await expect(page.getByRole("heading", { name: a.display_name, level: 1 })).toBeVisible();
   const launcher = page.getByRole("button", { name: "打开账号对话" });
+  await launcher.click();
+  const panel = page.locator(".account-chat-panel");
+  await expect(panel.getByRole("heading", { name: a.display_name, exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  let requested = false;
+  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  await page.route("**/api/agent/sessions/*/turns", route => route.fulfill({
+    status: 503, json: { error: { message: "隔离测试不调用模型" } },
+  }));
+  try {
+    await page.goto(`/workspace?creator=${b.id}`);
+    await expect.poll(() => requested).toBe(true);
+    await expect(launcher).toBeDisabled();
+    release();
+    await expect(launcher).toBeEnabled();
+    await launcher.click();
+    await expect(panel.getByRole("heading", { name: b.display_name, exact: true })).toBeVisible();
+    const sessionPost = page.waitForResponse(response => response.request().method() === "POST"
+      && new URL(response.url()).pathname === "/api/agent/sessions");
+    await panel.getByRole("textbox", { name: "给 Agent 的消息" }).fill("测试当前账号");
+    await panel.getByRole("button", { name: "发送 ↑" }).click();
+    const created = await sessionPost;
+    expect(created.request().postDataJSON().creator_id).toBe(b.id);
+    expect(created.status()).toBe(201);
+    const session = await created.json() as { id: string; creator_id: string; scope_kind: string };
+    expect(session.creator_id).toBe(b.id);
+    expect(session.scope_kind).toBe("creator");
+    const saved = await request.get(`/api/agent/sessions/${session.id}`).then(response => response.json());
+    expect(saved.creator_id).toBe(b.id);
+    expect(saved.scope_kind).toBe("creator");
+  } finally { release(); }
+});
+
+test("workspace launcher uses overview for no accounts and refuses a missing selected account", async ({ page, request }) => {
+  const a = await createCreator(request, "无效账号前的旧账号");
+  await page.goto(`/workspace?creator=${a.id}`);
+  await expect(page.getByRole("heading", { name: a.display_name, level: 1 })).toBeVisible();
+  const launcher = page.getByRole("button", { name: "打开账号对话" });
+  await launcher.click();
+  await page.getByRole("button", { name: "关闭账号对话" }).click();
+  await page.goto("/workspace?creator=missing-account");
+  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
   await expect(launcher).toBeDisabled();
-  release();
+  // Represent an empty database at the account-list HTTP boundary; no write or
+  // cross-account fallback is involved in this controlled empty-state check.
+  await page.route(url => url.pathname === "/api/creators", route => route.fulfill({
+    json: { items: [], total: 0, offset: 0, limit: 100 },
+  }));
+  await page.goto("/workspace");
   await expect(launcher).toBeEnabled();
   await launcher.click();
-  await expect(page.locator(".account-chat-panel").getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
+  await expect(page.locator(".account-chat-panel").getByRole("heading", { name: "全部账号", exact: true })).toBeVisible();
+});
+
+test("an explicit different account cannot reuse an old workspace readiness marker", async ({ page, request }) => {
+  const a = await createCreator(request, "返回目标账号甲");
+  const b = await createCreator(request, "作品所属账号乙");
+  const seriesResponse = await request.post(`/api/creators/${b.id}/series`, { data: { name: "乙的作品栏目" } });
+  expect(seriesResponse.ok(), await seriesResponse.text()).toBeTruthy();
+  const series = await seriesResponse.json() as { id: string };
+  await configureImageDefault(request, b.id, series.id);
+  const queuedResponse = await request.post(`/api/series/${series.id}/queue`, {
+    data: { request_id: crypto.randomUUID(), topics: [{ title: "乙账号作品" }] },
+  });
+  expect(queuedResponse.ok(), await queuedResponse.text()).toBeTruthy();
+  const queued = await queuedResponse.json() as { topic_ids: string[] };
+  const runResponse = await request.post("/api/runs", { data: { topic_id: queued.topic_ids[0] } });
+  expect(runResponse.ok(), await runResponse.text()).toBeTruthy();
+  const run = await runResponse.json() as { id: string };
+  const saved = await createSession(request, a.id);
+  const doc = { ...saved, title: "跨账号作品链接", version: 2, status: "completed", error: null,
+    updated_at: "2026-10-17T01:00:00Z", has_older: false,
+    entries: [{ kind: "assistant", text: "查看乙的作品。", links: [{ url: `/runs/${run.id}`,
+      label: "查看乙的作品", source_tool: "list_series_topics" }], complete: true }] };
+  await page.route(`**/api/agent/sessions/${saved.id}`, route => route.fulfill({ json: doc }));
+  await page.addInitScript(({ creatorId, sessionId }) => {
+    sessionStorage.setItem(`creatoros.agent.selected-chat.v1:creator%3A${creatorId}`, sessionId);
+  }, { creatorId: a.id, sessionId: saved.id });
+  await page.clock.install();
+  await page.goto(`/workspace?creator=${a.id}`);
+  const launcher = page.getByRole("button", { name: "打开账号对话" });
+  await launcher.click();
+  const panel = page.locator(".account-chat-panel");
+  await panel.getByRole("link", { name: "查看乙的作品", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/runs/${run.id}$`));
+  await expect(panel.getByRole("heading", { name: a.display_name, exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "关闭账号对话" }).click();
+  await page.getByRole("button", { name: "讨论", exact: true }).click();
+  await expect(panel.getByRole("heading", { name: b.display_name, exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "关闭账号对话" }).click();
+  // The workspace query is no longer observed; advance past React Query's
+  // five-minute cache lifetime to exercise a real delayed account refresh.
+  await page.clock.fastForward(301_000);
+  let release!: () => void;
+  const ready = new Promise<void>(resolve => { release = resolve; });
+  let requested = false;
+  await page.route(url => url.pathname === "/api/creators", async route => { requested = true; await ready; await route.continue(); });
+  try {
+    await page.goBack();
+    await expect.poll(() => requested).toBe(true);
+    await expect(launcher).toBeDisabled();
+    release();
+    await expect(launcher).toBeEnabled();
+    await launcher.click();
+    await expect(panel.getByRole("heading", { name: a.display_name, exact: true })).toBeVisible();
+  } finally { release(); }
 });
 
 test("account entry stays lazy and the first turn is bound to that account", async ({ page, request }, info) => {

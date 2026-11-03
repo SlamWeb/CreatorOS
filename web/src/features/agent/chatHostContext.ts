@@ -4,7 +4,7 @@ import type { ChatContextTarget } from "../../components/agentComposerState";
 export type ChatTarget = { creatorId: string | null; accountName?: string; draftSeed?: string; sessionId?: string;
   contextTarget?: ChatContextTarget; contextTitle?: string };
 export type ChatControls = { isOpen: boolean; creatorId: string | null; open: (target: ChatTarget) => void;
-  close: () => void; setDefault: (target: ChatTarget) => void };
+  close: () => void; setDefault: (target: ChatTarget, routePath: string) => void };
 
 export const AgentChatContext = createContext<ChatControls | null>(null);
 

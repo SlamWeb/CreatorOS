@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import type { CreatorView, SeriesView } from "../../api/types";
 import { useAgentChat } from "../agent";
 import { useWorkInbox } from "../../components/TaskInbox";
@@ -12,6 +12,8 @@ const noSeries: SeriesView[] = [];
 // Business writes call the completion methods only after the server accepts them.
 export function useWorkspaceNavigation(accountData?: CreatorView[], seriesData?: SeriesView[]) {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const routePath = `${location.pathname}${location.search}`;
   const [treeOpen, setTreeOpen] = useState(false);
   const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
   const inbox = useWorkInbox();
@@ -36,11 +38,15 @@ export function useWorkspaceNavigation(accountData?: CreatorView[], seriesData?:
     inbox.markObjectSeen("series", id);
   }, [params, seriesData, inbox.data]);
   useEffect(() => {
-    const { account } = resolveWorkspaceSelection(params, accountData ?? noAccounts, seriesData ?? noSeries);
-    if (!account) return;
+    if (!accountData || !seriesData) return;
+    const { account, scopedCreatorId } = resolveWorkspaceSelection(params, accountData, seriesData);
+    if (!account) {
+      if (!scopedCreatorId && !params.has("creator")) chat.setDefault({ creatorId: null }, routePath);
+      return;
+    }
     if (params.has("skill_edit")) chat.open({ creatorId: account.id, accountName: account.display_name });
-    else chat.setDefault({ creatorId: account.id, accountName: account.display_name });
-  }, [params, accountData, seriesData, chat.isOpen, chat.open, chat.setDefault]);
+    else chat.setDefault({ creatorId: account.id, accountName: account.display_name }, routePath);
+  }, [params, accountData, seriesData, chat.isOpen, chat.open, chat.setDefault, routePath]);
 
   function selectSeries(id: string, owner?: string | null, keepFilter = false) {
     setTreeOpen(false);

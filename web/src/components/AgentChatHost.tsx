@@ -43,20 +43,23 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
     setState(previous => ({ ...target, draftSeed,
       contextTarget: draftSeed ? target.contextTarget : undefined,
       contextTitle: draftSeed ? target.contextTitle : undefined,
-      isOpen: true, seedId: Date.now(), defaultPath: previous.defaultPath }));
+      isOpen: true, seedId: Date.now(),
+      defaultPath: previous.creatorId === target.creatorId ? previous.defaultPath : undefined }));
   }, []);
   const close = useCallback(() => {
     restoreFocus.current = true;
     setState(previous => ({ ...previous, isOpen: false, draftSeed: undefined }));
   }, []);
-  const setDefault = useCallback((target: ChatTarget) => setState(previous => previous.isOpen ? previous
-    : { ...previous, ...target, sessionId: undefined, defaultPath: routePathRef.current }), []);
+  const setDefault = useCallback((target: ChatTarget, sourcePath: string) => setState(previous =>
+    previous.isOpen || routePathRef.current !== sourcePath ? previous
+      : { ...previous, ...target, sessionId: undefined, defaultPath: sourcePath }), []);
   useEffect(() => {
     try { sessionStorage.setItem(storageKey, JSON.stringify({ creatorId: state.creatorId, accountName: state.accountName, isOpen: state.isOpen })); }
     catch { /* Preserve in-memory state if storage is unavailable. */ }
   }, [state.creatorId, state.accountName, state.isOpen]);
   const visible = state.isOpen && !standalone;
-  const launcherReady = state.isOpen || location.pathname !== "/" || state.defaultPath === routePath;
+  const workspace = location.pathname === "/" || location.pathname === "/workspace";
+  const launcherReady = state.isOpen || !workspace || state.defaultPath === routePath;
   useEffect(() => {
     // Workspace can need a render to resolve its default after closing. Focus
     // only after the launcher is enabled; focusing a disabled button is ignored.
@@ -69,7 +72,7 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
     <div className={visible ? "global-agent-chat-open" : "global-agent-chat-closed"}>{children}</div>
     {!standalone && <button ref={opener} type="button" className="workspace-chat-launcher" aria-label={visible ? "关闭账号对话" : "打开账号对话"}
       disabled={!launcherReady}
-      aria-expanded={visible} title={state.creatorId ? `与 ${accountName} 对话` : "与 Agent 对话"}
+      aria-expanded={visible} title={!launcherReady ? "正在确定当前账号" : state.creatorId ? `与 ${accountName} 对话` : "与 Agent 对话"}
       onClick={() => visible ? close() : open({ creatorId: state.creatorId, accountName: state.accountName })}><BrandMark /></button>}
     {hasOpened && <AccountChatPanel creatorId={state.creatorId} accountName={accountName} open={visible}
       onClose={close} openerRef={opener} draftSeed={state.draftSeed} draftSeedId={state.seedId} selectedSessionId={state.sessionId}
