@@ -14,6 +14,10 @@
 
 当 Codex 没拿到图片路径时，可用 `received:only` 请求当前已接收图片清单，宿主不会按“目前只看到一张”猜测并确认交付。Codex 应等已发出的生成结束，再按返回的实际路径明确提交并排序；查询不消耗交付修正次数。SDK 事件和工具请求分属不同队列，返回的清单只能证明当前已观察到的图片，不能证明后续没有其他事件。旧任务已经确认的别名回执按原摘要重放，不改写历史图片或自动重新生图。文件核验不证明图片满足内容要求，仍需人工验收。
 
+新 `tool-v1` 图片提交在修改交付前独占创建并同步 `artifact-submission-intent.json`，记录会话、回合、输入和提交摘要。写入异常会锁存结果未知，停止该回合，同一 handler 不能覆盖已有回执；同一 Revision 恢复会先检查最新 Attempt 的 intent 和回执，即使 checkpoint 缺失也不能退回更早 Attempt。只有回执、checkpoint、intent 及最后一个已完成同会话同 ID 生产回合一致时才可按既有规则离线恢复；提交成功但回合中断也保守停止核对。已确认的相同 payload 重放仍返回原回执，旧无 intent 且回执可核验的 Attempt 保留原恢复语义。原图片和证据不删除；未确认以不可技术重试的 `image_delivery_unconfirmed` 报告。
+
+可执行 `python -m creatoros.delivery.image_submission_check --attempt <原 Attempt 绝对路径>` 只读查看 intent、回执与回合证据的匹配状态；`completed_evidence` 只表示这些元数据匹配，不代替产物文件校验或人工验收，也不解除未知状态或重派。写入标记前崩溃可能没有标记；标记文件 fsync 不保证目录项在断电后持久，也无法发现已在外部运行的幸存进程。旧协议没有新增标记，不声称能补出旧未记录事件。
+
 ## 已完成视频的显式离线纠正（2026-11-02）
 
 - 旧 `final-json-v1` 回执已完成、声明成功但视频路径无效时，回执本身不足以证明工作目录里哪个文件是交付。普通重试不会猜测或启动新回合来修复路径；若需要挽救，用户先明确选中原 Attempt 的 `work` 内相对 MP4 路径。`python -m creatoros.runs.video_correction --run-id ... --source-attempt-id ... --work-relative-mp4 ... --database-url ... --output-root ...` 默认只检查，显示原回执、视频属性、Run version 和 fingerprint。执行时再次提供相同参数并加 `--apply --expected-version <检查结果> --fingerprint <检查结果>`；这是会写入同一 Revision 新 Attempt 和 Run 状态的显式操作，数据库和输出目录应指向事先核实的目标。

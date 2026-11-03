@@ -21,7 +21,7 @@ from creatoros.delivery.image import (CHECKPOINT, Artifact, Checkpoint, Composit
 from creatoros.delivery.image_assets import INVENTORY, VIEW, ImageAssetStore
 from creatoros.delivery.image_materials import (MATERIALS, RESPONSE, FileDelivery, StructuredDelivery,
                                                 prepare_materials, retain_response, accept_response)
-from creatoros.delivery.image_recovery import recover_checkpoint
+from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
 
 from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAME,
                     CodexProducerError, CodexUsage, ProducedPack,
@@ -361,10 +361,14 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         previous_revision.handoff_protocol == "tool-v1" if previous_revision else
                         DEFAULT_HANDOFF == "tool-v1")
         submission = None
+        submission_unknown = asyncio.Event()
         async def submit_images(arguments):
             if submission is None:
                 return {"accepted": False, "retryable": False, "error": "生产尚未开始，不能在组合检查时提交产物。"}
-            return await submission(arguments)
+            result = await submission(arguments)
+            if result.get("outcome_unknown"):
+                submission_unknown.set()
+            return result
         client_options = {}
         if tool_handoff:
             from .codex import CodexDynamicTool
@@ -464,6 +468,9 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                 terminal_received = False
                 try:
                     while not collector.done():
+                        if submission_unknown.is_set():
+                            raise CodexProducerError("图片提交结果待核对，原回执和图片保留，不再提交生产。",
+                                                     error_type="image_delivery_unconfirmed")
                         if cancel_event is not None and cancel_event.is_set():
                             raise CodexProducerError("生产已取消，保留已保存文件。", error_type="codex_interrupted")
                         if monotonic() >= deadline:
@@ -477,7 +484,13 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                             except (ValueError, OSError):
                                 pass  # incomplete writes are not a production failure
                         await asyncio.wait({collector}, timeout=0.5)
+                    if submission_unknown.is_set():
+                        raise CodexProducerError("图片提交结果待核对，原回执和图片保留，不再提交生产。",
+                                                 error_type="image_delivery_unconfirmed")
                     result = await collector  # SDK failed turn must never look completed
+                    if submission_unknown.is_set():
+                        raise CodexProducerError("图片提交结果待核对，原回执和图片保留，不再提交生产。",
+                                                 error_type="image_delivery_unconfirmed")
                     terminal_received = True
                     require_completed_turn(result)
                     if result.usage is not None:
@@ -498,7 +511,7 @@ async def execute(producer, directory, refs, request, checkpoint, on_thread_star
                         if not collector.done():
                             collector.cancel()
                         await asyncio.gather(collector, return_exceptions=True)
-                        if interrupt_error is not None and cancel_event is not None and cancel_event.is_set():
+                        if interrupt_error is not None and (submission_unknown.is_set() or (cancel_event is not None and cancel_event.is_set())):
                             raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from interrupt_error
                     if not structured:
                         try:
@@ -583,7 +596,10 @@ def produce_native(producer, **request):
     record_task(directory, kind="production", scope={key: payload[key] for key in
                 ("pack_id", "creator_id", "series_id", "topic_id")},
                 input_ref="production_request.txt", deliverable="work/delivery.json")
-    checkpoint = recover_checkpoint(directory, request_digest(directory), producer.generated_images_root)
+    try:
+        checkpoint = recover_checkpoint(directory, request_digest(directory), producer.generated_images_root)
+    except ImageSubmissionUnconfirmed as error:
+        raise CodexProducerError(str(error), error_type="image_delivery_unconfirmed") from error
     if checkpoint is None or not (checkpoint.turn_completed and checkpoint.delivery.complete):
         checkpoint = asyncio.run(execute(producer, directory, refs, prompt, checkpoint,
                                         request.get("on_thread_started"), request.get("cancel_event"),

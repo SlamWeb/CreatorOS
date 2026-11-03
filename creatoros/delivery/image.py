@@ -28,6 +28,7 @@ CHECKPOINT = "native_checkpoint.json"
 MATERIALS = "input-materials.json"
 RESPONSE = "structured-response.json"
 SUBMISSION = "artifact-submission.json"
+SUBMISSION_INTENT = "artifact-submission-intent.json"
 
 
 class CompositionReview(ProductionModel):
