@@ -70,6 +70,15 @@ test("newer stream state cannot be overwritten by an older polling response", ()
   assert.equal(newestChatSession(current, { ...current, stream_revision: 5 }).stream_revision, 5);
 });
 
+test("a page reload accepts the persisted recovery, but stale polls cannot overwrite an unsaved view", () => {
+  const pending = { ...session(), version: 3, status: "interrupted", view_persistence_pending: true, stream_revision: 9 };
+  const recovery = { ...session(), version: 3, status: "interrupted", error: "请先核对", stream_revision: 7 };
+  const noStartedWork = { ...recovery, status: "idle", version: 1, stream_revision: 4 };
+  assert.equal(newestChatSession(pending, recovery), pending);
+  assert.equal(newestChatSession(undefined, recovery), recovery);
+  assert.equal(newestChatSession(undefined, noStartedWork), noStartedWork);
+});
+
 test("usage stays in raw history but never creates transcript rows", () => {
   const entries = [
     { id: "user", kind: "user", text: "生产", turn_id: "turn-1" },

@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 from .chat_attachments import MAX_IMAGES, MAX_ENCODED
+from .chat import ChatViewNotStarted
 from .chat_stream import session_patch
 from .chat_focus import ChatContextTarget
 
@@ -90,11 +91,16 @@ def chat_routes(service):
         if host not in {"127.0.0.1", "localhost", "::1"} or not port:
             raise HTTPException(503, "Web Agent 需要本机 Studio 监听地址。")
         base = f"http://{'[' + host + ']' if ':' in host else host}:{port}"
-        return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
-                              attachment_ids=payload.attachment_ids,
-                              context_target=payload.context_target.model_dump(exclude_none=True) if payload.context_target else None,
-                              iteration_mode=payload.iteration_mode,
-                              reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)
+        try:
+            return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
+                                  attachment_ids=payload.attachment_ids,
+                                  context_target=payload.context_target.model_dump(exclude_none=True) if payload.context_target else None,
+                                  iteration_mode=payload.iteration_mode,
+                                  reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)
+        except ChatViewNotStarted as error:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=503, content={"error": {"code": "chat_view_not_started", "message": error.detail}},
+                                headers={"Cache-Control": "no-store"})
 
     @router.get("/{session_id}/events")
     async def events(session_id: UUID, request: Request):

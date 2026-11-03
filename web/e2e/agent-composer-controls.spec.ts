@@ -7,6 +7,60 @@ const session = (extra = {}) => ({ id: chatId, title: "输入栏验收", version
   reasoning_actual_effort: "high", reasoning_effort_map: { low: "low", medium: "high", high: "high", xhigh: "high", ultra: "max" },
   context_usage: null, ...extra });
 
+test("a proven unstarted turn keeps its draft and does not become an unknown submission", async ({ page }) => {
+  let posts = 0;
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: session() }));
+  await page.route(`**/api/agent/sessions/${chatId}/turns`, route => {
+    posts++;
+    return route.fulfill({ status: 503, json: { error: { code: "chat_view_not_started",
+      message: "对话记录保存失败，本次请求未开始；请检查存储后重试。" } } });
+  });
+  await page.goto(`/agent?chat=${chatId}`);
+  const draft = page.getByRole("textbox", { name: "给 Agent 的消息" });
+  await draft.fill("保留这段草稿");
+  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "本次请求未开始" })).toBeVisible();
+  await expect(draft).toHaveValue("保留这段草稿");
+  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "发送 ↑" })).toBeEnabled();
+  expect(posts).toBe(1);
+});
+
+test("an ambiguous 503 keeps the request for inspection without automatic resubmission", async ({ page }) => {
+  let posts = 0;
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: session() }));
+  await page.route(`**/api/agent/sessions/${chatId}/turns`, route => {
+    posts++;
+    return route.fulfill({ status: 503, json: { error: { code: "dependency_unavailable", message: "状态暂不可读取" } } });
+  });
+  await page.goto(`/agent?chat=${chatId}`);
+  const draft = page.getByRole("textbox", { name: "给 Agent 的消息" });
+  await draft.fill("结果未知的请求");
+  await page.getByRole("button", { name: "发送 ↑" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "提交结果待核对" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toBeVisible();
+  await expect(draft).toHaveValue("结果未知的请求");
+  await expect(page.getByRole("button", { name: "发送 ↑" })).toBeDisabled();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toBeVisible();
+  expect(posts).toBe(1);
+});
+
+test("a failed chat projection is visible and blocks sending until a page reload reads recovery", async ({ page }) => {
+  let doc = session({ version: 3, status: "interrupted", view_persistence_pending: true, stream_revision: 9,
+    error: "对话记录保存失败，操作可能已生效；请核对已有任务，修复存储后重启服务并刷新页面。" });
+  await page.route(`**/api/agent/sessions/${chatId}`, route => route.fulfill({ json: doc }));
+  await page.goto(`/agent?chat=${chatId}`);
+  await expect(page.getByText("记录保存失败", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "核对已有任务" })).toBeVisible();
+  await page.getByRole("textbox", { name: "给 Agent 的消息" }).fill("暂不发送");
+  await expect(page.getByRole("button", { name: "发送 ↑" })).toBeDisabled();
+  doc = session({ version: 3, status: "interrupted", stream_revision: 7, error: "服务重启，请先核对已有任务。" });
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "服务重启" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "发送 ↑" })).toBeEnabled();
+});
+
 // Controlled browser contract checks: no model calls or business writes.
 test("context ring exposes actual or estimated last-input usage and handles missing data", async ({ page }) => {
   let doc = session({ context_usage: { input_tokens: 15321, context_window: 1000000,

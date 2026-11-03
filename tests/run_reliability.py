@@ -45,7 +45,7 @@ CASES = [
     ("windows_skill_publication", ["-m", "unittest", "tests.test_freeze_skill_windows", "-v"]),
     ("skill_git_install", ["-m", "unittest", "tests.test_git_skill_installer_longpaths", "-v"]),
     ("chat_context_reasoning", ["-m", "unittest", "tests.test_chat_context_reasoning",
-                                "tests.test_session_snapshot_io", "-v"]),
+                                "tests.test_session_snapshot_io", "tests.test_chat_view_atomic", "-v"]),
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("creator_directory", ["-m", "unittest", "tests.test_creator_directory", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),

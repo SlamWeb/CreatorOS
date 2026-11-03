@@ -262,14 +262,20 @@ def _uuid(value):
 
 
 def _write(path, data):
+    from creatoros.integrations.atomic_file import atomic_write_text
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    atomic_write_text(path, json.dumps(data, ensure_ascii=False))
 
 
 class ChatStopped(Exception):
     pass
+
+
+class ChatViewNotStarted(HTTPException):
+    """The initial view could not be saved, so the worker never started."""
+
+    def __init__(self):
+        super().__init__(503, "对话记录保存失败，本次请求未开始；请检查存储后重试。")
 
 
 @dataclass(frozen=True)
@@ -309,6 +315,9 @@ class AgentChatService:
         self.stopping = Event()
         self.threads = {}
         self.active = {}
+        # A failed terminal projection is kept readable without pretending it
+        # reached disk. It must not admit another request until recovery.
+        self.unsaved_views = {}
         self.providers = {}
         self.last_saved = {}
         self.plan_continuation_retry_after = {}
@@ -376,7 +385,16 @@ class AgentChatService:
                             import logging
                             logging.getLogger(__name__).exception("对话历史检查失败，已保留原文件")
                             doc["error"] = "对话历史暂不可读取或格式异常；原文件保留，请先检查。"
-                        self._save(doc)
+                        try:
+                            self._save(doc)
+                        except OSError:
+                            import logging
+                            logging.getLogger(__name__).exception("对话重启恢复时视图保存失败")
+                            doc.update(view_persistence_pending=True,
+                                       error="对话记录保存失败，操作可能已生效；请核对已有任务，修复存储后重启服务并刷新页面。")
+                            self.unsaved_views[doc["id"]] = doc
+                            continue
+                    self.unsaved_views.pop(doc["id"], None)
                 finally:
                     guard.release()
 
@@ -430,6 +448,8 @@ class AgentChatService:
 
     def _read(self, session_id):
         path = self._path(session_id)
+        if session_id in self.unsaved_views:
+            return self.unsaved_views[session_id]
         if session_id in self.active:
             return self.active[session_id]
         if not path.is_file():
@@ -563,7 +583,8 @@ class AgentChatService:
             with self.lock:
                 if monotonic() < self.plan_continuation_retry_after.get(session_id, 0):
                     continue
-                if self.stopping.is_set() or session_id in self.active or len(self.active) >= self.max_parallel_sessions:
+                if (self.stopping.is_set() or session_id in self.active or session_id in self.unsaved_views
+                        or len(self.active) >= self.max_parallel_sessions):
                     continue
                 guard = self._continuation_guard(session_id)
                 try:
@@ -685,7 +706,17 @@ class AgentChatService:
                     record["continuation_retry_at"] = new_retry_at()
                 doc.update(status="failed", error=("计划续接尚未开始，稍后在同一请求内重新检查。"
                     if record["continuation_outcome"] == "retry_pending" else "计划续接未能开始且已达重试上限，请检查服务。"), version=doc["version"] + 1)
-                self._save(doc)
+                try:
+                    self._save(doc)
+                except OSError:
+                    # The worker has not started. Fail the continuation instead
+                    # of publishing an unrecorded retry instruction.
+                    import logging
+                    logging.getLogger(__name__).exception("计划续接视图保存失败")
+                    record.update(status="interrupted", continuation_outcome="failed")
+                    doc.update(status="interrupted", view_persistence_pending=True,
+                               error="计划续接记录保存失败，续接未开始。请检查存储后重启服务并刷新页面。")
+                    self.unsaved_views[session_id] = doc
                 self._finish_plan_continuation(event, token, record)
             else:
                 plans.release_continuation(event["plan_id"], event["event_id"], token, retry_seconds=RETRY_SECONDS)
@@ -720,6 +751,8 @@ class AgentChatService:
         with self.lock:
             doc = self._read(session_id)
             self.require_creator(doc.get("creator_id"))
+            if session_id in self.unsaved_views:
+                raise HTTPException(503, "对话记录保存失败，操作可能已生效；请核对已有任务，修复存储后重启服务并刷新页面。")
             for item in doc["requests"]:
                 if item["id"] == request_id:
                     if (item["text"] != text or item.get("attachment_ids", []) != attachment_ids
@@ -761,8 +794,15 @@ class AgentChatService:
                        reasoning_effort=reasoning_effort)
             if doc["title"] == "新对话":
                 doc["title"] = text[:36] or attachments[0]["name"][:36]
+            try:
+                self._save(doc)
+            except OSError as error:
+                try:
+                    provider.client.close()
+                except Exception:
+                    pass
+                raise ChatViewNotStarted() from error
             self.active[session_id], self.providers[session_id] = doc, provider
-            self._save(doc)
             thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id, attachments, iteration_mode, context_target), daemon=True)
             self.threads[session_id] = thread
             thread.start()
@@ -1009,10 +1049,26 @@ class AgentChatService:
                     for entry in doc["entries"]:
                         if entry.get("kind") == "tool" and entry.get("status") == "running":
                             entry["status"] = "unknown"
-                    self._save(doc)
-                    self.active.pop(doc["id"], None)
-                    self.providers.pop(doc["id"], None)
-                    self.threads.pop(doc["id"], None)
+                    try:
+                        self._save(doc)
+                    except OSError:
+                        import logging
+                        logging.getLogger(__name__).exception("对话终态保存失败")
+                        # The tool may have committed even though its receipt
+                        # could not be written. Never turn that into a retry or
+                        # acknowledge a plan continuation as complete.
+                        if continuation is not None:
+                            continuation["continuation_outcome"] = "unknown"
+                            continuation.pop("continuation_retry_at", None)
+                        if doc['requests'] and doc['requests'][-1]['id'] == request_id:
+                            doc['requests'][-1]['status'] = "interrupted"
+                        doc.update(status="interrupted", view_persistence_pending=True,
+                                   error="对话记录保存失败，操作可能已生效；请核对已有任务，修复存储后重启服务并刷新页面。")
+                        self.unsaved_views[doc["id"]] = doc
+                    finally:
+                        self.active.pop(doc["id"], None)
+                        self.providers.pop(doc["id"], None)
+                        self.threads.pop(doc["id"], None)
                 if on_done is not None:
                     on_done()
 

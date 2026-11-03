@@ -12,7 +12,7 @@ export function useAgentSession(active: boolean, scopeKey: string, id: string | 
   const [connected, setConnected] = useState(false);
   const [streamReconnect, setStreamReconnect] = useState(0);
   const session = useQuery({ queryKey: ["agent-session", scopeKey, id], queryFn: async () => {
-    const next = await request<ChatSession>(`${AGENT_SESSIONS_BASE}/${id}`);
+    const next = await request<ChatSession>(`${AGENT_SESSIONS_BASE}/${id}`, { cache: "no-store" });
     return newestChatSession(cache.getQueryData<ChatSession>(["agent-session", scopeKey, id]), next);
   }, enabled: active && !!id,
   refetchInterval: q => active && !connected && q.state.data?.status === "running" ? 2000 : false,
@@ -31,7 +31,7 @@ export function useAgentSession(active: boolean, scopeKey: string, id: string | 
       source.close(); setConnected(false);
       // A missing base cannot be patched by guessing. Read an authoritative
       // snapshot, then reconnect; polling remains read-only if this fails.
-      void request<ChatSession>(`${AGENT_SESSIONS_BASE}/${id}`).then(next => {
+      void request<ChatSession>(`${AGENT_SESSIONS_BASE}/${id}`, { cache: "no-store" }).then(next => {
         if (live && next.id === id) cache.setQueryData<ChatSession>(["agent-session", scopeKey, id], old => newestChatSession(old, next));
       }).catch(() => { /* Disconnected polling retains the current view. */ })
         .finally(() => { if (live) reconnectTimer = window.setTimeout(() => setStreamReconnect(value => value + 1), 1000); });

@@ -174,7 +174,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const accountError = creatorId ? creator.isError : false;
   const accountInactive = !!creator.data && !creator.data.is_active;
   const accountPending = !!creatorId && creator.isPending;
-  const cannotSend = scopeMismatch || accountError || accountInactive || accountPending;
+  const cannotSend = scopeMismatch || accountError || accountInactive || accountPending || !!doc?.view_persistence_pending;
   const observedSession = useRef<{ key: string; status?: string }>({ key: "" });
 
   useEffect(() => {
@@ -334,7 +334,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
     },
     onError: (e: Error, variables) => {
-      const rejected = e instanceof ApiError && e.status >= 400 && e.status < 500;
+      const rejected = e instanceof ApiError && ((e.status >= 400 && e.status < 500)
+        || (e.status === 503 && e.code === "chat_view_not_started"));
       const targetId = variables.pending?.sessionId ?? variables.current?.id ??
         readSessionValue(selectedChatStorageKey(variables.submittedScopeKey));
       if (rejected && targetId) savePendingTurn(targetId, null);
@@ -349,7 +350,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     const original = pendingTurn;
     const submittedScopeKey = scopeKey;
     try {
-      const latest = await request<Session>(`${base}/${original.sessionId}`);
+      const latest = await request<Session>(`${base}/${original.sessionId}`, { cache: "no-store" });
       cache.setQueryData<Session>(["agent-session", submittedScopeKey, original.sessionId], old => newestSession(old, latest));
       if (latest.entries.some(entry => entry.kind === "user" && entry.turn_id === original.request_id)) {
         savePendingTurn(original.sessionId, null);
@@ -434,7 +435,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     <div className="agent-conversation">
     {standalone && <div className="agent-heading"><div><h1>{doc?.title ?? (creatorId ? "账号对话" : "把想法交给 Agent")}</h1>
       <span className="agent-connection">{creatorId ? `账号：${accountName ?? creator.data?.display_name ?? (creator.isPending ? "读取中…" : creatorId)}` : "全部账号"}{standalone && creatorId && <> · <Link to={`/?creator=${encodeURIComponent(creatorId)}`}>返回账号工作台</Link></>}</span>
-      {id && <span className="agent-connection">{doc?.status === "running" ? (connected ? "实时连接" : "连接中 · 自动刷新") : "记录已保存"}</span>}</div>
+      {id && <span className="agent-connection">{doc?.view_persistence_pending ? "记录保存失败" : doc?.status === "running" ? (connected ? "实时连接" : "连接中 · 自动刷新") : "记录已保存"}</span>}</div>
       {standalone && <Link className="text-link" to={(() => { const next = new URLSearchParams(params); next.set("command", "new"); return `?${next.toString()}`; })()}>添加 / 调整选题 ↗</Link>}</div>}
     {(session.isError || sessions.isError || accountError || accountInactive || scopeMismatch) && <p role="alert" className="review-warning">
       {scopeMismatch ? "这个对话属于其他账号范围，不能在当前账号上下文中继续发送。" : accountInactive ? "该账号已停用，不能发送新的对话指令。" : accountError ? `无法读取账号，已阻止发送：${creator.error?.message ?? "账号不存在或暂不可用。"}` : session.error?.message ?? sessions.error?.message}

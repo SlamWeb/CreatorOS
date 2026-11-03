@@ -13,6 +13,7 @@ export type ChatEntryData = { id?: string; kind: string; text?: string; name?: s
 
 export type ChatSession = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;
+  view_persistence_pending?: boolean;
   reasoning_effort?: string; reasoning_options?: string[]; context_usage?: ContextUsage | null;
   reasoning_actual_effort?: string; reasoning_effort_map?: Record<string, string>;
   entries: ChatEntryData[]; updated_at: string; has_older: boolean; stream_revision?: number };
