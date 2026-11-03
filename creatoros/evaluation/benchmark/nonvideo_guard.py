@@ -1,7 +1,9 @@
 """Opt-in benchmark dispatch guards; not an operating-system sandbox."""
+import json
 
 ALLOWED_CASES = ("B04", "B41", "B42", "B44", "B46", "B48", "B49", "B50")
 POLICY = "nonvideo-no-publication-v1"
+COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接等同。"
 
 
 def policy(case_ids):
@@ -39,3 +41,23 @@ def install_video_guard():
     video_production.produce_video = deny_video
     if video_production.produce_video is not deny_video:
         raise RuntimeError("Video guard installation failed")
+
+
+def evidence(manifest, case_id, root):
+    """Check the saved installation receipt without modifying raw evidence."""
+    configured = manifest.get("model_configuration", {}).get("benchmark_guard")
+    if configured is None:
+        return None
+    result = {"policy": configured, "comparability": COMPARABILITY, "status": "failed"}
+    try:
+        validate(manifest, case_id)
+        receipt = json.loads((root / "guard.json").read_text(encoding="utf-8"))
+        expected = {"policy": configured, "case_id": case_id, "video_dispatch_installed": True,
+                    "publication_client_installed": True, "network_sandbox": False}
+        if receipt != expected:
+            raise ValueError("guard receipt does not match frozen policy and case")
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        result["error"] = type(error).__name__
+    else:
+        result["status"] = "passed"
+    return result

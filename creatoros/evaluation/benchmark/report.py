@@ -195,6 +195,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     planned = manifest.get("selected_case_ids", list(definitions))
     if not planned or len(set(planned)) != len(planned) or any(case_id not in definitions for case_id in planned):
         raise ValueError("Manifest selected_case_ids is not a valid unique dataset subset")
+    from .nonvideo_guard import evidence as guard_evidence, COMPARABILITY
+    guard_policy = manifest.get("model_configuration", {}).get("benchmark_guard")
     pricing = manifest.get("pricing")
     if not isinstance(pricing, dict) or not pricing:
         raise ValueError("Batch manifest must contain explicit frozen pricing")
@@ -273,6 +275,11 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             item = found[0]
             report, directory = item["report"], item["directory"]
             status = _case_status(report, item["safety_failures"])
+            guard_check = guard_evidence(manifest, case_id, directory)
+            if guard_check is not None:
+                row["benchmark_guard"] = guard_check
+                if guard_check["status"] != "passed":
+                    status = "failed"
             if status == "passed" and item["safety_unknown"]:
                 status = "needs_review"
             row.update(status=status, auto_status=report.get("auto_status"),
@@ -280,6 +287,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
                 semantic_status=report.get("semantic_status", "needs_review"), execution_status=report.get("execution_status"),
                 observed_error=_error_kind(report.get("error")), dimensions=report.get("dimensions", {}), trajectory=report.get("trajectory", {}),
                 failed_check_ids=[str(x.get("id")) for x in report.get("checks", []) or [] if isinstance(x, dict) and x.get("status") == "failed"])
+            if guard_check is not None and guard_check["status"] != "passed":
+                row["observed_error"] = "guard_evidence_missing_or_mismatched"
             metric_file = directory / "metrics.json"
             row["metrics_paths"] = [metric_file.relative_to(root).as_posix()] if metric_file.is_file() else [item["path"] + "#metrics"]
             row["evidence_paths"] = [p.relative_to(root).as_posix() for p in (directory / name for name in ("requests.json", "calls.json", "evidence.json", "before.json", "after.json", "background.json", "codex.json")) if p.is_file()]
@@ -346,6 +355,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         "codex": codex,
         "pass_power_k": None, "pass_power_k_reason": "No independent repeated trials; baseline first attempts only",
         "interpretation": "Internal CreatorOS benchmark only; not a public ranking. Missing evidence is not a pass. Root causes remain pending attribution."}
+    if guard_policy is not None:
+        result["benchmark_guard"] = {"policy": guard_policy, "comparability": COMPARABILITY}
     lines = ["# CreatorOS Benchmark v2", "", f"范围：{result['execution_scope']}，数据集 {len(definitions)} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
         f"已有结果 {totals['with_results']}；缺失 {totals['missing']}；通过 {totals['passed']}；失败 {totals['failed']}；待复核 {totals['needs_review']}。",
         f"pass@1 = {totals['passed']}/{totals['planned']}（{_display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
@@ -353,6 +364,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         f"工具参数Schema合法 {_display(result['tool_quality']['schema_valid_rate'])}（检查{schema_checked}次，非法{schema_invalid}次）；必要动作约束满足 {required_passed}/{required_total}。Schema合法不等于参数业务含义或资源归属正确。", "",
         "缺结果也保留在计划分母；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部50题不代表公共排名。", "",
         "| DeepSeek范围 | 已记录调用 | 累计输入 | 峰值输入 | 输出 | cache加权命中率 | TTFT p50/p95 ms（样本） | 估算费用区间 |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
+    if guard_policy is not None:
+        lines[2:2] = [f"守卫策略：`{json.dumps(guard_policy, ensure_ascii=False, sort_keys=True)}`。{COMPARABILITY}", ""]
     for purpose, metric in metrics.items():
         latency = metric["latency"]["ttft_ms"]
         cost = metric["cost"]

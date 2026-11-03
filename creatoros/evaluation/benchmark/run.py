@@ -49,7 +49,7 @@ def fallback_report(root, case, manifest, error, stage):
                for key in ("agent", "rsi", "judge", "all_deepseek")}
     write_json(root / "metrics.json", metrics)
     stamp = now()
-    write_json(root / "report.json", {"schema_version": 1, "run_id": root.name, "dataset_id": manifest["dataset_id"],
+    report = {"schema_version": 1, "run_id": root.name, "dataset_id": manifest["dataset_id"],
         "case_id": case["id"], "started_at": stamp, "finished_at": stamp, "elapsed_seconds": 0,
         "git_sha": manifest["git"]["sha"], "fixture_version": "benchmark-world-v2-2", "execution_mode": "live",
         "execution_status": "failed", "auto_status": "failed", "semantic_status": "needs_review", "review": None,
@@ -58,7 +58,12 @@ def fallback_report(root, case, manifest, error, stage):
         "scores": score_case(case, {"checks": []}, None),
         "dimensions": {"task_success": "failed", "boundary_enforced": "needs_review", "state_consistent": "needs_review", "protocol_valid": "failed"},
         "checks": [{"id": "launcher", "label": "真实前端执行完成", "status": "failed", "detail": str(error), "evidence": ["metrics.json"]}],
-        "evidence_files": [{"name": "metrics.json", "label": "已观测用量；缺失不记0"}]})
+        "evidence_files": [{"name": "metrics.json", "label": "已观测用量；缺失不记0"}]}
+    from creatoros.evaluation.benchmark.nonvideo_guard import evidence as guard_evidence
+    guard_check = guard_evidence(manifest, case["id"], root)
+    if guard_check is not None:
+        report["benchmark_guard"] = guard_check
+    write_json(root / "report.json", report)
 
 
 def wait_for_trial(server, root: Path, case_id: str, *, timeout: float = 120) -> int:
