@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parents[3]
 DATASET = REPO / "docs/agent-eval/benchmark-v2/cases.json"
 
 
-def freeze(root, dataset_path, case_ids=None):
+def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
     from importlib.metadata import version
@@ -30,6 +30,9 @@ def freeze(root, dataset_path, case_ids=None):
         "codex_model": CODEX_MODEL, "codex_effort": CODEX_EFFORT, "codex_sdk_version": version("openai-codex"),
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
+    if nonvideo_guard:
+        from creatoros.evaluation.benchmark.nonvideo_guard import policy
+        configuration["benchmark_guard"] = policy(case_ids)
     manifest = freeze_manifest(root / "manifest.json", dataset_path, pricing=pricing,
                                model_configuration=configuration, case_ids=case_ids)
     return manifest
@@ -138,16 +141,22 @@ def main():
     parser.add_argument("--workers", type=int, default=3, choices=range(1, 4))
     parser.add_argument("--dataset", type=Path, help="Dataset for freeze; run/report use the frozen dataset")
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
+    parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
     args = parser.parse_args()
     if not args.batch or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in args.batch):
         parser.error("Use a simple immutable batch name")
     root = REPO / "data/agent-benchmark-v2" / args.batch
     if args.action == "freeze":
+        if args.nonvideo_guard:
+            from creatoros.evaluation.benchmark.nonvideo_guard import policy
+            policy(args.cases.split(",") if args.cases else None)
         root.mkdir(parents=True, exist_ok=False)
-        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None)
+        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None, nonvideo_guard=args.nonvideo_guard)
         print(json.dumps({"batch": args.batch, "selected_cases": manifest["selected_case_ids"],
                           "frozen_files": len(manifest["source_hashes"]), "path": str(root)}, ensure_ascii=False))
     else:
+        if args.nonvideo_guard or args.cases:
+            parser.error("Guard and case selection must be frozen, not changed at run/report time")
         from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
         from creatoros.evaluation.benchmark.report import summarize_batch
         # Historical reporting must not depend on today's source tree; the
@@ -159,6 +168,8 @@ def main():
         if args.dataset is not None and args.dataset.resolve() not in {dataset_path, original_path}:
             raise ValueError("Run/report must use the frozen dataset")
         if args.action == "run":
+            from creatoros.evaluation.benchmark.nonvideo_guard import validate
+            validate(manifest)
             cases = json.loads(dataset_path.read_text(encoding="utf-8"))["cases"]
             selected = [case for case in cases if case["id"] in manifest["selected_case_ids"]]
             with ThreadPoolExecutor(max_workers=args.workers) as executor:

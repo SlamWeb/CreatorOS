@@ -60,6 +60,12 @@ def main():
     os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'world/world.db').as_posix()}"
     from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
     manifest = verify_manifest(args.manifest)["manifest"]
+    from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
+    guarded = validate(manifest, args.case)
+    if args.case not in manifest["selected_case_ids"]:
+        parser.error("Case is outside the frozen selection")
+    if guarded:
+        install_video_guard()
     dataset_path = frozen_dataset_path(args.manifest, manifest).resolve()
     if args.dataset.resolve() != dataset_path:
         parser.error("Trial must use the verified frozen dataset")
@@ -90,7 +96,16 @@ def main():
     def provider():
         return MeasuredProvider(api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-flash",
                                 timeout_seconds=90, max_retries=0, sink=sink)
-    world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2])
+    world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2],
+                           publication_client=DenyPublication() if guarded else None)
+    if guarded:
+        from creatoros.integrations import video_production
+        from creatoros.evaluation.benchmark.nonvideo_guard import deny_video
+        if video_production.produce_video is not deny_video or not isinstance(world.app.state.publishing.client, DenyPublication):
+            raise RuntimeError("Benchmark guards not installed")
+        write_json(root / "guard.json", {"policy": manifest["model_configuration"]["benchmark_guard"],
+            "case_id": case["id"], "video_dispatch_installed": True, "publication_client_installed": True,
+            "network_sandbox": False})
     world.app.state.skill_iterations.provider_factory = lambda: MeasuredProvider(
         api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-v4-flash", timeout_seconds=180,
         reasoning_effort="high", max_retries=0, sink=sink, purpose="rsi")
