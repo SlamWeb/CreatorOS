@@ -93,6 +93,8 @@ class StagedTasks:
                 raise ValueError("等待的图片任务还没有生产记录。")
             revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == run.id,
                 ContentRevision.revision_number == run.active_revision_number))
+            if revision is None:
+                raise ValueError("等待的图片版本不存在，请核对原任务。")
             result.append(dict(task_id=identifier, run_id=run.id, revision_id=revision.id))
         return result
 

@@ -44,7 +44,7 @@ def isolated_worker(directory):
             "content_revisions", "content_run_events", "content_runs", "creator_skill_refs",
             "creators", "managed_materials", "manual_publications", "media_collections",
             "operation_events", "pending_operations", "production_queue_history",
-            "production_queue_items", "production_tasks", "publication_accounts",
+            "production_queue_items", "production_task_history", "production_tasks", "publication_accounts",
             "publication_feedback_settings", "publication_feedback_states", "publication_metrics",
             "publication_requests", "series", "series_skill_refs", "skill_calibrations",
             "skill_iterations", "skill_switch_intents", "topic_removals",
@@ -52,6 +52,7 @@ def isolated_worker(directory):
         }
         assert set(before["database"]) == expected_tables, sorted(before["database"])
         assert before["database"]["production_queue_history"] == []
+        assert before["database"]["production_task_history"] == []
         assert before["database"]["skill_switch_intents"] == []
         assert all((world_root / name).resolve().is_relative_to(world_root) for name in before["files"])
         assert all((world_root / name).is_file() for name in before["files"])
@@ -106,6 +107,7 @@ def isolated_worker(directory):
             during = world.snapshot()  # Windows exclusive executor lock must not break snapshots.
             assert set(during["database"]) == expected_tables
             assert during["database"]["production_queue_history"] == []
+            assert during["database"]["production_task_history"] == []
             assert during["database"]["skill_switch_intents"] == []
             assert during["database"]["content_attempts"] == initial_attempts
 

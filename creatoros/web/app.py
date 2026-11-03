@@ -507,7 +507,7 @@ def create_app(
     def assign_series(series_id: str, payload: AssignmentRequest, request: Request) -> SeriesWriteResponse:
         # Serialize the ownership change against queue claim and submission;
         # already-dispatched workers are not cancelled and run outside these locks.
-        with executor._lock, runs._write_lock:
+        with app.state.production_tasks.submissions.coordinate_ownership_change():
             result_id, deduplicated = composition.assign_series(
                 series_id,
                 creator_id=payload.creator_id,

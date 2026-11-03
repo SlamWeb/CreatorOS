@@ -468,6 +468,17 @@ class ProductionTask(TimestampMixin, Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class ProductionTaskHistory(Base):
+    """Prior staged dispatch state, independent of frozen task inputs."""
+    __tablename__ = "production_task_history"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("production_tasks.id", ondelete="CASCADE"), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    dependencies: Mapped[list] = mapped_column(JSON, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
 class ManagedMaterial(TimestampMixin, Base):
     """Account-owned input bytes; source URLs are provenance, not identity."""
     __tablename__ = "managed_materials"

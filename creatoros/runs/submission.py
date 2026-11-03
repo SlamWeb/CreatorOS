@@ -54,6 +54,12 @@ class ProductionSubmission:
                 raise ContentRunError(unavailable_message or blocked, code="executor_unavailable")
 
     @contextmanager
+    def coordinate_ownership_change(self):
+        """Exclude local dispatch and submissions only through the ownership commit."""
+        with self.executor._lock, self.runs._write_lock:
+            yield
+
+    @contextmanager
     def transaction(self, *, sqlite_immediate=False, unavailable_message=None, verify_prepared=None,
                     prepare_authority=None):
         # This order also excludes the dispatcher until the commit is visible.

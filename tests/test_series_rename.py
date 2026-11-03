@@ -174,7 +174,7 @@ class SeriesRenameMigrationTests(unittest.TestCase):
             cfg.attributes["database_url"] = url
             post_v18_tables = {"production_tasks", "agent_plan_steps", "agent_plans",
                                "creator_skill_refs", "managed_materials", "series_skill_refs",
-                               "skill_switch_intents", "production_queue_history"}
+                               "skill_switch_intents", "production_queue_history", "production_task_history"}
             for operation, expected_added in ((lambda: upgrade_database(url), post_v18_tables),
                                               (lambda: command.downgrade(cfg, "20261024_0018"), set()),
                                               (lambda: upgrade_database(url), post_v18_tables)):

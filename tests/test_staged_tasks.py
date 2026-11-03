@@ -136,6 +136,25 @@ class StagedTasksTests(unittest.TestCase):
         with self.db.session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), 1)
 
+    def test_resume_rejects_changed_dependency_without_rebinding_or_losing_error(self):
+        images, image = self.image()
+        result = self.tasks.create("topic", request_id="video", tasks=[self.video_payload(images, image)])
+        identifier = result["items"][0]["id"]
+        with self.db.session() as session:
+            task = session.get(ProductionTask, identifier)
+            old_definition = dict(task.definition_json)
+            task.dependency_json = [{**task.dependency_json[0], "revision_id": "previous-revision"}]
+            old_dependencies = list(task.dependency_json)
+            task.dispatch_state, task.last_error = "needs_attention", "old failure"
+        with self.assertRaisesRegex(ContentRunError, "版本已改变"):
+            self.tasks.control("topic", identifier, "resume")
+        with self.db.session() as session:
+            task = session.get(ProductionTask, identifier)
+            self.assertEqual(task.definition_json, old_definition)
+            self.assertEqual(task.dependency_json, old_dependencies)
+            self.assertEqual(task.last_error, "old failure")
+            self.assertEqual(task.dispatch_state, "needs_attention")
+
     def test_video_rejects_collection_owned_by_another_topic(self):
         images, image = self.image()
         other = self.collections.create("creator", name="other", request_id="other-topic", topic_id="another")
