@@ -63,6 +63,8 @@ class VideoCheckpoint(ProductionModel):
     usage: CodexUsage = Field(default_factory=CodexUsage)
     handoff_protocol: Literal["final-json-v1", "submit-tool-v1"] = "final-json-v1"
     accepted_sha256: str | None = None
+    failure_sha256: str | None = None
+    submission_guard: Literal["armed"] | None = None
     submission_digest: str | None = None
     submission_attempts: int = 0
 

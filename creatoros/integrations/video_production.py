@@ -16,7 +16,8 @@ from creatoros.delivery.video import (VIDEO_MANIFEST, VIDEO_CHECKPOINT, VideoArt
     VideoDelivery, _decoded_video_metadata, _identity, _require_playable_mp4,
     validate_video_artifact, video_delivery_schema)
 from creatoros.delivery.video_receipt import (VideoRecoveryEvidenceConflict, VideoRecoveryUnconfirmed,
-                                               VideoSubmission, _delivery_source, _recover_work)
+                                               VideoSubmission, _delivery_source, _recover_work,
+                                               known_video_failure)
 
 from .codex import (CODEX_EFFORT, CODEX_MODEL, PRODUCTION_RULES, SESSION_FILENAME,
                     CodexProducerError, CodexUsage, ProductionSession,
@@ -98,9 +99,18 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
     use_submit_tool = ((checkpoint is None and _thread_has_submission_tool(directory, thread_id)) or
                        (checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1"))
     submission_lock = asyncio.Lock()
+    submission_stop = asyncio.Event()
+    stop_result = None
     async def submit(arguments):
+        nonlocal stop_result
         async with submission_lock:
-            return await asyncio.to_thread(VideoSubmission(directory, checkpoint), arguments)
+            if submission_stop.is_set():
+                return stop_result
+            result = await asyncio.to_thread(VideoSubmission(directory, checkpoint), arguments)
+            if result.get("terminal") or result.get("outcome_unknown"):
+                stop_result = result
+                submission_stop.set()
+            return result
     tools = [CodexDynamicTool("submit_artifacts", "提交已完成的 MP4 及文案，立即返回验收结果；收到 accepted=true 后才完成。",
         video_delivery_schema(), submit)] if use_submit_tool else None
     try:
@@ -117,6 +127,11 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                 raise ValueError("视频恢复会话不匹配。")
             checkpoint = checkpoint or VideoCheckpoint(input_digest=_identity(spec, payload), thread_id=thread.id,
                 handoff_protocol="submit-tool-v1" if use_submit_tool else "final-json-v1")
+            if use_submit_tool:
+                # Persist uncertainty before dispatch: no model turn is started if
+                # this write fails, while a later crash can never look like proof
+                # that an interrupted turn was safe to start again.
+                checkpoint.submission_guard = "armed"
             atomic_json(directory / VIDEO_CHECKPOINT, checkpoint)
             record_thread(directory, thread.id)
             if request.get("on_thread_started"):
@@ -128,10 +143,50 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
             turn = await _bounded_sdk(thread.turn([TextInput(text=prompt)], cwd=str(directory / "work"),
                 effort=CODEX_EFFORT, model=CODEX_MODEL, sandbox=Sandbox.workspace_write,
                 **turn_options), deadline, cancel)
-            collector = asyncio.create_task(collect_observed_turn(turn, progress))
+            terminal_observed = False
+            def observe_terminal(event):
+                nonlocal terminal_observed
+                if event.method != "turn/completed":
+                    return
+                payload = event.payload
+                reported = getattr(payload, "turn", None)
+                status = getattr(reported, "status", None)
+                status = getattr(status, "value", status)
+                if (turn.id and turn.thread_id and getattr(payload, "thread_id", None) == turn.thread_id
+                        and getattr(reported, "id", None) == turn.id
+                        and status in {"completed", "interrupted", "failed"}):
+                    terminal_observed = True
+            class TerminalBoundTurn:
+                id, thread_id = turn.id, turn.thread_id
+                async def stream(self):
+                    source = turn.stream()
+                    try:
+                        async for event in source:
+                            yield event
+                            if submission_stop.is_set() and terminal_observed:
+                                return
+                    finally:
+                        await source.aclose()
+            collector = asyncio.create_task(collect_observed_turn(
+                TerminalBoundTurn(), progress, observe_terminal, public_observer_is_diagnostic=False))
+            stop_waiter = asyncio.create_task(submission_stop.wait())
             completed = False
             try:
-                result = await _bounded_sdk(collector, deadline, cancel)
+                await _bounded_sdk(asyncio.wait({collector, stop_waiter}, return_when=asyncio.FIRST_COMPLETED),
+                                   deadline, cancel)
+                if submission_stop.is_set():
+                    # The callback has already saved the failure receipt. Stop the
+                    # current turn rather than asking the model to retry rendering.
+                    if collector.done():
+                        await asyncio.gather(collector, return_exceptions=True)
+                        # The SDK also raises for an observed failed turn.  Only
+                        # an explicit terminal event for this thread/turn proves
+                        # that a subsequent interrupt is unnecessary.
+                        completed = terminal_observed
+                    if stop_result.get("terminal"):
+                        raise CodexProducerError(stop_result["error"], error_type="video_generation_failed")
+                    raise CodexProducerError(stop_result["error"], error_type="video_delivery_unconfirmed")
+                result = await collector
                 require_completed_turn(result)
                 completed = True
                 if not use_submit_tool:
@@ -146,6 +201,8 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                     raise CodexProducerError("Codex 已结束但未确认视频交付；现有文件保留，请核对原任务，不会自动重启。",
                                              error_type="video_delivery_unconfirmed")
             finally:
+                stop_waiter.cancel()
+                await asyncio.gather(stop_waiter, return_exceptions=True)
                 if not completed:
                     interrupt_error = None
                     try:
@@ -155,8 +212,14 @@ async def _execute_video(producer, directory, spec, payload, checkpoint, request
                     if not collector.done():
                         collector.cancel()
                     await asyncio.gather(collector, return_exceptions=True)
-                    if interrupt_error is not None and cancel is not None and cancel.is_set():
+                    # The turn may have ended while interrupt() was in flight.
+                    # Its matching terminal event is stronger evidence than a
+                    # rejected interrupt for an already-finished turn.
+                    if interrupt_error is not None and not terminal_observed and cancel is not None and cancel.is_set():
                         raise CodexProducerError("停止请求未得到 Codex 确认，请核对线程状态后再重试。", error_type="codex_interrupt_unconfirmed") from interrupt_error
+                    if interrupt_error is not None and not terminal_observed and submission_stop.is_set():
+                        raise CodexProducerError(stop_result["error"] + "；停止请求未得到 Codex 确认，请核对线程状态。",
+                                                 error_type="codex_interrupt_unconfirmed") from interrupt_error
             progress.finish("completed")
             return checkpoint
     except Exception:
@@ -200,6 +263,11 @@ def _produce_video(producer, **request):
         raise CodexProducerError(str(error), error_type="video_delivery_unconfirmed") from error
     except VideoRecoveryEvidenceConflict as error:
         raise CodexProducerError(str(error), error_type="video_delivery_evidence_conflict") from error
+    if checkpoint is not None:
+        failure = known_video_failure(checkpoint)
+        if failure is not None:
+            raise CodexProducerError(failure.error or failure.text or "Codex 未完成视频制作。",
+                                     error_type="video_generation_failed")
     accepted = checkpoint is not None and checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256
     if checkpoint is not None and checkpoint.turn_completed and checkpoint.handoff_protocol == "submit-tool-v1" and not accepted:
         raise CodexProducerError("视频回合已结束但未确认交付；现有文件保留，请核对原任务，不会自动重启。",
