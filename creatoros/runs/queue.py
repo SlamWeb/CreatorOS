@@ -114,17 +114,35 @@ class ProductionQueue:
             else:
                 item.completed_at = now
 
-    def finish(self, item_id: int, run_id: str):
-        run = self.service.get(run_id)
-        if run.status in {ContentRunStatus.AWAITING_APPROVAL, ContentRunStatus.APPROVED}:
-            status = "succeeded"
-        elif run.status is ContentRunStatus.CANCELLED:
-            status = "cancelled"
-        elif run.status is ContentRunStatus.FAILED:
-            status = "failed"
-        else:
-            status = "needs_attention"
-        self.transition(item_id, status, run.error_message)
+    def finish(self, item_id: int, run_id: str, *, expected_attempt_id: str | None = None,
+               expected_queue_version: int | None = None):
+        with self.database.session() as session:
+            if self.database.engine.dialect.name == "sqlite":
+                session.execute(text("BEGIN IMMEDIATE"))
+            item = session.get(ProductionQueueItem, item_id)
+            run = session.get(ContentRun, run_id)
+            if item is None or run is None or item.run_id != run_id:
+                return
+            if expected_attempt_id is not None:
+                revision = session.scalar(select(ContentRevision).where(
+                    ContentRevision.content_run_id == run_id, ContentRevision.revision_number == run.active_revision_number))
+                latest = (session.scalar(select(ContentAttempt).where(ContentAttempt.revision_id == revision.id)
+                          .order_by(ContentAttempt.attempt_number.desc()).limit(1)) if revision else None)
+                if (item.status != "running" or item.expected_version != expected_queue_version
+                        or revision is None or item.revision_id != revision.id
+                        or latest is None or latest.id != expected_attempt_id
+                        or run.status in {ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING}):
+                    return
+            if run.status in {ContentRunStatus.AWAITING_APPROVAL, ContentRunStatus.APPROVED}:
+                status = "succeeded"
+            elif run.status is ContentRunStatus.CANCELLED:
+                status = "cancelled"
+            elif run.status is ContentRunStatus.FAILED:
+                status = "failed"
+            else:
+                status = "needs_attention"
+            item.status, item.last_error = status, run.error_message
+            item.completed_at = datetime.now(timezone.utc)
 
     def recover(self):
         # Even a crash between dispatch marker and claim must not implicitly retry.

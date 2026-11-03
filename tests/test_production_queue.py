@@ -110,6 +110,36 @@ def _crash_inflight_with_evidence(url, output_root, run_id, version, evidence):
         (directory / "historical.bin").write_bytes(b"old evidence")
         if evidence == "image":
             (directory / "artifact-submission-intent.json").write_text("partial", encoding="utf-8")
+        elif evidence == "previous_image":
+            (directory / "artifact-submission-intent.json").write_text("partial", encoding="utf-8")
+            service.interrupt_owner(run_id, owner_id="crashed-fixture")
+            service.guard.finish("crashed-fixture")
+            # A newer authorized Attempt crashed before its directory existed.
+            prepared = service.claim(run_id, owner_id="crashed-fixture", expected_version=service.get(run_id).version)
+        elif evidence == "image_missing":
+            from creatoros.delivery.image import CHECKPOINT, Checkpoint
+            checkpoint = Checkpoint(input_digest="a" * 64, thread_id="fixture", skill_digests={},
+                                    handoff_protocol="tool-v1", submission_sha256="b" * 64)
+            (directory / CHECKPOINT).write_text(checkpoint.model_dump_json(), encoding="utf-8")
+        elif evidence in {"video_missing", "video_valid", "video_failed"}:
+            import hashlib
+            from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery
+            if evidence == "video_failed":
+                response = VideoDelivery(title="fixture", text="", video_path=None, complete=False,
+                                         error="original terminal failure").model_dump_json()
+                value = VideoCheckpoint(input_digest="a" * 64, thread_id="fixture",
+                    handoff_protocol="submit-tool-v1", response=response,
+                    failure_sha256=hashlib.sha256(response.encode()).hexdigest())
+            else:
+                response = VideoDelivery(title="fixture", text="", video_path="clip.mp4", complete=True).model_dump_json()
+                contents = b"known video bytes"
+                value = VideoCheckpoint(input_digest="a" * 64, thread_id="fixture",
+                    handoff_protocol="submit-tool-v1", response=response,
+                    accepted_sha256=hashlib.sha256(contents).hexdigest(),
+                    submission_digest=hashlib.sha256(response.encode()).hexdigest())
+                if evidence == "video_valid":
+                    (directory / "received-video.mp4").write_bytes(contents)
+            (directory / VIDEO_CHECKPOINT).write_text(value.model_dump_json(), encoding="utf-8")
         elif evidence in {"video", "video_conflict"}:
             from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint
             if evidence == "video":
@@ -137,7 +167,7 @@ def _restart_inflight_snapshot(url, output_root, run_id, result):
         attempts = service.repository.list_attempts(service.get_active_revision(run_id).id)
         result.put((state.status.value, state.error_type, state.retryable,
                     executor.queue_snapshot(run_id)["status"], len(attempts),
-                    attempts[0].error_type, attempts[0].retryable, tuple(producer.calls)))
+                    attempts[-1].error_type, attempts[-1].retryable, tuple(producer.calls)))
     except BaseException:
         result.put(("error", traceback.format_exc()))
     finally:
@@ -269,6 +299,103 @@ class ProductionQueueTests(unittest.TestCase):
         finally:
             release.set()
 
+    def test_unknown_result_survives_sqlite_writer_lock_longer_than_busy_timeout(self):
+        import sqlite3
+        from creatoros.integrations.codex import CodexProducerError
+        started, release, first_failed = Event(), Event(), Event()
+        class DelayedProducer:
+            def produce_to(self, **request):
+                started.set()
+                if not release.wait(10):
+                    raise AssertionError("fixture producer was not released")
+                raise CodexProducerError("unknown submission", error_type="image_delivery_unconfirmed")
+        service = self.service(DelayedProducer())
+        run = service.create("topic-0")
+        executor = self.executor(service)
+        original = service._mark_failed
+        def observe_failed_write(*args, **kwargs):
+            try:
+                return original(*args, **kwargs)
+            except Exception:
+                first_failed.set()
+                raise
+        locker = None
+        try:
+            with patch.object(service, "_mark_failed", side_effect=observe_failed_write):
+                executor.submit(run.id, expected_version=run.version)
+                self.assertTrue(started.wait(10))
+                locker = sqlite3.connect(self.root / "test.db", timeout=1)
+                locker.execute("BEGIN IMMEDIATE")
+                release.set()
+                self.assertTrue(first_failed.wait(12), "first write must exceed SQLite busy_timeout")
+                locker.commit()
+                locker.close()
+                locker = None
+                wait(lambda: not executor.is_submitted(run.id), timeout=15)
+            state = service.get(run.id)
+            attempt = service.repository.list_attempts(service.get_active_revision(run.id).id)[0]
+            self.assertEqual((state.error_type, state.retryable), ("image_delivery_unconfirmed", False))
+            self.assertEqual((attempt.error_type, attempt.retryable), ("image_delivery_unconfirmed", False))
+        finally:
+            release.set()
+            if locker is not None:
+                locker.rollback()
+                locker.close()
+
+    def test_unpersistable_unknown_keeps_guard_and_does_not_finish_queue(self):
+        from creatoros.integrations.codex import CodexProducerError
+        started, release = Event(), Event()
+        class DelayedProducer:
+            calls = 0
+            def produce_to(self, **request):
+                self.calls += 1
+                started.set()
+                if not release.wait(10):
+                    raise AssertionError("fixture producer was not released")
+                raise CodexProducerError("unknown submission", error_type="image_delivery_unconfirmed")
+        producer = DelayedProducer()
+        service = self.service(producer)
+        run = service.create("topic-0")
+        executor = self.executor(service)
+        with patch.object(service, "_mark_failed", side_effect=OSError("database unavailable")):
+            executor.submit(run.id, expected_version=run.version)
+            self.assertTrue(started.wait(10))
+            pending = service.create("topic-1")
+            executor.submit(pending.id, expected_version=pending.version)
+            wait(lambda: run.id in executor._active, timeout=10)
+            task = executor._active[run.id]
+            release.set()
+            wait(lambda: task.future.done(), timeout=10)
+            self.assertIsNotNone(executor._blocked_error)
+            self.assertEqual(service.get(run.id).status.value, "producing")
+            self.assertEqual(executor.queue_snapshot(run.id)["status"], "running")
+            self.assertEqual(executor.queue_snapshot(pending.id)["status"], "pending")
+            self.assertEqual(producer.calls, 1)
+            self.assertTrue(service.guard.lock.is_locked)
+            with self.assertRaises(ExecutionOwnershipError):
+                executor.submit(run.id, expected_version=service.get(run.id).version)
+            ctx = multiprocessing.get_context("spawn")
+            result = ctx.Queue()
+            child = ctx.Process(target=_restart_inflight_snapshot,
+                                args=(self.url, str(self.root / "outputs"), run.id, result))
+            child.start()
+            observed = result.get(timeout=30)
+            child.join(20)
+            self.assertEqual(child.exitcode, 0)
+            self.assertEqual(observed[0], "error")
+            result.close()
+            self.assertEqual(service.get(run.id).status.value, "producing")
+            self.assertEqual(executor.queue_snapshot(run.id)["status"], "running")
+            with self.assertRaises(ExecutionOwnershipError):
+                executor.shutdown()
+            self.assertTrue(service.guard.lock.is_locked)
+            if executor._dispatcher is not None:
+                executor._dispatcher.join(10)
+                self.assertFalse(executor._dispatcher.is_alive())
+        # This isolated fake producer has exited and has no child process.
+        service.guard.finish(task.owner_id)
+        service.guard.__exit__()
+
     def test_unknown_image_result_wins_over_concurrent_cancellation(self):
         from creatoros.integrations.codex import CodexProducerError
         started, release, cancellation = Event(), Event(), []
@@ -302,16 +429,28 @@ class ProductionQueueTests(unittest.TestCase):
 
     def test_unknown_video_results_win_over_concurrent_cancellation(self):
         from creatoros.integrations.codex import CodexProducerError
-        for index, error_type in enumerate(("video_delivery_unconfirmed", "video_delivery_evidence_conflict")):
+        for index, error_type in enumerate(("video_delivery_unconfirmed", "video_delivery_evidence_conflict", "video_generation_failed")):
             with self.subTest(error_type=error_type):
                 started, release, cancellation = Event(), Event(), []
                 class ProducerWithUnknownVideo:
                     def produce_to(self, **request):
+                        if error_type == "video_generation_failed":
+                            import hashlib
+                            from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery
+                            directory = Path(request["directory"])
+                            directory.mkdir(parents=True)
+                            response = VideoDelivery(title="fixture", text="", video_path=None,
+                                                     complete=False, error="original video failure").model_dump_json()
+                            checkpoint = VideoCheckpoint(input_digest="a" * 64, thread_id="fixture",
+                                handoff_protocol="submit-tool-v1", response=response,
+                                failure_sha256=hashlib.sha256(response.encode()).hexdigest())
+                            (directory / VIDEO_CHECKPOINT).write_text(checkpoint.model_dump_json(), encoding="utf-8")
                         cancellation.append(request["cancel_event"])
                         started.set()
                         if not release.wait(10):
                             raise AssertionError("producer was not released")
-                        raise CodexProducerError("video evidence requires inspection", error_type=error_type)
+                        raise CodexProducerError("original video failure" if error_type == "video_generation_failed"
+                                                 else "video evidence requires inspection", error_type=error_type)
                 service = self.service(ProducerWithUnknownVideo())
                 run = service.create(f"topic-{index}")
                 executor = self.executor(service)
@@ -324,11 +463,34 @@ class ProductionQueueTests(unittest.TestCase):
                 attempt = service.repository.list_attempts(service.get_active_revision(run.id).id)[0]
                 self.assertEqual((state.error_type, state.retryable), (error_type, False))
                 self.assertEqual((attempt.error_type, attempt.retryable), (error_type, False))
+                if error_type == "video_generation_failed":
+                    self.assertEqual(state.error_message, "original video failure")
                 executor.shutdown()
+
+    def test_old_completion_cannot_finish_reauthorized_queue_version(self):
+        from creatoros.storage.models import ProductionQueueItem
+        service = self.service(Producer())
+        run = service.create("topic-0")
+        queue = ProductionQueue(service)
+        item = queue.enqueue(run.id, run.version)
+        queue.transition(item.id, "running")
+        with service.guard:
+            prepared = service.claim(run.id, owner_id="old-owner", expected_version=run.version)
+            service.interrupt_owner(run.id, owner_id="old-owner")
+            service.guard.finish("old-owner")
+            with self.database.session() as session:
+                row = session.get(ProductionQueueItem, item.id)
+                row.expected_version = run.version + 1
+                row.status = "running"
+                row.last_error = "new authorization"
+            queue.finish(item.id, run.id, expected_attempt_id=prepared["attempt_id"],
+                         expected_queue_version=run.version)
+            saved = queue.snapshot(run.id)
+            self.assertEqual((saved["status"], saved["last_error"]), ("running", "new authorization"))
 
     def test_shutdown_keeps_unknown_video_failures_nonretryable(self):
         from creatoros.integrations.codex import CodexProducerError
-        for index, error_type in enumerate(("video_delivery_unconfirmed", "video_delivery_evidence_conflict")):
+        for index, error_type in enumerate(("video_delivery_unconfirmed", "video_delivery_evidence_conflict", "video_generation_failed")):
             with self.subTest(error_type=error_type):
                 started, cancelled, release = Event(), Event(), Event()
                 class DelayedVideo:
@@ -389,6 +551,8 @@ class ProductionQueueTests(unittest.TestCase):
                 with patch.object(service, "heartbeat", side_effect=OSError("injected renewal failure")):
                     executor.submit(run.id, expected_version=run.version)
                     self.assertTrue(started.wait(10))
+                    wait(lambda: run.id in executor._active, timeout=10)
+                    task = executor._active[run.id]
                     self.assertTrue(cancelled.wait(10))
                     running = service.get(run.id)
                     self.assertEqual(running.status.value, "producing")
@@ -404,10 +568,11 @@ class ProductionQueueTests(unittest.TestCase):
                         else:
                             row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
                     release.set()
-                    wait(lambda: not executor.is_submitted(run.id), timeout=10)
+                    wait(lambda: task.future.done(), timeout=10)
                 state = service.get(run.id)
                 if mode == "reassigned":
                     self.assertEqual((state.status.value, state.lease_owner), ("producing", "new-owner"))
+                    self.assertEqual(executor.queue_snapshot(run.id)["status"], "running")
                 elif mode == "completed":
                     self.assertEqual(state.status.value, "awaiting_approval")
                 else:
@@ -420,7 +585,15 @@ class ProductionQueueTests(unittest.TestCase):
         cases = (("image", "failed", "image_delivery_unconfirmed", False),
                  ("video", "failed", "video_delivery_unconfirmed", False),
                  ("video_conflict", "failed", "video_delivery_evidence_conflict", False),
-                 ("legacy", "interrupted", "recovery_interrupted", True))
+                 ("legacy", "interrupted", "recovery_interrupted", True),
+                 ("previous_image", "failed", "image_delivery_unconfirmed", False),
+                 ("image_missing", "failed", "image_delivery_unconfirmed", False),
+                 ("video_missing", "failed", "video_delivery_evidence_conflict", False),
+                 ("video_valid", "interrupted", "recovery_interrupted", True),
+                 ("video_failed", "failed", "video_generation_failed", False))
+        repository = ContentRepository(self.database)
+        for index in range(4, len(cases)):
+            repository.add_topic(topic_id=f"topic-{index}", series_id="series", title=f"Topic {index}", source=TopicSource.MANUAL)
         ctx = multiprocessing.get_context("spawn")
         for index, (evidence, status, error_type, retryable) in enumerate(cases):
             with self.subTest(evidence=evidence):
@@ -447,7 +620,10 @@ class ProductionQueueTests(unittest.TestCase):
                 child.join(30)
                 self.assertEqual(child.exitcode, 0)
                 queue_status = "failed" if status == "failed" else "needs_attention"
-                self.assertEqual(observed, (status, error_type, retryable, queue_status, 1, error_type, retryable, ()))
+                attempt_count = 2 if evidence == "previous_image" else 1
+                self.assertEqual(observed, (status, error_type, retryable, queue_status, attempt_count, error_type, retryable, ()))
+                if evidence == "video_failed":
+                    self.assertEqual(service.get(run.id).error_message, "original terminal failure")
                 self.assertEqual((Path(attempt.output_directory) / "historical.bin").read_bytes(), historical)
                 self.assertEqual(queue.snapshot(run.id)["history"][0]["last_error"], "prior failure evidence")
                 if not retryable:
@@ -455,7 +631,7 @@ class ProductionQueueTests(unittest.TestCase):
                     with service.guard:
                         with self.assertRaises(ContentRunError):
                             service.claim(run.id, owner_id="blocked-retry", expected_version=service.get(run.id).version)
-                    self.assertEqual(len(service.repository.list_attempts(service.get_active_revision(run.id).id)), 1)
+                    self.assertEqual(len(service.repository.list_attempts(service.get_active_revision(run.id).id)), attempt_count)
                 result.close()
 
     def test_stale_attempt_non_directory_is_evidence_conflict(self):

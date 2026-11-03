@@ -9,7 +9,7 @@ from time import monotonic
 from uuid import uuid4
 
 from .ownership import ExecutionOwnershipError
-from .service import ContentRunError, ContentRunExecutionError, ContentRunService
+from .service import ContentRunError, ContentRunExecutionError, ContentRunService, UnconfirmedPersistenceError
 from .queue import ProductionQueue
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,7 @@ class ManagedRunExecutor:
             item = None
             try:
                 with self._lock:
-                    if self._closed:
+                    if self._closed or self._blocked_error:
                         return
                     for run_id, task in list(self._active.items()):
                         if task.future.done():
@@ -216,7 +216,7 @@ class ManagedRunExecutor:
                         cancel = Event()
                         try:
                             assert self._pool is not None
-                            future = self._pool.submit(self._run, prepared, owner, cancel, item.id)
+                            future = self._pool.submit(self._run, prepared, owner, cancel, item.id, item.expected_version)
                         except BaseException:
                             self.service.interrupt_owner(item.run_id, owner_id=owner,
                                 message="提交执行器失败，生产未启动，可显式恢复。")
@@ -246,9 +246,14 @@ class ManagedRunExecutor:
                     self._pause("无法读取生产队列，已暂停派发；任务已保留，请检查数据库后重启服务。")
                     return
 
-    def _run(self, prepared: dict, owner_id: str, cancel: Event, item_id: int) -> None:
+    def _run(self, prepared: dict, owner_id: str, cancel: Event, item_id: int, queue_version: int) -> None:
+        preserve_queue = False
         try:
             self.service.execute_claimed(prepared, owner_id=owner_id, cancel_event=cancel)
+        except UnconfirmedPersistenceError:
+            preserve_queue = True
+            self._pause("交付结果未知且数据库状态无法保存；已停止派发，请核对执行记录。")
+            raise
         except (ContentRunError, ContentRunExecutionError):
             # The service has persisted the business failure or rejected a late owner.
             pass
@@ -256,4 +261,6 @@ class ManagedRunExecutor:
             logger.exception("ContentRun worker stopped unexpectedly; inspect execution journal")
             raise
         finally:
-            self.queue.finish(item_id, prepared["run_id"])
+            if not preserve_queue:
+                self.queue.finish(item_id, prepared["run_id"], expected_attempt_id=prepared["attempt_id"],
+                                  expected_queue_version=queue_version)
