@@ -10,6 +10,7 @@ from creatoros.agent.plans import PlanService
 from creatoros.storage import Base, ContentRepository, CreatorPlatform, Database
 from creatoros.storage.models import AgentPlan
 from creatoros.tools.results import ToolResult
+from tests.plan_submission_fixture import prepare_topic, submit_controlled_tasks, assert_submission_state
 
 
 class IsolatedChat:
@@ -43,6 +44,7 @@ class ContinuationScheduleGateTests(unittest.TestCase):
         Base.metadata.create_all(self.db.engine)
         ContentRepository(self.db).create_creator(creator_id="isolated", display_name="isolated",
                                                   platform=CreatorPlatform.XIAOHONGSHU)
+        prepare_topic(self.db)
         self.plans = PlanService(self.db, IsolatedChat(root))
         self.plans._pool = InlinePool()
         self.calls = []
@@ -52,7 +54,7 @@ class ContinuationScheduleGateTests(unittest.TestCase):
             if tool_call.name == "get_producer_skill":
                 return ToolResult(content='{"message":"controlled read failure"}', is_error=True,
                                   error_type="studio_read_failed")
-            return ToolResult(content='{"run_id":"isolated"}')
+            return submit_controlled_tasks(self.db, tool_call, **kwargs)
 
         tool_patch = patch("creatoros.agent.plans.execute_tool_call", side_effect=execute)
         tool_patch.start()
@@ -87,6 +89,7 @@ class ContinuationScheduleGateTests(unittest.TestCase):
         self.assertEqual(current["steps"][1]["title"], "edited image")
         self.assertEqual(current["steps"][1]["status"], "pending")
         self.assertEqual(self.calls, ["get_producer_skill"])
+        assert_submission_state(self, self.db, 0)
         return current
 
     def assert_dispatched_once(self):
@@ -94,6 +97,7 @@ class ContinuationScheduleGateTests(unittest.TestCase):
             self.plans.advance()
         self.assertEqual(self.calls, ["get_producer_skill", "start_content_run"])
         self.assertEqual(self.detail()["steps"][1]["status"], "succeeded")
+        assert_submission_state(self, self.db, 1)
 
     def test_pending_edit_waits_for_ack_then_dispatches_once(self):
         self.edit_and_assert_frozen("pending")

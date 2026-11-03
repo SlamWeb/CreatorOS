@@ -13,7 +13,7 @@ from unittest.mock import patch
 from creatoros.agent.plans import PlanService
 from creatoros.storage import Base, ContentRepository, CreatorPlatform, Database
 from creatoros.storage.models import AgentPlan
-from creatoros.tools.results import ToolResult
+from tests.plan_submission_fixture import prepare_topic, submit_controlled_tasks, assert_submission_state
 from creatoros.web.chat import AgentChatService
 
 
@@ -27,6 +27,7 @@ class ContinuationBudgetRecoveryTests(unittest.TestCase):
         Base.metadata.create_all(self.db.engine)
         ContentRepository(self.db).create_creator(creator_id="isolated", display_name="isolated",
                                                   platform=CreatorPlatform.XIAOHONGSHU)
+        prepare_topic(self.db)
         self.provider_calls = []
         self.chat, self.plans = self.new_host()
         self.session_id = self.chat.create("isolated")["id"]
@@ -130,7 +131,8 @@ os._exit(74)
                 return future
 
         plans._pool = InlinePool()
-        with patch("creatoros.agent.plans.execute_tool_call", return_value=ToolResult(content='{"run_id":"isolated"}')) as execute:
+        with patch("creatoros.agent.plans.execute_tool_call",
+                   side_effect=lambda call, **kwargs: submit_controlled_tasks(self.db, call, **kwargs)) as execute:
             detail = plans.get(self.session_id, self.plan_id)
             edited = plans.edit(self.session_id, self.plan_id, detail["version"], self.steps)
             self.assertEqual(edited["continuation_state"], "failed")
@@ -138,6 +140,7 @@ os._exit(74)
                 plans.advance()
             self.assertEqual(execute.call_count, 0)
             self.assertEqual(plans.get(self.session_id, self.plan_id)["steps"][1]["status"], "pending")
+            assert_submission_state(self, self.db, 0)
 
             paused = plans.action(self.session_id, self.plan_id, edited["version"], "pause")
             resumed = plans.action(self.session_id, self.plan_id, paused["version"], "resume")
@@ -146,6 +149,7 @@ os._exit(74)
                 plans.advance()
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(plans.get(self.session_id, self.plan_id)["steps"][1]["status"], "succeeded")
+            assert_submission_state(self, self.db, 1)
             record_after = restarted._read(self.session_id)["requests"][0]
             self.assertEqual((record_after["continuation_outcome"], record_after["status"],
                               record_after["continuation_attempts"]), ("failed", "failed", 3))

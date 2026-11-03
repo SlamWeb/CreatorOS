@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from creatoros.agent.plans import PlanService
 from creatoros.storage import Base, ContentRepository, CreatorPlatform, Database
-from creatoros.tools.results import ToolResult
+from tests.plan_submission_fixture import prepare_topic, submit_controlled_tasks, assert_submission_state
 
 
 class IsolatedChat:
@@ -51,6 +51,7 @@ class UnknownContinuationEditTests(unittest.TestCase):
             Base.metadata.create_all(db.engine)
             ContentRepository(db).create_creator(creator_id="isolated", display_name="isolated",
                                                 platform=CreatorPlatform.XIAOHONGSHU)
+            prepare_topic(db)
             plans = PlanService(db, IsolatedChat(root))
             plans._pool = InlinePool()
             session_id = "isolated-session"
@@ -72,7 +73,8 @@ class UnknownContinuationEditTests(unittest.TestCase):
                 plans.action(session_id, plan_id, detail["version"], "resume")
             self.assertTrue(plans.fail_continuation(plan_id, event["event_id"], "worker", outcome="unknown"))
 
-            with patch("creatoros.agent.plans.execute_tool_call", return_value=ToolResult(content='{"run_id":"isolated"}')) as execute:
+            with patch("creatoros.agent.plans.execute_tool_call",
+                       side_effect=lambda call, **kwargs: submit_controlled_tasks(db, call, **kwargs)) as execute:
                 # Both an unchanged submission and an actual edit preserve the freeze.
                 detail = plans.get(session_id, plan_id)
                 unchanged = plans.edit(session_id, plan_id, detail["version"], steps)
@@ -88,6 +90,7 @@ class UnknownContinuationEditTests(unittest.TestCase):
                 self.assertEqual(frozen["steps"][1]["status"], "pending")
                 self.assertEqual(len(plans._pool.calls), 0)
                 self.assertEqual(execute.call_count, 0)
+                assert_submission_state(self, db, 0)
 
                 # A running plan requires an explicit pause/resume; an already
                 # paused plan can be explicitly resumed directly.
@@ -102,6 +105,7 @@ class UnknownContinuationEditTests(unittest.TestCase):
                 self.assertEqual(len(plans._pool.calls), 1)
                 self.assertEqual(execute.call_count, 1)
                 self.assertEqual(plans._pool.calls[0][-2], "start_content_run")
+                assert_submission_state(self, db, 1)
 
     def test_edit_after_unknown_with_running_plan(self):
         self.check_edit_and_resume(resume_before_crash=True)
