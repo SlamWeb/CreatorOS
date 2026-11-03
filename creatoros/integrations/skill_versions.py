@@ -55,10 +55,16 @@ def _records(catalog):
         yield catalog._record(path.stem)
 
 
-def list_versions(catalog, skill_id: str) -> dict:
-    source = catalog.describe(skill_id)
+def list_versions(catalog, skill_id: str, *, _described=None, _registry_records=None) -> dict:
+    described = {} if _described is None else _described
+    def describe(identity):
+        if identity not in described:
+            described[identity] = catalog.describe(identity)
+        return described[identity]
+    source = describe(skill_id)
     family = source["family_id"]
-    items = [catalog.describe(data["id"]) for data in _records(catalog)
+    records = _records(catalog) if _registry_records is None else _registry_records
+    items = [describe(data["id"]) for data in records
              if version_metadata(data)["family_id"] == family]
     items.sort(key=lambda item: (item["version_number"], item["id"]), reverse=True)
     return {"family_id": family, "items": items}

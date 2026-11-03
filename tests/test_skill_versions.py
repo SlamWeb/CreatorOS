@@ -64,6 +64,45 @@ class SkillVersionTests(unittest.TestCase):
         with self.assertRaises(SkillDigestConflict):
             self.catalog.resolve_selected_version(self.skill_id, expected_digest=self.initial)
 
+    def test_all_versions_reads_each_edition_once_and_observes_later_changes(self):
+        from creatoros.integrations import producer_skills, skill_versions
+
+        candidate = self.candidate()
+        source = self.root / "other-source"
+        shutil.copytree(self.root / "source", source)
+        (source / "SKILL.md").write_text(
+            "---\nname: other-version-test\ndescription: another family\n"
+            "creatoros-output: social-content-pack.image-carousel\n---\nOther.\n", encoding="utf-8")
+        other = self.catalog.register_local(source, role="production")
+        self.catalog.create_skill_candidate(other["id"], other["digest"], "other-candidate")
+
+        # Previous public ordering and payload: one representative per family,
+        # with all editions of that family in descending version order.
+        expected = {}
+        for representative in self.catalog.list():
+            identity = representative["id"]
+            if identity == self.catalog.BUILTIN_ID:
+                expected[identity] = {**representative, "family_id": identity,
+                    "version_number": 1, "version_status": "released",
+                    "digest": self.catalog.list_skill_files(identity)["digest"]}
+            else:
+                for item in self.catalog.list_skill_versions(identity)["items"]:
+                    expected[item["id"]] = item
+
+        with patch.object(producer_skills, "_digest", wraps=producer_skills._digest) as digest, \
+             patch.object(skill_versions, "_records", wraps=skill_versions._records) as records:
+            actual = self.catalog.list_all_skill_versions()
+        self.assertEqual(actual, list(expected.values()))
+        self.assertEqual(records.call_count, 1)
+        # Two safety hashes per registered edition, plus one for the built-in.
+        self.assertEqual(digest.call_count, 2 * 4 + 1)
+
+        updated = Path(candidate["local_path"]) / "assets/reference.png"
+        updated.write_bytes(image_bytes("red"))
+        fresh = self.catalog.list_all_skill_versions()
+        changed = next(item for item in fresh if item["id"] == candidate["id"])
+        self.assertNotEqual(changed["digest"], candidate["digest"])
+
     def test_description_rejects_asset_change_during_inspection(self):
         from creatoros.integrations import producer_skills
         inspect = producer_skills._inspect_checkout

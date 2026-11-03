@@ -359,7 +359,7 @@ class ProducerSkillCatalog:
         return {**current, "outputs": outputs, "capabilities": {"outputs": outputs},
                 "producible": self._producible(current) and current["version_status"] == "released"}
 
-    def list(self):
+    def list(self, *, _described=None):
         builtin = {"id": self.BUILTIN_ID, "name": self.BUILTIN_ID,
                    "description": "把知识点转成图片轮播", "carousel_compatible": True,
                    "compatibility_note": "内置生产技能", "commit": None, "github_url": None,
@@ -372,6 +372,8 @@ class ProducerSkillCatalog:
             data = json.loads(path.read_text(encoding="utf-8"))
             try:
                 described = self.describe(data["id"])
+                if _described is not None:
+                    _described[data["id"]] = described
                 if described["version_status"] == "candidate":
                     continue
                 family = described["family_id"]
@@ -383,6 +385,26 @@ class ProducerSkillCatalog:
                               "local_path": str(self.root / "working" / data["id"]),
                               "local_error": str(error)})
         return [*items, *families.values()]
+
+    @_skill_io_locked
+    def list_all_skill_versions(self):
+        """Enumerate once per request; no result survives the catalog read."""
+        from .skill_versions import _records, list_versions
+
+        described = {}
+        representatives = self.list(_described=described)
+        records = list(_records(self))
+        items = {}
+        for representative in representatives:
+            identity = representative["id"]
+            if identity == self.BUILTIN_ID:
+                items[identity] = {**representative, "family_id": identity,
+                    "version_number": 1, "version_status": "released",
+                    "digest": self.list_skill_files(identity)["digest"]}
+            else:
+                for item in list_versions(self, identity, _described=described, _registry_records=records)["items"]:
+                    items[item["id"]] = item
+        return list(items.values())
 
     @_skill_io_locked
     def create_skill_candidate(self, skill_id: str, expected_digest: str, request_id: str, *, creator_id: str | None = None) -> dict:
