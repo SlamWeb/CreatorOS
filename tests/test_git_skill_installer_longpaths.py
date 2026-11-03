@@ -11,6 +11,50 @@ from creatoros.integrations import producer_skills
 from creatoros.integrations.producer_skills import GitSkillInstaller, ProducerSkillCatalog, SkillInstallService, github_url
 
 
+def directory_at_length(path: Path, length: int) -> Path:
+    """Pad a fixture path with nonempty segments, or reject an impossible length."""
+    path = Path(path)
+    # Each iteration must add at least one character; the bound also guarantees
+    # a bad path implementation cannot turn this fixture into an infinite loop.
+    for _ in range(max(0, length - len(str(path))) + 1):
+        remaining = length - len(str(path))
+        if remaining == 0:
+            return path
+        if remaining < 2:
+            raise ValueError("Cannot reach the requested directory length with nonempty segments")
+        segment_length = min(45, remaining - 1)
+        if remaining - segment_length - 1 == 1:
+            segment_length -= 1  # Leave room for a final separator and character.
+        candidate = path / ("d" * segment_length)
+        if not len(str(path)) < len(str(candidate)) <= length:
+            raise ValueError("Cannot reach the requested directory length with nonempty segments")
+        path = candidate
+    raise ValueError("Cannot reach the requested directory length with nonempty segments")
+
+
+class FixtureDirectoryLengthTests(TestCase):
+    def test_multiple_start_and_target_lengths_are_exact(self):
+        for initial in (4, 45, 46, 47, 90, 94, 95, 186, 232):
+            base = Path("x" * initial)
+            for delta in (0, 2, 3, 45, 46, 47, 48, 92, 93, 94, 139):
+                with self.subTest(initial=initial, delta=delta):
+                    path = directory_at_length(base, initial + delta)
+                    self.assertEqual(len(str(path)), initial + delta)
+                    self.assertTrue(all(1 <= len(part) <= 45 for part in path.parts[1:]))
+
+    def test_one_character_remainder_adjusts_preceding_segment(self):
+        base = Path("x" * 94)
+        path = directory_at_length(base, 233)
+        self.assertEqual(len(str(path)), 233)
+        self.assertTrue(all(1 <= len(part) <= 45 for part in path.relative_to(base).parts))
+
+    def test_impossible_lengths_fail_instead_of_looping(self):
+        path = Path("fixture")
+        for target in (len(str(path)) - 1, len(str(path)) + 1):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                directory_at_length(path, target)
+
+
 class GitSkillInstallerLongPathTests(TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory(prefix="creatoros-git-install-")
@@ -59,11 +103,9 @@ class GitSkillInstallerLongPathTests(TestCase):
                               check=True, capture_output=True, encoding="utf-8", errors="replace")
 
     def deep_directory(self, name, length=233):
-        path = self.root / name
         # The reported workspace is 233 characters; install's /source makes
         # the actual checkout root exactly 240 characters.
-        while len(str(path)) < length:
-            path /= "d" * min(45, length - 1 - len(str(path)))
+        path = directory_at_length(self.root / name, length)
         path.mkdir(parents=True)
         self.assertEqual(len(str(path)), length)
         return path
