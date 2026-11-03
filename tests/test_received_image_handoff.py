@@ -44,27 +44,31 @@ class ReceivedImageHandoffTests(unittest.TestCase):
     def test_existing_accepted_only_receipt_remains_stable_if_another_event_arrives_later(self):
         import asyncio
         import hashlib
-        from creatoros.delivery.image import CHECKPOINT, accepted_submission, ingest
-        from creatoros.delivery.image_materials import accept_delivery_value
+        from creatoros.delivery.image import CHECKPOINT, SUBMISSION_INTENT, accepted_submission, ingest
+        from creatoros.delivery.image_materials import FileDelivery, accept_delivery_value
         from creatoros.integrations.artifact_submission import SUBMISSION, canonical
         from creatoros.integrations.visual_production import atomic_json
         first, path = self.receive("first", (10, 80, 120))
         handler = self.handler()
         payload = self.payload("received:only")
-        # Construct the same immutable receipt format produced by the prior
-        # implementation, which resolved this alias to the concrete path.
-        accepted = handler.submit(self.payload(path))
-        self.assertTrue(accepted["accepted"], accepted)
-        receipt_path = self.directory / SUBMISSION
-        state = json.loads(receipt_path.read_text(encoding="utf-8"))
+        # Materialize the old host receipt directly: that implementation had
+        # no intent file and resolved the alias to this concrete source path.
+        concrete = FileDelivery.model_validate(self.payload(path)).model_dump()
+        accept_delivery_value(self.directory, self.checkpoint, self.generated, self.bundle, concrete)
+        ingest(self.directory, self.checkpoint, self.generated)
         alias_hash = hashlib.sha256(canonical(payload).encode()).hexdigest()
-        state["payload_sha256"] = alias_hash
-        state["receipt"]["receipt_id"] = "delivery_" + alias_hash[:20]
-        accepted = state["receipt"]
+        accepted = {"accepted": True, "receipt_id": "delivery_" + alias_hash[:20],
+                    "count": len(self.checkpoint.pages),
+                    "message": "产物已接收，等待人工验收；不要重新生成或提交其他清单。"}
+        state = {"protocol": "tool-v1", "accepted": True, "thread_id": self.checkpoint.thread_id,
+                 "turn_id": handler.turn_id, "input_digest": self.checkpoint.input_digest,
+                 "payload_sha256": alias_hash, "submission": concrete, "receipt": accepted}
         raw = canonical(state)
+        receipt_path = self.directory / SUBMISSION
         receipt_path.write_text(raw, encoding="utf-8")
         self.checkpoint.submission_sha256 = hashlib.sha256(raw.encode()).hexdigest()
         atomic_json(self.directory / CHECKPOINT, self.checkpoint)
+        self.assertFalse((self.directory / SUBMISSION_INTENT).exists())
         self.receive("late", (90, 30, 10))
         self.checkpoint = type(self.checkpoint).model_validate_json((self.directory / CHECKPOINT).read_text(encoding="utf-8"))
         handler = self.handler()

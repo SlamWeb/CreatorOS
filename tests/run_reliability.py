@@ -77,7 +77,7 @@ CASES = [
     ("skill_context", ["-m", "unittest", "tests.test_model_projection", "tests.test_tool_index_context", "tests.test_skill_context_projection",
                        "tests.test_skill_edit_batch", "tests.test_saved_skill_routing", "-v"]),
     ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "tests.test_staged_task_visibility", "-v"]),
-    ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_queue_history", "tests.test_queue_owner_transfer", "tests.test_batch_production", "-v"]),
+    ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_queue_history", "tests.test_queue_owner_transfer", "tests.test_recovery_evidence", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
     # Controlled transport + real isolated files; reviewed and run without model credentials.

@@ -399,10 +399,10 @@ class ParallelProductionTests(unittest.TestCase):
         wait(lambda: len(producer.snapshot()[1]) == 5)
         original_finish = executor.queue.finish
 
-        def fail_one_receipt(item_id, run_id):
+        def fail_one_receipt(item_id, run_id, **kwargs):
             if run_id == runs[0].id:
                 raise OSError("isolated queue outcome persistence failure")
-            return original_finish(item_id, run_id)
+            return original_finish(item_id, run_id, **kwargs)
 
         with patch.object(executor.queue, "finish", side_effect=fail_one_receipt):
             producer.gates["topic-0"].set()
