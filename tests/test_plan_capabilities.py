@@ -7,9 +7,29 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 class PlanCapabilityTests(unittest.TestCase):
+    def test_schema_snapshot_rejects_unapproved_changes_after_normalization(self):
+        import creatoros.tools.definitions as definitions
+
+        mutations = [
+            ("manage_plan", ("parameters", "$defs", "PlanStepArgs", "properties", "wait_for_completion", "default"), True),
+            ("manage_skill_iteration", ("parameters", "properties", "action", "enum"), ["unapproved"]),
+            ("manage_skill_iteration", ("parameters", "properties", "expected_revision", "description"), "wrong guidance"),
+            ("get_content_run", ("description",), "unapproved"),
+        ]
+        for name, path, replacement in mutations:
+            with self.subTest(tool=name, path=path):
+                changed = copy.deepcopy(definitions.tools)
+                node = next(item["function"] for item in changed if item["function"]["name"] == name)
+                for key in path[:-1]:
+                    node = node[key]
+                node[path[-1]] = replacement
+                with patch.object(definitions, "tools", changed), self.assertRaises(AssertionError):
+                    self.test_registered_model_schemas_and_tool_inventory_are_unchanged()
+
     def test_explicit_completion_followup_has_a_waiting_plan_route(self):
         from creatoros.tools.definitions import tool_registry
         from creatoros.web.chat import ACCOUNT_INSTRUCTIONS
@@ -103,8 +123,7 @@ class PlanCapabilityTests(unittest.TestCase):
         # The current contract deliberately adds read-only production receipt
         # lookup and clarifies that a shared release may be forked privately.
         original = copy.deepcopy(tools)
-        # Only the model-facing waiting guidance changed; restoring it must
-        # recover the exact previous schema and all 53 registered tools.
+        # Normalize the explicitly approved waiting-plan guidance first.
         plan = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_plan")
         guidance = ("明确要求生产完成后核验、继续处理或汇报结果时，即使只有一项生产也创建计划，"
                     "start_content_run步骤设wait_for_completion=true；宿主观察原任务并在计划完成或失败后唤醒本会话。")
@@ -118,6 +137,25 @@ class PlanCapabilityTests(unittest.TestCase):
                     "通过manage_plan的生产步骤设置wait_for_completion=true。选择action：")
         self.assertEqual(run["description"].count(guidance), 1)
         run["description"] = run["description"].replace(guidance, "用户明确要求生产时选择action：")
+
+        # Independently verify and normalize RSI's action/revision guidance.
+        # The old whole-registry hash below then remains a strict guard for
+        # every other field, rather than blessing a new opaque hash.
+        rsi = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_skill_iteration")
+        rsi_guidance = ("start/get不传expected_revision；pause、resume、continue必须传最近get返回的任务expected_revision。")
+        self.assertEqual(rsi["description"].count(rsi_guidance), 1)
+        rsi["description"] = rsi["description"].replace(rsi_guidance, "")
+        rsi_anchor = "get返回阶段和active_round真实生产状态。"
+        self.assertEqual(rsi["description"].count(rsi_anchor), 1)
+        rsi["description"] = rsi["description"].replace(rsi_anchor, rsi_anchor + "pause/resume需当前revision；")
+        properties = rsi["parameters"]["properties"]
+        self.assertEqual(properties["action"].pop("description"),
+                         "start 创建时传 series_id、skill_id、topic_id，不传 iteration_id 和 expected_revision；"
+                         "get 查询传 iteration_id，不传 expected_revision；"
+                         "pause、resume、continue 必传 iteration_id 和 expected_revision。")
+        self.assertEqual(properties["expected_revision"].pop("description"),
+                         "expected_revision：start 和 get 不传；pause、resume、continue 必填最近 get 返回的任务 revision，"
+                         "不是栏目或 Skill 版本。")
         self.assertEqual(digest(original), "88ae1d91f88d937b0498f7047b24af904f91e1fcb7ac9388180d7945babdec89")
         topics = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_topics")
         full_text_description = "；用户明确要全文时逐字呈现，包括重复段落和结尾，不用次数概括替代。制作结果"
