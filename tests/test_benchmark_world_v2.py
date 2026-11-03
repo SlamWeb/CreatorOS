@@ -168,7 +168,7 @@ def isolated_worker(directory):
             assert empty_codex["images"]["received_unique"] == 0
             assert empty_codex["usage"]["total"]["input_tokens"] is None
             check_collector_component_fixture(world, collect_codex_evidence)
-        print(json.dumps({"status": "passed", "tables": 30, "http_scope_checks": 3,
+        print(json.dumps({"status": "passed", "tables": len(before["database"]), "http_scope_checks": 3,
             "zip_images": 2, "model_calls": 0, "new_attempts": 0, "b19_artifact_target": True}))
     finally:
         world.close()
