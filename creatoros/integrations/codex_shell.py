@@ -1,4 +1,4 @@
-"""Select an unpackaged Windows shell for this SDK child, never globally."""
+"""Scope Codex child environment and select an unpackaged Windows shell."""
 from __future__ import annotations
 
 import os
@@ -32,27 +32,43 @@ def _usable_executable(path: Path) -> bool:
 
 def _launches(path: Path) -> bool:
     try:
+        environment = {key: os.environ[key] for key in os.environ if key.casefold() != "deepseek_api_key"}
+        environment.update(codex_secret_overrides())
         result = subprocess.run(
             [str(path), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             timeout=5, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=environment,
         )
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
-def codex_subprocess_env(environ: Mapping[str, str] | None = None) -> dict[str, str] | None:
-    """Return PATH-only overrides for CodexConfig.env; POSIX needs no overrides.
+def codex_secret_overrides(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Blank CreatorOS's DeepSeek key in the SDK child, including case variants.
+
+    Codex SDK 0.157.1 merges these overrides into its inherited environment;
+    omitting a name would not remove it. Empty is not the same as absent.
+    """
+    environment = os.environ if environ is None else environ
+    names = {name for name in environment if name.casefold() == "deepseek_api_key"}
+    names.add("DEEPSEEK_API_KEY")
+    return {name: "" for name in names}
+
+
+def codex_subprocess_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return CodexConfig.env overrides for credentials and the Windows shell.
 
     Windows Codex discovers pwsh before powershell, irrespective of SHELL.
     A host launch probe catches broken executables but is not a sandbox probe.
     """
+    environment = os.environ if environ is None else environ
     if os.name != "nt":
-        return None
-    environment = dict(os.environ if environ is None else environ)
-    values = {key.casefold(): value for key, value in environment.items()}
+        return codex_secret_overrides(environment)
+    shell_names = {"creatoros_powershell_executable", "programfiles", "userprofile", "systemroot"}
+    values = {key.casefold(): environment[key] for key in environment if key.casefold() in shell_names}
     path_keys = [key for key in environment if key.casefold() == "path"]
     path_key = "Path" if "Path" in path_keys else (path_keys[-1] if path_keys else "PATH")
     entries = [entry.strip('"') for entry in environment.get(path_key, "").split(";") if entry]
@@ -95,4 +111,6 @@ def codex_subprocess_env(environ: Mapping[str, str] | None = None) -> dict[str, 
     path_value = ";".join([selected_parent, *retained])
     # SDK merges overrides into inherited env; update every casing rather than
     # adding a competing PATH/Path key that Windows may resolve unpredictably.
-    return {key: path_value for key in (path_keys or ["PATH"])}
+    overrides = codex_secret_overrides(environment)
+    overrides.update({key: path_value for key in (path_keys or ["PATH"])})
+    return overrides

@@ -15,12 +15,13 @@ from .worker_protocol import _write
 
 
 async def verify_history(directory: Path) -> dict:
-    from openai_codex import AsyncCodex, AsyncThread
+    from openai_codex import AsyncCodex, AsyncThread, CodexConfig
+    from .codex_shell import codex_secret_overrides
     checkpoint = load_checkpoint(directory)
     if checkpoint is None:
         raise ValueError("原任务的输入、Skill 或预览证据无效。")
     # Constructing a handle and reading history does not start/resume a turn.
-    async with AsyncCodex() as client:
+    async with AsyncCodex(CodexConfig(env=codex_secret_overrides())) as client:
         response = await asyncio.wait_for(AsyncThread(client, checkpoint.thread_id).read(include_turns=True), 30)
     thread = response.thread
     cwd = getattr(thread.cwd, "root", thread.cwd)

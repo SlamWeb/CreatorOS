@@ -51,7 +51,7 @@ CASES = [
     ("chat_focus", ["-m", "unittest", "tests.test_chat_focus", "-v"]),
     ("creator_directory", ["-m", "unittest", "tests.test_creator_directory", "-v"]),
     ("offline_adoption", ["-m", "unittest", "tests.test_offline_adoption", "-v"]),
-    ("codex_environment", ["-m", "unittest", "tests.test_codex_shell", "tests.test_composition_environment", "-v"]),
+    ("codex_environment", ["-m", "unittest", "tests.test_codex_shell", "tests.test_codex_secret_isolation", "tests.test_composition_environment", "-v"]),
     ("topic_library_order", ["-m", "unittest", "tests.test_topic_library_order", "tests.test_topic_library_production", "-v"]),
     ("auxiliary_job_queues", ["-m", "unittest", "tests.test_auxiliary_job_queues", "-v"]),
     ("skill_job_queue", ["-m", "unittest", "tests.test_skill_job_queue", "-v"]),

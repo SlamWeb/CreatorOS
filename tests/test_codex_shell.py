@@ -26,6 +26,9 @@ class CodexShellTests(unittest.TestCase):
         path.touch()
         return path
 
+    def assert_paths(self, actual, paths):
+        self.assertEqual(actual, {"DEEPSEEK_API_KEY": "", **paths})
+
     def test_prefers_native_program_files_and_removes_store_alias_only(self):
         safe = self.executable("programs/PowerShell/7/pwsh.exe")
         alias = self.executable("user/WindowsApps/pwsh.exe")
@@ -34,7 +37,7 @@ class CodexShellTests(unittest.TestCase):
                "Path": f"{alias.parent};{runtime.parent};D:\\bin", "SECRET": "not-returned"}
         original = env.copy()
         actual = codex_shell.codex_subprocess_env(env)
-        self.assertEqual(actual, {"Path": f"{safe.parent};{runtime.parent};D:\\bin"})
+        self.assert_paths(actual, {"Path": f"{safe.parent};{runtime.parent};D:\\bin"})
         self.assertEqual(env, original)
 
     def test_bundled_portable_precedes_store(self):
@@ -42,12 +45,12 @@ class CodexShellTests(unittest.TestCase):
         alias = self.executable("WindowsApps/pwsh.exe")
         actual = codex_shell.codex_subprocess_env({"USERPROFILE": str(self.root / "user"),
                                                  "PATH": str(alias.parent)})
-        self.assertEqual(actual, {"PATH": str(portable.parent)})
+        self.assert_paths(actual, {"PATH": str(portable.parent)})
 
     def test_path_portable_discovery(self):
         safe = self.executable("portable/pwsh.exe")
-        self.assertEqual(codex_shell.codex_subprocess_env({"PATH": str(safe.parent)}),
-                         {"PATH": str(safe.parent)})
+        self.assert_paths(codex_shell.codex_subprocess_env({"PATH": str(safe.parent)}),
+                          {"PATH": str(safe.parent)})
 
     def test_explicit_windows_powershell_cannot_be_shadowed_by_pwsh(self):
         native = self.executable("system/powershell.exe")
@@ -56,7 +59,7 @@ class CodexShellTests(unittest.TestCase):
             "CREATOROS_POWERSHELL_EXECUTABLE": str(native),
             "PATH": f"{shadow.parent};D:\\bin",
         })
-        self.assertEqual(actual, {"PATH": f"{native.parent};D:\\bin"})
+        self.assert_paths(actual, {"PATH": f"{native.parent};D:\\bin"})
 
     def test_broken_pwsh_falls_back_to_system_and_is_removed(self):
         broken = self.executable("broken/pwsh.exe")
@@ -64,7 +67,7 @@ class CodexShellTests(unittest.TestCase):
         self.probe.side_effect = lambda path: path == native
         actual = codex_shell.codex_subprocess_env({
             "SystemRoot": str(self.root / "windows"), "PATH": str(broken.parent)})
-        self.assertEqual(actual, {"PATH": str(native.parent)})
+        self.assert_paths(actual, {"PATH": str(native.parent)})
 
     def test_explicit_missing_store_or_wrong_executable_fail_closed(self):
         for value in ("missing/pwsh.exe", "WindowsApps/pwsh.exe", "portable/cmd.exe"):
@@ -88,8 +91,8 @@ class CodexShellTests(unittest.TestCase):
         safe = self.executable("portable/pwsh.exe")
         actual = codex_shell.codex_subprocess_env({
             "CREATOROS_POWERSHELL_EXECUTABLE": str(safe), "Path": "D:\\preferred", "PATH": "D:\\stale"})
-        self.assertEqual(actual, {"Path": f"{safe.parent};D:\\preferred",
-                                  "PATH": f"{safe.parent};D:\\preferred"})
+        self.assert_paths(actual, {"Path": f"{safe.parent};D:\\preferred",
+                                   "PATH": f"{safe.parent};D:\\preferred"})
 
     def test_no_shell_available_fails(self):
         with patch.object(codex_shell, "_usable_executable", return_value=False):
@@ -102,7 +105,7 @@ class CodexShellTests(unittest.TestCase):
         actual = codex_shell.codex_subprocess_env()
         self.assertEqual(dict(os.environ), before)
         self.assertTrue(actual)
-        first = Path(next(iter(actual.values())).split(";")[0])
+        first = Path(next(value for key, value in actual.items() if key.casefold() == "path").split(";")[0])
         safe = first / "pwsh.exe"
         if not safe.is_file():
             safe = first / "powershell.exe"
@@ -119,9 +122,9 @@ class ShellClassifierTests(unittest.TestCase):
         self.assertFalse(codex_shell._store_powershell(
             r"C:\WindowsApps\OpenAI.CodexPrimaryRuntime\native\powershell\pwsh.exe"))
 
-    def test_posix_returns_no_env_override(self):
+    def test_posix_blanks_secret_without_modifying_path(self):
         with patch.object(codex_shell.os, "name", "posix"):
-            self.assertIsNone(codex_shell.codex_subprocess_env({"PATH": "/bin"}))
+            self.assertEqual(codex_shell.codex_subprocess_env({"PATH": "/bin"}), {"DEEPSEEK_API_KEY": ""})
 
     def test_launch_probe_is_bounded_and_quiet(self):
         with patch.object(codex_shell.subprocess, "run",
