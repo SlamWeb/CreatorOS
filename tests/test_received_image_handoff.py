@@ -27,25 +27,38 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertEqual(len(self.store.read().assets), 1)
         self.assertEqual(self.checkpoint.pages[0].asset_id, asset.asset_id)
 
-    def test_only_received_image_can_be_submitted_without_reading_a_path(self):
+    def test_only_received_image_is_returned_for_explicit_selection(self):
         asset, source = self.receive("only-image", (10, 80, 120))
         source.unlink()  # The SDK file can disappear after the host captured it.
         handler = self.handler()
         payload = self.payload("received:only")
-        first = handler.submit(payload)
+        listed = handler.submit(payload)
+        self.assertFalse(listed["accepted"], listed)
+        self.assertTrue(listed["retryable"])
+        self.assertEqual(self.checkpoint.submission_failures, 0)
+        first = handler.submit(self.payload(listed["received_images"][0]["source_image_path"]))
         self.assertTrue(first["accepted"], first)
-        self.assertEqual(handler.submit(payload), first)
         self.assertEqual(self.checkpoint.pages[0].asset_id, asset.asset_id)
         self.assertEqual(len(self.store.read().assets), 1)
 
-    def test_accepted_only_reference_remains_stable_if_another_event_arrives_later(self):
+    def test_existing_accepted_only_receipt_remains_stable_if_another_event_arrives_later(self):
+        import hashlib
         from creatoros.delivery.image import accepted_submission, ingest
         from creatoros.delivery.image_materials import accept_delivery_value
+        from creatoros.integrations.artifact_submission import SUBMISSION, canonical
         first, path = self.receive("first", (10, 80, 120))
         handler = self.handler()
         payload = self.payload("received:only")
-        accepted = handler.submit(payload)
+        # Construct the same immutable receipt format produced by the prior
+        # implementation, which resolved this alias to the concrete path.
+        accepted = handler.submit(self.payload(path))
         self.assertTrue(accepted["accepted"], accepted)
+        receipt_path = self.directory / SUBMISSION
+        state = json.loads(receipt_path.read_text(encoding="utf-8"))
+        state["payload_sha256"] = hashlib.sha256(canonical(payload).encode()).hexdigest()
+        raw = canonical(state)
+        receipt_path.write_text(raw, encoding="utf-8")
+        self.checkpoint.submission_sha256 = hashlib.sha256(raw.encode()).hexdigest()
         self.receive("late", (90, 30, 10))
         saved = accepted_submission(self.directory, self.checkpoint)
         self.assertEqual(saved["submission"]["artifacts"][0]["source_image_path"], str(path))
@@ -94,6 +107,33 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertTrue(accepted["accepted"], accepted)
         self.assertEqual(self.checkpoint.pages[0].asset_id, second.asset_id)
 
+    def test_only_reference_must_not_confirm_before_queued_image_event_is_observed(self):
+        import asyncio
+
+        self.receive("first", (10, 80, 120))
+        handler = self.handler()
+
+        async def submit_while_second_event_is_queued():
+            events = asyncio.Queue()
+            events.put_nowait(("second", (90, 30, 10)))
+
+            async def receive_later():
+                # The SDK request adapter yields once before invoking the tool,
+                # but its separate event consumer may be delayed longer.
+                await asyncio.sleep(0.05)
+                self.receive(*events.get_nowait())
+
+            pending = asyncio.create_task(receive_later())
+            await asyncio.sleep(0)  # Mirror the adapter's scheduling yield.
+            result = await handler(self.payload("received:only"))
+            await pending
+            return result
+
+        result = asyncio.run(submit_while_second_event_is_queued())
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(self.checkpoint.pages, [])
+        self.assertEqual(len(self.store.read().assets), 2)
+
     def test_only_received_image_with_no_images_never_invents_a_file(self):
         response = self.handler().submit(self.payload("received:only"))
         self.assertFalse(response["accepted"])
@@ -134,7 +174,10 @@ class ReceivedImageHandoffTests(unittest.TestCase):
             await pending
             return result
         result = asyncio.run(execute())
-        self.assertTrue(result["accepted"], result)
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(len(result["received_images"]), 1)
+        accepted = self.handler().submit(self.payload(result["received_images"][0]["source_image_path"]))
+        self.assertTrue(accepted["accepted"], accepted)
         self.assertEqual(len(self.store.read().assets), 1)
 
     def test_recovered_paths_keep_selected_order_and_duplicate_submission_is_idempotent(self):

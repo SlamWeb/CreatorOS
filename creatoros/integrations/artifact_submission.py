@@ -99,7 +99,6 @@ class ImageSubmission:
             return {"accepted": False, "retryable": False, "error": "交付修正已达3次上限，已有图片保留。"}
         from creatoros.delivery.image_assets import ImageAssetStore
         artifacts = arguments.get("artifacts")
-        resolved_arguments = arguments
         if isinstance(artifacts, list) and any(isinstance(item, dict) and
                 item.get("source_image_path") == RECEIVED_ONLY for item in artifacts):
             try:
@@ -113,20 +112,16 @@ class ImageSubmission:
                         "error": "仍有图片正在生成或接收，请等待完成后明确选择，不要重新生图。",
                         "received_images": [{"source_image_path": item.source_image_path,
                                              "image_prompt": item.revised_prompt} for item in assets]}
-            if len(assets) != 1:
-                return {"accepted": False, "retryable": True,
-                        "error": "本次已接收图片不是恰好一张，请从已接收图片中明确选择。",
-                        "received_images": [{"source_image_path": item.source_image_path,
-                                             "image_prompt": item.revised_prompt} for item in assets],
-                        "instruction": "图片仍在接收中时等待；否则按实际图片路径选择，不要重新生图。"}
-            # Freeze the actual source in the host receipt. A later image event
-            # must not change the meaning of an already accepted submission.
-            resolved_arguments = {**arguments, "artifacts": [
-                {**item, "source_image_path": assets[0].source_image_path}
-                if isinstance(item, dict) and item.get("source_image_path") == RECEIVED_ONLY else item
-                for item in artifacts]}
+            # A dynamic-tool request and SDK image events travel through
+            # separate queues. Even one observed image does not prove there is
+            # no later event. Never choose a new submission on that guess.
+            return {"accepted": False, "retryable": True,
+                    "error": "请从已接收图片中明确选择实际图片路径。",
+                    "received_images": [{"source_image_path": item.source_image_path,
+                                         "image_prompt": item.revised_prompt} for item in assets],
+                    "instruction": "清单只包含目前已接收的图片；若仍有生成或接收未完成，请等待，不要重新生图。"}
         try:
-            value = FileDelivery.model_validate(resolved_arguments)
+            value = FileDelivery.model_validate(arguments)
             accept_delivery_value(self.directory, checkpoint, self.generated_root, self.bundle,
                                   value.model_dump())
             ingest(self.directory, checkpoint, self.generated_root)
@@ -155,8 +150,8 @@ class ImageSubmission:
 
 SUBMIT_DESCRIPTION = (
     "提交本次已生成的最终图片及文案。图片使用生图工具实际返回的路径，按展示顺序从1编号。"
-    "如果拿不到图片路径，且本次只接收了一张，可将source_image_path写为received:only；"
-    "若有多张，宿主会返回已接收图片供明确选择，不要重新生图。"
+    "如果拿不到图片路径，可先将source_image_path写为received:only查询已接收清单；"
+    "它不会自动选择图片。等所有生成调用完成后，按返回的实际路径明确提交，不要重新生图。"
     "宿主当场检查；accepted=false时只修正交付信息后重试，不重新生图；retryable=false时停止。"
     "accepted=true后交付已保存，再向用户简短汇报。重复提交相同清单复用同一回执。"
 )
