@@ -2,7 +2,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
 
 from creatoros.storage import (
@@ -15,6 +17,7 @@ from creatoros.storage import (
     TopicStatus,
     upgrade_database,
 )
+from creatoros.config import PROJECT_ROOT
 
 
 with TemporaryDirectory() as temporary_directory:
@@ -23,22 +26,11 @@ with TemporaryDirectory() as temporary_directory:
     upgrade_database(database_url)
 
     database = Database(database_url)
-    assert set(inspect(database.engine).get_table_names()) == {
-        "alembic_version",
-        "content_attempts",
-        "content_revisions",
-        "content_run_events",
-        "content_runs",
-        "creators",
-        "operation_events",
-        "pending_operations",
-        "series",
-        "topics",
-        "write_receipts",
-    }
+    assert set(inspect(database.engine).get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
     with database.engine.connect() as connection:
         migration_context = MigrationContext.configure(connection)
-        assert migration_context.get_current_revision() == "20260923_0006"
+        head = ScriptDirectory.from_config(Config(str(PROJECT_ROOT / "alembic.ini"))).get_current_head()
+        assert migration_context.get_current_revision() == head
         assert compare_metadata(migration_context, Base.metadata) == []
 
     repository = ContentRepository(database)

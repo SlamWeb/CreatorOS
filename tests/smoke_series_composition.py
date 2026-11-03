@@ -10,6 +10,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -17,7 +18,7 @@ from creatoros.config import PROJECT_ROOT
 from creatoros.storage import Base, Database, Series, upgrade_database
 
 OLD_REVISION = "20260904_0004"
-HEAD_REVISION = "20260923_0006"
+HEAD_REVISION = ScriptDirectory.from_config(Config(str(PROJECT_ROOT / "alembic.ini"))).get_current_head()
 TS = "2026-09-20 10:00:00.000000"
 
 SNAPSHOT = {
@@ -71,6 +72,28 @@ def _expect_integrity_error(connection, statement: str, params: dict) -> None:
     raise AssertionError(f"应被拒绝但未拒绝：{statement}")
 
 
+def _assert_upgraded_runs(connection, original):
+    runs = _rows(connection, "content_runs")
+    for row in runs:
+        assert "task_id" in row and row.pop("task_id") is None, "历史 Run 不应被赋予制作任务"
+    assert runs == original, "旧 Run 输入 JSON 等字段必须逐字节不变"
+
+
+def _assert_upgraded_topics(connection, original):
+    topics = _rows(connection, "topics")
+    for row in topics:
+        assert "reference_id" in row and row.pop("reference_id") is None, "历史选题不应被赋予来源引用"
+    assert topics == original, "旧选题原有字段必须保持不变"
+
+
+def _assert_head_schema(connection):
+    context = MigrationContext.configure(connection)
+    assert context.get_current_revision() == HEAD_REVISION
+    assert set(inspect(connection).get_table_names()) == set(Base.metadata.tables) | {"alembic_version"}
+    diff = compare_metadata(context, Base.metadata)
+    assert diff == [], f"模型与迁移结果存在漂移：{diff}"
+
+
 def check_data_preservation(url: str) -> None:
     upgrade_database(url, OLD_REVISION)
     engine = create_engine(url)
@@ -79,10 +102,10 @@ def check_data_preservation(url: str) -> None:
         before = {table: _rows(connection, table) for table in ("creators", "series", "topics", "content_runs")}
     upgrade_database(url)
     with engine.connect() as connection:
-        assert MigrationContext.configure(connection).get_current_revision() == HEAD_REVISION
+        _assert_head_schema(connection)
         assert _rows(connection, "creators") == before["creators"]
-        assert _rows(connection, "topics") == before["topics"]
-        assert _rows(connection, "content_runs") == before["content_runs"], "旧 Run 输入 JSON 等字段必须逐字节不变"
+        _assert_upgraded_topics(connection, before["topics"])
+        _assert_upgraded_runs(connection, before["content_runs"])
         migrated = _rows(connection, "series")
         assert len(migrated) == len(before["series"]) == 1
         row = migrated[0]
@@ -90,18 +113,22 @@ def check_data_preservation(url: str) -> None:
             assert row[key] == value, f"旧栏目字段 {key} 被迁移修改"
         assert row["mind_skill_id"] is None and row["production_skill_id"] is None
         assert row["revision"] == 1
-        diff = compare_metadata(MigrationContext.configure(connection), Base.metadata)
-        assert diff == [], f"模型与迁移结果存在漂移：{diff}"
     # 降级回旧结构：纯旧数据必须完整保留。
     _alembic("downgrade", url, OLD_REVISION)
     with engine.connect() as connection:
         assert MigrationContext.configure(connection).get_current_revision() == OLD_REVISION
-        assert _rows(connection, "series") == before["series"]
-        assert _rows(connection, "content_runs") == before["content_runs"]
+        for table, original in before.items():
+            assert _rows(connection, table) == original, f"降级改变旧表 {table}"
     # 再次升级后仍一致（可重复迁移）。
     upgrade_database(url)
     with engine.connect() as connection:
-        assert _rows(connection, "content_runs") == before["content_runs"]
+        _assert_head_schema(connection)
+        _assert_upgraded_runs(connection, before["content_runs"])
+        assert _rows(connection, "creators") == before["creators"]
+        _assert_upgraded_topics(connection, before["topics"])
+        row = _rows(connection, "series")[0]
+        assert {key: row[key] for key in before["series"][0]} == before["series"][0]
+        assert row["mind_skill_id"] is None and row["production_skill_id"] is None and row["revision"] == 1
     engine.dispose()
 
 
@@ -112,6 +139,11 @@ def check_contract_constraints(url: str) -> None:
         connection.execute(text(
             "INSERT INTO creators (id, display_name, platform, timezone, is_active, created_at, updated_at)"
             " VALUES ('c1', '账号一', 'xiaohongshu', 'Asia/Shanghai', 1, :ts, :ts)"
+        ), {"ts": TS})
+        # 现行 0023 契约允许只使用栏目 Skill 池，不设置旧默认绑定。
+        connection.execute(text(
+            "INSERT INTO series (id, creator_id, name, description, audience, skill_name, selection_policy, publish_policy, replenish_threshold, revision, is_active, created_at, updated_at)"
+            " VALUES ('s-pool', NULL, '仅栏目池', 'd', 'a', NULL, 'approval', 'approval', 5, 1, 1, :ts, :ts)"
         ), {"ts": TS})
         # 未分配的旧单 Skill 栏目可以存在。
         connection.execute(text(
