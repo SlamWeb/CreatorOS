@@ -48,12 +48,14 @@ class SkillCalibrationService:
     def __init__(self, database, extractions, artifacts):
         self.database, self.extractions, self.artifacts = database, extractions, artifacts
         self.catalog = extractions.catalog
+        from .skill_version_service import SkillVersionService
+        self.versions = SkillVersionService(database, extractions)
         extractions.calibration_service = self
 
     def start(self):
         # Recovery never submits a model call, scans old extraction jobs, or edits Runs.
         from .skill_calibration_apply import recover
-        with self.extractions.lock, _SKILL_EDIT_LOCK:
+        with self.extractions.lock:
             with self.database.session() as session:
                 identifiers = list(session.scalars(select(SkillCalibration.id).where(
                     SkillCalibration.status == "applying")))
@@ -116,6 +118,9 @@ class SkillCalibrationService:
                 for label in evidence.get("artifacts", [])]
             reference_labels = [{**label, "url": f"/api/skill-calibrations/{identifier}/evidence/{page['image_index']}"}
                 for label, page in zip(evidence.get("references", []), context.get("references", []))]
+            receipt = row.apply_json if isinstance(row.apply_json, dict) else {}
+            receipt_error = ("保存记录无法核验，原记录保留；请检查后处理。"
+                             if row.status == "applying" and not isinstance(row.apply_json, dict) else None)
             return {"id": row.id, "request_id": row.request_id, "series_id": row.series_id,
                 "creator_id": row.creator_id, "skill_id": row.skill_id,
                 "base_skill_digest": row.base_skill_digest, "status": status,
@@ -125,9 +130,12 @@ class SkillCalibrationService:
                 "affected_series": self.affected_series(row.skill_id),
                 "artifacts": artifact_labels, "references": reference_labels,
                 "instruction": evidence.get("instruction", ""),
-                "apply_phase": (row.apply_json or {}).get("phase"),
-                "apply_request_id": (row.apply_json or {}).get("request_id"),
-                "applied_digest": row.applied_digest, "error": row.last_error or job.get("error"),
+                "apply_phase": receipt.get("phase"),
+                "apply_request_id": receipt.get("request_id"),
+                "apply_version_skill_id": receipt.get("version_skill_id"),
+                "apply_candidate_digest": receipt.get("candidate_digest"),
+                "apply_switch_request_id": receipt.get("switch_request_id"),
+                "applied_digest": row.applied_digest, "error": receipt_error or row.last_error or job.get("error"),
                 "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat()}
 
     def list(self, series_id=None):

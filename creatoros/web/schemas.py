@@ -41,6 +41,15 @@ class CreatorView(ApiModel):
     series: list[SeriesView]
 
 
+class CreatorDirectoryItem(ApiModel):
+    id: str
+    display_name: str
+
+
+class CreatorDirectoryView(ApiModel):
+    items: list[CreatorDirectoryItem]
+
+
 class TopicView(ApiModel):
     id: str
     series_id: str

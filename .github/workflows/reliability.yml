@@ -20,7 +20,9 @@ env:
 jobs:
   backend:
     runs-on: windows-latest
-    timeout-minutes: 30
+    # The full local shards take about 30 minutes before the latest cases.
+    # Keep a ceiling for hung jobs without cutting off a completed test group.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:

@@ -130,6 +130,8 @@ class ProductionTaskTests(unittest.TestCase):
     def test_default_and_selected_freeze_complete_skill_before_queue(self):
         producer, runs, executor, tasks = self.make(concurrency=1)
         other = self.skill("other", "legacy_end_to_end")
+        from creatoros.integrations.skill_library import SkillLibraryService
+        SkillLibraryService(self.db, self.catalog).add("creator", other["id"], "selected-freeze-authority")
         result = tasks.create("topic", request_id="frozen", tasks=[dict(title="Default"),
             dict(title="Selected", skill_overrides=self.selection(other))])
         wait(lambda: producer.count_active() == 1)
@@ -180,6 +182,8 @@ class ProductionTaskTests(unittest.TestCase):
         self.finish(producer, executor, result)
         first, sibling = result["items"]
         source = runs.get(first["run_id"])
+        from creatoros.integrations.skill_library import SkillLibraryService
+        SkillLibraryService(self.db, self.catalog).add("creator", self.base["id"], "preserve-fresh-skill-access")
         with self.db.session() as session:
             session.get(Series, "single").skill_name = "knowledge-to-carousel"
         fresh = runs.restart_fresh(source.id, expected_version=source.version, request_id="fresh-one")

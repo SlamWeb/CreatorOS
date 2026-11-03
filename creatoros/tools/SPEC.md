@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-03 · 共享 Skill 的账号候选说明
+
+`update_producer_skill_file` 的工具说明区分共享发布版原件与账号私有候选：当前账号可用的非内置发布版可在用户明确要求时派生并编辑本账号候选，不覆盖原件或访问其他账号的私有候选。只问权限或明确禁止写入时不调用写工具；已有权限与版本校验保持不变。
+
 ## 2026-11-03 · 提炼后台任务入口
 
 提炼任务的宿主观察超时、中断或读取失败时，保留原任务身份、最后已知状态和可直达的 /skills?extraction=... 链接；原回执有链接时优先保留。错误仍标记为未知，不重新创建任务，也不声称草稿已经完成。链接编码与页面进度事件一致，模型可见结果和完整工具结果使用同一链接。
@@ -377,3 +381,5 @@ Skill 单项写入必须核对成功回执的实际版本身份、摘要和路�
 - `tests.test_staged_production_agent`、`tests.test_production_task_tools` 与精确导出回执定向回归共 17 项通过；最终规范化请求键和省略摘要的同轮图片→依赖视频→重放路径另定向 3 项通过。真实隔离 loopback HTTP/SQLite/Skill 文件、真实音频探测解码；图像生产使用受控本地夹具，不代表真实视频或模型质量验收。
 - get_creator_tasks 包含尚无 Run 的 waiting/needs_attention/cancelled 制作，具名选题/素材集入口由宿主严格重建；已存在 Run 时不重复计算 task。紧凑投影保留任务类型/等待依赖和恢复入口，排除 definition。相关新旧 HTTP/导航 20 项通过（缺 codec 时三项明确 skip），worker/Observation 只读 smoke 通过。
 - 既有 reliability allowlist 新增 skill_libraries/staged_production 组、等待可见性和 Observation smoke。配置真实 ffmpeg/ffprobe 后相关 43 项通过；未配置时仅 codec case 报 skip，库/权限/结构/导航仍执行。通过 PATH 或 CREATOROS_FFMPEG、CREATOROS_FFPROBE 指向现有可执行文件，不为 CI 额外下载媒体运行时。
+
+- 拆分生产写入结果未知时，宿主保留原 request_id 和只读回执路径；`manage_topics(get, topic_id, production_request_id)` 核对该次回执，`unknown` 不是未受理的证明，不自动更换请求重新生产。无效回执、非 JSON、5xx 和传输结果不明按未知处理；明确的 4xx 与读取失败保留各自错误，不误称写结果未知。

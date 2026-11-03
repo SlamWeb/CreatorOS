@@ -383,23 +383,27 @@ class MediaCollectionService:
 
     def _image_binding(self, creator_id, identifier, run_id, revision_id):
         with self.database.session() as session:
-            self._creator(session, creator_id)
-            collection = self._row(session, creator_id, identifier)
-            run, topic = self._run(session, creator_id, run_id)
-            if collection.topic_id:
-                self._topic(session, creator_id, collection.topic_id)
-            if run_id not in collection.run_ids_json and run.topic_id != collection.topic_id:
-                raise _error("图片不属于此素材文件夹。", "not_found", 404)
-            if run_id not in collection.run_ids_json and session.scalar(select(ProductionTask.id).where(
-                    ProductionTask.collection_id == identifier).limit(1)):
-                task = session.get(ProductionTask, run.task_id) if run.task_id else None
-                if task is None or task.collection_id != identifier:
-                    raise _error("图片不属于此制作素材集。", "not_found", 404)
-            revision = session.get(ContentRevision, revision_id)
-            if revision is None or revision.content_run_id != run_id or not revision.artifact_digest:
-                raise _error("图片版本不存在。", "not_found", 404)
-            self._frozen(revision.production_input_json, creator_id, topic)
-            return revision.artifact_digest
+            return self.image_binding_in_session(session, creator_id, identifier, run_id, revision_id)
+
+    def image_binding_in_session(self, session, creator_id, identifier, run_id, revision_id):
+        """Recheck source ownership and membership in the caller's transaction."""
+        self._creator(session, creator_id)
+        collection = self._row(session, creator_id, identifier)
+        run, topic = self._run(session, creator_id, run_id)
+        if collection.topic_id:
+            self._topic(session, creator_id, collection.topic_id)
+        if run_id not in collection.run_ids_json and run.topic_id != collection.topic_id:
+            raise _error("图片不属于此素材文件夹。", "not_found", 404)
+        if run_id not in collection.run_ids_json and session.scalar(select(ProductionTask.id).where(
+                ProductionTask.collection_id == identifier).limit(1)):
+            task = session.get(ProductionTask, run.task_id) if run.task_id else None
+            if task is None or task.collection_id != identifier:
+                raise _error("图片不属于此制作素材集。", "not_found", 404)
+        revision = session.get(ContentRevision, revision_id)
+        if revision is None or revision.content_run_id != run_id or not revision.artifact_digest:
+            raise _error("图片版本不存在。", "not_found", 404)
+        self._frozen(revision.production_input_json, creator_id, topic)
+        return revision.artifact_digest
 
     def image(self, creator_id, identifier, run_id, revision_id, order, *, checksum):
         digest = self._image_binding(creator_id, identifier, run_id, revision_id)

@@ -44,6 +44,8 @@ class ManageTopicsArgs(BaseModel):
                                  description="list/create的真实栏目ID；账号由宿主会话约束。")
     topic_id: str | None = Field(default=None, min_length=1, max_length=80,
                                 description="get/update/remove操作的原选题ID，不新建替代。")
+    production_request_id: str | None = Field(default=None, min_length=1, max_length=64,
+        description="仅 get：使用未知制作结果中返回的原 request_id 只读核对该次回执。")
     query: TopicQuery | None = Field(default=None, description="仅list：筛选与分页。")
     topics: list[QueueTopicItem] | None = Field(default=None, min_length=1, max_length=50,
                                                description="仅create：用户明确要求新建的选题，保留reference_id。")
@@ -57,7 +59,7 @@ class ManageTopicsArgs(BaseModel):
     def action_fields(self):
         required, optional = {
             "list": ({"series_id"}, {"query"}),
-            "get": ({"topic_id"}, set()),
+            "get": ({"topic_id"}, {"production_request_id"}),
             "create": ({"series_id", "topics"}, set()),
             "update": ({"topic_id", "changes", "expected_digest"}, set()),
             "remove": ({"topic_id"}, {"candidate"}),
@@ -88,7 +90,7 @@ def _write_identity(action, topic_id, payload, context):
 
 
 def manage_topics(action, series_id=None, topic_id=None, query=None, topics=None, changes=None,
-                  expected_digest=None, candidate=None, context=None):
+                  expected_digest=None, candidate=None, production_request_id=None, context=None):
     if action == "list":
         options = TopicQuery.model_validate(query or {}).model_dump()
         result = list_series_topics(series_id, context=context, **options)
@@ -110,6 +112,9 @@ def manage_topics(action, series_id=None, topic_id=None, query=None, topics=None
             if data.get("production_task_count", 0) > 0:
                 result["production_tasks"] = production_tasks_receipt(
                     client.request("GET", f"{path}/production-tasks"), context)
+            if production_request_id is not None:
+                receipt_path = f"{path}/production-tasks/receipts/{quote(production_request_id, safe='')}"
+                result["production_receipt"] = production_tasks_receipt(client.request("GET", receipt_path), context)
             return result
         return _decorate(_call(read, context), action)
     if action == "update":

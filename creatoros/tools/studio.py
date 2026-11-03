@@ -439,6 +439,17 @@ def _prepare_task_reference(client, context, series_id, attachment_ids, instruct
     return ref["id"]
 
 
+def _production_write_error(error):
+    """Classify only an already dispatched production write, never its preceding reads."""
+    if error.code == "studio_invalid_response" or (error.status_code or 0) >= 500:
+        error.code = "studio_outcome_unknown"
+        error.args = ("制作提交结果未确认，请核对原请求，勿重复提交。",)
+    if error.code == "studio_outcome_unknown":
+        if "勿重复提交" not in str(error):
+            error.args = (str(error) + "；请先核对原请求，勿重复提交。",)
+        error.details.update(outcome_unknown=True, retryable=False)
+
+
 def start_content_run(action, context=None, **arguments):
     """Translate only the current action contract to the shared Studio HTTP API."""
     request = StartRunArgs.model_validate({"action": action, **arguments})
@@ -466,8 +477,16 @@ def start_content_run(action, context=None, **arguments):
                 request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
                     separators=(",", ":")).encode()).hexdigest() if turn else uuid4().hex
                 data = client.request("POST", path, payload={"request_id": request_id, "tasks": tasks_to_submit})
+                if (data.get("topic_id") != topic_id or not isinstance(data.get("items"), list)
+                        or len(data["items"]) != len(tasks_to_submit)
+                        or any(not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                               or not item["id"] for item in data["items"])):
+                    raise StudioClientError("制作回执无法核验，请查询同一请求，勿重复提交。",
+                                            code="studio_outcome_unknown")
             except StudioClientError as error:
-                error.details.update(topic_id=topic_id, receipt_url=path)
+                _production_write_error(error)
+                receipt_url = f"{path}/receipts/{quote(request_id, safe='')}" if request_id else path
+                error.details.update(topic_id=topic_id, receipt_url=receipt_url)
                 if request_id:
                     error.details["request_id"] = request_id
                 raise
@@ -488,6 +507,7 @@ def start_content_run(action, context=None, **arguments):
                     payload={"reference_id": ref, "title": title, "request_id": request_id,
                              **({"skill_ids": request.skill_ids} if request.skill_ids is not None else {})})
             except StudioClientError as error:
+                _production_write_error(error)
                 error.details.update(request_id=request_id, series_id=series_id,
                     topic_id="reference-" + sha256(json.dumps([series_id, request_id]).encode()).hexdigest()[:24],
                     receipt_url=f"/api/series/{series_id}/queue/receipts/{request_id}", url=f"/series/{series_id}")
@@ -513,6 +533,7 @@ def start_content_run(action, context=None, **arguments):
             try:
                 run = client.request("POST", "/api/runs", payload=payload)
             except StudioClientError as error:
+                _production_write_error(error)
                 error.details.update(request_id=request_id, topic_id=source["topic_id"],
                                      source_run_id=request.source_run_id)
                 raise
@@ -525,6 +546,7 @@ def start_content_run(action, context=None, **arguments):
                 result = client.request("POST", f"/api/runs/{quote(run['id'], safe='')}/execute",
                                         payload={"expected_version": run["version"]})
             except StudioClientError as error:
+                _production_write_error(error)
                 error.run_id = run["id"]
                 error.details.update(request_id=request_id, topic_id=source["topic_id"],
                                      source_run_id=request.source_run_id)

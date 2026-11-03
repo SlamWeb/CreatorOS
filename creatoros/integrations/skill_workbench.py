@@ -19,6 +19,11 @@ def require_draft(service, job, digest):
         calibration = getattr(service, "calibration_service", None)
         if calibration is None or calibration._row(job["calibration_id"]).status != "draft":
             raise ExtractionError("这份校准已保存或正在保存，不能继续编辑或试用。", 409)
+    require_ready_draft(service, job, digest)
+
+
+def require_ready_draft(service, job, digest):
+    """Check draft bytes and worker state independently of write authorization."""
     if (job["status"] != "ready" or job.get("operation")
             or job.get("queue", {}).get("state") in {"queued", "running"}):
         raise ExtractionError("请等待当前操作结束，或选择未入库草稿。", 409)

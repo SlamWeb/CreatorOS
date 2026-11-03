@@ -58,12 +58,16 @@ async def check_web_skill_scope(request: Request, guard):
             return guard._skill_denied()
     else:
         switch = _SWITCH.fullmatch(request.url.path)
-        try:
-            payload = await request.json()
-        except Exception:
+        if not switch or not guard._owns_series(switch.group(1), creator_id):
             return guard._skill_denied()
-        if (method != "POST" or not switch or not guard._owns_series(switch.group(1), creator_id)
-                or not isinstance(payload, dict) or not guard._owns_skill(payload.get("skill_id", ""), creator_id)):
+        if method == "POST":
+            try:
+                payload = await request.json()
+            except Exception:
+                return guard._skill_denied()
+            if not isinstance(payload, dict) or not guard._owns_skill(payload.get("skill_id", ""), creator_id):
+                return guard._skill_denied()
+        elif method != "GET":
             return guard._skill_denied()
     request.state.web_skill_creator = creator_id
     return None

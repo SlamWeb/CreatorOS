@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import event, select
 
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, SkillWriteOutcomeUnknown, _digest, skills_root_for
 from creatoros.integrations.skill_extraction import ExtractionError, SkillExtractionService
 from creatoros.runs import ContentRunService
 from creatoros.storage import ContentRepository, ContentRevision, ContentRun, Database, Series, TopicSource, WriteReceipt, upgrade_database
@@ -157,6 +157,8 @@ class SkillVersionServiceTests(unittest.TestCase):
         repo.add_topic(topic_id=old_topic, series_id=self.fixture["series_id"], title="切换前排队的选题",
                        source=TopicSource.MANUAL)
         old_run = self.runs.create(old_topic)
+        old_root = self.runs.output_root / old_run.input_snapshot_json['creator_id'] / old_run.input_snapshot_json['series_id'] / old_run.id
+        old_files = tree_hashes(old_root)
         with self.db.session() as db:
             old_snapshot = db.get(ContentRun, old_run.id).input_snapshot_json
             old_revision = db.scalar(select(ContentRevision).where(ContentRevision.content_run_id == old_run.id))
@@ -180,6 +182,15 @@ class SkillVersionServiceTests(unittest.TestCase):
             self.assertEqual(new.input_snapshot_json["composition"]["mind"]["digest"], candidate["digest"])
             self.assertEqual(old.status.value, "queued")
             self.assertEqual(new.status.value, "queued")
+        new_root = self.runs.output_root / new_run.input_snapshot_json['creator_id'] / new_run.input_snapshot_json['series_id'] / new_run.id
+        self.assertEqual(tree_hashes(old_root), old_files)
+        self.assertEqual(_digest(old_root / 'skill-snapshot' / 'skills' / 'mind'),
+                         old_snapshot['composition']['mind']['digest'])
+        self.assertEqual(_digest(new_root / 'skill-snapshot' / 'skills' / 'mind'), candidate['digest'])
+        all_files = tree_hashes(self.runs.output_root)
+        new_prefixes = tuple(path.relative_to(self.runs.output_root).as_posix() + '/' for path in (old_root, new_root))
+        self.assertEqual({key: value for key, value in all_files.items() if not key.startswith(new_prefixes)}, self.artifacts)
+        self.artifacts = all_files
         self.assert_original_protected()
 
     def test_explicit_trial_validation_rejects_column_change_and_switch_keeps_revision_cas(self):
@@ -224,8 +235,9 @@ class SkillVersionServiceTests(unittest.TestCase):
         session_type = self.db._session_factory.class_
         event.listen(session_type, "before_commit", fail_version_commit)
         try:
-            with self.assertRaisesRegex(RuntimeError, "controlled commit failure"):
+            with self.assertRaises(SkillWriteOutcomeUnknown) as failure:
                 self.service.switch(self.fixture["series_id"], **request)
+            self.assertRegex(str(failure.exception.__cause__), "controlled commit failure")
         finally:
             event.remove(session_type, "before_commit", fail_version_commit)
         with self.db.session() as db:
@@ -383,8 +395,9 @@ class SkillVersionServiceTests(unittest.TestCase):
         session_type = self.db._session_factory.class_
         event.listen(session_type, "before_commit", fail_version_commit)
         try:
-            with self.assertRaisesRegex(RuntimeError, "controlled commit failure"):
+            with self.assertRaises(SkillWriteOutcomeUnknown) as failure:
                 self.service.switch(self.fixture["series_id"], **request)
+            self.assertRegex(str(failure.exception.__cause__), "controlled commit failure")
         finally:
             event.remove(session_type, "before_commit", fail_version_commit)
         alternate = self.alternative_companion()

@@ -7,6 +7,8 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from creatoros.storage import Creator, CreatorSkillRef, Series, SeriesSkillRef
+from .producer_skills import _SKILL_EDIT_LOCK
+from .skill_authority import account_skill_scope, skill_is_usable
 
 
 class SkillLibraryConflict(ValueError):
@@ -70,23 +72,19 @@ class SkillLibraryService:
         return list(dict.fromkeys([*(row.skill_ids_json if row else []), *self._legacy(session, creator_id)]))
 
     def _contains(self, session, creator_id, skill_id):
+        owner = None
         if skill_id != self.catalog.BUILTIN_ID:
             edition = self.catalog._record(skill_id)
             if edition.get("version_status") == "candidate":
                 owner = self._source_creator(skill_id)
-                if owner and owner != creator_id:
-                    return False
         ids = self._ids(session, creator_id)
-        if skill_id in ids:
-            return True
-        family = self._family(skill_id)
+        families = set()
         for value in ids:
             try:
-                if self._family(value) == family:
-                    return True
+                families.add(self._family(value))
             except (ValueError, OSError, KeyError):
                 continue
-        return False
+        return skill_is_usable(creator_id, skill_id, ids, families, self._family(skill_id), candidate_owner=owner)
 
     def contains(self, creator_id, skill_id):
         try:
@@ -190,32 +188,47 @@ class SkillLibraryService:
             raise ValueError("request_id 必须为 8–64 字符。")
         with self.lock:
             try:
-                with self._write_session() as session:
+                replay = False
+                with self.db.session() as session:
                     self._creator(session, creator_id)
                     row = session.get(CreatorSkillRef, creator_id)
                     requests = dict(row.request_ids_json) if row else {}
                     if request_id in requests:
                         if requests[request_id] != skill_id:
                             raise SkillLibraryConflict("同一 request_id 的 Skill 已改变。")
+                        replay = True
                     else:
-                        item = self.describe(skill_id)
-                        if (item["version_status"] != "released"
-                                and not self._contains(session, creator_id, skill_id)
-                                and not self._owns_source(creator_id, skill_id)):
-                            raise PermissionError("候选版本不属于此账号可访问的 Skill 家族。")
-                        ids = list(row.skill_ids_json) if row else []
-                        if not any(self._family(value) == item["family_id"] for value in ids):
-                            ids.append(item["id"])
-                        requests[request_id] = skill_id
-                        if row is None:
-                            session.add(CreatorSkillRef(creator_id=creator_id, skill_ids_json=ids,
-                                                       request_ids_json=requests, version=1))
+                        scope = account_skill_scope(session, creator_id)
+                if replay:
+                    return self.get_creator(creator_id)
+                with _SKILL_EDIT_LOCK:
+                    item = self.describe(skill_id)
+                    if (item["version_status"] != "released" and not self.can_use(creator_id, skill_id)
+                            and not self._owns_source(creator_id, skill_id)):
+                        raise PermissionError("候选版本不属于此账号可访问的 Skill 家族。")
+                    ids = list(scope["library_ids"])
+                    if not any(self._family(value) == item["family_id"] for value in ids):
+                        ids.append(item["id"])
+                    with self._write_session() as session:
+                        self._creator(session, creator_id)
+                        row = session.get(CreatorSkillRef, creator_id)
+                        requests = dict(row.request_ids_json) if row else {}
+                        if request_id in requests:
+                            if requests[request_id] != skill_id:
+                                raise SkillLibraryConflict("同一 request_id 的 Skill 已改变。")
+                        elif account_skill_scope(session, creator_id) != scope:
+                            raise SkillLibraryConflict("账号 Skill 库已变化，请刷新。")
                         else:
-                            changed = session.execute(update(CreatorSkillRef).where(
-                                CreatorSkillRef.creator_id == creator_id, CreatorSkillRef.version == row.version
-                            ).values(skill_ids_json=ids, request_ids_json=requests, version=row.version + 1))
-                            if changed.rowcount != 1:
-                                raise SkillLibraryConflict("账号 Skill 库已变化，请刷新。")
+                            requests[request_id] = skill_id
+                            if row is None:
+                                session.add(CreatorSkillRef(creator_id=creator_id, skill_ids_json=ids,
+                                                           request_ids_json=requests, version=1))
+                            else:
+                                changed = session.execute(update(CreatorSkillRef).where(
+                                    CreatorSkillRef.creator_id == creator_id, CreatorSkillRef.version == row.version
+                                ).values(skill_ids_json=ids, request_ids_json=requests, version=row.version + 1))
+                                if changed.rowcount != 1:
+                                    raise SkillLibraryConflict("账号 Skill 库已变化，请刷新。")
             except IntegrityError as error:
                 raise SkillLibraryConflict("账号 Skill 库已变化，请重试。") from error
         return self.get_creator(creator_id)
@@ -264,15 +277,18 @@ class SkillLibraryService:
             raise ValueError("defaults 必须包含 image、video 两个列表。")
         with self.lock:
             try:
-                with self._write_session() as session:
+                with self.db.session() as session:
                     series = self._series(session, series_id)
                     row = session.get(SeriesSkillRef, series_id)
                     if (row.version if row else 0) != expected_version:
                         raise SkillLibraryConflict("栏目 Skill 池已变化，请刷新。")
+                    creator_id = series.creator_id
+                    scope = account_skill_scope(session, creator_id)
+                with _SKILL_EDIT_LOCK:
                     families = {self._family(value) for value in skill_ids}
                     if len(families) != len(skill_ids):
                         raise ValueError("同一家族只能加入栏目池一次。")
-                    if not all(self._contains(session, series.creator_id, value) for value in skill_ids):
+                    if not all(self.can_use(creator_id, value) for value in skill_ids):
                         raise PermissionError("栏目常用池只能引用账号 Skill 库。")
                     for kind, selections in defaults.items():
                         if not isinstance(selections, list):
@@ -284,22 +300,28 @@ class SkillLibraryService:
                             if set(selection) != {"skill_id", "role"} or selection["role"] not in {"primary", "supporting"}:
                                 raise ValueError("阶段 Skill 需要 skill_id 和 primary/supporting 角色。")
                             skill_id = selection["skill_id"]
-                            if self._family(skill_id) not in families or not self._contains(session, series.creator_id, skill_id):
+                            if self._family(skill_id) not in families or not self.can_use(creator_id, skill_id):
                                 raise PermissionError("阶段默认必须来自本栏目常用池。")
                             item = self.describe(skill_id)
                             self.catalog.resolve_for_task(skill_id, item["digest"], kind, selection["role"] == "primary")
                             selected_ids.append(skill_id)
                         if len(selected_ids) != len(set(selected_ids)):
                             raise ValueError("阶段默认不能重复引用同一 Skill。")
-                    if row is None:
-                        session.add(SeriesSkillRef(series_id=series_id, skill_ids_json=skill_ids,
-                                                  defaults_json=defaults, version=1))
-                    else:
-                        changed = session.execute(update(SeriesSkillRef).where(
-                            SeriesSkillRef.series_id == series_id, SeriesSkillRef.version == expected_version
-                        ).values(skill_ids_json=skill_ids, defaults_json=defaults, version=expected_version + 1))
-                        if changed.rowcount != 1:
-                            raise SkillLibraryConflict("栏目 Skill 池已变化，请刷新。")
+                    with self._write_session() as session:
+                        series = self._series(session, series_id)
+                        row = session.get(SeriesSkillRef, series_id)
+                        if ((row.version if row else 0) != expected_version or series.creator_id != creator_id
+                                or account_skill_scope(session, creator_id) != scope):
+                            raise SkillLibraryConflict("栏目 Skill 池或账号归属已变化，请刷新。")
+                        if row is None:
+                            session.add(SeriesSkillRef(series_id=series_id, skill_ids_json=skill_ids,
+                                                      defaults_json=defaults, version=1))
+                        else:
+                            changed = session.execute(update(SeriesSkillRef).where(
+                                SeriesSkillRef.series_id == series_id, SeriesSkillRef.version == expected_version
+                            ).values(skill_ids_json=skill_ids, defaults_json=defaults, version=expected_version + 1))
+                            if changed.rowcount != 1:
+                                raise SkillLibraryConflict("栏目 Skill 池已变化，请刷新。")
             except IntegrityError as error:
                 raise SkillLibraryConflict("栏目 Skill 池已变化，请刷新。") from error
         return self.get_series(series_id)

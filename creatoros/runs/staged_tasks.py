@@ -112,19 +112,19 @@ class StagedTasks:
                 raise ValueError("图片任务没有可核验产物。")
         return True
 
-    def dispatch(self, session, task, topic):
+    def prepare_dispatch_inputs(self, task):
+        """Resolve external material exports before the submission write transaction."""
         definition = dict(task.definition_json)
         creator_id = definition["creator_id"]
-        if (topic.series.creator_id != creator_id or topic.series_id != definition["series_id"]
-                or not topic.series.is_active or not topic.series.creator.is_active
-                or session.get(TopicRemoval, topic.id)):
-            raise ValueError("任务归属已改变或已移除，请重新确认。")
         spec = TaskExecutionSpec.model_validate(definition["execution_spec"])
+        source_version = None
+        source_bindings = None
         if spec.kind == "video":
             inputs = dict(definition["inputs"])
             collection_id = inputs["collection_id"]
             if not inputs.get("export_id"):
                 detail = self.collections.get(creator_id, collection_id)
+                source_version = detail["version"]
                 selected = {(item["run_id"], item["revision_id"]) for item in detail["items"] if item["included"]}
                 required = {(dep["run_id"], dep["revision_id"]) for dep in task.dependency_json}
                 if not required.issubset(selected):
@@ -141,6 +141,8 @@ class StagedTasks:
                 raw = archive.read()
                 with ZipFile(BytesIO(raw)) as bundle:
                     manifest = json.loads(bundle.read("manifest.json"))
+                source_bindings = [(item["run_id"], item["revision_id"], item["artifact_digest"])
+                                   for item in manifest["items"]]
                 selected = {(item["run_id"], item["revision_id"]) for item in manifest["items"]}
                 required = {(dep["run_id"], dep["revision_id"]) for dep in task.dependency_json}
                 if not required.issubset(selected):
@@ -154,9 +156,19 @@ class StagedTasks:
                 path=str(destination.resolve()), sha256=receipt["checksum"], name="images.zip"))
             definition["inputs"] = inputs
         definition["execution_spec"] = spec.model_dump(mode="json")
+        return definition, spec, source_version, source_bindings
+
+    def dispatch(self, session, task, topic, *, prepared_inputs=None, prepared_run=None):
+        definition = dict(task.definition_json)
+        creator_id = definition["creator_id"]
+        if (topic.series.creator_id != creator_id or topic.series_id != definition["series_id"]
+                or not topic.series.is_active or not topic.series.creator.is_active
+                or session.get(TopicRemoval, topic.id)):
+            raise ValueError("任务归属已改变或已移除，请重新确认。")
+        definition, spec, _, _ = prepared_inputs if prepared_inputs is not None else self.prepare_dispatch_inputs(task)
         run = self.runs._create(topic.id, task_id=task.id, bound_session=session, execution_spec=spec,
             origin_session_id=definition.get("origin_session_id"),
-            context_snapshot_ref=definition.get("context_snapshot_ref"))
+            context_snapshot_ref=definition.get("context_snapshot_ref"), prepared=prepared_run)
         revision = ContentRunRepository(self.database, session=session).get_revision_number(run.id, 1)
         session.add(ProductionQueueItem(run_id=run.id, revision_id=revision.id,
                                        expected_version=run.version, status="pending"))

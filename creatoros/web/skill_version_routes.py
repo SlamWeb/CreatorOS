@@ -76,4 +76,9 @@ def skill_version_routes(service):
     def switch(series_id: str, request: SwitchVersionRequest):
         return call(lambda: service.switch(series_id, **request.model_dump()))
 
+    @router.get("/series/{series_id}/skill-version")
+    def inspect_switch(series_id: str, request_id: str, request: Request):
+        creator_id = getattr(request.state, "web_skill_creator", None)
+        return call(lambda: service.inspect_switch(series_id, request_id, creator_id=creator_id))
+
     return router

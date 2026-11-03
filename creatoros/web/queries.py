@@ -26,6 +26,8 @@ from creatoros.storage import (
 
 from .schemas import (
     AttemptView,
+    CreatorDirectoryItem,
+    CreatorDirectoryView,
     CreatorView,
     OverviewCounts,
     OverviewView,
@@ -84,6 +86,14 @@ class StudioQueryService:
     def health_database(self) -> None:
         with self.database.session() as session:
             session.scalar(select(1))
+
+    def creator_directory(self) -> CreatorDirectoryView:
+        """Read only account identities in one statement for the local switcher."""
+        with self.database.session() as session:
+            rows = session.execute(
+                select(Creator.id, Creator.display_name).order_by(Creator.created_at, Creator.id)
+            ).all()
+            return CreatorDirectoryView(items=[CreatorDirectoryItem(id=row.id, display_name=row.display_name) for row in rows])
 
     def list_creators(self, *, offset: int, limit: int) -> PageResponse[CreatorView]:
         with self.database.session() as session:

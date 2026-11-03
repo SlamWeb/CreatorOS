@@ -127,3 +127,6 @@
 - `20261027_0021` 新增 `creator_skill_refs`、`series_skill_refs`；各 owner 一行保存家族引用的精确 Skill ID 列表、版本及请求回执/阶段默认 JSON，不复制 Skill 文件、不改写 Creator/Series 的旧绑定。
 - 账号 POST 幂等回执按账号/request_id 保存原 Skill ID；不同输入重用请求拒绝。栏目 PUT 与账号 DELETE 以 version 比较后写入；SQLite 短元数据写事务用 BEGIN IMMEDIATE，防止跨服务实例写丢失或移除库引用与新增栏目池引用竞态。
 - `tests.test_skill_library` 的六项隔离 SQLite/catalog/HTTP 测试通过，迁移到含后续阶段任务 schema 的 head 后 `compare_metadata` 零漂移；验证双服务同版本只能一方写成功。此处仅验证 SQLite，未迁移正式库。
+# 2026-11-03 · Skill 切版意图
+
+迁移 `20261103_0026` 只新增 `skill_switch_intents`，保留目标版本、原绑定、账号授权快照、请求签名及准备/完成阶段；不更改旧业务行。成功绑定和原成功回执与意图完成状态同一 SQLite 事务，文件发布在事务之外。意图记录不替代只保存成功的 WriteReceipt；存在意图时禁止通过降级丢弃恢复证据。

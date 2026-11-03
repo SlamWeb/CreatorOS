@@ -13,7 +13,7 @@ from uuid import uuid4
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, _digest, freeze_skill
 from creatoros.integrations.skill_calibration import signature
@@ -407,7 +407,7 @@ class CalibrationTests(unittest.TestCase):
         self.assertNotEqual(_digest(companion), old_digest)
         self.assertEqual(calibration_evidence(self.app)["artifact_files"], self.baseline["artifact_files"])
 
-    def test_version_switch_failure_keeps_old_binding_and_restart_replays_intent(self):
+    def test_version_switch_failure_is_not_replayed_by_restart_or_same_request(self):
         from creatoros.integrations.skill_version_service import SkillVersionService
         calibration = self.trial(self.create())
         payload = self.apply_payload(calibration)
@@ -419,20 +419,191 @@ class CalibrationTests(unittest.TestCase):
         self.assertEqual(row.status, "applying")
         self.assertEqual(row.apply_json["kind"], "skill_version")
         version_id = row.apply_json["version_skill_id"]
-        self.assertEqual(self.catalog.describe(version_id)["version_status"], "released")
+        self.assertEqual(self.catalog.describe(version_id)["version_status"], "candidate")
         self.assert_formal_unchanged()
-        # The user already authorized this exact switch. Restart only completes
-        # its persisted intent, without repeating a model/trial or editing old files.
+        # An incomplete version request must be inspected, not replayed on restart.
         with patch.object(self.extractions, "reviser", side_effect=AssertionError("must not call SDK")), \
-                patch.object(self.extractions, "producer_factory", side_effect=AssertionError("must not regenerate")):
+                patch.object(self.extractions, "producer_factory", side_effect=AssertionError("must not regenerate")), \
+                patch.object(self.service.versions, "switch", side_effect=AssertionError("must not switch")):
             self.service.start()
-        self.assertEqual(self.service._row(calibration["id"]).status, "applied")
-        retry = self.client.post(endpoint, json=payload)
-        self.assertEqual(retry.status_code, 200, retry.text)
-        self.assertEqual(retry.json()["apply_phase"], "applied")
-        self.assertEqual(len(retry.json()["job"]["trials"]), 1)
+            self.assertEqual(self.service._row(calibration["id"]).status, "applying")
+            retry = self.client.post(endpoint, json=payload)
+            self.assertEqual(retry.status_code, 409, retry.text)
         self.assertEqual(len(self.catalog.list_skill_versions(version_id)["items"]), 2)
-        self.assert_formal_unchanged(switched=True)
+        self.assert_formal_unchanged()
+
+    def test_intent_commit_failure_never_creates_candidate(self):
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        session_type = self.db._session_factory.class_
+
+        def reject_intent(session):
+            if any(isinstance(row, SkillCalibration) and row.status == 'applying'
+                   for row in session.dirty):
+                raise OSError('injected intent commit failure')
+
+        event.listen(session_type, 'before_commit', reject_intent)
+        try:
+            with patch.object(self.catalog, 'create_skill_candidate_from_directory',
+                              wraps=self.catalog.create_skill_candidate_from_directory) as create:
+                response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+                self.assertEqual(create.call_count, 0)
+        finally:
+            event.remove(session_type, 'before_commit', reject_intent)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self.service._row(calibration['id']).status, 'draft')
+        self.assert_formal_unchanged()
+
+    def test_lost_intent_commit_ack_retains_identity_without_creating_candidate(self):
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        factory = self.db._session_factory
+
+        def lose_ack_factory():
+            session = factory()
+            commit = session.commit
+            def commit_then_raise():
+                is_intent = any(isinstance(row, SkillCalibration) and row.status == 'applying'
+                                for row in session.dirty)
+                commit()
+                if is_intent:
+                    raise OSError('injected lost intent acknowledgement')
+            session.commit = commit_then_raise
+            return session
+
+        with patch.object(self.db, '_session_factory', side_effect=lose_ack_factory), \
+                patch.object(self.catalog, 'create_skill_candidate_from_directory',
+                             wraps=self.catalog.create_skill_candidate_from_directory) as create:
+            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+            self.assertEqual(create.call_count, 0)
+        self.assertEqual(response.status_code, 409, response.text)
+        view = self.client.get(f"/api/skill-calibrations/{calibration['id']}").json()
+        self.assertEqual(view['status'], 'applying')
+        self.assertEqual(view['apply_phase'], 'preparing')
+        self.assertTrue(view['apply_version_skill_id'])
+        self.assertTrue(view['apply_candidate_digest'])
+        with patch.object(self.catalog, 'create_skill_candidate_from_directory', side_effect=AssertionError('no replay')), \
+                patch.object(self.service.versions, 'switch', side_effect=AssertionError('no switch')):
+            self.service.start()
+        self.assert_formal_unchanged()
+
+    def test_candidate_created_before_receipt_update_is_locatable_and_not_replayed(self):
+        from creatoros.integrations import skill_calibration_apply
+        from creatoros.integrations.skill_versions import candidate_identity
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        endpoint = f"/api/skill-calibrations/{calibration['id']}/apply"
+        with patch.object(skill_calibration_apply, '_mark_candidate_prepared', side_effect=OSError('injected')):
+            response = self.client.post(endpoint, json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        row = self.service._row(calibration['id'])
+        view = self.client.get(f"/api/skill-calibrations/{calibration['id']}").json()
+        expected, key = candidate_identity(self.catalog._record(row.skill_id), row.apply_json['candidate_request_id'])
+        self.assertEqual(view['apply_version_skill_id'], expected)
+        self.assertEqual(row.apply_json['candidate_request_key'], key)
+        self.assertEqual(self.catalog.describe(expected)['digest'], view['apply_candidate_digest'])
+        self.assertEqual(self.catalog.describe(expected)['version_status'], 'candidate')
+        with patch.object(self.catalog, 'create_skill_candidate_from_directory', side_effect=AssertionError('no replay')), \
+                patch.object(self.service.versions, 'switch', side_effect=AssertionError('no switch')):
+            self.service.start()
+            retry = self.client.post(endpoint, json=payload)
+            self.assertEqual(retry.status_code, 409, retry.text)
+        self.assertEqual(self.service._row(calibration['id']).apply_json['phase'], 'preparing')
+        self.assert_formal_unchanged()
+
+    def test_published_unknown_is_not_replayed_when_owner_is_disabled(self):
+        from creatoros.storage import Creator
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        endpoint = f"/api/skill-calibrations/{calibration['id']}/apply"
+        publish = self.catalog.publish_skill_candidate
+        def publish_then_lose_receipt(*args, **kwargs):
+            publish(*args, **kwargs)
+            raise OSError('injected publish receipt failure')
+        with patch.object(self.catalog, 'publish_skill_candidate', side_effect=publish_then_lose_receipt):
+            response = self.client.post(endpoint, json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        row = self.service._row(calibration['id'])
+        self.assertEqual(self.catalog.describe(row.apply_json['version_skill_id'])['version_status'], 'released')
+        with self.db.session() as session:
+            session.get(Creator, row.creator_id).is_active = False
+        with patch.object(self.service.versions, 'switch', side_effect=AssertionError('no switch on restart')):
+            self.service.start()
+        self.assertEqual(self.service._row(row.id).status, 'applying')
+        with self.db.session() as session:
+            self.assertEqual(session.get(Series, row.series_id).mind_skill_id, row.skill_id)
+
+    def test_malformed_applying_records_do_not_replay_or_block_startup(self):
+        calibration = self.trial(self.create())
+        identifier = calibration['id']
+        for receipt in ({'kind': 'skill_version'}, {'phase': 'prepared'}, ['invalid']):
+            with self.subTest(receipt=receipt):
+                self.service._update(identifier, status='applying', apply_json=receipt)
+                with patch.object(self.service.versions, 'switch', side_effect=AssertionError('no switch')):
+                    self.service.start()
+                row = self.service._row(identifier)
+                self.assertEqual(row.status, 'applying')
+                self.assertEqual(row.apply_json, receipt)
+                view = self.client.get(f'/api/skill-calibrations/{identifier}')
+                self.assertEqual(view.status_code, 200, view.text)
+                self.assertEqual(view.json()['status'], 'applying')
+                if isinstance(receipt, list):
+                    self.assertIn('无法核验', view.json()['error'])
+
+    def test_calibration_uses_configured_library_and_rechecks_owner_after_intent(self):
+        from creatoros.integrations import skill_calibration_apply
+        from creatoros.storage import ContentRepository
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        self.assertIs(self.service.versions, self.app.state.skill_versions)
+        self.assertIs(self.service.versions.library, self.app.state.skill_library)
+        self.assertIsNotNone(self.service.versions.library.source_owner)
+        other = 'calibration-transfer-owner'
+        ContentRepository(self.db).create_creator(creator_id=other, display_name='Other')
+        save = skill_calibration_apply._save_intent
+        def save_then_transfer(service, row, receipt):
+            save(service, row, receipt)
+            with self.db.session() as session:
+                session.get(Series, row.series_id).creator_id = other
+        with patch.object(skill_calibration_apply, '_save_intent', side_effect=save_then_transfer), \
+                patch.object(self.catalog, 'create_skill_candidate_from_directory',
+                             wraps=self.catalog.create_skill_candidate_from_directory) as create:
+            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+            self.assertEqual(create.call_count, 0)
+        self.assertEqual(response.status_code, 409, response.text)
+        row = self.service._row(calibration['id'])
+        self.assertEqual(row.status, 'applying')
+        self.assertEqual(row.apply_json['creator_id'], self.fixture['creator_id'])
+        with patch.object(self.service.versions, 'switch', side_effect=AssertionError('no switch')):
+            self.service.start()
+
+    def test_transfer_after_candidate_creation_cannot_publish_for_new_owner(self):
+        from creatoros.integrations import skill_calibration_apply
+        from creatoros.storage import ContentRepository, SkillSwitchIntent
+        calibration = self.trial(self.create())
+        payload = self.apply_payload(calibration)
+        other = 'calibration-post-create-owner'
+        ContentRepository(self.db).create_creator(creator_id=other, display_name='Other')
+        self.service.versions.library.add(other, self.fixture['skill_id'], 'other-shared-skill')
+        mark = skill_calibration_apply._mark_candidate_prepared
+        def mark_then_transfer(service, row, receipt):
+            mark(service, row, receipt)
+            with self.db.session() as session:
+                session.get(Series, row.series_id).creator_id = other
+        with patch.object(skill_calibration_apply, '_mark_candidate_prepared', side_effect=mark_then_transfer), \
+                patch.object(self.catalog, 'publish_skill_candidate', wraps=self.catalog.publish_skill_candidate) as publish:
+            response = self.client.post(f"/api/skill-calibrations/{calibration['id']}/apply", json=payload)
+            self.assertEqual(publish.call_count, 0)
+        self.assertEqual(response.status_code, 409, response.text)
+        row = self.service._row(calibration['id'])
+        self.assertEqual(row.status, 'applying')
+        self.assertEqual(row.apply_json['phase'], 'prepared')
+        self.assertEqual(self.catalog.describe(row.apply_json['version_skill_id'])['version_status'], 'candidate')
+        with self.db.session() as session:
+            self.assertEqual(session.query(SkillSwitchIntent).count(), 0)
+            self.assertEqual(session.get(Series, row.series_id).mind_skill_id, row.skill_id)
+        with patch.object(self.service.versions, 'switch', side_effect=AssertionError('no restart switch')):
+            self.service.start()
 
     def test_finalize_failure_preserves_committed_switch_and_postcommit_read_does_not_revert_it(self):
         calibration = self.trial(self.create())

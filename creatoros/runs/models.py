@@ -47,6 +47,7 @@ class ContentRunInput(RunModel):
     skill_name: str | None = Field(default=None, min_length=1)
     skill_path: str | None = None
     skill_digest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    skill_snapshot_frozen: bool = False
     composition: SkillPair | None = None
     creator_name: str | None = None
     creator_platform: str | None = None

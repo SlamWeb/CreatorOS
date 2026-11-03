@@ -404,6 +404,27 @@ class OperationEvent(Base):
     pending_operation: Mapped[PendingOperation] = relationship(back_populates="events")
 
 
+class SkillSwitchIntent(TimestampMixin, Base):
+    """A durable identity for a file publication and subsequent series switch."""
+
+    __tablename__ = "skill_switch_intents"
+    __table_args__ = (
+        CheckConstraint("phase IN ('prepared', 'committed')", name="skill_switch_intent_phase"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    signature: Mapped[str] = mapped_column(String(64), nullable=False)
+    series_id: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    creator_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    skill_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    expected_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    expected_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    previous_skill_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    scope_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    phase: Mapped[str] = mapped_column(String(20), nullable=False, default="prepared")
+
+
 class WriteReceipt(Base):
     """写请求幂等回执：同一 request_id 重复提交返回首次结果，不重复写入。
 

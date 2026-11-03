@@ -153,7 +153,8 @@ def _task_index(data: Any) -> Any:
 
 
 def _production_tasks(data: dict) -> dict:
-    result = _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated", "skill_summary")) | {
+    result = _pick(data, ("topic_id", "creator_id", "collection_id", "collection_url", "deduplicated", "skill_summary",
+                          "request_id", "status", "message")) | {
         "items": _list(data.get("items", []), lambda item: _present(item, (
             "id", "topic_id", "title", "position", "run_id", "run_version", "status", "skill_summary", "url",
             "kind", "dispatch_state", "last_error", "depends_on")))
@@ -345,6 +346,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
             result.update(_items(data, _TOPIC, item_projector=_topic_index if data.get("action") == "list" else _topic))
         if "production_tasks" in data:
             result["production_tasks"] = _production_tasks(data["production_tasks"])
+        if "production_receipt" in data:
+            result["production_receipt"] = _production_tasks(data["production_receipt"])
         return result
     if tool_name == "manage_skill_iteration":
         result = _pick(data, ("id", "status", "revision", "series_id", "skill_id", "topic_id",

@@ -98,6 +98,14 @@ def _draft_directory(catalog, source_directory: Path) -> tuple[Path, str]:
     return source, _digest(source)
 
 
+def candidate_identity(source_record: dict, request_id: str, creator_id: str | None = None) -> tuple[str, str]:
+    """Return the exact deterministic candidate ID and request key before writing files."""
+    source_id = source_record["id"]
+    identity = f"{source_id}\0{request_id}" if creator_id is None else f"{source_id}\0{request_id}\0{creator_id}"
+    request_key = hashlib.sha256(identity.encode()).hexdigest()
+    return source_record["name"][:100].strip("-") + "--" + request_key[:16], request_key
+
+
 def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: str,
                      *, source_directory: Path | None = None, creator_id: str | None = None) -> dict:
     from .producer_skills import _digest, freeze_skill, skill_write_outcome
@@ -112,9 +120,7 @@ def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: s
     source_id = source_record["id"]
     draft, draft_digest = (_draft_directory(catalog, source_directory) if source_directory is not None
                            else (None, expected_digest))
-    identity = f"{source_id}\0{request_id}" if creator_id is None else f"{source_id}\0{request_id}\0{creator_id}"
-    request_key = hashlib.sha256(identity.encode()).hexdigest()
-    candidate_id = source_record["name"][:100].strip("-") + "--" + request_key[:16]
+    candidate_id, request_key = candidate_identity(source_record, request_id, creator_id)
     existing_path = _managed(catalog, "registry", candidate_id + ".json")
     if existing_path.exists():
         existing = catalog._record(candidate_id)

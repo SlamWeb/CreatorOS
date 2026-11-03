@@ -36,6 +36,7 @@ from .schemas import (
     AssignmentRequest,
     CompositionUpdateRequest,
     CreatorCreateRequest,
+    CreatorDirectoryView,
     CreatorView,
     ErrorResponse,
     HealthView,
@@ -187,6 +188,9 @@ def create_app(
             return None
 
     skill_library = SkillLibraryService(db, skill_installs.catalog, source_owner=skill_source_owner)
+    skill_versions.library = skill_library
+    calibrations.versions = skill_versions
+    runs.skill_library = skill_library
     research.skill_library = skill_library
     agent_scope.skill_library = skill_library
     account_context.skill_library = skill_library
@@ -396,6 +400,11 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
     ) -> PageResponse[CreatorView]:
         return queries.list_creators(offset=offset, limit=limit)
+
+    @app.get("/api/creator-directory", response_model=CreatorDirectoryView)
+    def creator_directory(response: Response) -> CreatorDirectoryView:
+        response.headers["Cache-Control"] = "no-store"
+        return queries.creator_directory()
 
     @app.post("/api/creators", response_model=CreatorView, status_code=201)
     def create_creator(payload: CreatorCreateRequest) -> CreatorView:

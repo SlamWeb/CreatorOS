@@ -12,11 +12,14 @@ from time import monotonic
 from typing import Literal
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
 from creatoros.integrations.codex import CodexProducer, CodexSdkProducer, ProducedPack
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _digest, freeze_skill, inherit_copy_permissions
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for, _SKILL_EDIT_LOCK, _digest, freeze_skill, inherit_copy_permissions
 from creatoros.integrations.skill_pair import prepare_run_pair, freeze_pair
+from creatoros.integrations.skill_authority import (SkillAuthorizationConflict, prepare_skill_authority,
+                                                   verify_skill_authority)
+from creatoros.integrations.skill_library import SkillLibraryService
 from creatoros.storage import (
     ContentAttempt,
     ContentAttemptStatus,
@@ -42,6 +45,7 @@ from .ownership import LocalExecutionGuard
 from .task_contracts import TaskExecutionSpec, TaskMaterial
 from .task_execution import freeze_execution_spec, verify_execution_spec
 from .skill_selection import resolve_image_skills
+from .prepared_submission import PreparedRun, production_scope, run_skill_ids, verify_prepared_run
 
 
 def _serialized(method):
@@ -105,6 +109,7 @@ class ContentRunService:
         self.producer_factory = producer_factory
         self.production_protocol = production_protocol
         self.iteration_trial_active = iteration_trial_active
+        self.skill_library = None
         self.output_root = (output_root or PROJECT_ROOT / "outputs").resolve()
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须大于 0。")
@@ -129,7 +134,7 @@ class ContentRunService:
             idempotency_key = f"selected:{request_id.strip()}"
         elif request_id is not None:
             raise ContentRunError("普通生产无需指定请求标识。", code="invalid_request", status_code=422)
-        return self._create(
+        return self._create_prepared(
             topic_id, idempotency_key=idempotency_key, origin_session_id=origin_session_id,
             context_snapshot_ref=context_snapshot_ref, skill_overrides=skill_overrides,
         )
@@ -142,7 +147,8 @@ class ContentRunService:
                 raise ContentRunError("栏目不存在或已停用。", code="not_found", status_code=404)
             if not series.creator_id or series.creator is None or not series.creator.is_active:
                 raise ContentRunError("账号或栏目未启用。")
-            resolve_image_skills(self.database, session, series, protocol=self.production_protocol)
+            resolve_image_skills(self.database, session, series, protocol=self.production_protocol,
+                                 library=self.skill_library)
 
     @_serialized
     def restart_fresh(
@@ -161,15 +167,36 @@ class ContentRunService:
         if not token or len(token) > 128:
             raise ContentRunError("重做请求标识必须为 1～128 个字符。", code="invalid_request", status_code=422)
         source = self.get(source_run_id)
+        try:
+            requested_override = (SkillOverrides.model_validate(skill_overrides).model_dump(mode="json", exclude_none=True)
+                                  if skill_overrides is not None else None)
+        except ValueError as error:
+            raise ContentRunError(str(error), code="invalid_skill_selection", status_code=422) from error
+        if skill_ids is not None and (skill_overrides is not None or not skill_ids or len(skill_ids) > 12
+                                      or any(not isinstance(value, str) for value in skill_ids)):
+            raise ContentRunError("请选择一份明确的 Skill ID 列表。", code="invalid_skill_selection", status_code=422)
+        fresh_request = {"skill_overrides": requested_override, "skill_ids": list(skill_ids) if skill_ids is not None else None,
+                         "origin_session_id": origin_session_id, "context_snapshot_ref": context_snapshot_ref}
+        existing = self._fresh_replay(source, token, expected_version, fresh_request)
+        if existing is not None:
+            return existing
         frozen = (ContentRunInput.model_validate(source.input_snapshot_json)
                   if source.input_snapshot_json.get("production_protocol") != "external-import" else None)
+        with self.database.session() as session:
+            topic = session.get(Topic, source.topic_id)
+            current_series = topic.series if topic else None
+            if (current_series is None or not current_series.creator_id
+                    or any(source.input_snapshot_json.get(key) != value for key, value in (
+                        ("creator_id", current_series.creator_id), ("series_id", current_series.id),
+                        ("topic_id", source.topic_id)))):
+                raise ContentRunError("来源任务与当前账号不一致。", code="scope_conflict", status_code=403)
         selected_spec = None
         if skill_ids is not None:
             if skill_overrides is not None or not skill_ids or len(skill_ids) > 12:
                 raise ContentRunError("请选择一份明确的 Skill ID 列表。", code="invalid_skill_selection", status_code=422)
-            from creatoros.integrations.skill_library import SkillLibraryService
-            catalog = ProducerSkillCatalog(skills_root_for(self.database))
-            library = SkillLibraryService(self.database, catalog)
+            catalog = (self.skill_library.catalog if self.skill_library is not None
+                       else ProducerSkillCatalog(skills_root_for(self.database)))
+            library = self.skill_library or SkillLibraryService(self.database, catalog)
             with self.database.session() as session:
                 topic = session.get(Topic, source.topic_id)
                 creator_id = topic.series.creator_id if topic else None
@@ -201,13 +228,94 @@ class ContentRunService:
         preserved_spec = selected_spec or (frozen.execution_spec if frozen is not None and skill_overrides is None
                           and frozen.execution_spec is not None
                           and (source.task_id is not None or frozen.execution_spec.kind == "video") else None)
-        return self._create(
+        if preserved_spec is not None and selected_spec is None:
+            library = self.skill_library or SkillLibraryService(self.database,
+                ProducerSkillCatalog(skills_root_for(self.database)))
+            if any(not library.can_use(current_series.creator_id, skill.skill_id) for skill in preserved_spec.skills):
+                raise ContentRunError("来源 Skill 已不在当前账号可用库中，请重新选择。", code="scope_conflict", status_code=403)
+        return self._create_prepared(
             source.topic_id, idempotency_key=f"fresh:{token}", task_id=source.task_id,
             origin_session_id=origin_session_id, context_snapshot_ref=context_snapshot_ref,
             fresh_source=(source_run_id, expected_version),
             skill_overrides=skill_overrides,
             execution_spec=preserved_spec,
+            fresh_request=fresh_request,
         )
+
+    def _fresh_replay(self, source, token, expected_version, fresh_request):
+        """Read a signed new-format receipt before reselecting mutable Skills."""
+        with self.database.session() as session:
+            topic = session.get(Topic, source.topic_id)
+            series = topic.series if topic else None
+            expected_owner = ((series.creator_id, series.id, topic.id) if series and topic else (None, None, None))
+            self._assert_existing_scope(session, source.topic_id, source)
+            repository = ContentRunRepository(self.database, session=session)
+            existing = repository.get_by_idempotency_key(f'fresh:{token}')
+            if existing is None:
+                return None
+            self._assert_existing_scope(session, source.topic_id, existing)
+            owner = tuple(existing.input_snapshot_json.get(key) for key in ('creator_id', 'series_id', 'topic_id'))
+            event = next((item for item in repository.list_events(existing.id)
+                          if item.event_type is ContentRunEventType.CREATED), None)
+            payload = event.payload_json if event is not None and isinstance(event.payload_json, dict) else {}
+            if (existing.topic_id != source.topic_id or existing.task_id != source.task_id or owner != expected_owner
+                    or payload.get('fresh_source') != {'run_id': source.id, 'version': expected_version}):
+                raise ContentRunError("重做请求标识已用于不同的要求。", code="idempotency_conflict")
+            if 'fresh_request' not in payload:
+                return None  # Older records retain their existing replay path.
+            if payload['fresh_request'] != fresh_request:
+                raise ContentRunError("重做请求标识已用于不同的 Skill 选择。", code="idempotency_conflict")
+            return existing
+
+    @staticmethod
+    def _assert_existing_scope(session, topic_id, run):
+        topic = session.get(Topic, topic_id)
+        series = topic.series if topic else None
+        owner = tuple(run.input_snapshot_json.get(field) for field in ('creator_id', 'series_id', 'topic_id'))
+        if (series is None or not series.is_active or not series.creator or not series.creator.is_active
+                or session.get(TopicRemoval, topic_id) is not None
+                or owner != (series.creator_id, series.id, topic_id)):
+            raise ContentRunError("原任务与当前账号不一致。", code="scope_conflict", status_code=403)
+        if run.task_id:
+            task = session.get(ProductionTask, run.task_id)
+            definition = task.definition_json if task and isinstance(task.definition_json, dict) else {}
+            collection = session.get(MediaCollection, task.collection_id) if task and task.collection_id else None
+            if (task is None or task.topic_id != topic_id
+                    or (definition and (definition.get('creator_id') != series.creator_id
+                                        or definition.get('series_id') != series.id))
+                    or (task.collection_id and (collection is None or collection.creator_id != series.creator_id
+                                                 or collection.topic_id != topic_id))):
+                raise ContentRunError("原制作任务与当前账号不一致。", code="scope_conflict", status_code=403)
+
+    def _create_prepared(self, topic_id, **kwargs):
+        """Freeze outside the writer, then revalidate authorization in one short transaction."""
+        plan = self._create(topic_id, prepare_only=True, **kwargs)
+        if not isinstance(plan, PreparedRun):
+            return plan  # Existing idempotent request; no new authorization or write.
+        execution_spec = kwargs.get("execution_spec")
+        preserved = (kwargs.get("fresh_source") is not None and execution_spec is not None
+                     and all(skill.path for skill in execution_spec.skills))
+        source_catalog = ProducerSkillCatalog(skills_root_for(self.database))
+        catalog = None if preserved else source_catalog
+        library = self.skill_library or SkillLibraryService(self.database, source_catalog)
+        verification_error = None
+        with _SKILL_EDIT_LOCK:
+            try:
+                verify_prepared_run(self, plan, catalog=catalog)
+            except (ValueError, OSError) as error:
+                verification_error = error
+            if verification_error is None:
+                authority = prepare_skill_authority(self.database, library, plan.scope['series'][1], run_skill_ids(plan))
+                with self.database.session() as session:
+                    if self.database.engine.dialect.name == "sqlite":
+                        session.execute(text("BEGIN IMMEDIATE"))
+                    return self._create(topic_id, bound_session=session, prepared=plan, authority=authority, **kwargs)
+        # A different service instance may have accepted the exact request
+        # while this caller was preparing an older file snapshot.
+        existing = self._create(topic_id, existing_only=True, **kwargs)
+        if existing is not None:
+            return existing
+        raise ContentRunError(str(verification_error), code="invalid_skill_snapshot") from verification_error
 
     def _create(
         self,
@@ -221,7 +329,16 @@ class ContentRunService:
         task_id: str | None = None,
         bound_session=None,
         execution_spec: TaskExecutionSpec | dict | None = None,
-    ) -> ContentRun:
+        prepared: PreparedRun | None = None,
+        prepare_only: bool = False,
+        transient_task: ProductionTask | None = None,
+        transient_collection: MediaCollection | None = None,
+        transient_topic: Topic | None = None,
+        selection_library=None,
+        authority=None,
+        existing_only: bool = False,
+        fresh_request: dict | None = None,
+    ) -> ContentRun | PreparedRun:
         try:
             execution_spec = TaskExecutionSpec.model_validate(execution_spec) if execution_spec is not None else None
             if execution_spec is not None and skill_overrides is not None:
@@ -245,6 +362,8 @@ class ContentRunService:
         if existing is not None:
             if existing.topic_id != topic_id or existing.task_id != task_id:
                 raise ContentRunError("请求标识已用于另一个选题。", code="idempotency_conflict")
+            with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
+                self._assert_existing_scope(session, topic_id, existing)
             old_spec = existing.input_snapshot_json.get("execution_spec")
             old_spec = TaskExecutionSpec.model_validate(old_spec).public_dict() if old_spec else None
             if ((execution_spec is not None or selected is not None)
@@ -258,18 +377,28 @@ class ContentRunService:
             if fresh_source is not None:
                 event = next((item for item in (repository if bound_session is not None else self.repository).list_events(existing.id)
                               if item.event_type is ContentRunEventType.CREATED), None)
-                payload = event.payload_json if event is not None else {}
+                payload = event.payload_json if event is not None and isinstance(event.payload_json, dict) else {}
                 if (payload or {}).get("fresh_source") != {
                     "run_id": fresh_source[0], "version": fresh_source[1],
                 }:
                     raise ContentRunError("重做请求标识已用于不同的要求。", code="idempotency_conflict")
+                if fresh_request is not None and payload.get("fresh_request", fresh_request) != fresh_request:
+                    raise ContentRunError("重做请求标识已用于不同的 Skill 选择。", code="idempotency_conflict")
             return existing
 
+        if existing_only:
+            return None
+
         with (nullcontext(bound_session) if bound_session is not None else self.database.session()) as session:
-            topic = session.get(Topic, topic_id)
+            if authority is not None:
+                try:
+                    verify_skill_authority(session, authority)
+                except SkillAuthorizationConflict as error:
+                    raise ContentRunError(str(error), code="scope_conflict", status_code=403) from error
+            topic = session.get(Topic, topic_id) or transient_topic
             if topic is None:
                 raise ContentRunError(f"Topic 不存在：{topic_id}", status_code=404, code="not_found")
-            task = session.get(ProductionTask, task_id) if task_id else None
+            task = (session.get(ProductionTask, task_id) or transient_task) if task_id else None
             if task_id and (task is None or task.topic_id != topic_id):
                 raise ContentRunError("制作任务不属于该选题。", code="invalid_task")
             series = topic.series
@@ -284,7 +413,7 @@ class ContentRunService:
                 raise ContentRunError("这个选题已拆分制作，请查看并操作具体制作任务，或添加新的制作任务。",
                                       code="production_tasks_exist")
             if task is not None and task.collection_id is not None:
-                collection = session.get(MediaCollection, task.collection_id)
+                collection = session.get(MediaCollection, task.collection_id) or transient_collection
                 if collection is None or collection.creator_id != series.creator_id or collection.topic_id != topic_id:
                     raise ContentRunError("制作素材集的归属与当前选题不一致。", code="scope_conflict", status_code=403)
             if fresh_source is not None:
@@ -307,81 +436,94 @@ class ContentRunService:
                 if latest is not None:
                     raise ContentRunError("该选题已有生产记录；请查看原任务，结束后用从头重做选择新版。",
                                           code="run_exists", run_id=latest.id)
-            catalog = ProducerSkillCatalog(skills_root_for(self.database))
-            if execution_spec is None:
-                selection = resolve_image_skills(
-                    self.database, session, series, protocol=self.production_protocol, selected=selected,
-                    topic_source=topic.source.value, catalog=catalog)
-                execution_spec, single_id, pair_fields = selection.execution_spec, selection.single_id, selection.input_fields
+            if prepared is not None:
+                if prepare_only or (prepared.topic_id, prepared.task_id, prepared.key) != (topic_id, task_id, key):
+                    raise ContentRunError("准备的生产输入与请求不一致。", code="invalid_task")
+                if production_scope(session, topic, series, task) != prepared.scope:
+                    raise ContentRunError("账号、栏目或选题已变化，请核对后重新提交。", code="scope_conflict", status_code=409)
+                run_id, revision_id, snapshot = prepared.run_id, prepared.revision_id, prepared.snapshot
             else:
-                single_id, pair_fields = None, {"execution_spec": execution_spec}
-            if topic.reference_id:
-                from creatoros.integrations.topic_references import TopicReferenceStore
-                try:
-                    pair_fields["task_references"] = TopicReferenceStore(self.database).load(series.id, topic.reference_id)
-                except (ValueError, OSError) as error:
-                    raise ContentRunError("选题参考图片缺失或已变化，请检查后再生产。", code="invalid_references") from error
-            task_metadata = {}
-            if task_id is not None:
-                skill_ids = ([item.skill_id for item in execution_spec.skills] if execution_spec else
-                             [single_id] if single_id else [pair_fields["composition"].mind.id, pair_fields["composition"].production.id])
-                labels = []
-                for reference in skill_ids:
-                    metadata = catalog.reference_metadata(reference)
-                    label = metadata["name"]
-                    if metadata.get("version_number") is not None:
-                        label += f" v{metadata['version_number']}"
-                    labels.append(label)
-                task_metadata = {"task_id": task_id, "task_skill_summary": " + ".join(labels)}
-            snapshot = ContentRunInput(
-                **pair_fields,
-                production_protocol="task-v1" if execution_spec else self.production_protocol,
-                creator_id=series.creator_id,
-                series_id=series.id,
-                series_name=series.name,
-                series_description=series.description,
-                audience=series.audience,
-                skill_name=single_id,
-                topic_id=topic.id,
-                topic_title=task.title if task else topic.title,
-                topic_brief=(
-                    f"父选题背景（仅用于理解整体目标，不代表本任务要完成全部内容）：\n{topic.title}\n{topic.brief or ''}"
-                    f"\n\n本次独立制作任务：{task.title}\n本任务要求：{task.brief or '按本任务标题制作。'}"
-                    "\n本任务仅交付本任务明确要求的部分；不要补做父选题中的其他场景或其他制作任务。"
-                    if task else topic.brief),
-                **task_metadata,
-                **({"skill_overrides": selected} if selected else {}),
-            )
-            run_id = str(uuid4())
-            revision_id = str(uuid4())
-            if execution_spec is not None or selected is not None or task_id is not None:
-                # A selected candidate remains editable. Freeze its exact complete
-                # directory before accepting the request, not when the queue runs.
-                run_root = self.output_root / snapshot.creator_id / snapshot.series_id / run_id
-                try:
-                    if execution_spec is not None:
-                        frozen_spec = freeze_execution_spec(execution_spec, catalog, run_root / "skill-snapshot",
-                            trusted_skill_roots=[self.output_root / "staged-task-inputs", *(
-                                [self.output_root / snapshot.creator_id / snapshot.series_id / fresh_source[0] / "skill-snapshot"]
-                                if fresh_source else [])])
-                        verify_execution_spec(frozen_spec, run_root, ready=True)
-                        snapshot = snapshot.model_copy(update={"execution_spec": frozen_spec})
-                    elif snapshot.composition is not None:
-                        run_root.mkdir(parents=True, exist_ok=True)
-                        with TemporaryDirectory(prefix=".selected-skills-", dir=run_root) as temporary:
-                            staging = Path(temporary) / "snapshot"
-                            staging.mkdir()
-                            freeze_pair(catalog, snapshot.composition, staging,
-                                        selected_digests=selected.expected_digests if selected else None)
-                            (staging / "pair.json").write_text(snapshot.composition.model_dump_json(indent=2), encoding="utf-8")
-                            staging.rename(run_root / "skill-snapshot")
-                            inherit_copy_permissions(run_root / "skill-snapshot")
-                    else:
-                        target = run_root / "skill-snapshot" / "skills" / "single"
-                        freeze_skill(Path(snapshot.skill_path), target, snapshot.skill_digest)
-                        snapshot = snapshot.model_copy(update={"skill_path": str(target)})
-                except (ValueError, OSError) as error:
-                    raise ContentRunError(str(error), code="invalid_skill_snapshot") from error
+                catalog = ProducerSkillCatalog(skills_root_for(self.database))
+                if execution_spec is None:
+                    selection = resolve_image_skills(
+                        self.database, session, series, protocol=self.production_protocol, selected=selected,
+                        topic_source=topic.source.value, catalog=catalog,
+                        library=selection_library or self.skill_library)
+                    execution_spec, single_id, pair_fields = selection.execution_spec, selection.single_id, selection.input_fields
+                else:
+                    single_id, pair_fields = None, {"execution_spec": execution_spec}
+                if topic.reference_id:
+                    from creatoros.integrations.topic_references import TopicReferenceStore
+                    try:
+                        pair_fields["task_references"] = TopicReferenceStore(self.database).load(series.id, topic.reference_id)
+                    except (ValueError, OSError) as error:
+                        raise ContentRunError("选题参考图片缺失或已变化，请检查后再生产。", code="invalid_references") from error
+                task_metadata = {}
+                if task_id is not None:
+                    skill_ids = ([item.skill_id for item in execution_spec.skills] if execution_spec else
+                                 [single_id] if single_id else [pair_fields["composition"].mind.id, pair_fields["composition"].production.id])
+                    labels = []
+                    for reference in skill_ids:
+                        metadata = catalog.reference_metadata(reference)
+                        label = metadata["name"]
+                        if metadata.get("version_number") is not None:
+                            label += f" v{metadata['version_number']}"
+                        labels.append(label)
+                    task_metadata = {"task_id": task_id, "task_skill_summary": " + ".join(labels)}
+                snapshot = ContentRunInput(
+                    **pair_fields,
+                    production_protocol="task-v1" if execution_spec else self.production_protocol,
+                    creator_id=series.creator_id,
+                    series_id=series.id,
+                    series_name=series.name,
+                    series_description=series.description,
+                    audience=series.audience,
+                    skill_name=single_id,
+                    topic_id=topic.id,
+                    topic_title=task.title if task else topic.title,
+                    topic_brief=(
+                        f"父选题背景（仅用于理解整体目标，不代表本任务要完成全部内容）：\n{topic.title}\n{topic.brief or ''}"
+                        f"\n\n本次独立制作任务：{task.title}\n本任务要求：{task.brief or '按本任务标题制作。'}"
+                        "\n本任务仅交付本任务明确要求的部分；不要补做父选题中的其他场景或其他制作任务。"
+                        if task else topic.brief),
+                    **task_metadata,
+                    **({"skill_overrides": selected} if selected else {}),
+                )
+                run_id = str(uuid4())
+                revision_id = str(uuid4())
+                if execution_spec is not None or selected is not None or task_id is not None or prepare_only:
+                    # A selected candidate remains editable. Freeze its exact complete
+                    # directory before accepting the request, not when the queue runs.
+                    run_root = self.output_root / snapshot.creator_id / snapshot.series_id / run_id
+                    try:
+                        if execution_spec is not None:
+                            frozen_spec = freeze_execution_spec(execution_spec, catalog, run_root / "skill-snapshot",
+                                trusted_skill_roots=[self.output_root / "staged-task-inputs", *(
+                                    [self.output_root / snapshot.creator_id / snapshot.series_id / fresh_source[0] / "skill-snapshot"]
+                                    if fresh_source else [])])
+                            verify_execution_spec(frozen_spec, run_root, ready=True)
+                            snapshot = snapshot.model_copy(update={"execution_spec": frozen_spec})
+                        elif snapshot.composition is not None:
+                            run_root.mkdir(parents=True, exist_ok=True)
+                            with TemporaryDirectory(prefix=".selected-skills-", dir=run_root) as temporary:
+                                staging = Path(temporary) / "snapshot"
+                                staging.mkdir()
+                                freeze_pair(catalog, snapshot.composition, staging,
+                                            selected_digests=selected.expected_digests if selected else None)
+                                (staging / "pair.json").write_text(snapshot.composition.model_dump_json(indent=2), encoding="utf-8")
+                                staging.rename(run_root / "skill-snapshot")
+                                inherit_copy_permissions(run_root / "skill-snapshot")
+                        else:
+                            target = run_root / "skill-snapshot" / "skills" / "single"
+                            freeze_skill(Path(snapshot.skill_path), target, snapshot.skill_digest)
+                            snapshot = snapshot.model_copy(update={"skill_path": str(target)})
+                        snapshot = snapshot.model_copy(update={"skill_snapshot_frozen": True})
+                    except (ValueError, OSError) as error:
+                        raise ContentRunError(str(error), code="invalid_skill_snapshot") from error
+                if prepare_only:
+                    return PreparedRun(topic_id=topic_id, task_id=task_id, key=key,
+                                       run_id=run_id, revision_id=revision_id, snapshot=snapshot,
+                                       scope=production_scope(session, topic, series, task))
             repository = ContentRunRepository(self.database, session=session)
             content_run = ContentRun(
                 id=run_id,
@@ -409,7 +551,8 @@ class ContentRunService:
                 to_status=ContentRunStatus.QUEUED,
                 payload={"idempotency_key": key, **({"fresh_source": {
                     "run_id": fresh_source[0], "version": fresh_source[1],
-                }} if fresh_source is not None else {})},
+                }, **({"fresh_request": fresh_request} if fresh_request is not None else {})}
+                    if fresh_source is not None else {})},
             )
             if fresh_source is not None and task_id is None:
                 topic.status = TopicStatus.QUEUED
@@ -1007,21 +1150,21 @@ class ContentRunService:
                             break
             try:
                 catalog = ProducerSkillCatalog(skills_root_for(self.database))
-                if (input_data.skill_overrides or input_data.task_id) and not (run_root / "skill-snapshot").is_dir():
+                if (input_data.skill_snapshot_frozen or input_data.skill_overrides or input_data.task_id) and not (run_root / "skill-snapshot").is_dir():
                     raise ValueError("本次指定版本的冻结文件缺失，不能改用当前 Skill 重新生产。")
                 if input_data.execution_spec is not None:
                     verify_execution_spec(input_data.execution_spec, run_root, ready=True)
                     updates = {}
                 elif input_data.composition is not None:
                     pair = prepare_run_pair(catalog, input_data.composition, run_root,
-                                            previous_directories, first_start=not previous_directories and not input_data.skill_overrides and not input_data.task_id)
+                                            previous_directories, first_start=not previous_directories and not input_data.skill_snapshot_frozen and not input_data.skill_overrides and not input_data.task_id)
                     updates = {"composition": pair}
                 else:
                     target = run_root / "skill-snapshot" / "skills" / "single"
-                    if (input_data.skill_overrides or input_data.task_id) and not target.is_dir():
+                    if (input_data.skill_snapshot_frozen or input_data.skill_overrides or input_data.task_id) and not target.is_dir():
                         raise ValueError("本次指定版本的冻结 Skill 缺失，不能用当前文件替代。")
                     if target.is_dir():
-                        digest = input_data.skill_digest if previous_directories or input_data.skill_overrides or input_data.task_id else _digest(target)
+                        digest = input_data.skill_digest if previous_directories or input_data.skill_snapshot_frozen or input_data.skill_overrides or input_data.task_id else _digest(target)
                         if not digest or target.is_symlink() or _digest(target) != digest:
                             raise ValueError("Run 的冻结 Skill 文件已变化。")
                         source = input_data.skill_path

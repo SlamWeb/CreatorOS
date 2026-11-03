@@ -32,6 +32,7 @@ _RUN_REVISIONS = re.compile(r"^/api/runs/([^/]+)/revisions$")
 _TOPIC_REMOVE = re.compile(r"^/api/topics/([^/]+)/remove$")
 _TOPIC = re.compile(r"^/api/topics/([^/]+)$")
 _TOPIC_PRODUCTION_TASKS = re.compile(r"^/api/topics/([^/]+)/production-tasks$")
+_TOPIC_PRODUCTION_RECEIPT = re.compile(r"^/api/topics/([^/]+)/production-tasks/receipts/([^/]+)$")
 _TOPIC_EDIT_RECEIPT = re.compile(r"^/api/topics/([^/]+)/edit-receipts/([^/]+)$")
 _CREATOR_TASKS = re.compile(r"^/api/creators/([^/]+)/tasks$")
 _PRODUCER_SKILL_CONTENT = re.compile(r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})/content$")
@@ -295,6 +296,10 @@ class AgentScopeGuard:
             if self._owns_series(match.group(1), creator_id):
                 return None
             return None if self._owns_deleted_series(match.group(1), request_id, creator_id) else self._denied()
+
+        match = _TOPIC_PRODUCTION_RECEIPT.fullmatch(path)
+        if match:
+            return None if method == "GET" and self._owns_topic(match.group(1), creator_id) else self._denied()
 
         match = _TOPIC_PRODUCTION_TASKS.fullmatch(path)
         if match and method in {"GET", "POST"}:

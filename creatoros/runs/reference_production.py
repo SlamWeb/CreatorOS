@@ -4,15 +4,18 @@ import json
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import set_committed_value
 
 from creatoros.integrations.topic_references import TopicReferenceStore
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, TopicDraft
 from creatoros.operations.service import PendingOperationError
-from creatoros.storage import ContentRun, Series, WriteReceipt
+from creatoros.storage import ContentRun, Series, Topic, TopicSource, TopicStatus, WriteReceipt
 from .errors import ContentRunError
 from .skill_selection import resolve_task_skill_ids, resolve_image_skills
 from .submission import ProductionSubmission
 from .task_contracts import TaskExecutionSpec
+from .prepared_submission import run_skill_ids, verify_prepared_run
+from creatoros.integrations.skill_authority import prepare_skill_authority
 
 
 class ReferenceProductionInput(BaseModel):
@@ -43,37 +46,61 @@ class ReferenceProductionService:
             request = ReferenceProductionInput.model_validate(request)
         except ValidationError as error:
             raise ContentRunError("请求参数不符合接口契约。", code="invalid_request", status_code=422) from error
-        with self.database.session() as session:
-            self._owned_series(session, series_id, creator_id)
-        try:
-            reference = self.references.load(series_id, request.reference_id)
-        except (ValueError, OSError) as error:
-            raise ContentRunError("参考图片或要求不可用，请检查图片是否完整且属于当前栏目。",
-                                  code="invalid_request", status_code=422) from error
-        topic_id = "reference-" + sha256(json.dumps([series_id, request.request_id]).encode()).hexdigest()[:24]
-        plan = OperationPlan(operations=[AddTopicsOperation(series_id=series_id, topics=[
-            TopicDraft(topic_id=topic_id, title=request.title, brief=reference.instructions,
-                       source="manual", reference_id=reference.id)])])
-        try:
-            with self.submissions.transaction(sqlite_immediate=True,
-                    unavailable_message="生产队列暂不可用，请核对后重试。") as submission:
-                session = submission.session
+        with self.submissions.request(request.request_id):
+            with self.database.session() as session:
+                self._owned_series(session, series_id, creator_id)
+            try:
+                reference = self.references.load(series_id, request.reference_id)
+            except (ValueError, OSError) as error:
+                raise ContentRunError("参考图片或要求不可用，请检查图片是否完整且属于当前栏目。",
+                                      code="invalid_request", status_code=422) from error
+            topic_id = "reference-" + sha256(json.dumps([series_id, request.request_id]).encode()).hexdigest()[:24]
+            plan = OperationPlan(operations=[AddTopicsOperation(series_id=series_id, topics=[
+                TopicDraft(topic_id=topic_id, title=request.title, brief=reference.instructions,
+                           source="manual", reference_id=reference.id)])])
+            self.submissions.assert_ready("生产队列暂不可用，请核对后重试。")
+            prepared, selected = None, None
+            with self.database.session() as session:
                 series = self._owned_series(session, series_id, creator_id)
                 receipt = session.get(WriteReceipt, request.request_id)
-                selection = self._selection(session, series, topic_id, request, receipt)
-                self.operations.execute_direct(
-                    "按参考作品与用户要求直接制作，不生成候选。", plan, scope_series_id=series_id,
-                    request_id=request.request_id, origin=origin if origin in {"web", "agent", "cli"} else "web",
-                    bound_session=session)
-                run = submission.create_reference_run(topic_id, execution_spec=selection,
-                                                      origin_session_id=origin_session_id)
                 if receipt is None:
+                    selected = self._selection(session, series, topic_id, request, None)
+                    topic = Topic(id=topic_id, series_id=series_id, title=request.title,
+                                  brief=reference.instructions, source=TopicSource.MANUAL,
+                                  reference_id=reference.id, status=TopicStatus.QUEUED, position=1)
+                    set_committed_value(topic, "series", series)
+                    prepared = self.runs._create(topic_id, idempotency_key=f"content:{topic_id}",
+                        execution_spec=selected, origin_session_id=origin_session_id,
+                        bound_session=session, transient_topic=topic, prepare_only=True)
+            verify = ((lambda: verify_prepared_run(self.runs, prepared, catalog=self.library.catalog))
+                      if prepared is not None else None)
+            authority = ((lambda: prepare_skill_authority(self.database, self.library, creator_id,
+                                                          run_skill_ids(prepared))) if prepared is not None else None)
+            try:
+                with self.submissions.transaction(sqlite_immediate=True,
+                        unavailable_message="生产队列暂不可用，请核对后重试。", verify_prepared=verify,
+                        prepare_authority=authority) as submission:
+                    session = submission.session
+                    series = self._owned_series(session, series_id, creator_id)
                     receipt = session.get(WriteReceipt, request.request_id)
-                    receipt.response_json = {**receipt.response_json, "reference_production": {
-                        "skill_ids": request.skill_ids, "run_id": run.id}}
-        except PendingOperationError as error:
-            raise ContentRunError(str(error), code="conflict") from error
-        return run
+                    selection = self._selection(session, series, topic_id, request, receipt) if receipt else selected
+                    if receipt is None and prepared is None:
+                        raise ContentRunError("请求状态已变化，请核对原任务。", code="idempotency_conflict")
+                    if receipt is None:
+                        submission.require_authority()
+                    self.operations.execute_direct(
+                        "按参考作品与用户要求直接制作，不生成候选。", plan, scope_series_id=series_id,
+                        request_id=request.request_id, origin=origin if origin in {"web", "agent", "cli"} else "web",
+                        bound_session=session)
+                    run = submission.create_reference_run(topic_id, execution_spec=selection,
+                        origin_session_id=origin_session_id, prepared=prepared if receipt is None else None)
+                    if receipt is None:
+                        receipt = session.get(WriteReceipt, request.request_id)
+                        receipt.response_json = {**receipt.response_json, "reference_production": {
+                            "skill_ids": request.skill_ids, "run_id": run.id}}
+            except PendingOperationError as error:
+                raise ContentRunError(str(error), code="conflict") from error
+            return run
 
     @staticmethod
     def _owned_series(session, series_id, creator_id):
@@ -87,7 +114,8 @@ class ReferenceProductionService:
         if receipt is None:
             if request.skill_ids is not None:
                 return resolve_task_skill_ids(self.library, series.creator_id, request.skill_ids, kind="image")
-            resolve_image_skills(self.database, session, series, protocol=self.runs.production_protocol)
+            resolve_image_skills(self.database, session, series, protocol=self.runs.production_protocol,
+                                 library=self.library)
             return None
         saved = receipt.response_json
         recorded = saved.get("reference_production")

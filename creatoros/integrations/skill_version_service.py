@@ -7,21 +7,39 @@ import tempfile
 from pathlib import Path
 from time import sleep
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 
-from ..storage import Series, WriteReceipt
-from .producer_skills import _SKILL_EDIT_LOCK, _digest, _write, freeze_skill, inherit_copy_permissions
+from ..storage import Series, SkillSwitchIntent, WriteReceipt
+from .producer_skills import (_SKILL_EDIT_LOCK, SkillWriteOutcomeUnknown, _digest, _write,
+                              freeze_skill, inherit_copy_permissions)
 from .skill_extraction import ExtractionError, now
+from .skill_authority import account_skill_scope
 
 
 def signature(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
+class SkillSwitchOutcomeUnknown(SkillWriteOutcomeUnknown):
+    """File publication or the final series transaction must be inspected."""
+
+    def __init__(self, series_id, skill_id, request_id):
+        super().__init__(skill_id)
+        self.series_id, self.request_id = series_id, request_id
+        self.args = ("切版结果待核对；候选可能已保存，栏目可能已切换。请先查看同一请求的状态。",)
+
+    def response(self):
+        return {**super().response(), "series_id": self.series_id, "request_id": self.request_id}
+
+
 class SkillVersionService:
     def __init__(self, database, extractions):
         self.database, self.extractions = database, extractions
         self.catalog = extractions.catalog
+        from .skill_library import SkillLibraryService
+        self.library = SkillLibraryService(database, self.catalog)
+
+    _account_scope = staticmethod(account_skill_scope)
 
     @staticmethod
     def _bound(series):
@@ -220,36 +238,193 @@ class SkillVersionService:
             return self.catalog.publish_skill_candidate(skill_id, expected_digest)
 
     def switch(self, series_id, skill_id, expected_revision, request_id, trial_job_id=None, trial_id=None,
-               *, validated_calibration=False, expected_digest=None):
+               *, validated_calibration=False, expected_digest=None, expected_creator_id=None,
+               expected_account_scope=None):
         inputs = dict(series_id=series_id, skill_id=skill_id, expected_revision=expected_revision,
                       trial_job_id=trial_job_id, trial_id=trial_id)
         if expected_digest is not None:
             inputs["expected_digest"] = expected_digest
+        if expected_creator_id is not None:
+            inputs["expected_creator_id"] = expected_creator_id
+        if expected_account_scope is not None:
+            inputs["expected_account_scope"] = expected_account_scope
         receipt_id = signature({"kind": "switch-skill-version", "request_id": request_id})
-        with self.extractions.lock, _SKILL_EDIT_LOCK, self.database.session() as session:
-            previous = session.get(WriteReceipt, receipt_id)
-            if previous:
-                if previous.response_json.get("signature") != signature(inputs):
+        input_signature = signature(inputs)
+        fields = {"single": "skill_name", "mind": "mind_skill_id", "production": "production_skill_id"}
+
+        def existing_receipt(session):
+            receipt = session.get(WriteReceipt, receipt_id)
+            if receipt:
+                if (receipt.operation != "update_composition" or receipt.resource_id != series_id
+                        or receipt.response_json.get("signature") != input_signature):
                     raise ExtractionError("同一切换请求的输入已变化。", 409)
-                return previous.response_json["result"]
+                return receipt.response_json["result"]
+            return None
+
+        def settled_or(error):
+            # A different caller may have committed this exact request after
+            # the first read. Never rely on that earlier session's snapshot.
+            with self.database.session() as fresh:
+                previous = existing_receipt(fresh)
+            if previous is not None:
+                return previous
+            raise error
+
+        preflight_error = None
+        with self.database.session() as session:
+            previous = existing_receipt(session)
+            if previous is not None:
+                return previous
+            intent = session.get(SkillSwitchIntent, receipt_id)
+            if intent and (intent.signature != input_signature or intent.series_id != series_id):
+                raise ExtractionError("同一切换请求的输入已变化。", 409)
             series = session.get(Series, series_id)
             if series is None or not series.is_active:
-                raise ExtractionError("栏目不存在或已移除。", 404)
-            if series.revision != expected_revision:
-                raise ExtractionError("栏目配置已变化，请刷新后确认。", 409)
-            role, previous_skill_id = self._binding(series, skill_id)
+                preflight_error = ExtractionError("栏目不存在或已移除。", 404)
+            elif series.revision != expected_revision:
+                preflight_error = ExtractionError("栏目配置已变化，请刷新后确认。", 409)
+            else:
+                scope = self._account_scope(session, series.creator_id)
+                if ((expected_creator_id is not None and series.creator_id != expected_creator_id)
+                        or (expected_account_scope is not None and scope != expected_account_scope)):
+                    preflight_error = SkillSwitchOutcomeUnknown(series_id, skill_id, request_id)
+        if preflight_error is not None:
+            return settled_or(preflight_error)
+        if intent is None:
+            # Resolve the file-backed family before taking a SQLite write lock.
+            with _SKILL_EDIT_LOCK:
+                role, previous_skill_id = self._binding(series, skill_id)
+                item = self.catalog.describe(skill_id)
+                if expected_digest is not None and item["digest"] != expected_digest:
+                    raise ExtractionError("Skill版本已变化，请刷新后确认。", 409)
+                frozen_digest = item["digest"]
+                source_scope = {"family_id": item["family_id"], "owner": self.library._source_creator(skill_id)}
+            if series.creator_id and (not scope["active"] or not self.library.can_use(series.creator_id, skill_id)):
+                raise ExtractionError("当前账号不能使用此 Skill 版本。", 403)
+            # Write the intent before publication. No Skill lock or file copy is
+            # held during this short database transaction.
+            with self.database.session() as session:
+                if self.database.engine.dialect.name == "sqlite":
+                    session.execute(text("BEGIN IMMEDIATE"))
+                previous = existing_receipt(session)
+                if previous is not None:
+                    return previous
+                intent = session.get(SkillSwitchIntent, receipt_id)
+                current = session.get(Series, series_id)
+                if (current is None or not current.is_active or current.revision != expected_revision
+                        or current.creator_id != series.creator_id
+                        or getattr(current, fields[role]) != previous_skill_id
+                        or self._account_scope(session, current.creator_id) != scope):
+                    raise ExtractionError("栏目配置已变化，请刷新后确认。", 409)
+                if intent is None:
+                    intent = SkillSwitchIntent(id=receipt_id, signature=input_signature, series_id=series_id,
+                        creator_id=current.creator_id, skill_id=skill_id, expected_revision=expected_revision,
+                        expected_digest=frozen_digest, previous_skill_id=previous_skill_id, role=role,
+                        scope_json={"account": scope, "source": source_scope}, phase="prepared")
+                    session.add(intent)
+                    session.flush()
+                elif intent.signature != input_signature or intent.series_id != series_id:
+                    raise ExtractionError("同一切换请求的输入已变化。", 409)
+
+        # A change since the intent may already have raced an earlier publish.
+        # Inspect the retained intent instead of claiming there was no effect.
+        with self.database.session() as session:
+            current = session.get(Series, series_id)
+            scope_changed = (current is None or not current.is_active or current.creator_id != intent.creator_id
+                    or current.revision != intent.expected_revision
+                    or getattr(current, fields[intent.role]) != intent.previous_skill_id
+                    or self._account_scope(session, intent.creator_id) != intent.scope_json["account"])
+        if scope_changed:
+            return settled_or(SkillSwitchOutcomeUnknown(series_id, skill_id, request_id))
+        if intent.creator_id and not self.library.can_use(intent.creator_id, skill_id):
+            return settled_or(SkillSwitchOutcomeUnknown(series_id, skill_id, request_id))
+
+        # An explicit same-request replay first checks the exact intent and
+        # file state. A matching released version is never published again.
+        with _SKILL_EDIT_LOCK:
             item = self.catalog.describe(skill_id)
-            if expected_digest is not None and item["digest"] != expected_digest:
+            source_scope = {"family_id": item["family_id"], "owner": self.library._source_creator(skill_id)}
+            if source_scope != intent.scope_json["source"]:
+                raise SkillSwitchOutcomeUnknown(series_id, skill_id, request_id)
+            if item["digest"] != intent.expected_digest:
                 raise ExtractionError("Skill版本已变化，请刷新后确认。", 409)
             if item["version_status"] == "candidate":
-                self.catalog.publish_skill_candidate(skill_id, expected_digest or item["digest"])
-            field = {"single": "skill_name", "mind": "mind_skill_id", "production": "production_skill_id"}[role]
-            changed = session.execute(update(Series).where(Series.id == series_id,
-                Series.revision == expected_revision).values(**{field: skill_id, "revision": expected_revision + 1}))
-            if changed.rowcount != 1:
-                raise ExtractionError("栏目已被其他操作修改，未切换。", 409)
-            result = dict(series_id=series_id, skill_id=skill_id, revision=expected_revision + 1)
-            session.add(WriteReceipt(request_id=receipt_id, operation="update_composition", resource_id=series_id,
-                origin="web", response_json={"kind": "skill_version", "signature": signature(inputs),
-                    "previous_skill_id": previous_skill_id, "result": result}))
+                try:
+                    self.catalog.publish_skill_candidate(skill_id, intent.expected_digest)
+                except Exception as error:
+                    raise SkillSwitchOutcomeUnknown(series_id, skill_id, request_id) from error
+            elif item["version_status"] != "released":
+                raise ExtractionError("Skill版本不可用于切换。", 409)
+
+        try:
+            with self.database.session() as session:
+                if self.database.engine.dialect.name == "sqlite":
+                    session.execute(text("BEGIN IMMEDIATE"))
+                previous = existing_receipt(session)
+                if previous is not None:
+                    return previous
+                saved = session.get(SkillSwitchIntent, receipt_id)
+                current = session.get(Series, series_id)
+                if (saved is None or saved.signature != input_signature or current is None or not current.is_active
+                        or current.creator_id != saved.creator_id or current.revision != saved.expected_revision
+                        or getattr(current, fields[saved.role]) != saved.previous_skill_id
+                        or self._account_scope(session, saved.creator_id) != saved.scope_json["account"]):
+                    raise SkillSwitchOutcomeUnknown(series_id, skill_id, request_id)
+                field = fields[saved.role]
+                changed = session.execute(update(Series).where(Series.id == series_id,
+                    Series.revision == expected_revision, Series.creator_id == saved.creator_id)
+                    .values(**{field: skill_id, "revision": expected_revision + 1}))
+                if changed.rowcount != 1:
+                    raise SkillSwitchOutcomeUnknown(series_id, skill_id, request_id)
+                result = dict(series_id=series_id, skill_id=skill_id, revision=expected_revision + 1)
+                session.add(WriteReceipt(request_id=receipt_id, operation="update_composition", resource_id=series_id,
+                    origin="web", response_json={"kind": "skill_version", "signature": input_signature,
+                        "previous_skill_id": saved.previous_skill_id, "result": result}))
+                saved.phase = "committed"
             return result
+        except SkillSwitchOutcomeUnknown:
+            raise
+        except Exception as error:
+            raise SkillSwitchOutcomeUnknown(series_id, skill_id, request_id) from error
+
+    def inspect_switch(self, series_id, request_id, *, creator_id=None):
+        """Read a switch's DB receipt and exact file state without resuming it."""
+        identity = signature({"kind": "switch-skill-version", "request_id": request_id})
+        with self.database.session() as session:
+            series = session.get(Series, series_id)
+            intent = session.get(SkillSwitchIntent, identity)
+            receipt = session.get(WriteReceipt, identity)
+            if (series is None or (creator_id is not None and series.creator_id != creator_id)
+                    or (intent is not None and (intent.series_id != series_id
+                        or (creator_id is not None and intent.creator_id != creator_id)))):
+                raise PermissionError("当前账号不能查看此切版请求。")
+            if intent is None:
+                raise ExtractionError("切版请求不存在。", 404)
+            role_field = {"single": "skill_name", "mind": "mind_skill_id", "production": "production_skill_id"}[intent.role]
+            current_id, current_revision = getattr(series, role_field), series.revision
+            scope = self._account_scope(session, intent.creator_id)
+        if receipt is not None and receipt.response_json.get("signature") == intent.signature:
+            state = "committed"
+        elif current_id != intent.previous_skill_id or current_revision != intent.expected_revision:
+            state = "binding_changed"
+        elif scope != intent.scope_json["account"]:
+            state = "authorization_changed"
+        else:
+            try:
+                with _SKILL_EDIT_LOCK:
+                    item = self.catalog.describe(intent.skill_id)
+                    source = {"family_id": item["family_id"], "owner": self.library._source_creator(intent.skill_id)}
+                    can_use = not intent.creator_id or self.library.can_use(intent.creator_id, intent.skill_id)
+                if source != intent.scope_json.get("source") or not can_use:
+                    state = "authorization_changed"
+                elif item["digest"] != intent.expected_digest:
+                    state = "skill_changed"
+                elif item["version_status"] == "released":
+                    state = "published_not_switched"
+                else:
+                    state = "prepared"
+            except (ValueError, OSError, KeyError, TypeError, AttributeError):
+                state = "unknown"
+        return {"status": state, "series_id": series_id, "skill_id": intent.skill_id,
+                "digest": intent.expected_digest, "expected_revision": intent.expected_revision,
+                "current_skill_id": current_id, "current_revision": current_revision}

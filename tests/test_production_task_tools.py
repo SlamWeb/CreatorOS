@@ -11,16 +11,17 @@ import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.integrations.studio import StudioClient, StudioClientError
-from creatoros.storage import ContentRun, ProductionTask, Series, Topic, TopicRemoval
+from creatoros.storage import ContentRun, ProductionTask, Series, Topic, TopicRemoval, WriteReceipt
 from creatoros.tools import execute_tool_call, tools
 from creatoros.tools.definitions import tool_registry
 from creatoros.tools.host_contract import model_tool_schemas
 from creatoros.tools.model_projection import project_model_data
+from creatoros.tools.results import ToolResult
 from creatoros.web.chat import ACCOUNT_TOOLS
 from tests import test_skill_version_scope as scope_fixture
 
@@ -77,6 +78,66 @@ class ProductionTaskToolContractTests(unittest.TestCase):
         read = project_model_data("manage_topics", {"production_tasks": data})
         self.assertEqual(read["production_tasks"], projected)
         self.assertEqual(data, original)
+
+    def test_chat_marks_only_unknown_production_write_as_unknown(self):
+        from tests.test_plan_continuation_unknown_write import ContinuationUnknownWriteTests
+        for error_type, expected in (('studio_outcome_unknown', 'unknown'),
+                                     ('invalid_arguments', 'failed'),
+                                     ('studio_read_failed', 'failed')):
+            with self.subTest(error_type=error_type), ContinuationUnknownWriteTests.isolated_case() as case:
+                case.responses = [[('start_content_run', {'action': 'tasks', 'topic_id': 'isolated-topic',
+                    'tasks': [{'kind': 'image', 'title': 'One', 'brief': 'Create one'}]})], []]
+                result = ToolResult(content='controlled result', is_error=True, error_type=error_type)
+                with patch('creatoros.agent.loop.execute_tool_call', return_value=result):
+                    view = case.chat.get(case.sid)
+                    case.chat.submit(case.sid, 'production-unknown', '制作', view['version'], 'http://127.0.0.1:1')
+                    thread = case.chat.threads.get(case.sid)
+                    if thread is not None:
+                        thread.join(20)
+                entries = [entry for entry in case.chat._read(case.sid)['entries'] if entry['kind'] == 'tool']
+                self.assertEqual([entry['status'] for entry in entries], [expected])
+                self.assertEqual(case.providers[0].calls, 2)
+
+    def test_fresh_and_reference_classify_only_dispatched_write_failures(self):
+        context = RuntimeContext(Path.cwd(), studio_url='http://127.0.0.1:1', creator_id='creator',
+                                 agent_session_id='session', user_request_id='turn', allowed_tools=ACCOUNT_TOOLS)
+        for action, mode, expected in (('fresh', 'read', 'studio_read_failed'),
+                                       ('fresh', 'server', 'studio_outcome_unknown'),
+                                       ('fresh', 'lost', 'studio_outcome_unknown'),
+                                       ('fresh', 'reject', 'invalid_request'),
+                                       ('reference', 'server', 'studio_outcome_unknown'),
+                                       ('reference', 'lost', 'studio_outcome_unknown'),
+                                       ('reference', 'reject', 'invalid_request')):
+            with self.subTest(action=action, mode=mode):
+                posts = []
+                class Client:
+                    def __init__(self, base_url, **_kwargs):
+                        self.base_url = base_url
+                    def close(self):
+                        pass
+                    def get_run(self, _run_id):
+                        if mode == 'read':
+                            raise StudioClientError('read failed', 'studio_read_failed')
+                        return {'topic_id': 'topic'}
+                    def request(self, method, path, **kwargs):
+                        if path.endswith('/image-actions/reference'):
+                            return {'id': 'a' * 64}
+                        posts.append((method, path, kwargs['payload']['request_id']))
+                        if mode == 'lost':
+                            raise StudioClientError('connection lost', 'studio_outcome_unknown')
+                        if mode == 'reject':
+                            raise StudioClientError('rejected', 'invalid_request', status_code=422)
+                        raise StudioClientError('server failed', 'studio_request_failed', status_code=500)
+                arguments = ({'action': 'fresh', 'source_run_id': 'run', 'expected_version': 1} if action == 'fresh'
+                             else {'action': 'reference', 'series_id': 'series', 'title': 'One',
+                                   'attachment_ids': ['attachment']})
+                with patch('creatoros.tools.studio.StudioClient', Client):
+                    result = execute_tool_call(ToolCall('production', 'start_content_run', json.dumps(arguments)),
+                                               context, model_requested=True)
+                self.assertEqual(result.error_type, expected, result.content)
+                self.assertEqual(len(posts), 0 if mode == 'read' else 1)
+                if posts:
+                    self.assertEqual(json.loads(result.content)['request_id'], posts[0][2])
 
 
 class ProductionTaskToolHttpTests(unittest.TestCase):
@@ -195,11 +256,107 @@ class ProductionTaskToolHttpTests(unittest.TestCase):
                 "kind": "image", "title": "已落库", "brief": "仅响应丢失"}]}
             first = self.call(context, **args)
             self.assertTrue(first.is_error)
+            unknown = json.loads(first.content)
+            self.assertEqual(first.error_type, 'studio_outcome_unknown')
+            self.assertEqual(unknown['request_id'], seen_keys[0])
+            self.assertTrue(unknown['receipt_url'].endswith('/receipts/' + seen_keys[0]))
+            model_unknown = json.loads(first.to_model_content().split('\n', 1)[1])
+            self.assertEqual(model_unknown['request_id'], seen_keys[0])
+            self.assertEqual(model_unknown['topic_id'], 'review-1')
             after = self.counts()
+            read = execute_tool_call(ToolCall('read-receipt', 'manage_topics', json.dumps({
+                'action': 'get', 'topic_id': 'review-1', 'production_request_id': seen_keys[0]})),
+                replace(context, user_request_id=uuid4().hex), model_requested=True)
+            self.assertFalse(read.is_error, read.content)
+            self.assertEqual(json.loads(read.to_model_content())['production_receipt']['status'], 'accepted')
+            self.assertEqual(self.counts(), after)
             second = self.call(context, **args)
             self.assertFalse(second.is_error, second.content)
         self.assertEqual(seen_keys[0], seen_keys[1])
         self.assertEqual(self.counts(), after)
+
+    def test_receipt_scope_and_missing_result_remain_read_only(self):
+        request_id = uuid4().hex
+        path = f'/api/topics/review-1/production-tasks/receipts/{request_id}'
+        before = self.counts()
+        missing = self.client.get(path, headers=self.header())
+        self.assertEqual(missing.status_code, 200, missing.text)
+        self.assertEqual(missing.json()['status'], 'unknown')
+        self.assertEqual(self.client.get(path, headers=self.header(self.other)).status_code, 403)
+        self.assertEqual(self.client.get(path, params={'creator_id': 'other'}).status_code, 403)
+        context = self.context()
+        result = execute_tool_call(ToolCall('unknown-receipt', 'manage_topics', json.dumps({
+            'action': 'get', 'topic_id': 'review-1', 'production_request_id': request_id})), context, model_requested=True)
+        self.assertFalse(result.is_error, result.content)
+        view = json.loads(result.to_model_content())['production_receipt']
+        self.assertEqual(view['status'], 'unknown')
+        self.assertEqual(view['request_id'], request_id)
+        self.assertIn('不确定', view['message'])
+        self.assertEqual(self.counts(), before)
+
+    def test_http_commit_ack_loss_returns_unknown_and_original_receipt(self):
+        factory = self.database._session_factory
+        session_type = factory.class_
+        def mark_receipt(session, _context):
+            if any(isinstance(item, WriteReceipt) and item.response_json.get('kind') == 'production_tasks'
+                   for item in session.new):
+                session.info['production_receipt_test'] = True
+        def lose_ack_factory():
+            session = factory()
+            commit = session.commit
+            def commit_then_raise():
+                commit()
+                if session.info.get('production_receipt_test'):
+                    raise OSError('injected committed acknowledgement loss')
+            session.commit = commit_then_raise
+            return session
+        request_id = uuid4().hex
+        path = '/api/topics/review-1/production-tasks'
+        event.listen(session_type, 'after_flush', mark_receipt)
+        try:
+            with patch.object(self.database, '_session_factory', side_effect=lose_ack_factory):
+                response = self.client.post(path, headers=self.header(), json={'request_id': request_id,
+                    'tasks': [{'title': 'Committed once', 'brief': 'No retry'}]})
+        finally:
+            event.remove(session_type, 'after_flush', mark_receipt)
+        self.assertEqual(response.status_code, 409, response.text)
+        error = response.json()['error']
+        self.assertEqual(error['code'], 'studio_outcome_unknown')
+        self.assertEqual(error['request_id'], request_id)
+        after = self.counts()
+        receipt = self.client.get(error['receipt_url'], headers=self.header())
+        self.assertEqual(receipt.status_code, 200, receipt.text)
+        self.assertEqual(receipt.json()['status'], 'accepted')
+        self.assertEqual(len(receipt.json()['items']), 1)
+        self.assertEqual(self.client.get(error['receipt_url'], headers=self.header(self.other)).status_code, 403)
+        self.assertEqual(self.counts(), after)
+        with self.database.session() as session:
+            session.get(Series, 'agent-notes').creator_id = 'other'
+        self.assertEqual(self.client.get(error['receipt_url'], headers=self.header()).status_code, 403)
+        self.assertEqual(self.client.get(error['receipt_url'], headers=self.header(self.other)).status_code, 403)
+
+    def test_agent_conservatively_classifies_5xx_and_bad_receipts_only_for_writes(self):
+        context = self.context()
+        args = {'action': 'tasks', 'topic_id': 'review-1', 'tasks': [{
+            'kind': 'image', 'title': 'Response check', 'brief': 'Test'}]}
+        for failure in (StudioClientError('server error', 'studio_request_failed', status_code=500),
+                        StudioClientError('bad JSON', 'studio_invalid_response')):
+            with self.subTest(failure=failure.code), patch.object(StudioClient, 'request', side_effect=failure):
+                result = self.call(context, **args)
+                self.assertEqual(result.error_type, 'studio_outcome_unknown')
+                data = json.loads(result.content)
+                self.assertTrue(data['outcome_unknown'])
+                self.assertTrue(data['request_id'])
+        with patch.object(StudioClient, 'request', side_effect=StudioClientError('rejected', 'invalid_request', status_code=422)):
+            result = self.call(context, **args)
+            self.assertEqual(result.error_type, 'invalid_request')
+        with patch.object(StudioClient, 'request', return_value={}):
+            result = self.call(context, **args)
+            self.assertEqual(result.error_type, 'studio_outcome_unknown')
+        with patch.object(StudioClient, 'request', side_effect=StudioClientError('read failed', 'studio_read_failed')):
+            result = execute_tool_call(ToolCall('read-failed', 'manage_topics', json.dumps({
+                'action': 'get', 'topic_id': 'review-1'})), context, model_requested=True)
+            self.assertEqual(result.error_type, 'studio_read_failed')
 
 
 if __name__ == "__main__":

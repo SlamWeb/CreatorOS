@@ -31,7 +31,8 @@ def resolve_task_skill_ids(library, creator_id, skill_ids, *, kind):
         raise ContentRunError("所选 Skill 版本不可用，请重新读取。", code="invalid_skill_selection", status_code=422) from error
 
 
-def resolve_image_skills(database, session, series, *, protocol, selected=None, topic_source=None, catalog=None):
+def resolve_image_skills(database, session, series, *, protocol, selected=None, topic_source=None, catalog=None,
+                         library=None):
     """Resolve defaults or an explicit selection without creating a Topic or Run.
 
     Both ordinary production and preflight for reference production use this
@@ -39,12 +40,12 @@ def resolve_image_skills(database, session, series, *, protocol, selected=None, 
     an older, separate preflight at the other entry.
     """
     catalog = catalog or ProducerSkillCatalog(skills_root_for(database))
+    library = library or SkillLibraryService(database, catalog)
     execution_spec = None
     if selected is None:
         pool = session.get(SeriesSkillRef, series.id)
         defaults = (pool.defaults_json or {}).get("image", []) if pool else []
         if defaults:
-            library = SkillLibraryService(database, catalog)
             if any(not library.can_use(series.creator_id, item["skill_id"]) for item in defaults):
                 raise ContentRunError("栏目默认 Skill 不在当前账号可用库中，请重新选择。", code="scope_conflict", status_code=403)
             execution_spec = TaskExecutionSpec(kind="image", skills=[{
@@ -57,6 +58,11 @@ def resolve_image_skills(database, session, series, *, protocol, selected=None, 
 
     single_id = selected.skill_id if selected and selected.skill_id else (
         None if selected and (selected.mind_skill_id or selected.production_skill_id) else series.skill_name)
+    requested = ([single_id] if single_id else [
+        (selected.mind_skill_id if selected else None) or series.mind_skill_id,
+        (selected.production_skill_id if selected else None) or series.production_skill_id])
+    if any(skill_id and not library.can_use(series.creator_id, skill_id) for skill_id in requested):
+        raise ContentRunError("所选 Skill 不在当前账号可用库中。", code="scope_conflict", status_code=403)
     if single_id is None:
         mind_id = (selected.mind_skill_id if selected else None) or series.mind_skill_id
         production_id = (selected.production_skill_id if selected else None) or series.production_skill_id

@@ -81,6 +81,13 @@ class StagedTasksTests(unittest.TestCase):
         self.assertEqual({item["kind"] for item in spec["materials"]}, {"images_zip"})
         replay = self.tasks.create("topic", request_id="video-share-text", tasks=[payload])
         self.assertEqual(replay["items"][0]["run_id"], run.id)
+        changed = {**payload, "inputs": {**payload["inputs"], "bgm_reference": share + " 修改"}}
+        with self.assertRaises(ContentRunError) as conflict:
+            self.tasks.create("topic", request_id="video-share-text", tasks=[changed])
+        self.assertEqual(conflict.exception.code, "idempotency_conflict")
+        with self.db.session() as session:
+            self.assertEqual(session.query(ContentRun).count(), 2)
+            self.assertEqual(session.query(ProductionQueueItem).count(), 2)
 
 
     def test_wait_freeze_dispatch_once_and_material_collection_does_not_collect_video(self):
@@ -145,6 +152,8 @@ class StagedTasksTests(unittest.TestCase):
         result = self.tasks.create("topic", request_id="immediate-video", tasks=[payload])
         self.assertEqual(result["items"][0]["dispatch_state"], "dispatched")
         self.assertIsNotNone(result["items"][0]["run_id"])
+        replay = self.tasks.create("topic", request_id="immediate-video", tasks=[payload])
+        self.assertEqual(replay["items"][0]["run_id"], result["items"][0]["run_id"])
 
     def test_explicit_old_export_cannot_silently_omit_waited_dependency(self):
         images, image = self.image()

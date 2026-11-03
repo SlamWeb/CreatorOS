@@ -1,5 +1,13 @@
 # CreatorOS Web API SPEC
 
+## 2026-11-03 · 本机账号切换目录
+
+网页的 `GET /api/creator-directory` 用单条 SQLite 查询返回账号 `id` 和 `display_name`，响应为 `no-store`。它供本机工作台切换账号，不返回栏目或 Skill 详情；带账号 Agent 会话的访问受现有作用域守卫限制。工作台重新获得焦点时可刷新目录，结果不是实时订阅。该本机作用域检查不等同用户身份认证。
+
+## 2026-11-03 · 共享 Skill 的账号候选说明
+
+账号 Agent 的宿主说明与现有权限路径一致：当前账号可使用的非内置发布版可以在用户明确要求时另存账号私有候选后编辑，原版的 `can_edit=false` 不否定这一派生能力；不能覆盖共享原件，不能访问其他账号的私有候选，已有候选仍需编辑权限。只问权限或禁止写入时不创建候选。版本或权限不明时先只读核实，服务端校验保持不变。
+
 ## 2026-11-03 · 计划编辑接口
 
 原有计划 PATCH 默认完整替换，仍允许删除未开始步骤；Agent 显式传 `mode=merge` 使用事务内增量与 `remove_step_ids`，两种方式共享乐观锁和执行中步骤防护。仅事务提交前规则校验/冲突有明确拒绝码，一般 HTTP 错误或断线不能据此断言未提交。
@@ -610,7 +618,7 @@ Skill 写前按账号和家族/版本在当前标签页保存待核对身份与�
 - `create_skill_library_router(service)` 提供 GET/POST `/api/creators/{id}/skills`、DELETE `/api/creators/{id}/skills/{skill_id}?expected_version`、GET/PUT `/api/series/{id}/skills`。账号 POST 为 skill_id/request_id；栏目 PUT 为 expected_version/skill_ids/defaults，defaults.image/video 各包含 skill_id、primary/supporting 角色。响应统一 items、version、defaults 及 owner ID，items 包含精确版本摘要/输出能力/can_use/can_edit。
 - 非空阶段默认恰有一个主 Skill，全部来自栏目池；池仅为账号库子集，不是权限来源。version 冲突或仍被引用返回 409，候选越权返回 403；不隐式解绑旧栏目配置。
 - 六项隔离测试通过，覆盖真实 SQLite、Skill 文件和 TestClient HTTP；正式页面/Agent 接线与真实外部 HTTP 验收由 `docs/staged-production/SPEC.md` 跟踪。
-- 账号 Agent 的库/栏目池/素材/任务控制路径按对象归属校验；typed 任务在任何写入前整体核对 Skill 使用权、BGM/集合账号和同 Topic 依赖。Skill 正文/资源编辑、建候选和校准走 can_edit，生产选择走 can_use，不能通过共享引用获得编辑权。
+- 账号 Agent 的库/栏目池/素材/任务控制路径按对象归属校验；typed 任务在任何写入前整体核对 Skill 使用权、BGM/集合账号和同 Topic 依赖。不能通过共享引用覆盖原件；账号可用的非内置发布版可派生本账号候选，已有候选编辑需 can_edit（后续共享候选规则见下）。
 - 新栏目允许仅名称创建，composition 与旧账号创建入口都不暗置 builtin；上下文展示空绑定与空阶段默认。账号上下文只读 Skill 根元数据及库/池引用，不把正文/资产或本机路径加入请求；无 Skill 的旧生产路径明确要求选择，不隐式换技能。
 - 新 Agent 工具与真实 HTTP 资源边界、空栏目、共享引用拒绝编辑、同轮分阶段幂等已验证；受控测试不替代真实 DeepSeek/Codex 的阶段衔接验收。
 

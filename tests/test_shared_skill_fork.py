@@ -1,14 +1,18 @@
 """Account-scoped shared Skill forks over the real Agent tool and loopback API."""
 import base64
+from copy import deepcopy
 from io import BytesIO
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic, sleep
+from types import SimpleNamespace
 import unittest
+from uuid import uuid4
 
 import httpx
 from PIL import Image
-from creatoros.ai.types import ToolCall
+from creatoros.ai.types import StreamEnd, TextDelta, ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.storage import ContentRepository, Series
 from creatoros.tools.execution import execute_tool_call
@@ -71,6 +75,51 @@ class SharedSkillForkTests(unittest.TestCase):
 
     def headers(self, sid):
         return {'x-creatoros-agent-session': sid}
+
+    def test_shared_skill_permissions_reach_account_model_without_writing(self):
+        captures = []
+
+        class RecordingProvider:
+            def __init__(self):
+                self.client = SimpleNamespace(close=lambda: None)
+
+            def stream(self, context):
+                captures.append(deepcopy(context.to_request()))
+                yield TextDelta('受控权限说明。')
+                yield StreamEnd('stop')
+
+        self.app.state.chat.provider_factory = RecordingProvider
+        before = self.catalog.list_skill_versions(self.original['id'])['items']
+        response = self.client.post(f'/api/agent/sessions/{self.a}/turns', json={
+            'request_id': str(uuid4()), 'expected_version': 0,
+            'text': '共享发布版在当前账号有什么权限？只解释，不修改、不复制、不另存。',
+        })
+        self.assertEqual(response.status_code, 202, response.text)
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            session = self.client.get(f'/api/agent/sessions/{self.a}').json()
+            if session['status'] != 'running':
+                break
+            sleep(.02)
+        else:
+            self.fail('Controlled protocol turn timed out')
+        self.assertEqual(session['status'], 'idle')
+        self.assertEqual(len(captures), 1)
+        messages, schemas = captures[0]
+        instructions = '\n'.join(message['content'] for message in messages
+                                 if message['role'] == 'system' and isinstance(message['content'], str))
+        self.assertIn('即使原版can_edit=false', instructions)
+        self.assertIn('本账号私有候选', instructions)
+        self.assertIn('不能覆盖共享原件', instructions)
+        self.assertIn('其他账号的私有候选', instructions)
+        self.assertIn('只问权限', instructions)
+        self.assertNotIn('只编辑明确can_edit的本账号Skill版本', instructions)
+        edit = next(item['function'] for item in schemas if item['function']['name'] == 'update_producer_skill_file')
+        self.assertIn('即使原件can_edit=false', edit['description'])
+        self.assertIn('当前账号私有候选', edit['description'])
+        self.assertEqual(self.catalog.list_skill_versions(self.original['id'])['items'], before)
+        self.assertEqual(self.catalog.describe(self.original['id'])['digest'], self.original['digest'])
+        self.assertEqual(self.producer.calls, 0)
 
     def test_batch_image_then_text_forks_and_preserves_other_account(self):
         raw, attachment = self.attachment(self.a)

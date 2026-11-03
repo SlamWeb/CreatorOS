@@ -455,7 +455,9 @@ def run_agent(
                                 "content": tool_result.content,
                                 "is_error": tool_result.is_error,
                                 "error_type": tool_result.error_type,
-                                "outcome_unknown": current_unknown or bool(tool_result.details.get("plan_write_outcome_unknown")),
+                                "outcome_unknown": (current_unknown or bool(tool_result.details.get("plan_write_outcome_unknown"))
+                                    or (tool_call.name == "start_content_run" and tool_result.is_error
+                                        and tool_result.error_type == "studio_outcome_unknown")),
                                 "not_dispatched": tool_result.error_type == "continuation_not_dispatched",
                                 "pending_task": tool_result.details.get("pending_task"),
                                 "pending_read_deferred": tool_result.details.get("pending_read_deferred", False),
