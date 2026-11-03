@@ -29,6 +29,10 @@ class ImageSubmission:
         self._inflight_images = set()
         self._outcome_unknown = False
 
+    def mark_unknown(self):
+        """Latch an adapter timeout/cancellation, including from its reader thread."""
+        self._outcome_unknown = True
+
     def observe_image_event(self, event):
         """Track observed generation events; a pending image makes the alias ambiguous."""
         def value(item):
@@ -71,7 +75,8 @@ class ImageSubmission:
             except ValueError:
                 return {"accepted": False, "retryable": False,
                         "error": "已接收图片记录无法核对，图片保留；请停止，不要重新生图。"}
-            return self.submit(arguments)
+            result = self.submit(arguments)
+            return self._unknown_result() if self._outcome_unknown else result
 
     def submit(self, arguments):
         if self._outcome_unknown:
@@ -139,6 +144,8 @@ class ImageSubmission:
         intent_owned = False
         try:
             value = FileDelivery.model_validate(arguments)
+            if self._outcome_unknown:
+                return self._unknown_result()
             # Exclusive marker is durable before any delivery/index mutations.
             # A crash or partially successful write leaves evidence to stop recovery.
             try:

@@ -10,11 +10,11 @@ from creatoros.integrations.codex import CodexDynamicTool, CodexProducerError, _
 
 
 class DynamicToolTransportTests(unittest.IsolatedAsyncioTestCase):
-    def adapter(self, callback, *, cancel=None, deadline=None):
+    def adapter(self, callback, *, cancel=None, deadline=None, on_unknown=None):
         previous = lambda method, params: {"original": method}
         sync = SimpleNamespace(_approval_handler=previous)
         self.client = SimpleNamespace(_client=SimpleNamespace(_sync=sync))
-        tool = CodexDynamicTool("submit_artifacts", "submit", {"type": "object"}, callback)
+        tool = CodexDynamicTool("submit_artifacts", "submit", {"type": "object"}, callback, on_unknown)
         adapter = _DynamicToolClient(self.client, [tool], deadline or monotonic() + 5, cancel)
         adapter.thread_id = "thread-1"
         return adapter
@@ -91,11 +91,19 @@ class DynamicToolTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_returns_unknown_without_hanging_reader(self):
         cancel = threading.Event()
         cancel.set()
+        unknown = threading.Event()
         def forbidden(args):
             self.fail("Cancelled request must not execute callback")
-        adapter = self.adapter(forbidden, cancel=cancel)
+        adapter = self.adapter(forbidden, cancel=cancel, on_unknown=unknown.set)
         result = await self.invoke(adapter)
         self.assertFalse(result["success"])
+        self.assertFalse(unknown.is_set(), "pre-dispatch cancellation has no unknown write")
+
+    async def test_success_does_not_notify_unknown(self):
+        unknown = threading.Event()
+        adapter = self.adapter(lambda args: {"accepted": True}, on_unknown=unknown.set)
+        self.assertTrue((await self.invoke(adapter))["success"])
+        self.assertFalse(unknown.is_set())
 
     async def test_thread_start_sends_dynamic_tools_and_resume_keeps_definitions(self):
         adapter = self.adapter(lambda args: {"accepted": True})

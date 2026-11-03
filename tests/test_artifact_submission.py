@@ -231,6 +231,114 @@ class ArtifactSubmissionTests(unittest.TestCase):
 
 
 class SubmissionExecutionTests(unittest.TestCase):
+    def _adapter_unknown_case(self, cause):
+        from threading import Event, Thread
+        from time import monotonic
+        from openai_codex.generated import v2_all as sdk_types
+        from openai_codex.models import Notification
+        from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError, _DynamicToolClient
+        from creatoros.integrations.artifact_submission import atomic_write_text
+        from creatoros.delivery.image_submission_check import inspect_submission
+        from tests.smoke_native_production import image, write_skill
+        with TemporaryDirectory(prefix="real-adapter-unknown-") as temporary:
+            root = Path(temporary)
+            skill, generated = root / "skill", root / "generated"
+            write_skill(skill, "submit-fixture", "Test receipt")
+            path = generated / "submit-thread" / "image.png"
+            payload = {"title": "Title", "text": "Caption", "hashtags": [], "complete": True,
+                       "artifacts": [{"order": 1, "source_image_path": str(path), "image_prompt": "Scene",
+                                      "reference_ids": [], "content": "text"}]}
+            writing, adapter_done, release, cancel = Event(), Event(), Event(), Event()
+            replies, calls, errors = [], [], []
+            def block_write(target, raw):
+                if target.name == SUBMISSION:
+                    writing.set()
+                    if not release.wait(15):
+                        raise RuntimeError("adapter fixture release timed out")
+                atomic_write_text(target, raw)
+            def control():
+                try:
+                    if not writing.wait(15):
+                        raise RuntimeError("handler did not reach receipt write")
+                    if cause == "cancel":
+                        cancel.set()
+                    if not adapter_done.wait(15):
+                        raise RuntimeError("adapter did not report unknown")
+                except Exception as error:
+                    errors.append(str(error))
+                finally:
+                    release.set()
+            @asynccontextmanager
+            async def client(deadline, cancel_event, dynamic_tools):
+                raw = SimpleNamespace(_client=SimpleNamespace(_sync=SimpleNamespace(_approval_handler=lambda *args: {})))
+                adapter = _DynamicToolClient(raw, dynamic_tools, deadline, cancel_event)
+                adapter.thread_id = "submit-thread"
+                def invoke():
+                    try:
+                        if cause == "timeout":
+                            adapter.deadline = monotonic() + 1
+                        return adapter._handle("item/tool/call", {"tool": "submit_artifacts", "namespace": None,
+                            "threadId": "submit-thread", "turnId": "turn-1", "callId": "call-1", "arguments": payload})
+                    finally:
+                        adapter_done.set()
+                async def start(*args, **options):
+                    async def turn(inputs, **controls):
+                        calls.append(1)
+                        async def stream():
+                            image(path)
+                            yield Notification("item/completed", sdk_types.ItemCompletedNotification.model_validate({
+                                "threadId": "submit-thread", "turnId": "turn-1", "completedAtMs": 1,
+                                "item": {"type": "imageGeneration", "id": "image-1", "status": "completed",
+                                         "result": "", "savedPath": str(path)}}))
+                            replies.append(await asyncio.to_thread(invoke))
+                            yield Notification("turn/completed", sdk_types.TurnCompletedNotification.model_validate({
+                                "threadId": "submit-thread", "turn": {"id": "turn-1", "items": [], "status": "completed"}}))
+                        async def interrupt():
+                            pass
+                        return SimpleNamespace(id="turn-1", thread_id="submit-thread", stream=stream, interrupt=interrupt)
+                    return SimpleNamespace(id="submit-thread", turn=turn)
+                try:
+                    yield SimpleNamespace(thread_start=start, thread_resume=start)
+                finally:
+                    adapter.close_handler()
+            import asyncio
+            producer = CodexSdkProducer(project_root=root, generated_images_root=generated, timeout_seconds=20)
+            def produce(n, event=None):
+                return producer.produce_to(directory=root / "run" / "revision-001" / f"attempt-{n:03d}",
+                    pack_id="pack", creator_id="creator", series_id="series", topic_id="topic", topic_title="Topic",
+                    skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1", cancel_event=event)
+            controller = Thread(target=control)
+            controller.start()
+            try:
+                with patch("creatoros.integrations.native_production._production_client", client), patch(
+                        "creatoros.integrations.artifact_submission.atomic_write_text", side_effect=block_write):
+                    with self.assertRaises(CodexProducerError) as failure:
+                        produce(1, cancel)
+                self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
+            finally:
+                release.set()
+                controller.join(20)
+            self.assertFalse(controller.is_alive())
+            self.assertEqual(errors, [])
+            self.assertTrue(json.loads(replies[0]["contentItems"][0]["text"])["outcome_unknown"])
+            original = root / "run" / "revision-001" / "attempt-001"
+            self.assertTrue(path.is_file())
+            self.assertEqual(inspect_submission(original)["status"], "unconfirmed")
+            before = {p.relative_to(original): p.read_bytes() for p in original.rglob("*") if p.is_file()}
+            with patch("creatoros.integrations.native_production._production_client", side_effect=AssertionError("unexpected SDK")) as sdk:
+                with self.assertRaises(CodexProducerError) as retry:
+                    produce(2)
+            self.assertEqual(retry.exception.error_type, "image_delivery_unconfirmed")
+            sdk.assert_not_called()
+            self.assertEqual(calls, [1])
+            self.assertEqual(before, {p.relative_to(original): p.read_bytes() for p in original.rglob("*") if p.is_file()})
+
+    def test_real_adapter_cancel_during_submission_is_unknown(self):
+        self._adapter_unknown_case("cancel")
+
+    def test_real_adapter_timeout_during_submission_is_unknown(self):
+        self._adapter_unknown_case("timeout")
+
     def test_interrupted_recovery_keeps_intent_and_third_attempt_never_dispatches(self):
         from openai_codex.generated import v2_all as sdk_types
         from openai_codex.models import Notification
