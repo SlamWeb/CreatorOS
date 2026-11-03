@@ -172,17 +172,18 @@ class SeriesRenameMigrationTests(unittest.TestCase):
                 db.close()
             cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
             cfg.attributes["database_url"] = url
-            for operation in (lambda: upgrade_database(url),
-                              lambda: command.downgrade(cfg, "20261024_0018"),
-                              lambda: upgrade_database(url)):
+            post_v18_tables = {"production_tasks", "agent_plan_steps", "agent_plans",
+                               "creator_skill_refs", "managed_materials", "series_skill_refs",
+                               "skill_switch_intents", "production_queue_history"}
+            for operation, expected_added in ((lambda: upgrade_database(url), post_v18_tables),
+                                              (lambda: command.downgrade(cfg, "20261024_0018"), set()),
+                                              (lambda: upgrade_database(url), post_v18_tables)):
                 operation()
                 db = Database(url)
                 try:
                     current = rows(db)
                     added = set(current) - set(before)
-                    self.assertIn(added, (set(), {"production_tasks", "agent_plan_steps", "agent_plans",
-                                                "creator_skill_refs", "managed_materials", "series_skill_refs",
-                                                "skill_switch_intents"}))
+                    self.assertEqual(added, expected_added)
                     for table in added:
                         self.assertEqual(current.pop(table), [])
                     for run in current["content_runs"]:
