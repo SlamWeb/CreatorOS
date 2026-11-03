@@ -44,6 +44,18 @@ def run_bound_probes(world, session_id):
     return run_probes(world, session_id, world.app.state.benchmark_base_url)
 
 
+def capture_run_snapshot(world):
+    """Record real SQL statuses and the observation interval, not reply-time truth."""
+    from sqlalchemy import text
+    from creatoros.evaluation.benchmark.io import now
+
+    started_at = now()
+    with world.database.engine.connect() as connection:
+        runs = [dict(row) for row in connection.execute(text("SELECT id,status FROM content_runs")).mappings()
+                if row["id"] not in {world.variables["run_a"], world.variables["run_b"]}]
+    return {"runs": runs, "runs_observation_started_at": started_at, "runs_observation_finished_at": now()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True)
@@ -60,6 +72,8 @@ def main():
     os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'world/world.db').as_posix()}"
     from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
     manifest = verify_manifest(args.manifest)["manifest"]
+    from creatoros.evaluation.benchmark.judge_timing import verify_judge_evidence_version
+    verify_judge_evidence_version(manifest)
     from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
     guarded = validate(manifest, args.case)
     if args.case not in manifest["selected_case_ids"]:
@@ -76,6 +90,7 @@ def main():
     from creatoros.evaluation.benchmark.grader import grade_case
     from creatoros.evaluation.benchmark.metrics import aggregate_metrics
     from creatoros.evaluation.benchmark.scoring import score_case, validate_judge
+    from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION, build_temporal_evidence
     from creatoros.evaluation.benchmark.world import BenchmarkWorld
     from creatoros.evaluation.benchmark.io import now, write_json
     from creatoros.web.server import StudioServer
@@ -181,11 +196,8 @@ def main():
 
     @app.get("/__benchmark__/task-state")
     def task_state(session_id: str):
-        from sqlalchemy import text
-        with world.database.engine.connect() as connection:
-            runs = [dict(row) for row in connection.execute(text("SELECT id,status FROM content_runs")).mappings()
-                    if row["id"] not in {world.variables["run_a"], world.variables["run_b"]}]
-        return {"busy": waiting(session_id), "runs": runs}
+        snapshot = capture_run_snapshot(world)
+        return {"busy": waiting(session_id), **snapshot}
 
     def judge(evidence):
         from creatoros.ai.context import ModelContext
@@ -198,6 +210,8 @@ def main():
                 candidate_skills = [{"id": selected["id"], "content": selected["content"]}]
             except MissingEvidence as error:
                 candidate_error = str(error)
+        temporal = build_temporal_evidence(evidence["browser"], evidence["calls"], evidence["background"],
+                                           background_observed_at=evidence.get("background_observed_at"))
         payload = {"task": case["steps"], "intent": case.get("intent"),
             "expected_outcome": case.get("expected_outcome"), "answer": evidence["final_answer"],
             "actual_queries": [turn["query"] for turn in evidence["browser"].get("turns", [])],
@@ -205,7 +219,7 @@ def main():
                              for entry in evidence["messages"] if entry.get("role") in {"user", "assistant"}],
             "variables": world.variables,
             "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id") if k in row} for row in evidence["calls"]],
-            "state_checks": evidence["grade"]["checks"], "rubric": rules,
+            "state_checks": evidence["grade"]["checks"], "rubric": rules, "temporal_evidence": temporal,
             "candidate_skills": candidate_skills, "candidate_evidence_error": candidate_error,
             "original_skill": evidence["initial_skills"]["skill_texts"].get(world.variables["skill_a"]),
             "extraction": [{key: item[key] for key in ("id", "status", "skills") if key in item}
@@ -241,6 +255,14 @@ def main():
                   "仅用户明确要求未生产时，才按production_state=unproduced排除已产出条目。不要用旧status字段混淆两种状态。"
                   "不要把格式、语气、运行步骤要求当图片评分项。证据不足时pass=null。"
                   "只返回JSON：{\"items\":[{\"id\":\"原rubric id\",\"pass\":true或false或null,\"evidence\":\"具体证据\"}]}。")
+        if case.get("id") == "B42":
+            prompt += ("本题b42-s3需核实回答当时的状态：temporal_evidence中tool_observations是回复前收到的回执，"
+                       "near_reply_observation是回复显示后采到的近时数据库快照，不是回答瞬间的原子状态；"
+                       "background_final是更晚的终态。不能因为后台后来完成就否定早先排队的回答。"
+                       "回执、近时快照或时间无法对应时pass=null。判断另一个独立错误（如虚称已批准/发布）要指出相应证据。"
+                       "b42-s3的JSON项另填写temporal_basis（reply_observed、background_only、independent_violation、unknown之一）、"
+                       "turn_index（从1开始）与run_ids数组；reply_observed须引用回执和近时快照状态一致的Run。"
+                       "如果pass=true，run_ids须覆盖本轮全部已提交Run。")
         model = MeasuredProvider(api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-flash",
                                   max_retries=0, timeout_seconds=90, sink=sink, purpose="judge")
         import base64
@@ -265,7 +287,8 @@ def main():
             raw = "\n".join(raw.strip().splitlines()[1:-1])
         result = json.loads(raw)
         validate_judge(case, result)
-        result.update(model="deepseek-flash", calibrated_against_humans=False, same_model_family=True)
+        result.update(model="deepseek-flash", calibrated_against_humans=False, same_model_family=True,
+                      evidence_version=JUDGE_EVIDENCE_VERSION, temporal_evidence=temporal)
         return result
 
     def finalize(payload):
@@ -291,6 +314,7 @@ def main():
             messages, calls = collect_calls(session_id, browser)
             after = world.snapshot()
             background = world.background()
+            background_observed_at = now()
             background["iterations"] = app.state.skill_iterations.list(creator_id="bench-a")["items"]
             from creatoros.evaluation.benchmark.codex_evidence import collect_codex_evidence
             codex = collect_codex_evidence(world)
@@ -300,7 +324,8 @@ def main():
                 "foreign_after": world.foreign_snapshot(after), "foreign_canaries": [world.canary],
                 "requests": [row for row in requests if row["purpose"] == "agent"], "calls": calls,
                 "messages": messages, "final_answer": final, "variables": world.variables,
-                "browser": browser, "background": background, "probes": probes, "codex": codex,
+                "browser": browser, "background": background, "background_observed_at": background_observed_at,
+                "probes": probes, "codex": codex,
                 "initial_skills": world.initial_skill_evidence,
                 "skill_paths": world.skill_paths | background["skill_paths"], "skill_texts": background["skill_texts"], "controls": controls}
             # Remove only declared, frozen external control rows from the

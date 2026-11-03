@@ -83,6 +83,21 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertEqual(result["cases"][0]["status"], "passed")
         self.assertNotIn("benchmark_guard", result)
 
+    def test_judge_evidence_version_is_reported_without_rewriting_raw_result(self):
+        from creatoros.evaluation.benchmark.judge_timing import VERSION
+        import hashlib
+        self.plan(["B42"])
+        path = self.root / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["model_configuration"] = {"judge_evidence_version": VERSION}
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        directory = self.record("B42", semantic_status="failed")
+        raw = (directory / "report.json").read_bytes()
+        result = self.summarize()
+        self.assertEqual(result["judge_evidence_version"], VERSION)
+        self.assertIn(VERSION, (self.root / "RESULTS.md").read_text(encoding="utf-8"))
+        self.assertEqual(hashlib.sha256((directory / "report.json").read_bytes()).digest(), hashlib.sha256(raw).digest())
+
     def test_old_batch_uses_its_verified_definitions_after_working_dataset_changes(self):
         import hashlib
         original = self.dataset.read_bytes()

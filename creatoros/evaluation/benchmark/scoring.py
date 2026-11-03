@@ -81,6 +81,8 @@ def score_case(case, grade, judge):
         program.append({**rule, "status": status, "detail": found.get("detail", "Required evidence check missing")})
     try:
         valid_judge = validate_judge(case, judge)
+        from .judge_timing import qualify_temporal_judgments
+        valid_judge = qualify_temporal_judgments(case, valid_judge)
         judgments = {item["id"]: item for item in valid_judge["items"]}
     except ValueError:
         judgments = {}

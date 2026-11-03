@@ -119,7 +119,7 @@ BENCHMARK_CASES = [("benchmark_contracts", ["-m", "unittest", *[
         "test_benchmark_report_v2", "test_benchmark_server_v2", "test_benchmark_cases_v2", "test_benchmark_nonvideo_guard",
         "test_benchmark_capture_v2", "test_benchmark_isolation", "test_benchmark_probes_v2",
         "test_benchmark_world_v2",
-        "test_benchmark_scoring", "test_benchmark_b12_title_matching", "test_benchmark_store_v3", "test_benchmark_media_oracles_v3",
+        "test_benchmark_scoring", "test_benchmark_judge_timing", "test_benchmark_b12_title_matching", "test_benchmark_store_v3", "test_benchmark_media_oracles_v3",
         "test_benchmark_oracle_revision", "test_action_contract", "test_production_contract",
     )], "-q"])]
 

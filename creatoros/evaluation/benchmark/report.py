@@ -357,6 +357,9 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         "interpretation": "Internal CreatorOS benchmark only; not a public ranking. Missing evidence is not a pass. Root causes remain pending attribution."}
     if guard_policy is not None:
         result["benchmark_guard"] = {"policy": guard_policy, "comparability": COMPARABILITY}
+    judge_evidence_version = manifest.get("model_configuration", {}).get("judge_evidence_version")
+    if judge_evidence_version:
+        result["judge_evidence_version"] = judge_evidence_version
     lines = ["# CreatorOS Benchmark v2", "", f"范围：{result['execution_scope']}，数据集 {len(definitions)} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
         f"已有结果 {totals['with_results']}；缺失 {totals['missing']}；通过 {totals['passed']}；失败 {totals['failed']}；待复核 {totals['needs_review']}。",
         f"pass@1 = {totals['passed']}/{totals['planned']}（{_display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
@@ -366,6 +369,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         "| DeepSeek范围 | 已记录调用 | 累计输入 | 峰值输入 | 输出 | cache加权命中率 | TTFT p50/p95 ms（样本） | 估算费用区间 |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
     if guard_policy is not None:
         lines[2:2] = [f"守卫策略：`{json.dumps(guard_policy, ensure_ascii=False, sort_keys=True)}`。{COMPARABILITY}", ""]
+    if judge_evidence_version:
+        lines[2:2] = [f"Judge 证据版本：`{judge_evidence_version}`；不同版本的评分不可直接归因于产品变化。", ""]
     for purpose, metric in metrics.items():
         latency = metric["latency"]["ttft_ms"]
         cost = metric["cost"]

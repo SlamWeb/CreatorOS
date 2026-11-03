@@ -143,6 +143,15 @@ async function userTurn(step, index) {
   turn.elapsed_ms = Date.now() - started;
   check(answers.length > 0, `No public final answer for turn ${turnId}; session=${doc.status}`);
   await root.locator('.chat-answer').nth(beforeAnswerCount).waitFor({ state: 'visible', timeout: 30_000 });
+  if (scenario.case_id === 'B42') {
+    turn.reply_observed_at = new Date().toISOString();
+    try {
+      // This snapshot is after the visible reply, not an atomic reply-time view.
+      turn.reply_observation = await readJson(await context.request.get(`${base}/__benchmark__/task-state?session_id=${sid}`), 'Observe near-reply background');
+    } catch (error) {
+      turn.reply_observation_error = String(error);
+    }
+  }
   const finalReply = root.locator('.chat-reply').last();
   await finalReply.getByRole('button', { name: '查看回复 Trace', exact: true }).waitFor({ state: 'visible', timeout: 30_000 });
   const finalTraceResponse = page.waitForResponse(response => new URL(response.url()).pathname === `/api/agent/sessions/${sid}/turn-trace/${turnId}` && response.request().method() === 'GET', { timeout: 30_000 });
