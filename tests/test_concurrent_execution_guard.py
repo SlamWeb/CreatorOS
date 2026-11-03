@@ -1,15 +1,29 @@
 """Real local lock/journal concurrency and crash injection; no external models."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import ctypes
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Barrier
+from threading import Barrier, Thread
+from time import sleep
 import unittest
 from unittest.mock import patch
 
 from creatoros.runs.ownership import ExecutionOwnershipError, LocalExecutionGuard
 from creatoros.storage import Database
+
+
+def open_no_delete_share(path):
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32,
+                                  ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+    kernel.CreateFileW.restype = ctypes.c_void_p
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel.CreateFileW(str(path), 0x80000000, 0x3, None, 3, 0, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return lambda: kernel.CloseHandle(handle)
 
 
 class ConcurrentExecutionGuardTests(unittest.TestCase):
@@ -29,6 +43,87 @@ class ConcurrentExecutionGuardTests(unittest.TestCase):
 
     def write_payload(self, value):
         self.guard.journal.write_text(json.dumps(value), encoding="utf-8")
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_finish_survives_short_reader_without_delete_sharing(self):
+        with self.guard:
+            self.begin(0)
+            self.begin(1)
+            close = open_no_delete_share(self.guard.journal)
+            def release():
+                sleep(.2)
+                close()
+            thread = Thread(target=release)
+            thread.start()
+            try:
+                self.guard.finish("owner-0")
+                self.assertEqual(self.payload()["owner_id"], "owner-1")
+                self.guard.finish("owner-1")
+            finally:
+                thread.join()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_permanent_sharing_conflict_keeps_old_evidence_and_owners(self):
+        with self.guard:
+            self.begin(0)
+            self.begin(1)
+            original = self.guard.journal.read_bytes()
+            close = open_no_delete_share(self.guard.journal)
+            try:
+                with self.assertRaises(PermissionError):
+                    self.guard.finish("owner-0")
+                self.assertEqual(self.guard.journal.read_bytes(), original)
+                self.assertEqual(set(self.guard._registered), {"owner-0", "owner-1"})
+            finally:
+                close()
+            self.guard.finish("owner-0")
+            self.guard.finish("owner-1")
+            self.guard.assert_clean()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_short_reader_during_final_unlink_is_retried(self):
+        with self.guard:
+            self.begin(0)
+            close = open_no_delete_share(self.guard.journal)
+            thread = Thread(target=lambda: (sleep(.2), close()))
+            thread.start()
+            try:
+                self.guard.finish("owner-0")
+                self.guard.assert_clean()
+            finally:
+                thread.join()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_changed_evidence_during_retry_is_not_overwritten(self):
+        with self.guard:
+            self.begin(0)
+            self.begin(1)
+            close = open_no_delete_share(self.guard.journal)
+            changed = b'{"unexpected":"external evidence"}'
+            thread = Thread(target=lambda: (sleep(.1), self.guard.journal.write_bytes(changed)))
+            thread.start()
+            try:
+                with self.assertRaises(ExecutionOwnershipError):
+                    self.guard.finish("owner-0")
+                thread.join()
+                self.assertEqual(self.guard.journal.read_bytes(), changed)
+                self.assertEqual(set(self.guard._registered), {"owner-0", "owner-1"})
+            finally:
+                thread.join()
+                close()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_unrelated_windows_error_is_not_retried(self):
+        with self.guard:
+            self.begin(0)
+            original = self.guard.journal.read_bytes()
+            with patch.object(Path, "replace", side_effect=ctypes.WinError(87)) as replace:
+                with self.assertRaises(OSError):
+                    self.begin(1)
+                self.assertEqual(replace.call_count, 1)
+            self.assertEqual(self.guard.journal.read_bytes(), original)
+            self.assertEqual(set(self.guard._registered), {"owner-0"})
+            self.guard.finish("owner-0")
 
     def test_five_parallel_owners_callbacks_and_finish_are_isolated(self):
         barrier = Barrier(5)

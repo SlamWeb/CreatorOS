@@ -1,5 +1,10 @@
 # ContentRun SPEC
 
+## 2026-11-03 Windows 执行记录共享冲突
+
+- 执行日志的临时文件仍先 flush 和 fsync，再原子替换；Windows 替换或删除遇系统错误 5、32、33 时，在独占锁与 guard 内部互斥锁下最多等待约 1 秒并重试。每次重试前核对旧日志字节，发现变化则拒绝覆盖；其他错误或超时继续抛出，保留旧日志和已登记 owner，执行器停止派发，不自动重试生产。该锁只协调同一数据库的 CreatorOS 执行器，不承诺与任意外部写入者原子比较交换。
+- 隔离 Windows 真文件句柄验证限时及持续占用、末 owner 删除、异常变更保护、多个受控生产任务和队列暂停。该冲突能复现历史 WinError 5，但原始日志未识别当时占用者；不据此断言原始占用来源。受控 Producer 不代表真实模型执行。
+
 ## 2026-11-03 显式恢复的队列历史
 
 - 显式重派同一 Run/Revision 的 failed 或 needs_attention 队列行前，将状态、版本、错误及提交/开始/完成时间追加到 `production_queue_history`，与队列重置同事务；Run 详情的 `production_queue.history` 可按顺序读取，Agent 模型投影只包含历史条数。pending/running 重放不会重复追加；旧记录不回填。历史写入失败则整个重派回滚，不启动生产。

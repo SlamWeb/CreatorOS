@@ -11,6 +11,7 @@ from threading import Event, Lock
 from time import monotonic, sleep
 from datetime import datetime, timedelta, timezone
 import os
+import json
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -22,6 +23,7 @@ from creatoros.integrations.codex import CodexUsage, ProducedPack, ProductionSes
 from creatoros.runs import ContentRunService, ManagedRunExecutor
 from creatoros.runs.service import ContentRunError
 from creatoros.runs.ownership import ExecutionOwnershipError, LocalExecutionGuard
+from tests.test_concurrent_execution_guard import open_no_delete_share
 from creatoros.storage import (ContentRepository, ContentRun, ContentRunStatus, ContentRevision,
     CreatorPlatform, Database, TopicSource, upgrade_database)
 
@@ -334,6 +336,63 @@ class ParallelProductionTests(unittest.TestCase):
         wait(lambda: not executor.is_submitted(current.id) and not executor.is_submitted(other.id))
         self.assertEqual(producer.max_by_topic["topic-0"], 1)
         self.assertEqual(service.get(current.id).status.value, "awaiting_approval")
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_active_workers_survive_transient_journal_reader(self):
+        producer, service, executor = self.make()
+        runs = self.submit(service, executor, 5)
+        wait(lambda: len(producer.snapshot()[1]) == 5)
+        original = service.guard.journal.read_bytes()
+        close = open_no_delete_share(service.guard.journal)
+        invoked = Event()
+        real_operation = service.guard._replace_or_unlink
+        def observed(operation):
+            invoked.set()
+            return real_operation(operation)
+        try:
+            with patch.object(service.guard, "_replace_or_unlink", side_effect=observed):
+                producer.release_all()
+                self.assertTrue(invoked.wait(8))
+                sleep(.15)
+                self.assertEqual(service.guard.journal.read_bytes(), original)
+                close()
+                close = None
+                wait(lambda: all(not executor.is_submitted(run.id) for run in runs), timeout=15)
+            self.assertEqual([service.get(run.id).status.value for run in runs], ["awaiting_approval"] * 5)
+            self.assertEqual(len(producer.snapshot()[0]), 5)
+            self.assertFalse(producer.snapshot()[2])
+            self.assertFalse(service.guard.journal.exists())
+        finally:
+            if close is not None:
+                close()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_permanent_journal_reader_pauses_dispatch_and_preserves_owners(self):
+        producer, service, executor = self.make(max_concurrency=2)
+        runs = self.submit(service, executor, 3)
+        wait(lambda: len(producer.snapshot()[1]) == 2)
+        original = service.guard.journal.read_bytes()
+        close = open_no_delete_share(service.guard.journal)
+        try:
+            producer.gates["topic-0"].set()
+            wait(lambda: executor.queue_snapshot(runs[2].id)["blocked_reason"] is not None, timeout=15)
+            self.assertEqual(service.guard.journal.read_bytes(), original)
+            self.assertEqual(executor.queue_snapshot(runs[2].id)["status"], "pending")
+            self.assertEqual(producer.snapshot()[1], {"topic-1"})
+            self.assertEqual(len(producer.snapshot()[0]), 2)
+            self.assertFalse(producer.snapshot()[2])
+        finally:
+            close()
+        producer.release_all()
+        wait(lambda: not producer.snapshot()[1] and service.get(runs[1].id).status.value == "awaiting_approval")
+        # The fixture knows both local workers have stopped; reconcile only the
+        # retained owner created by this test, never an unknown production record.
+        wait(lambda: len(service.guard._registered) == 1)
+        record = json.loads(service.guard.journal.read_text(encoding="utf-8"))
+        self.assertEqual(record["run_id"], runs[0].id)
+        service.guard.finish(record["owner_id"])
+        self.assertFalse(service.guard.journal.exists())
+        self.assertEqual(executor.queue_snapshot(runs[2].id)["status"], "pending")
 
     def test_result_persistence_failure_pauses_dispatch_without_cancelling_peers(self):
         producer, service, executor = self.make()

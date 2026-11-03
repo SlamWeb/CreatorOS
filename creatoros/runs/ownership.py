@@ -5,6 +5,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 from threading import RLock
+from time import monotonic, sleep
 
 from filelock import FileLock, Timeout
 
@@ -117,7 +118,7 @@ class LocalExecutionGuard:
             if remaining:
                 self._save_records(remaining)
             else:
-                self.journal.unlink()
+                self._replace_or_unlink(self.journal.unlink)
             self._registered.pop(owner_id, None)
 
     def _owned(self, owner_id: str) -> tuple[list[dict], dict]:
@@ -170,10 +171,38 @@ class LocalExecutionGuard:
     def _save_records(self, records: list[dict]) -> None:
         self._write(records[0] if len(records) == 1 else {"schema_version": 2, "executions": records})
 
+    def _replace_or_unlink(self, operation) -> None:
+        # Windows readers may briefly omit FILE_SHARE_DELETE. Keep the old
+        # journal authoritative and retry only that OS-specific conflict.
+        try:
+            original = self.journal.read_bytes()
+        except FileNotFoundError:
+            original = None
+        deadline = monotonic() + 1.0
+        retrying = False
+        while True:
+            if retrying:
+                try:
+                    if self.journal.is_symlink():
+                        raise ExecutionOwnershipError("执行记录已变化，禁止继续覆盖。")
+                    current = self.journal.read_bytes()
+                except FileNotFoundError:
+                    current = None
+                if current != original:
+                    raise ExecutionOwnershipError("执行记录已变化，禁止继续覆盖。")
+            try:
+                operation()
+                return
+            except OSError as error:
+                if os.name != "nt" or getattr(error, "winerror", None) not in {5, 32, 33} or monotonic() >= deadline:
+                    raise
+                retrying = True
+                sleep(min(.05, max(0, deadline - monotonic())))
+
     def _write(self, record: dict) -> None:
         temporary = self.journal.with_suffix(".tmp")
         with temporary.open("w", encoding="utf-8") as stream:
             json.dump(record, stream, ensure_ascii=False)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(self.journal)
+        self._replace_or_unlink(lambda: temporary.replace(self.journal))
