@@ -88,8 +88,8 @@ class PlanTests(unittest.TestCase):
             db.close()
 
     def test_batch_waits_for_every_sibling_even_when_one_failed(self):
-        failed = SimpleNamespace(id='r1', topic_id='t', task_id='one', status=SimpleNamespace(value='failed'), error_message='失败')
-        running = SimpleNamespace(id='r2', topic_id='t', task_id='two', status=SimpleNamespace(value='producing'), error_message=None, active_revision_number=1)
+        failed = SimpleNamespace(id='r1', topic_id='t', task_id='one', idempotency_key='task:one', status=SimpleNamespace(value='failed'), error_message='失败')
+        running = SimpleNamespace(id='r2', topic_id='t', task_id='two', idempotency_key='task:two', status=SimpleNamespace(value='producing'), error_message=None, active_revision_number=1)
         refs = {(ProductionTask,'one'):SimpleNamespace(topic_id='t'), (ProductionTask,'two'):SimpleNamespace(topic_id='t'),
                 (Topic,'t'):SimpleNamespace(series_id='s'), (Series,'s'):SimpleNamespace(creator_id='a'),
                 (ContentRun,'r1'):failed, (ContentRun,'r2'):running}
@@ -98,11 +98,15 @@ class PlanTests(unittest.TestCase):
             def scalar(self, query): return SimpleNamespace(id='rev', artifact_digest='digest')
         step = SimpleNamespace(arguments_json={'action':'tasks','topic_id':'t'},
                                result_json={'items':[{'id':'one','run_id':'r1'}, {'id':'two','run_id':'r2'}]})
-        self.assertIsNone(PlanService._watch(Session(), SimpleNamespace(creator_id='a'), step))
+        from creatoros.runs.observation import observe_production
+        observed = observe_production(Session(), 'a', step.arguments_json, step.result_json)
+        step.result_json = observed.result
+        self.assertIsNone(observed.terminal)
         self.assertEqual(step.result_json['items'][0]['terminal_status'], 'failed')
         running.status.value = 'awaiting_approval'
-        result = PlanService._watch(Session(), SimpleNamespace(creator_id='a'), step)
-        self.assertEqual(result[0], 'failed')
+        observed = observe_production(Session(), 'a', step.arguments_json, step.result_json)
+        step.result_json = observed.result
+        self.assertEqual(observed.terminal[0], 'failed')
         self.assertEqual([x['terminal_status'] for x in step.result_json['items']], ['failed','succeeded'])
 
     def test_restart_does_not_skip_checkpoint_or_redeliver_acked_event(self):

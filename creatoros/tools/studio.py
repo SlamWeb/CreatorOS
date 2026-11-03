@@ -13,7 +13,8 @@ from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
 from .research_wait import observe_research
 from .skill_edit_batch import SkillEditChangeArgs, apply_skill_edit_batch
-from .production_arguments import ProductionTaskArgs, StartRunArgs, TaskInputsArgs
+from .production_arguments import ProductionTaskArgs, StartRunArgs, TaskInputsArgs, production_tasks_payload
+from ..integrations.production_identity import task_request_id, fresh_request_id, reference_request_id, reference_topic_id
 
 
 class ResearchTopicsArgs(BaseModel):
@@ -455,14 +456,11 @@ def start_content_run(action, context=None, **arguments):
     request = StartRunArgs.model_validate({"action": action, **arguments})
     if action == "tasks":
         topic_id = request.topic_id
-        selected = [task.model_dump(mode="json", exclude_none=True) for task in request.tasks]
-        if request.instructions:
-            for task in selected:
-                task["brief"] = f"共同要求：\n{request.instructions}\n\n本任务：\n{task['brief']}"
-                if len(task["brief"]) > 10000:
-                    return ToolResult(content="共同要求与单项制作要求合并后不能超过 10000 字。",
-                                      is_error=True, error_type="invalid_arguments", retryable=True,
-                                      details={"pre_dispatch": True})
+        try:
+            selected = production_tasks_payload(request)
+        except ValueError as error:
+            return ToolResult(content=str(error), is_error=True, error_type="invalid_arguments", retryable=True,
+                              details={"pre_dispatch": True})
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
         # One user turn may authorize image tasks and then their dependent video.
@@ -473,9 +471,8 @@ def start_content_run(action, context=None, **arguments):
             request_id = None
             try:
                 tasks_to_submit = json.loads(json.dumps(selected))
-                identity = ["production-tasks-v2", session, turn, getattr(context, "creator_id", None), topic_id, tasks_to_submit]
-                request_id = sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False,
-                    separators=(",", ":")).encode()).hexdigest() if turn else uuid4().hex
+                request_id = (task_request_id(session, turn, getattr(context, "creator_id", None), topic_id, tasks_to_submit)
+                              if turn else uuid4().hex)
                 data = client.request("POST", path, payload={"request_id": request_id, "tasks": tasks_to_submit})
                 if (data.get("topic_id") != topic_id or not isinstance(data.get("items"), list)
                         or len(data["items"]) != len(tasks_to_submit)
@@ -500,8 +497,7 @@ def start_content_run(action, context=None, **arguments):
             # The same reference brief in this conversation is the same request,
             # including a later turn asking about an unknown response. Deliberate
             # regeneration uses the explicit fresh-Run path, not a new hidden key.
-            identity = ["reference-production-v1", getattr(context, "agent_session_id", None), series_id, ref, title]
-            request_id = sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
+            request_id = reference_request_id(getattr(context, "agent_session_id", None), series_id, ref, title)
             try:
                 result = client.request("POST", f"/api/series/{quote(series_id, safe='')}/reference-production",
                     payload={"reference_id": ref, "title": title, "request_id": request_id,
@@ -509,7 +505,7 @@ def start_content_run(action, context=None, **arguments):
             except StudioClientError as error:
                 _production_write_error(error)
                 error.details.update(request_id=request_id, series_id=series_id,
-                    topic_id="reference-" + sha256(json.dumps([series_id, request_id]).encode()).hexdigest()[:24],
+                    topic_id=reference_topic_id(series_id, request_id),
                     receipt_url=f"/api/series/{series_id}/queue/receipts/{request_id}", url=f"/series/{series_id}")
                 raise
             queue = result.get("production_queue") or {}
@@ -522,8 +518,7 @@ def start_content_run(action, context=None, **arguments):
         # A new user turn is a new request, still guarded by the source version/latest Run.
         turn = getattr(context, "user_request_id", None)
         session = getattr(context, "agent_session_id", None) or str(getattr(context, "session_file", ""))
-        identity = json.dumps(["fresh-production-v1", session, turn, request.source_run_id], ensure_ascii=False)
-        request_id = sha256(identity.encode()).hexdigest() if turn else uuid4().hex
+        request_id = fresh_request_id(session, turn, request.source_run_id) if turn else uuid4().hex
         def fresh(client):
             source = client.get_run(request.source_run_id)
             payload = {"topic_id": source["topic_id"], "mode": "fresh", "source_run_id": request.source_run_id,

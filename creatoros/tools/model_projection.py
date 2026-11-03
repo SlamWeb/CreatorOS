@@ -295,7 +295,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
                 value = item["result"]
                 result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url", "question"))
                 if isinstance(value.get("items"), list):
-                    result["result"]["items"] = _list(value["items"], lambda row: _pick(row, ("id", "task_id", "run_id", "status", "terminal_status", "error", "title", "url")))
+                    result["result"]["items"] = _list(value["items"], lambda row: _pick(row, ("id", "task_id", "run_id", "status", "accepted", "error_code", "queue_status", "terminal_status", "error", "title", "url")))
             return result
         projected = _pick(data, fields)
         if isinstance(data.get("steps"), list):

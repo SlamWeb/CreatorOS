@@ -97,3 +97,14 @@ class ReferenceProductionRunArgs(ProductionArguments):
 StartRunArgs = ActionContract(Annotated[Union[
     StartDefaultRunArgs, StartProductionTasksArgs, FreshProductionRunArgs, ReferenceProductionRunArgs,
 ], Field(discriminator="action")])
+
+
+def production_tasks_payload(request):
+    """Normalize the exact payload used for submission and its idempotency key."""
+    selected = [task.model_dump(mode="json", exclude_none=True) for task in request.tasks]
+    if request.instructions:
+        for task in selected:
+            task["brief"] = f"共同要求：\n{request.instructions}\n\n本任务：\n{task['brief']}"
+            if len(task["brief"]) > 10000:
+                raise ValueError("共同要求与单项制作要求合并后不能超过 10000 字。")
+    return selected

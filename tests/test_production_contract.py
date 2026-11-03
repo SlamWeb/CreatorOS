@@ -133,7 +133,7 @@ class RequestMapping:
             RunStartRequest.model_validate(payload)
             return deepcopy(self.run)
         if path.endswith("/execute"):
-            return deepcopy(self.run)
+            return {**deepcopy(self.run), "submission_accepted": True, "production_queue": {"status": "pending"}}
         raise AssertionError(path)
 
     def run_summary(self, run, *, accepted=False):
@@ -192,7 +192,7 @@ class ProductionRequestMappingTests(unittest.TestCase):
         payload = self.mapping.calls[1][2]
         self.assertEqual({key: payload[key] for key in ("topic_id", "mode", "source_run_id", "expected_version", "skill_ids")},
                          {"topic_id": "topic", "mode": "fresh", "source_run_id": "old", "expected_version": 4, "skill_ids": SKILLS})
-        self.assertEqual(self.mapping.calls[2], ("POST", "/api/runs/new-run/execute", {"expected_version": 1}))
+        self.assertEqual(self.mapping.calls[2], ("POST", "/api/runs/new-run/execute", {"expected_version": 1, "initial_only": True}))
         self.assertTrue(result["accepted"])
 
     def test_reference_uses_existing_reference_then_production_routes(self):

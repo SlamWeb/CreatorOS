@@ -185,15 +185,16 @@ class DurablePlanContractTests(unittest.TestCase):
         with self.db.session() as session:
             session.get(ContentRun, first.id).status = ContentRunStatus.FAILED
             node = session.get(AgentPlanStep, plan['id'] + ':images')
-            node.result_json = {'items': [{'topic_id': 'review-1', 'run_id': first.id},
-                                           {'topic_id': 'review-2', 'run_id': second.id}]}
+            node.result_json = {'accepted_count': 2, 'items': [
+                {'topic_id': 'review-1', 'run_id': first.id, 'accepted': True},
+                {'topic_id': 'review-2', 'run_id': second.id, 'accepted': True}]}
             owner = session.get(AgentPlan, plan['id'])
-            self.assertIsNone(PlanService._watch(session, owner, node))
+            self.assertIsNone(self.service._watch(session, owner, node))
             self.assertEqual(node.result_json['items'][0]['terminal_status'], 'failed')
             session.get(ContentRun, second.id).status = ContentRunStatus.AWAITING_APPROVAL
             revision = session.scalar(select(ContentRevision).where(ContentRevision.content_run_id == second.id))
             revision.artifact_digest = 'b' * 64
-            result = PlanService._watch(session, owner, node)
+            result = self.service._watch(session, owner, node)
             self.assertEqual(result[0], 'failed')
             self.assertEqual([item['terminal_status'] for item in node.result_json['items']], ['failed', 'succeeded'])
         self.assertEqual(self.producer.calls, 0)

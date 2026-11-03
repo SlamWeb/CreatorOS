@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 
 from creatoros.content import SocialContentPack
 from creatoros.integrations.atomic_file import atomic_write_text
+from creatoros.integrations.production_identity import reference_marker_id
 from creatoros.integrations.skill_extraction import ExtractionError
 from creatoros.runs.artifacts import validate_artifact
 from creatoros.runs.models import ContentRunInput
@@ -128,8 +129,8 @@ def chat_image_action_routes(chat, catalog, extractions, runs, artifacts, scope)
         # Preserve the exact human turn as well as the model's task formulation.
         # The same semantic request reuses its first frozen source turn, so an
         # "is it done / retry" turn cannot silently authorize duplicate work.
-        identity = hashlib.sha256(json.dumps([session_id, payload.model_dump(exclude={"origin_turn_id"})],
-                                  sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        identity = reference_marker_id(session_id, payload.series_id, payload.attachment_ids,
+                                       payload.instructions, payload.reference_presentation)
         marker = _managed_path(chat.root, chat.root / "reference-requests" / f"{identity}.json")
         if marker.is_file():
             old_id = json.loads(marker.read_text(encoding="utf-8"))["reference_id"]

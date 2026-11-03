@@ -82,9 +82,13 @@ class PlanCapabilityTests(unittest.TestCase):
         self.assertEqual((len(tool_registry), len(tools)), (57, 53))
         # The current contract deliberately adds read-only production receipt
         # lookup and clarifies that a shared release may be forked privately.
-        self.assertEqual(digest(tools), "329be3ebd45c5af8ecded8945305df2df0149e2c95dca70f8282b7d6597e3403")
+        self.assertEqual(digest(tools), "88ae1d91f88d937b0498f7047b24af904f91e1fcb7ac9388180d7945babdec89")
         original = copy.deepcopy(tools)
         topics = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_topics")
+        full_text_description = "；用户明确要全文时逐字呈现，包括重复段落和结尾，不用次数概括替代。制作结果"
+        self.assertEqual(topics["description"].count(full_text_description), 1)
+        topics["description"] = topics["description"].replace(full_text_description, "；制作结果")
+        self.assertEqual(digest(original), "329be3ebd45c5af8ecded8945305df2df0149e2c95dca70f8282b7d6597e3403")
         receipt_description = "；制作结果未知时get原topic_id及返回的production_request_id只读核对，回执unknown不等于未提交，勿换ID重做"
         self.assertEqual(topics["description"].count(receipt_description), 1)
         topics["description"] = topics["description"].replace(receipt_description, "")

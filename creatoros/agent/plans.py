@@ -20,11 +20,13 @@ from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
 from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action, can_wait
-from creatoros.storage.models import AgentPlan, AgentPlanStep, MediaCollection
-from creatoros.runs.observation import observe_production, only_revision_matches, run_topic_id
+from creatoros.storage.models import AgentPlan, AgentPlanStep, ContentRun, MediaCollection, ProductionTask, Topic, WriteReceipt
+from creatoros.runs.observation import (observe_production, only_revision_matches, run_topic_id,
+                                       submission_outcome, submission_shape_arguments, valid_submission_identity)
 from creatoros.runs.errors import ContentRunError
 from creatoros.tools.execution import execute_tool_call
 from creatoros.tools.plans import validate_plan_arguments
+from creatoros.tools.production_evidence import submission_identity
 
 STEP_KEY = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')
 CONTRACT_PREFIX = 'v2:'
@@ -546,8 +548,8 @@ class PlanService:
         with self._lock:
             if self._thread and self._thread.is_alive(): return
             self._stop.clear()
-            # Interrupted calls are never guessed successful. Production submissions
-            # are replayed with the same host-owned idempotency identity.
+            # Interrupted calls may already have produced side effects. Never
+            # automatically repeat them; require the original result be checked.
             with self._write() as session:
                 for row in session.scalars(select(AgentPlanStep).where(AgentPlanStep.status == 'running')):
                     plan = session.get(AgentPlan, row.plan_id)
@@ -562,11 +564,15 @@ class PlanService:
                     try:
                         if plan.continuation_state in {'executing', 'unknown'}:
                             row.status, row.error = 'unknown', '续接中断时步骤结果未知，请先核对。'
-                        elif (row.tool == 'start_content_run' and row.arguments_json.get('action') == 'tasks'
-                                and isinstance(row.arguments_json.get('tasks'), list)):
-                            row.status = 'pending'
+                        elif row.tool == 'start_content_run' and row.arguments_json.get('action') == 'tasks':
+                            recovered = self._recover_submitted_tasks(session, plan, row)
+                            if recovered is None:
+                                row.status, row.error = 'unknown', '服务中断时步骤结果未知，请先核对。'
+                            else:
+                                row.status, row.error = recovered
                         else:
                             row.status, row.error = 'unknown', '服务中断时步骤结果未知，请先核对。'
+                        plan.version += 1
                     finally:
                         if guard: guard.release()
             self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='creatoros-plan')
@@ -656,6 +662,10 @@ class PlanService:
             agent_session_id=sid, session_file=self.chat._path(sid).with_name('messages.json'),
             user_request_id=f'plan:{plan_id}:{step_id}', allowed_tools=ACCOUNT_TOOLS)
         try:
+            if tool == 'start_content_run':
+                # Use exactly the tool contract's normalized, resolved values
+                # for receipt checks; leave the saved plan definition intact.
+                arguments = validate_plan_arguments(tool, arguments, context)
             result = execute_tool_call(ToolCall('plan-' + step_id, tool, json.dumps(arguments, ensure_ascii=False)),
                                        context=context, model_requested=True)
         except Exception:
@@ -668,8 +678,17 @@ class PlanService:
                     p.version += 1
             self._wake.set()
             return
-        try: data = json.loads(result.model_content or result.content)
-        except (ValueError, TypeError): data = {'message': str(result.model_content or result.content)[:4000]}
+        try:
+            identity = (submission_identity(arguments, context, self.chat.root)
+                        if tool == 'start_content_run' and not result.is_error else None)
+        except (ValueError, TypeError, OSError):
+            # The submitted operation may already exist; never dispatch again.
+            identity = None
+        raw = result.content if tool == 'start_content_run' else (result.model_content or result.content)
+        try: data = json.loads(raw)
+        except (ValueError, TypeError): data = {'message': str(raw)[:4000], '_raw_receipt': str(raw)}
+        if not isinstance(data, dict):
+            data = {'_raw_receipt': data}
         with self._write() as session:
             row = session.get(AgentPlanStep, plan_id+':'+step_id)
             p = session.get(AgentPlan, plan_id)
@@ -694,14 +713,119 @@ class PlanService:
                 row.error = str(data.get('message') or result.error_type or '步骤失败')[:2000]
                 row.result_json = data
             else:
-                row.result_json = data
-                row.status = 'waiting' if row.wait_for_completion else 'succeeded'
+                if row.tool == 'start_content_run':
+                    # Preserve the exact receipt independently of the live
+                    # per-item observation, which changes as siblings finish.
+                    data['_submission_receipt'] = deepcopy(data)
+                    data['_submission_shape'] = submission_shape_arguments(arguments)
+                    data['_submission_identity'] = identity
+                    identity_ok = valid_submission_identity(session, creator_id, arguments, data, identity)
+                    outcome, message = submission_outcome(session, creator_id, arguments, data, identity)
+                    if row.wait_for_completion:
+                        observed = observe_production(session, creator_id, arguments, data)
+                        watched = observed.result
+                        items = (watched.get('items', []) if watched and arguments.get('action') in {'start', 'tasks'}
+                                 else [watched] if watched else [])
+                        some_settled_issue = any(isinstance(item, dict) and item.get('terminal_status')
+                                                 in {'unknown', 'failed', 'interrupted', 'cancelled', 'needs_attention'}
+                                                 for item in items)
+                        if watched is not None and (outcome == 'succeeded' or
+                                (observed.terminal is None and some_settled_issue
+                                 and identity_ok)):
+                            row.result_json = watched
+                            row.status, row.error = observed.terminal or ('waiting', None)
+                        else:
+                            row.result_json, row.status, row.error = data, outcome, message
+                    else:
+                        row.result_json, row.status, row.error = data, outcome, message
+                else:
+                    row.result_json = data
+                    row.status = 'waiting' if row.wait_for_completion else 'succeeded'
             p.version += 1
         self._wake.set()
 
-    @staticmethod
-    def _watch(session, plan, step):
-        observed = observe_production(session, plan.creator_id, step.arguments_json, step.result_json)
+    def _resolved_submission(self, session, plan, step):
+        by_key = {row.step_key: row for row in self._rows(session, plan.id)}
+        deps = {key: by_key[key].result_json for key in step.depends_on_json}
+        context = RuntimeContext(project_root=PROJECT_ROOT, creator_id=plan.creator_id,
+            agent_session_id=plan.session_id, user_request_id=f'plan:{plan.id}:{step.step_key}')
+        args = validate_plan_arguments(step.tool,
+            _resolve(step.arguments_json, deps, set(step.depends_on_json)), context)
+        return args, submission_identity(args, context, self.chat.root)
+
+    def _recover_submitted_tasks(self, session, plan, step):
+        """Recover a committed submission from its receipt; never call the tool."""
+        try:
+            args, identity = self._resolved_submission(session, plan, step)
+            recorded = session.get(WriteReceipt, identity['request_id']) if identity else None
+            saved = recorded.response_json if recorded and isinstance(recorded.response_json, dict) else {}
+            ids = saved.get('task_ids')
+            if not isinstance(ids, list):
+                return None
+            shape = submission_shape_arguments(args)
+            raw = {'topic_id': args.get('topic_id'), 'items': [{'id': task_id, 'run_id': None} for task_id in ids]}
+            if not valid_submission_identity(session, plan.creator_id, shape, raw, identity):
+                return None
+            tasks = [session.get(ProductionTask, task_id) for task_id in ids]
+            collection_ids = {task.collection_id for task in tasks}
+            if len(collection_ids) != 1:
+                return None
+            collection_id = next(iter(collection_ids))
+            if collection_id:
+                collection = session.get(MediaCollection, collection_id)
+                if not collection or collection.creator_id != plan.creator_id or collection.topic_id != args['topic_id']:
+                    return None
+            topic = session.get(Topic, args['topic_id'])
+            if not topic:
+                return None
+            items = []
+            for task in tasks:
+                run = session.scalar(select(ContentRun).where(ContentRun.idempotency_key == f'task:{task.id}'))
+                snapshot = run.input_snapshot_json if run and isinstance(run.input_snapshot_json, dict) else {}
+                if run and (run.task_id != task.id or run.topic_id != task.topic_id
+                        or any(snapshot.get(key) != value for key, value in (
+                            ('creator_id', plan.creator_id), ('series_id', topic.series_id), ('topic_id', task.topic_id)))):
+                    return None
+                if not run and session.scalar(select(ContentRun.id).where(ContentRun.task_id == task.id).limit(1)):
+                    return None  # Never mistake a later fresh run for the submitted run.
+                items.append({'id': task.id, 'topic_id': task.topic_id, 'title': task.title,
+                    'kind': task.kind, 'status': run.status.value if run else task.dispatch_state,
+                    'run_id': run.id if run else None, 'run_version': run.version if run else None})
+            raw = {'topic_id': args['topic_id'], 'collection_id': collection_id, 'items': items}
+            prior = step.result_json if isinstance(step.result_json, dict) else {}
+            receipt = {**raw, '_submission_receipt': deepcopy(raw), '_submission_shape': shape,
+                       '_submission_identity': identity, '_recovered_from_receipt': True,
+                       **({'_repair_history': prior['_repair_history']} if '_repair_history' in prior else {})}
+            observed = observe_production(session, plan.creator_id, shape, receipt)
+            if observed.result is None:
+                return None
+            step.result_json = observed.result
+            if not step.wait_for_completion:
+                return submission_outcome(session, plan.creator_id, shape, raw, identity)
+            return observed.terminal or ('waiting', None)
+        except (ValueError, TypeError, KeyError, OSError):
+            return None
+
+    def _watch(self, session, plan, step):
+        receipt = step.result_json or {}
+        frozen = receipt.get('_submission_receipt')
+        shape = receipt.get('_submission_shape')
+        if frozen is None:
+            # Recover identity from the original plan and durable records, not
+            # by resubmitting. If dependencies no longer resolve, require review.
+            try:
+                args, identity = self._resolved_submission(session, plan, step)
+                shape = submission_shape_arguments(args)
+            except (ValueError, TypeError, KeyError, OSError):
+                return ('unknown', '历史制作记录缺少可核验的请求身份，请核对原任务。')
+            if not valid_submission_identity(session, plan.creator_id, shape, receipt, identity):
+                return ('unknown', '历史制作记录缺少可核验的请求身份，请核对原任务。')
+            receipt = {**receipt, '_submission_receipt': deepcopy(receipt),
+                       '_submission_shape': shape, '_submission_identity': identity}
+        elif not isinstance(shape, dict) or not valid_submission_identity(
+                session, plan.creator_id, shape, frozen, receipt.get('_submission_identity')):
+            return ('unknown', '原制作回执与请求不一致，请核对原任务。')
+        observed = observe_production(session, plan.creator_id, shape, receipt)
         if observed.result is not None:
             step.result_json = observed.result
         return observed.terminal

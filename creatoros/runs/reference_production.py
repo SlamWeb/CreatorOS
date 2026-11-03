@@ -1,12 +1,11 @@
 """Atomic reference-to-production application service shared by all callers."""
-from hashlib import sha256
-import json
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import set_committed_value
 
 from creatoros.integrations.topic_references import TopicReferenceStore
+from creatoros.integrations.production_identity import reference_topic_id
 from creatoros.operations.models import AddTopicsOperation, OperationPlan, TopicDraft
 from creatoros.operations.service import PendingOperationError
 from creatoros.storage import ContentRun, Series, Topic, TopicSource, TopicStatus, WriteReceipt
@@ -54,7 +53,7 @@ class ReferenceProductionService:
             except (ValueError, OSError) as error:
                 raise ContentRunError("参考图片或要求不可用，请检查图片是否完整且属于当前栏目。",
                                       code="invalid_request", status_code=422) from error
-            topic_id = "reference-" + sha256(json.dumps([series_id, request.request_id]).encode()).hexdigest()[:24]
+            topic_id = reference_topic_id(series_id, request.request_id)
             plan = OperationPlan(operations=[AddTopicsOperation(series_id=series_id, topics=[
                 TopicDraft(topic_id=topic_id, title=request.title, brief=reference.instructions,
                            source="manual", reference_id=reference.id)])])
