@@ -91,17 +91,7 @@ def skill_routes(database, service):
         try:
             if family_skill_id:
                 return {"items": service.catalog.list_skill_versions(family_skill_id)["items"], "include_versions": True}
-            items = {}
-            for representative in service.catalog.list():
-                identity = representative["id"]
-                if identity == service.catalog.BUILTIN_ID:
-                    items[identity] = {**representative, "family_id": identity,
-                        "version_number": 1, "version_status": "released",
-                        "digest": service.catalog.list_skill_files(identity)["digest"]}
-                    continue
-                for item in service.catalog.list_skill_versions(identity)["items"]:
-                    items[item["id"]] = item
-            return {"items": list(items.values()), "include_versions": True}
+            return {"items": service.catalog.list_all_skill_versions(), "include_versions": True}
         except (ValueError, OSError, KeyError) as error:
             raise HTTPException(404, "Skill版本不可用或未登记。") from error
 
