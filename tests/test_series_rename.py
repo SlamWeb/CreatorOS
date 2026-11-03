@@ -181,7 +181,8 @@ class SeriesRenameMigrationTests(unittest.TestCase):
                     current = rows(db)
                     added = set(current) - set(before)
                     self.assertIn(added, (set(), {"production_tasks", "agent_plan_steps", "agent_plans",
-                                                "creator_skill_refs", "managed_materials", "series_skill_refs"}))
+                                                "creator_skill_refs", "managed_materials", "series_skill_refs",
+                                                "skill_switch_intents"}))
                     for table in added:
                         self.assertEqual(current.pop(table), [])
                     for run in current["content_runs"]:

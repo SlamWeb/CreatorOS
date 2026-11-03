@@ -187,6 +187,24 @@ class FreshContentRunTests(unittest.TestCase):
         other = self.runs.get(other.id)
         self.assert_error("idempotency_conflict", lambda: self.fresh(source=other))
 
+    def test_fresh_token_from_another_account_does_not_expose_its_receipt(self):
+        self.settle()
+        self.fresh()
+        repo = ContentRepository(self.db)
+        repo.create_creator(creator_id="other", display_name="Other")
+        repo.create_series(series_id="other-series", creator_id="other", name="Other",
+                           description="", audience="", skill_name="knowledge-to-carousel")
+        repo.add_topic(topic_id="other-topic", series_id="other-series", title="Other",
+                       source=TopicSource.MANUAL)
+        other = self.runs.create("other-topic")
+        with self.db.session() as session:
+            session.get(ContentRun, other.id).status = ContentRunStatus.FAILED
+            before = session.scalar(select(func.count()).select_from(ContentRun))
+        other = self.runs.get(other.id)
+        self.assert_error("scope_conflict", lambda: self.fresh(source=other))
+        with self.db.session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), before)
+
     def test_disabled_removed_and_external_import_guards(self):
         self.settle()
         with self.db.session() as session:
