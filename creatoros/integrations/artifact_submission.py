@@ -28,10 +28,23 @@ class ImageSubmission:
         self._lock = asyncio.Lock()
         self._inflight_images = set()
         self._outcome_unknown = False
+        self._intent_owned = False
 
     def mark_unknown(self):
-        """Latch an adapter timeout/cancellation, including from its reader thread."""
+        """Latch uncertainty and retain a guard even before the handler starts."""
         self._outcome_unknown = True
+        intent = self.directory / SUBMISSION_INTENT
+        try:
+            with intent.open("x", encoding="utf-8") as stream:
+                stream.write('{"protocol":"image-submission-unknown-v1"}')
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            pass  # A submission or partial guard already protects this attempt.
+        except OSError:
+            # No file operation can guarantee a durable guard on a failed disk.
+            # The in-process latch remains set and the caller still fails closed.
+            pass
 
     def observe_image_event(self, event):
         """Track observed generation events; a pending image makes the alias ambiguous."""
@@ -83,7 +96,8 @@ class ImageSubmission:
             return self._unknown_result()
         before = self.checkpoint.model_copy(deep=True)
         try:
-            return self._submit(arguments)
+            result = self._submit(arguments)
+            return self._unknown_result() if self._outcome_unknown else result
         except OSError:
             # Receipt/file writes may partially succeed. Never acknowledge an
             # in-memory acceptance that was not durably checkpointed.
@@ -105,6 +119,12 @@ class ImageSubmission:
             return {"accepted": False, "retryable": False, "error": "提交尚未绑定当前执行回合。"}
         payload_hash = hashlib.sha256(canonical(arguments).encode()).hexdigest()
         if checkpoint.submission_sha256:
+            intent = self.directory / SUBMISSION_INTENT
+            if not self._intent_owned and (intent.exists() or intent.is_symlink()):
+                from creatoros.delivery.image_submission_check import inspect_submission
+                if inspect_submission(self.directory)["status"] != "completed_evidence":
+                    self._outcome_unknown = True
+                    return self._unknown_result()
             saved = accepted_submission(self.directory, checkpoint)
             verified_pages(self.directory, checkpoint)
             if saved["payload_sha256"] != payload_hash:
@@ -113,7 +133,10 @@ class ImageSubmission:
             return saved["receipt"]
         intent = self.directory / SUBMISSION_INTENT
         receipt_file = self.directory / SUBMISSION
-        if (intent.exists() or intent.is_symlink() or receipt_file.exists() or receipt_file.is_symlink()):
+        intent_present = intent.exists() or intent.is_symlink()
+        if (receipt_file.exists() or receipt_file.is_symlink()
+                or (intent_present and not self._intent_owned)
+                or (self._intent_owned and (not intent_present or intent.is_symlink()))):
             self._outcome_unknown = True
             return self._unknown_result()
         if checkpoint.submission_failures >= MAX_FAILURES:
@@ -141,19 +164,19 @@ class ImageSubmission:
                     "received_images": [{"source_image_path": item.source_image_path,
                                          "image_prompt": item.revised_prompt} for item in assets],
                     "instruction": "清单只包含目前已接收的图片；若仍有生成或接收未完成，请等待，不要重新生图。"}
-        intent_owned = False
         try:
             value = FileDelivery.model_validate(arguments)
             if self._outcome_unknown:
                 return self._unknown_result()
-            # Exclusive marker is durable before any delivery/index mutations.
-            # A crash or partially successful write leaves evidence to stop recovery.
+            # Keep the marker throughout all corrections. Removing it after a
+            # rejection races a timeout already reported by the RPC reader.
             try:
-                with intent.open("x", encoding="utf-8") as stream:
-                    intent_owned = True
+                with intent.open("r+" if self._intent_owned else "x", encoding="utf-8") as stream:
+                    self._intent_owned = True
                     json.dump({"protocol": "image-submission-intent-v1", "thread_id": checkpoint.thread_id,
                                "turn_id": self.turn_id, "input_digest": checkpoint.input_digest,
                                "payload_sha256": payload_hash}, stream, ensure_ascii=False)
+                    stream.truncate()
                     stream.flush()
                     os.fsync(stream.fileno())
             except FileExistsError:
@@ -166,12 +189,12 @@ class ImageSubmission:
                                   value.model_dump())
             ingest(self.directory, checkpoint, self.generated_root)
         except ValueError as error:
-            # A rejected, validated submission has no accepted receipt. Allow
-            # existing correction semantics only after removing our own intent.
-            if intent_owned:
-                intent.unlink()
-            elif intent.exists() or intent.is_symlink() or receipt_file.exists() or receipt_file.is_symlink():
+            # Only this live handler can correct a definite rejection; the
+            # marker remains as a guard if the RPC result becomes unknown.
+            if not self._intent_owned and (intent.exists() or intent.is_symlink() or receipt_file.exists() or receipt_file.is_symlink()):
                 self._outcome_unknown = True
+                return self._unknown_result()
+            if self._outcome_unknown:
                 return self._unknown_result()
             checkpoint.submission_failures += 1
             atomic_json(self.directory / CHECKPOINT, checkpoint)
