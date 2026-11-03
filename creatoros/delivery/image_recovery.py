@@ -8,7 +8,7 @@ from pathlib import Path
 from creatoros.integrations.worker_protocol import completed_delivery_turn
 
 from .files import (AttemptDirectoryConflict, atomic_json, attempt_order,
-                    earlier_attempt_directories, is_unsafe_attempt_directory, safe_file)
+                    earlier_attempt_levels, is_unsafe_attempt_directory, require_single_attempt, safe_file)
 from .image import (CHECKPOINT, RESPONSE, SUBMISSION, SUBMISSION_INTENT, Artifact, Checkpoint, Delivery,
                     accepted_submission, ingest, load_checkpoint, skill_refs)
 from .image_assets import ImageAssetStore
@@ -29,13 +29,17 @@ def _copy_evidence(source: Path, target: Path) -> None:
 
 
 def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None = None) -> Checkpoint | None:
-    if attempt_order(directory.name) is None:
+    if attempt_order(directory.name) is None and not directory.name.startswith("attempt-"):
         return None
     try:
-        previous_attempts = earlier_attempt_directories(directory)
+        previous_attempts = earlier_attempt_levels(directory)
     except AttemptDirectoryConflict as error:
         raise ImageSubmissionUnconfirmed(str(error)) from error
-    for previous in previous_attempts:
+    for level in previous_attempts:
+        try:
+            previous = require_single_attempt(level)
+        except AttemptDirectoryConflict as error:
+            raise ImageSubmissionUnconfirmed(str(error)) from error
         if is_unsafe_attempt_directory(previous):
             raise ImageSubmissionUnconfirmed("原 Attempt 不是可安全核对的普通目录。")
         evidence = inspect_submission(previous)

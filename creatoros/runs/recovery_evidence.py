@@ -12,7 +12,7 @@ import hashlib
 import stat
 from pathlib import Path
 
-from creatoros.delivery.files import AttemptDirectoryConflict, earlier_attempt_directories, safe_file
+from creatoros.delivery.files import AttemptDirectoryConflict, earlier_attempt_levels, require_single_attempt, safe_file
 from creatoros.delivery.image import CHECKPOINT, SUBMISSION, Checkpoint, accepted_submission
 from creatoros.delivery.image_submission_check import inspect_submission
 from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery
@@ -34,8 +34,9 @@ def inspect_recovery_evidence(output_directory: str | Path | None) -> tuple[str,
         return None
     current = Path(output_directory)
     try:
-        candidates = [current, *earlier_attempt_directories(current)]
-        for directory in candidates:
+        candidates = [(current,), *earlier_attempt_levels(current)]
+        for level in candidates:
+            directory = require_single_attempt(level)
             try:
                 info = directory.lstat()
             except FileNotFoundError:

@@ -128,6 +128,8 @@ class RecoveryEvidenceTests(unittest.TestCase):
         self.first.rename(self.root / "attempt-999")
         self.first = self.root / "attempt-999"
         self.video_checkpoint(submission_guard="armed")
+        (self.root / "attempt-001").mkdir()
+        (self.root / "attempt-1").mkdir()  # Older aliases are behind the valid 1000 boundary.
         newer = self.root / "attempt-1000"
         (newer / "work").mkdir(parents=True)
         checkpoint = VideoCheckpoint(input_digest="a" * 64, thread_id="newer", handoff_protocol="final-json-v1")
@@ -136,6 +138,28 @@ class RecoveryEvidenceTests(unittest.TestCase):
         current.mkdir()
         self.assertIsNone(inspect_recovery_evidence(current))
         self.assertEqual(_recover_work(current, "a" * 64).thread_id, "newer")
+
+    def test_invalid_attempt_current_never_looks_like_no_prior_evidence(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
+        for name in ("attempt-invalid", "attempt-000"):
+            with self.subTest(name=name):
+                current = self.root / name
+                current.mkdir()
+                self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+                with self.assertRaises(ImageSubmissionUnconfirmed):
+                    recover_checkpoint(current, "a" * 64)
+                with self.assertRaises(VideoRecoveryEvidenceConflict):
+                    _recover_work(current, "a" * 64)
+
+    def test_non_attempt_directory_still_has_no_recovery_history(self):
+        from creatoros.delivery.image_recovery import recover_checkpoint
+        from creatoros.delivery.video_receipt import _recover_work
+        current = self.root / "ordinary-workspace"
+        current.mkdir()
+        self.assertIsNone(inspect_recovery_evidence(current))
+        self.assertIsNone(recover_checkpoint(current, "a" * 64))
+        self.assertIsNone(_recover_work(current, "a" * 64))
 
     def test_1000_unknown_is_seen_by_1001_for_both_media(self):
         from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
@@ -160,6 +184,17 @@ class RecoveryEvidenceTests(unittest.TestCase):
         from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
         (self.root / "attempt-1").mkdir()
         current = self.root / "attempt-1000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        with self.assertRaises(VideoRecoveryEvidenceConflict):
+            _recover_work(current, "a" * 64)
+
+    def test_alias_for_current_numeric_identity_is_rejected(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
+        current = self.root / "attempt-1"
         current.mkdir()
         self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
         with self.assertRaises(ImageSubmissionUnconfirmed):

@@ -12,7 +12,7 @@ from .models import ProductionModel
 
 
 class AttemptDirectoryConflict(ValueError):
-    """Two directory names identify the same numeric Attempt."""
+    """An Attempt name or numeric identity cannot be safely resolved."""
 
 
 def attempt_order(name: str) -> tuple[int, str] | None:
@@ -24,22 +24,32 @@ def attempt_order(name: str) -> tuple[int, str] | None:
     return (len(digits), digits) if digits else None
 
 
-def earlier_attempt_directories(current: Path) -> list[Path]:
-    """Return legal earlier Attempts newest first; reject ambiguous aliases."""
+def earlier_attempt_levels(current: Path) -> list[tuple[Path, ...]]:
+    """Group earlier Attempts by numeric identity, newest first."""
     current = Path(current)
     current_key = attempt_order(current.name)
     if current_key is None:
+        if current.name.startswith("attempt-"):
+            raise AttemptDirectoryConflict("当前 Attempt 目录名称或编号无效，无法安全恢复。")
         return []
-    known = {current_key: current}
+    known = {}
     for candidate in current.parent.glob("attempt-*"):
         key = attempt_order(candidate.name)
         if key is None or key > current_key:
             continue
-        other = known.get(key)
-        if other is not None and other.name != candidate.name:
-            raise AttemptDirectoryConflict("Attempt 目录编号存在多个别名，无法安全选择恢复证据。")
-        known[key] = candidate
-    return [known[key] for key in sorted(known, reverse=True) if key < current_key]
+        if key == current_key:
+            if current.name != candidate.name:
+                raise AttemptDirectoryConflict("当前 Attempt 目录编号存在多个别名，无法安全恢复。")
+            continue
+        known.setdefault(key, []).append(candidate)
+    return [tuple(known[key]) for key in sorted(known, reverse=True)]
+
+
+def require_single_attempt(level: tuple[Path, ...]) -> Path:
+    """Reject aliases only when traversal reaches their numeric level."""
+    if len(level) != 1:
+        raise AttemptDirectoryConflict("Attempt 目录编号存在多个别名，无法安全选择恢复证据。")
+    return level[0]
 
 
 def is_unsafe_attempt_directory(path: Path) -> bool:

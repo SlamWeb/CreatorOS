@@ -9,8 +9,8 @@ import stat
 from pathlib import Path
 
 from creatoros.integrations.media_tools import decode_media, probe_media
-from .files import (AttemptDirectoryConflict, atomic_json, earlier_attempt_directories,
-                    is_unsafe_attempt_directory, safe_file)
+from .files import (AttemptDirectoryConflict, atomic_json, earlier_attempt_levels,
+                    is_unsafe_attempt_directory, require_single_attempt, safe_file)
 from .task_execution import file_sha256
 from .video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery, _require_playable_mp4
 
@@ -197,10 +197,14 @@ def _check_plain_tree(root):
 
 def _recover_work(directory, expected):
     try:
-        previous_attempts = earlier_attempt_directories(directory)
+        previous_attempts = earlier_attempt_levels(directory)
     except AttemptDirectoryConflict as error:
         raise VideoRecoveryEvidenceConflict(str(error)) from error
-    for previous in previous_attempts:
+    for level in previous_attempts:
+        try:
+            previous = require_single_attempt(level)
+        except AttemptDirectoryConflict as error:
+            raise VideoRecoveryEvidenceConflict(str(error)) from error
         if is_unsafe_attempt_directory(previous):
             raise VideoRecoveryEvidenceConflict("较新的视频 Attempt 不是可核对的普通目录。")
         path = previous / VIDEO_CHECKPOINT
