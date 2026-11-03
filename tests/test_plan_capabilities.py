@@ -18,6 +18,7 @@ class PlanCapabilityTests(unittest.TestCase):
             ("manage_plan", ("parameters", "$defs", "PlanStepArgs", "properties", "wait_for_completion", "default"), True),
             ("manage_skill_iteration", ("parameters", "properties", "action", "enum"), ["unapproved"]),
             ("manage_skill_iteration", ("parameters", "properties", "expected_revision", "description"), "wrong guidance"),
+            ("manage_plan", ("description",), "unapproved"),
             ("get_content_run", ("description",), "unapproved"),
         ]
         for name, path, replacement in mutations:
@@ -41,7 +42,7 @@ class PlanCapabilityTests(unittest.TestCase):
         self.assertIn("只要求提交时仍直接提交", ACCOUNT_INSTRUCTIONS)
         self.assertIn("wait_for_completion=true", ACCOUNT_INSTRUCTIONS)
         self.assertIn("用户要求等待或有多步依赖", ACCOUNT_INSTRUCTIONS)
-        self.assertIn("有后续步骤且需要根据结果判断", ACCOUNT_INSTRUCTIONS)
+        self.assertIn("决定、调整或追加后续动作", ACCOUNT_INSTRUCTIONS)
         self.assertNotIn("生产仍提交后给链接，不轮询等待生图", ACCOUNT_INSTRUCTIONS)
         plan = tool_registry["manage_plan"].to_schema()["function"]["description"]
         start = tool_registry["start_content_run"].to_schema()["function"]["description"]
@@ -49,6 +50,19 @@ class PlanCapabilityTests(unittest.TestCase):
         self.assertIn("wait_for_completion=true", plan)
         self.assertIn("仅需提交时调用", start)
         self.assertIn("完成后核验、继续处理或汇报结果", start)
+
+    def test_checkpoint_guidance_distinguishes_final_report_from_replanning(self):
+        from creatoros.tools.definitions import tool_registry
+        from creatoros.web.chat import ACCOUNT_INSTRUCTIONS
+
+        # Models may still choose differently; this verifies only the guidance
+        # actually sent in both the system prompt and tool description.
+        plan = tool_registry["manage_plan"].to_schema()["function"]["description"]
+        for guidance in (ACCOUNT_INSTRUCTIONS, plan):
+            self.assertIn("仅需等待完成并汇报", guidance)
+            self.assertIn("不要添加request_review", guidance)
+            self.assertIn("决定、调整或追加后续动作", guidance)
+            self.assertIn("计划终态", guidance)
 
     def test_plan_schema_and_permissions_keep_the_existing_names_and_actions(self):
         from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action, can_wait
@@ -129,6 +143,11 @@ class PlanCapabilityTests(unittest.TestCase):
                     "start_content_run步骤设wait_for_completion=true；宿主观察原任务并在计划完成或失败后唤醒本会话。")
         self.assertEqual(plan["description"].count(guidance), 1)
         plan["description"] = plan["description"].replace(guidance, "")
+        checkpoint_guidance = ("仅需等待完成并汇报（包括先核验结果）时，不要添加request_review；计划终态会唤醒本会话。"
+                               "只有需要根据结果决定、调整或追加后续动作时才添加request_review，参数 question 说明要判断的问题，后台暂停并唤醒本会话。")
+        self.assertEqual(plan["description"].count(checkpoint_guidance), 1)
+        plan["description"] = plan["description"].replace(checkpoint_guidance,
+            "需要判断时加入 request_review 步骤，参数 question 说明要判断的问题，后台暂停并唤醒本会话。")
         wait = plan["parameters"]["$defs"]["PlanStepArgs"]["properties"]["wait_for_completion"]
         self.assertEqual(wait["description"], "仅用于start_content_run；等待原生产真实终态，再解锁依赖步骤。计划完成或失败后宿主唤醒原会话。")
         wait["description"] = "提交长任务后等待其真实终态，再解锁依赖步骤。"

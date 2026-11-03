@@ -56,6 +56,7 @@ class PlanContinuationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             db, runs, producer, fixture_app = make_fixture(root)
+            producer.count = 1
             production_gate, production_started = Event(), Event()
             gate, started, calls, lock = Event(), Event(), [], Lock()
             gate.set()
@@ -95,13 +96,22 @@ class PlanContinuationTests(unittest.TestCase):
                     wait_for(lambda: detail()['status'] == 'completed' and detail()['continuation_state'] == 'done')
                     wait_for(lambda: app.state.chat._read(sid)['status'] != 'running')
                     run_id = detail()['steps'][0]['result']['items'][0]['run_id']
+                    self.assertEqual(runs.get(run_id).status.value, 'awaiting_approval')
+                    self.assertEqual(runs.get_active_revision(run_id).validation_json['card_count'], 1)
                     with db.session() as database_session:
                         self.assertEqual(database_session.query(ProductionTask).count(), 1)
                         self.assertEqual(database_session.query(ContentRun).count(), 1)
                         self.assertIsNotNone(database_session.get(ContentRun, run_id))
                     self.assertEqual(producer.calls, 1)
-                    self.assertEqual(sum(r.get('kind') == 'plan_continuation'
-                                         for r in app.state.chat._read(sid)['requests']), 1)
+                    requests = [r for r in app.state.chat._read(sid)['requests'] if r.get('kind') == 'plan_continuation']
+                    self.assertEqual(len(requests), 1)
+                    self.assertEqual(requests[0]['event_id'], pid + ':1')
+                    self.assertEqual(requests[0]['continuation_outcome'], 'done')
+                    refreshed = client.get(f'/api/agent/sessions/{sid}').json()
+                    replies = [entry for entry in refreshed['entries'] if entry.get('kind') == 'assistant'
+                               and entry.get('turn_id') == requests[0]['id'] and entry.get('text')]
+                    self.assertEqual([entry['text'] for entry in replies], ['已收到结果。'])
+                    self.assertEqual(sum(entry.get('kind') == 'user' for entry in refreshed['entries']), 1)
                     app.state.chat._resume_plans()
                     app.state.chat._resume_plans()
                     self.assertEqual(producer.calls, 1)

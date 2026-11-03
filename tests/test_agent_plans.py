@@ -87,6 +87,59 @@ class PlanTests(unittest.TestCase):
                 self.assertEqual(service.get(sid, plan['id'])['steps'][1]['status'], 'running')
             db.close()
 
+    def test_terminal_checkpoint_can_append_a_new_action_before_resuming(self):
+        # A checkpoint at the end may be intentional: the Agent can decide
+        # what to append only after seeing the checkpoint result.
+        with tempfile.TemporaryDirectory() as root:
+            db, _, producer, app = make_fixture(Path(root))
+            service = app.state.agent_plans
+            try:
+                sid = app.state.chat.create('review-lab')['id']
+                with serve(app) as url, httpx.Client(base_url=url, timeout=10, trust_env=False) as client:
+                    service.set_continuation_callback(None)
+                    path = f'/api/agent/sessions/{sid}/plans'
+                    response = client.post(path, json={'request_id':'append-after-review', 'title':'判断并继续', 'steps':[
+                        {'id':'review','title':'判断需要什么后续操作','tool':'request_review',
+                         'arguments':{'question':'判断后追加查询步骤'}}]})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    pid = response.json()['id']; endpoint = f'{path}/{pid}'
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        plan = client.get(endpoint).json()
+                        if plan['status'] == 'paused': break
+                        time.sleep(.05)
+                    self.assertEqual(plan['status'], 'paused')
+                    first = service.claim_continuation(sid, 'review-worker')
+                    self.assertEqual(first['reason'], 'checkpoint')
+                    self.assertTrue(service.begin_continuation_output(pid, first['event_id'], 'review-worker'))
+                    change = client.patch(endpoint, json={'expected_version':plan['version'], 'mode':'merge', 'steps':[
+                        {'id':'added','title':'查询栏目选题','tool':'manage_topics',
+                         'arguments':{'action':'list','series_id':'agent-notes'}, 'depends_on':['review']}]})
+                    self.assertEqual(change.status_code, 200, change.text)
+                    resumed = client.post(endpoint + '/actions', json={'action':'resume',
+                        'expected_version':change.json()['version']})
+                    self.assertEqual(resumed.status_code, 200, resumed.text)
+                    service.advance()
+                    self.assertEqual(client.get(endpoint).json()['steps'][1]['status'], 'pending')
+                    self.assertTrue(service.ack_continuation(pid, first['event_id'], 'review-worker'))
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        plan = client.get(endpoint).json()
+                        if plan['status'] == 'completed' and plan['continuation_state'] == 'pending': break
+                        time.sleep(.05)
+                    self.assertEqual(plan['status'], 'completed', plan)
+                    self.assertEqual([step['status'] for step in plan['steps']], ['succeeded','succeeded'])
+                    second = service.claim_continuation(sid, 'completion-worker')
+                    self.assertEqual(second['reason'], 'completed')
+                    self.assertNotEqual(first['event_id'], second['event_id'])
+                    self.assertTrue(service.ack_continuation(pid, second['event_id'], 'completion-worker'))
+                    self.assertIsNone(service.claim_continuation(sid, 'another-worker'))
+                    self.assertEqual(producer.calls, 0)
+            finally:
+                service.shutdown()
+                app.state.chat.shutdown()
+                db.close()
+
     def test_batch_waits_for_every_sibling_even_when_one_failed(self):
         failed = SimpleNamespace(id='r1', topic_id='t', task_id='one', idempotency_key='task:one', status=SimpleNamespace(value='failed'), error_message='失败')
         running = SimpleNamespace(id='r2', topic_id='t', task_id='two', idempotency_key='task:two', status=SimpleNamespace(value='producing'), error_message=None, active_revision_number=1)
