@@ -13,7 +13,10 @@ from .background_wait import background_receipt
 
 class ManageSkillIterationArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    action: Literal["start", "get", "pause", "resume", "continue"]
+    action: Literal["start", "get", "pause", "resume", "continue"] = Field(
+        description="start 创建时传 series_id、skill_id、topic_id，不传 iteration_id 和 expected_revision；"
+                    "get 查询传 iteration_id，不传 expected_revision；"
+                    "pause、resume、continue 必传 iteration_id 和 expected_revision。")
     iteration_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     series_id: str | None = Field(default=None, min_length=1, max_length=120)
     skill_id: str | None = Field(default=None, min_length=1, max_length=160)
@@ -25,7 +28,9 @@ class ManageSkillIterationArgs(BaseModel):
         description="从目标Skill文件列表取得的参考图相对路径；省略用其图片，最多20张，不接受任意本地路径。")
     max_rounds: int = Field(default=3, ge=1, le=3,
         description="默认3轮含基线；到上限停止，继续需要用户明确要求。")
-    expected_revision: int | None = Field(default=None, ge=1)
+    expected_revision: int | None = Field(default=None, ge=1,
+        description="expected_revision：start 和 get 不传；pause、resume、continue 必填最近 get 返回的任务 revision，"
+                    "不是栏目或 Skill 版本。")
 
     @model_validator(mode="after")
     def operation_fields(self):

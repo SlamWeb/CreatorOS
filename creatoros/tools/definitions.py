@@ -220,7 +220,7 @@ tool_registry = {
              execute=get_producer_skill, args_model=ProducerSkillArgs),
         Tool(name="update_producer_skill_file", description="编辑已有Skill，先读取真实digest。单项write_text改完整文本，add_image/replace_image/delete_image管理assets；多项修改用operation=batch和changes一次提交，按添加图片→改正文引用→删旧图排序，新图用当前会话attachment_id。宿主逐项跟随实际候选ID/digest，失败停止并返回已完成项，不是原子事务；outcome_unknown不能整批重发。发布版另存完整候选，后续用回执新skill_id/digest。账号对话中可用的非内置发布版即使原件can_edit=false，用户明确要求时也可另存当前账号私有候选；不覆盖共享原件，不访问其他账号私有候选。只问权限或明确不写入时不调用本工具。只保存候选，不改栏目、旧Run或自动生产；试产用start_content_run指定版本，循环用manage_skill_iteration。",
              execute=update_producer_skill_file, args_model=UpdateProducerSkillFileArgs),
-        Tool(name="manage_skill_iteration", description="管理RSI：明确要求循环迭代或本轮开启RSI时start，指定真实栏目、Skill版本与原选题；默认3轮含基线。后台自己提交Codex试产、DS看图评审并改候选，不需另开生产。运行中next_action=wait_background，给任务入口后结束本轮，不连续get；用户后续问进度才get一次。get返回阶段和active_round真实生产状态。pause/resume需当前revision；失败评审或未成功提交时resume沿原图/原输入续接，不加轮数。耗尽后用户明确授权才continue。只交付候选，不发布不切栏目，不混入后来修改的Skill。",
+        Tool(name="manage_skill_iteration", description="管理RSI：明确要求循环迭代或本轮开启RSI时start，指定真实栏目、Skill版本与原选题；默认3轮含基线。start/get不传expected_revision；pause、resume、continue必须传最近get返回的任务expected_revision。后台自己提交Codex试产、DS看图评审并改候选，不需另开生产。运行中next_action=wait_background，给任务入口后结束本轮，不连续get；用户后续问进度才get一次。get返回阶段和active_round真实生产状态。失败评审或未成功提交时resume沿原图/原输入续接，不加轮数。耗尽后用户明确授权才continue。只交付候选，不发布不切栏目，不混入后来修改的Skill。",
              execute=manage_skill_iteration, args_model=ManageSkillIterationArgs),
         Tool(name="list_creator_series", description="查询指定运营账号下的栏目、受众和Skill；已有当前账号目录且栏目未变化时复用，不为查一个已知栏目重列。同名栏目结合账号消歧。",
              execute=list_creator_series, args_model=CreatorArgs),

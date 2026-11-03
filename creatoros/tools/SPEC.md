@@ -137,6 +137,7 @@ Skill 单项写入必须核对成功回执的实际版本身份、摘要和路�
 - 现有 Skill 读取工具以 include_versions 查询准确版本、候选与真实目录摘要；账号目录按已绑定家族过滤，历史接口不泄露其他账号同家族的栏目绑定。
 - 编辑仍只保存完整目录候选；用户明确指定候选制作时可按本次 skill_overrides 试产，不要求先修改栏目默认。发布与切栏目继续只允许人工入口。
 - 仅新增 manage_skill_iteration 对象级任务工具：start/get/pause/resume/continue。写请求身份由宿主会话+用户turn+操作生成，不接受模型自选会话或本地路径；返回模型的仅状态/轮次/Judge版本门槛/反馈摘要与链接，完整历史在任务页和Trace。
+- 该工具的模型可见 action 与 expected_revision 字段说明按动作区分：start/get 不传 expected_revision；pause/resume/continue 必须使用最近 get 返回的任务 revision。当前 provider-facing JSON Schema 保持对象结构，动作条件仍由 Pydantic 校验；说明只能减少歧义，不保证模型不再传错。
 - 普通改稿不启动RSI；人工保存可用版本不要求先填选题或试产，栏目切版仍由用户确认。试用可选；本轮RSI或自然语言明确迭代才授权最多3轮候选试产，继续需新授权。聊天 iteration_mode 纳入持久重放比较，不自动继承到下一轮。
 - 定向隔离作用域、会话/重放与工具契约测试详见 docs/skill-iterations/SPEC.md；受控传输/持久化测试不冒充真实模型质量验证。
 
