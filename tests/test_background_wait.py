@@ -176,6 +176,8 @@ class BackgroundWaitTests(unittest.TestCase):
             data = json.loads(result.content)
             self.assertEqual((data["status"], data["last_known_status"]), ("unknown", "running"))
             self.assertEqual(result.error_type, "background_wait_timeout")
+            self.assertEqual(data["url"], "/skills?extraction=job")
+            self.assertEqual(json.loads(result.to_model_content().split("\n", 1)[1])["url"], data["url"])
             self.assertEqual(sum(context.stopping.waits), 60)
             self.assertTrue(all(seconds == 2 for seconds in context.stopping.waits))
             self.assertEqual(sum(call[0] == "POST" for call in calls), 1)
@@ -189,6 +191,7 @@ class BackgroundWaitTests(unittest.TestCase):
             data = json.loads(result.content)
             self.assertEqual((data["status"], data["last_known_status"]), ("unknown", "ready"))
             self.assertEqual(result.error_type, "background_wait_interrupted")
+            self.assertEqual(data["url"], "/skills?extraction=job")
             self.assertEqual(result.details["pending_task"]["id"], "job")
             self.assertEqual(len(calls), 1)
 
@@ -204,9 +207,21 @@ class BackgroundWaitTests(unittest.TestCase):
         data = json.loads(result.content)
         self.assertEqual((data["status"], data["last_known_status"]), ("unknown", "running"))
         self.assertEqual(result.error_type, "studio_read_failed")
+        self.assertEqual(data["url"], "/skills?extraction=job")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0], ("GET", "/api/skill-extractions/job", {"timeout_seconds": 2.0}))
         self.assertEqual(result.details["pending_task"]["id"], "job")
+
+    def test_unknown_link_encodes_job_identity_and_preserves_server_link(self):
+        for url, expected in ((None, "/skills?extraction=job%2Fa"), ("/skills?extraction=known", "/skills?extraction=known")):
+            with self.subTest(url=url):
+                events = []
+                context = SimpleNamespace(background_progress=events.append, stopping=ImmediateWait())
+                context.stopping.is_set = lambda: True
+                result = observe_skill_extraction(None, {"id": "job/a", "status": "running", "url": url}, context)
+                self.assertEqual(json.loads(result.content)["url"], expected)
+                self.assertEqual(events[0]["url"], expected)
+                self.assertEqual(result.details["pending_task"]["id"], "job/a")
 
     def test_wrong_job_response_is_unknown_for_original_identity(self):
         receipts = [{"id": "job", "status": "running"}, {"id": "other", "status": "ready"}]

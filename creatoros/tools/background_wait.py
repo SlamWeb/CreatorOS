@@ -54,7 +54,8 @@ def _result(data, *, host=False, error_type=None):
 
 def _unknown(data, error_type, message):
     return _result({"id": data["id"], "status": "unknown", "last_known_status": data.get("status"),
-                    "operation": data.get("operation"), "url": data.get("url"),
+                    "operation": data.get("operation"),
+                    "url": data.get("url") or f"/skills?extraction={quote(data['id'], safe='')}",
                     "next_action": "wait_background", "error_type": error_type, "error": message},
                    host=True, error_type=error_type)
 
