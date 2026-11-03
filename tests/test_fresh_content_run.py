@@ -205,6 +205,37 @@ class FreshContentRunTests(unittest.TestCase):
         with self.db.session() as session:
             self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), before)
 
+    def test_old_archived_topic_token_conflicts_without_blocking_new_topic(self):
+        self.settle()
+        self.fresh()
+        repo = ContentRepository(self.db)
+        repo.add_topic(topic_id="new-topic", series_id="series", title="New", source=TopicSource.MANUAL)
+        other = self.runs.create("new-topic")
+        with self.db.session() as session:
+            session.get(ContentRun, other.id).status = ContentRunStatus.FAILED
+            session.add(TopicRemoval(topic_id="topic", series_id="series", creator_id="creator",
+                                     request_id="archive-old", status="archived"))
+            before = session.scalar(select(func.count()).select_from(ContentRun))
+        self.assert_error("idempotency_conflict", lambda: self.fresh(source=self.runs.get(other.id)))
+        with self.db.session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), before)
+
+    def test_old_inactive_series_token_conflicts_with_new_series(self):
+        self.settle()
+        self.fresh()
+        repo = ContentRepository(self.db)
+        repo.create_series(series_id="new-series", creator_id="creator", name="New",
+                           description="", audience="", skill_name="knowledge-to-carousel")
+        repo.add_topic(topic_id="new-topic", series_id="new-series", title="New", source=TopicSource.MANUAL)
+        other = self.runs.create("new-topic")
+        with self.db.session() as session:
+            session.get(ContentRun, other.id).status = ContentRunStatus.FAILED
+            session.get(Series, "series").is_active = False
+            before = session.scalar(select(func.count()).select_from(ContentRun))
+        self.assert_error("idempotency_conflict", lambda: self.fresh(source=self.runs.get(other.id)))
+        with self.db.session() as session:
+            self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), before)
+
     def test_disabled_removed_and_external_import_guards(self):
         self.settle()
         with self.db.session() as session:

@@ -259,7 +259,10 @@ class ContentRunService:
             # idempotency conflict, after validating the existing run's scope.
             if owner[0] != expected_owner[0]:
                 raise ContentRunError("原任务与当前账号不一致。", code="scope_conflict", status_code=403)
-            self._assert_existing_scope(session, existing.topic_id, existing)
+            # The existing receipt may belong to a now-archived topic. Its
+            # ownership must still be valid, but its current operability must
+            # not be mistaken for the new source topic's state.
+            self._assert_existing_scope(session, existing.topic_id, existing, require_active=False)
             event = next((item for item in repository.list_events(existing.id)
                           if item.event_type is ContentRunEventType.CREATED), None)
             payload = event.payload_json if event is not None and isinstance(event.payload_json, dict) else {}
@@ -273,16 +276,16 @@ class ContentRunService:
             return existing
 
     @staticmethod
-    def _assert_existing_scope(session, topic_id, run):
+    def _assert_existing_scope(session, topic_id, run, *, require_active=True):
         topic = session.get(Topic, topic_id)
         series = topic.series if topic else None
         owner = tuple(run.input_snapshot_json.get(field) for field in ('creator_id', 'series_id', 'topic_id'))
         if (series is None or not series.creator
                 or owner != (series.creator_id, series.id, topic_id)):
             raise ContentRunError("原任务与当前账号不一致。", code="scope_conflict", status_code=403)
-        if not series.is_active or not series.creator.is_active:
+        if require_active and (not series.is_active or not series.creator.is_active):
             raise ContentRunError("账号或栏目未启用。")
-        if session.get(TopicRemoval, topic_id) is not None:
+        if require_active and session.get(TopicRemoval, topic_id) is not None:
             raise ContentRunError("选题已移除，不能开始生产。", code="topic_removed")
         if run.task_id:
             task = session.get(ProductionTask, run.task_id)
