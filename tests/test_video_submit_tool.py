@@ -850,5 +850,31 @@ class VideoSubmitTests(unittest.TestCase):
         sdk.assert_not_called()
 
 
+class VideoRecoveryLinkTests(unittest.TestCase):
+    def test_newer_attempt_link_never_falls_back_to_older_checkpoint(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from creatoros.delivery.video_receipt import _recover_work, VideoRecoveryEvidenceConflict
+        with TemporaryDirectory(prefix="video-attempt-link-") as temporary:
+            root = Path(temporary)
+            older = root / "attempt-001"
+            (older / "work").mkdir(parents=True)
+            checkpoint = VideoCheckpoint(input_digest="a" * 64, thread_id="fixture")
+            atomic_json(older / VIDEO_CHECKPOINT, checkpoint)
+            external = root / "external"
+            external.mkdir()
+            newer = root / "attempt-002"
+            newer.symlink_to(external, target_is_directory=True)
+            current = root / "attempt-003"
+            current.mkdir()
+            with self.assertRaises(VideoRecoveryEvidenceConflict):
+                _recover_work(current, "a" * 64)
+            self.assertEqual(list(external.iterdir()), [])
+            self.assertFalse((current / "work").exists())
+            newer.unlink()
+            recovered = _recover_work(current, "a" * 64)
+            self.assertEqual(recovered.thread_id, "fixture")
+
+
 if __name__ == "__main__":
     unittest.main()

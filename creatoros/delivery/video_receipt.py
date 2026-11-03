@@ -197,9 +197,11 @@ def _check_plain_tree(root):
 def _recover_work(directory, expected):
     for previous in sorted(directory.parent.glob("attempt-*"), reverse=True):
         info = previous.lstat()
-        if (previous.name >= directory.name or stat.S_ISLNK(info.st_mode) or
-                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+        if previous.name >= directory.name:
             continue
+        if (stat.S_ISLNK(info.st_mode) or
+                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+            raise VideoRecoveryEvidenceConflict("较新的视频 Attempt 是链接或重解析点；请核对原任务。")
         path = previous / VIDEO_CHECKPOINT
         if path.is_symlink() or (path.exists() and not path.is_file()):
             raise VideoRecoveryEvidenceConflict("视频 checkpoint 不是可核对的普通文件；不会自动重启。")
