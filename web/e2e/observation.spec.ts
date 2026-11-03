@@ -45,9 +45,16 @@ async function controlledTree(page: Page) {
 }
 
 test("real isolated API: account, series and empty session are observable without model requests", async ({ page, request }, info) => {
-  const created = await request.post("/api/creators", { data: { display_name: "Observation 真实隔离账号" } });
-  expect(created.status()).toBe(201);
-  const creator = await created.json() as { id: string; display_name: string };
+  const creators: { id: string; display_name: string }[] = [];
+  const suffix = crypto.randomUUID().slice(0, 8);
+  for (let index = 0; index < 101; index++) {
+    const created = await request.post("/api/creators", { data: { display_name: `Observation 真实隔离账号-${suffix}-${index}` } });
+    expect(created.status(), await created.text()).toBe(201);
+    creators.push(await created.json());
+  }
+  // The real tree orders accounts by id. The largest of 101 new ids must be
+  // beyond the first 100 even when earlier tests already created accounts.
+  const creator = creators.reduce((largest, item) => item.id > largest.id ? item : largest);
   const seriesResponse = await request.post(`/api/creators/${creator.id}/series`, { data: { name: "Observation 真实隔离栏目" } });
   expect(seriesResponse.status()).toBe(201);
   const sessionResponse = await request.post("/api/agent/sessions", { data: { creator_id: creator.id } });
@@ -57,8 +64,23 @@ test("real isolated API: account, series and empty session are observable withou
   page.on("request", event => { if (new URL(event.url()).pathname.startsWith("/api/") && event.method() !== "GET") writes.push(event.url()); });
   await page.goto("/observation");
   await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "Observation", exact: true })).toHaveClass(/active/);
-  await page.getByRole("button", { name: `展开${creator.display_name}`, exact: true }).click();
   const nav = page.getByRole("complementary", { name: "记录导航" });
+  const rows = nav.locator(".observation-tree > .observation-branch > ul > li");
+  const creatorToggle = nav.getByRole("button", { name: `展开${creator.display_name}`, exact: true });
+  await expect(rows.first()).toBeVisible();
+  await expect(creatorToggle).toHaveCount(0);
+  let pagesLoaded = 0;
+  while (await creatorToggle.count() === 0) {
+    const before = await rows.count();
+    const more = nav.getByRole("button", { name: "加载更多记录", exact: true });
+    await expect(more).toBeVisible();
+    await more.click();
+    await expect.poll(() => rows.count()).toBeGreaterThan(before);
+    pagesLoaded++;
+    expect(pagesLoaded).toBeLessThan(50);
+  }
+  expect(pagesLoaded).toBeGreaterThan(0);
+  await creatorToggle.click();
   await nav.getByRole("button", { name: "Observation 真实隔离栏目 栏目", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Observation 真实隔离栏目", exact: true })).toBeVisible();
   const selectedSeries = new URL(page.url()).searchParams.get("node");

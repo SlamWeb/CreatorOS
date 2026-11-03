@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { ensureBuiltinImageSkill } from "./fixtures/image-default";
 
 // All successful reads/writes use playwright.config.ts's temporary SQLite/files
 // and isolated E2E server (8877). The only intercepted write is the explicit 409.
@@ -326,11 +327,7 @@ test("account overview lists all its columns and bounds recent image works at de
   // Use the declared image-producing built-in, as ui-foundation.spec.ts does;
   // inspector fixtures intentionally have no image-output capability metadata.
   await post(request, "/test/calibration", {});
-  const catalogResponse = await request.get("/api/producer-skills?include_versions=true");
-  expect(catalogResponse.ok(), await catalogResponse.text()).toBeTruthy();
-  const catalog = await catalogResponse.json();
-  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
-  expect(skill).toBeTruthy();
+  const skill = await ensureBuiltinImageSkill(request, data.account.id);
   const queued = await post(request, `/api/series/${data.first.id}/queue`, {
     request_id: crypto.randomUUID(),
     topics: [

@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { ensureBuiltinImageSkill } from "./fixtures/image-default";
 
 // A valid Pillow-generated 32×48 PNG, not the old upload-mocking placeholder.
 const png = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAwCAIAAAD/zu84AAAAR0lEQVR4nO3RMRHAMAwEQTvo0oeG+deBcG7U7QJ4zZz2+5016RldXw5c8IMkUZIoSZQkShIliZJESaIkUZIoSZQkShKl8UQ/KZgBZ563c68AAAAASUVORK5CYII=";
@@ -22,9 +23,7 @@ async function setup(request: APIRequestContext, title: string, single = false) 
     }).then(async imported => request.get(`/api/runs/${imported.run_id}`).then(r => r.json()));
   }
   const topics = await post(request, `/api/series/${series.id}/queue`, { request_id: crypto.randomUUID(), topics: [{ title }] });
-  const catalog = await request.get("/api/producer-skills?include_versions=true").then(response => response.json());
-  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
-  expect(skill).toBeTruthy();
+  const skill = await ensureBuiltinImageSkill(request, creator.id);
   const run = await post(request, "/api/runs", { topic_id: topics.topic_ids[0], request_id: crypto.randomUUID(),
     skill_overrides: { skill_id: skill.id, expected_digests: { [skill.id]: skill.digest } } });
   await post(request, `/api/runs/${run.id}/execute`, { expected_version: run.version });

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { ensureBuiltinImageSkill } from "./fixtures/image-default";
 
 async function fixture(request: APIRequestContext) {
   const post = async (url: string, data: object) => {
@@ -16,9 +17,7 @@ async function fixture(request: APIRequestContext) {
     topics: [{ title: "刚添加的新选题", brief: "应该直接出现在前面，不必往下翻。" }] });
   // Existing isolated E2EProducer writes validated files; no paid model or publishing.
   await post("/test/calibration", {});
-  const catalog = await request.get("/api/producer-skills?include_versions=true").then(r => r.json());
-  const skill = catalog.items.find((item: { name: string }) => item.name === "knowledge-to-carousel");
-  expect(skill).toBeTruthy();
+  const skill = await ensureBuiltinImageSkill(request, account.id);
   const run = await post("/api/runs", { topic_id: topics.topic_ids[0], request_id: crypto.randomUUID(),
     skill_overrides: { skill_id: skill.id, expected_digests: { [skill.id]: skill.digest } } });
   await post(`/api/runs/${run.id}/execute`, { expected_version: run.version });
