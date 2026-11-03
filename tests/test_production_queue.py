@@ -1,5 +1,9 @@
 """Durability/crash fault injection: isolated SQLite, local artifacts, no paid models."""
 from concurrent.futures import ThreadPoolExecutor
+import ctypes
+import multiprocessing
+import os
+import traceback
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -60,6 +64,28 @@ class Producer:
         (directory / "social_content_pack.json").write_text(pack.model_dump_json(), encoding="utf-8")
         (directory / "production_session.json").write_text(session.model_dump_json(), encoding="utf-8")
         return ProducedPack(directory=directory, pack=pack, session=session)
+
+
+def _restart_after_unknown_unlink(url, output_root, run_id, result):
+    database = Database(url)
+    producer = Producer()
+    executor = None
+    try:
+        service = ContentRunService(database, producer_factory=lambda: producer,
+                                    output_root=Path(output_root), production_protocol="legacy")
+        executor = ManagedRunExecutor(service, max_concurrency=1)
+        executor.start()
+        run = service.get(run_id)
+        revision = service.get_active_revision(run_id)
+        attempts = service.repository.list_attempts(revision.id)
+        result.put((run.status.value, executor.queue_snapshot(run_id)["status"],
+                    [item.status.value for item in attempts], producer.calls))
+    except BaseException:
+        result.put(("error", traceback.format_exc()))
+    finally:
+        if executor is not None:
+            executor.shutdown()
+        database.close()
 
 
 class ProductionQueueTests(unittest.TestCase):
@@ -155,6 +181,52 @@ class ProductionQueueTests(unittest.TestCase):
         restarted.start()
         self.assertEqual(restarted.queue_snapshot(run.id)["status"], "needs_attention")
         self.assertEqual(producer.calls, [])
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_restart_after_unknown_successful_unlink_never_replays(self):
+        ctx = multiprocessing.get_context("spawn")
+        for index, completed in enumerate((False, True)):
+            with self.subTest(completed=completed):
+                producer = Producer()
+                service = self.service(producer)
+                run = service.create(f"topic-{index}")
+                queue = ProductionQueue(service)
+                item = queue.enqueue(run.id, run.version)
+                queue.transition(item.id, "running")
+                with service.guard:
+                    prepared = service.claim(run.id, owner_id=f"fixture-{index}", expected_version=run.version)
+                    journal = service.guard.journal
+                    real_unlink = Path.unlink
+                    def unlink_then_error(path, *args, **kwargs):
+                        real_unlink(path, *args, **kwargs)
+                        if path == journal:
+                            raise ctypes.WinError(5)
+                    with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_error):
+                        with self.assertRaises(ExecutionOwnershipError):
+                            if completed:
+                                service.execute_claimed(prepared, owner_id=f"fixture-{index}")
+                            else:
+                                service.guard.finish(f"fixture-{index}")
+                    self.assertFalse(journal.exists())
+                    with self.assertRaises(ExecutionOwnershipError):
+                        service.guard.assert_dispatchable()
+                result = ctx.Queue()
+                child = ctx.Process(target=_restart_after_unknown_unlink,
+                    args=(self.url, str(self.root / "outputs"), run.id, result))
+                try:
+                    child.start()
+                    observed = result.get(timeout=40)
+                    child.join(timeout=20)
+                    self.assertEqual(child.exitcode, 0)
+                    expected = ("awaiting_approval", "succeeded", ["succeeded"], []) if completed else (
+                        "interrupted", "needs_attention", ["interrupted"], [])
+                    self.assertEqual(observed, expected)
+                    self.assertEqual(len(producer.calls), 1 if completed else 0)
+                finally:
+                    if child.is_alive():
+                        child.terminate()
+                        child.join(timeout=5)
+                    result.close()
 
     def test_pending_cancel_is_not_produced(self):
         producer = Producer(block=True)

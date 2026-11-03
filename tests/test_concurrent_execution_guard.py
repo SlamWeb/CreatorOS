@@ -1,11 +1,12 @@
 """Real local lock/journal concurrency and crash injection; no external models."""
 from concurrent.futures import ThreadPoolExecutor
 import json
+import multiprocessing
 import ctypes
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from threading import Barrier, Thread
+from threading import Barrier, Event, Thread
 from time import sleep
 import unittest
 from unittest.mock import patch
@@ -24,6 +25,23 @@ def open_no_delete_share(path):
     if handle == ctypes.c_void_p(-1).value:
         raise ctypes.WinError(ctypes.get_last_error())
     return lambda: kernel.CloseHandle(handle)
+
+
+def independent_guard_probe(url, ready, start, result):
+    database = Database(url)
+    try:
+        guard = LocalExecutionGuard(database)
+        ready.set()
+        if not start.wait(20):
+            result.put("start timeout")
+            return
+        try:
+            with guard:
+                result.put("acquired")
+        except ExecutionOwnershipError:
+            result.put("blocked")
+    finally:
+        database.close()
 
 
 class ConcurrentExecutionGuardTests(unittest.TestCase):
@@ -124,6 +142,119 @@ class ConcurrentExecutionGuardTests(unittest.TestCase):
             self.assertEqual(self.guard.journal.read_bytes(), original)
             self.assertEqual(set(self.guard._registered), {"owner-0"})
             self.guard.finish("owner-0")
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_unknown_success_of_first_replace_blocks_dispatch(self):
+        with self.guard:
+            real = Path.replace
+            def replace_then_error(source, destination):
+                real(source, destination)
+                raise ctypes.WinError(5)
+            with patch.object(Path, "replace", autospec=True, side_effect=replace_then_error) as replace:
+                with self.assertRaises(ExecutionOwnershipError):
+                    self.begin(0)
+                self.assertEqual(replace.call_count, 1)
+            self.assertEqual(self.payload()["owner_id"], "owner-0")
+            self.assertEqual(self.guard._registered, {})
+            with self.assertRaises(ExecutionOwnershipError):
+                self.guard.assert_dispatchable()
+            with self.assertRaises(ExecutionOwnershipError):
+                self.begin(1)
+            self.assertEqual(self.payload()["owner_id"], "owner-0")
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_unknown_success_of_replace_keeps_other_owner_and_blocks(self):
+        with self.guard:
+            self.begin(0)
+            self.begin(1)
+            real = Path.replace
+            def replace_then_error(source, destination):
+                real(source, destination)
+                raise ctypes.WinError(5)
+            with patch.object(Path, "replace", autospec=True, side_effect=replace_then_error) as replace:
+                with self.assertRaises(ExecutionOwnershipError):
+                    self.guard.finish("owner-0")
+                self.assertEqual(replace.call_count, 1)
+            self.assertEqual(self.payload()["owner_id"], "owner-1")
+            self.assertEqual(set(self.guard._registered), {"owner-0", "owner-1"})
+            with self.assertRaises(ExecutionOwnershipError):
+                self.guard.assert_dispatchable()
+            with self.assertRaises(ExecutionOwnershipError):
+                self.begin(2)
+            self.assertEqual(self.payload()["owner_id"], "owner-1")
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows error codes")
+    def test_unknown_success_of_unlink_blocks_dispatch(self):
+        with self.guard:
+            self.begin(0)
+            real = Path.unlink
+            def unlink_then_error(path, *args, **kwargs):
+                real(path, *args, **kwargs)
+                raise ctypes.WinError(5)
+            with patch.object(Path, "unlink", autospec=True, side_effect=unlink_then_error) as unlink:
+                with self.assertRaises(ExecutionOwnershipError):
+                    self.guard.finish("owner-0")
+                self.assertEqual(unlink.call_count, 1)
+            self.assertFalse(self.guard.journal.exists())
+            self.assertEqual(set(self.guard._registered), {"owner-0"})
+            with self.assertRaises(ExecutionOwnershipError):
+                self.guard.assert_dispatchable()
+            with self.assertRaises(ExecutionOwnershipError):
+                self.begin(1)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing semantics")
+    def test_independent_process_cannot_acquire_guard_during_retry(self):
+        ctx = multiprocessing.get_context("spawn")
+        ready, start, result = ctx.Event(), ctx.Event(), ctx.Queue()
+        child = ctx.Process(target=independent_guard_probe,
+            args=(str(self.database.engine.url), ready, start, result))
+        conflict, errors = Event(), []
+        with self.guard:
+            self.begin(0)
+            self.begin(1)
+            child.start()
+            close = None
+            thread = None
+            try:
+                self.assertTrue(ready.wait(30))
+                close = open_no_delete_share(self.guard.journal)
+                real = Path.replace
+                def observed(source, destination):
+                    try:
+                        return real(source, destination)
+                    except PermissionError:
+                        conflict.set()
+                        raise
+                def finish():
+                    try:
+                        self.guard.finish("owner-0")
+                    except BaseException as error:
+                        errors.append(error)
+                with patch.object(Path, "replace", autospec=True, side_effect=observed):
+                    thread = Thread(target=finish)
+                    thread.start()
+                    self.assertTrue(conflict.wait(5))
+                    start.set()
+                    self.assertEqual(result.get(timeout=10), "blocked")
+                    close()
+                    close = None
+                    thread.join(timeout=5)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(errors, [])
+                self.assertEqual(self.payload()["owner_id"], "owner-1")
+                self.guard.finish("owner-1")
+            finally:
+                start.set()
+                if close is not None:
+                    close()
+                if thread is not None:
+                    thread.join(timeout=5)
+                child.join(timeout=5)
+                if child.is_alive():
+                    child.terminate()
+                    child.join(timeout=5)
+                result.close()
+        self.assertEqual(child.exitcode, 0)
 
     def test_five_parallel_owners_callbacks_and_finish_are_isolated(self):
         barrier = Barrier(5)
