@@ -316,7 +316,9 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
       setReceipt(action === "revise" ? "返工要求已保存，点击开始生产后才会调用 Codex。" : "已批准 · 尚未发布");
       if (action === "revise") { setEditing(false); setInstruction(""); onRevision(); }
     },
-    onSettled: () => queryClient.invalidateQueries(),
+    // A conflict must be shown immediately, even if an unrelated query is
+    // still loading. Refresh the Run only after the user explicitly checks it.
+    onSettled: (_result, error) => { if (!error) void queryClient.invalidateQueries(); },
   });
   const conflict = mutation.error instanceof ApiError && mutation.error.status === 409;
   return <div className="review-actions">

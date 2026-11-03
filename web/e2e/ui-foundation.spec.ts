@@ -21,7 +21,21 @@ test("product actions retain form, conflict, navigation and download behavior", 
   const run = await creation.json();
   const start = await page.request.post(`/api/runs/${run.id}/execute`, { data: { expected_version: run.version } });
   expect(start.ok()).toBeTruthy();
+  // An unrelated Skill request must not delay a visible conflict. Leave it
+  // pending until after the conflict is shown, as can happen on a large library.
+  let releaseSkills!: () => void, signalSkills!: () => void;
+  const skillsBlocked = new Promise<void>(resolve => { signalSkills = resolve; });
+  const skillsGate = new Promise<void>(resolve => { releaseSkills = resolve; });
+  const holdSkills = async (route: import("@playwright/test").Route) => {
+    signalSkills();
+    await skillsGate;
+    try { await route.continue(); } catch (error) {
+      if (!String(error).includes("Route is already handled")) throw error;
+    }
+  };
+  await page.route("**/api/producer-skills**", holdSkills);
   await page.goto(`/runs/${run.id}`);
+  await skillsBlocked;
   const runUrl = page.url();
   await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "批准第 1 版" })).toHaveCSS("background-color", "rgb(0, 113, 227)");
@@ -35,10 +49,15 @@ test("product actions retain form, conflict, navigation and download behavior", 
   await page.route("**/api/runs/*/revisions", route => route.fulfill({
     status: 409, json: { error: { message: "受控冲突：页面版本已过期" } },
   }), { times: 1 });
-  await page.getByRole("button", { name: "保存返工要求" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "内容已变化" })).toBeVisible();
-  await expect(instructions).toHaveValue("保留第一张，只调整第二张。");
-  await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeDisabled();
+  try {
+    await page.getByRole("button", { name: "保存返工要求" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "内容已变化" })).toBeVisible();
+    await expect(instructions).toHaveValue("保留第一张，只调整第二张。");
+    await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeDisabled();
+  } finally {
+    releaseSkills();
+    await page.unroute("**/api/producer-skills**", holdSkills);
+  }
   await page.getByRole("button", { name: "重新检查", exact: true }).click();
   await expect(page.getByRole("button", { name: "批准第 1 版" })).toBeEnabled();
   await page.getByRole("button", { name: "收起", exact: true }).click();
