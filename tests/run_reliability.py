@@ -76,7 +76,7 @@ CASES = [
     ("skill_context", ["-m", "unittest", "tests.test_model_projection", "tests.test_tool_index_context", "tests.test_skill_context_projection",
                        "tests.test_skill_edit_batch", "tests.test_saved_skill_routing", "-v"]),
     ("work_inbox", ["-m", "unittest", "tests.test_work_inbox", "tests.test_staged_task_visibility", "-v"]),
-    ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_queue_history", "tests.test_batch_production", "-v"]),
+    ("production_queue", ["-m", "unittest", "tests.test_production_queue", "tests.test_queue_history", "tests.test_queue_owner_transfer", "tests.test_batch_production", "-v"]),
     ("diagnostic_io", ["-m", "unittest", "tests.test_diagnostic_io", "-v"]),
     ("worker_finalization", ["-m", "unittest", "tests.test_worker_finalization", "-v"]),
     # Controlled transport + real isolated files; reviewed and run without model credentials.
@@ -221,9 +221,9 @@ def main(argv=None):
         with (evidence / (name + ".log")).open("wb") as output:
             try:
                 reject_operational_plan_fixture(workspace, command)
-                # Calibration uses real migrations/files per case and already
-                # exceeded the original 120s group budget before queue work.
-                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership", "reference_production", "skill_extraction_delivery", "production_submission", "parallel_worktrees", "browser_fixture_isolation", "agent_fixture_isolation", "safe_maintenance"} else 300 if name in {"skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
+                # Calibration and queue-owner tests use isolated migrations,
+                # real loopback services and synchronized worker processes.
+                timeout = 600 if name in {"native_delivery_protocol", "plan_workflows", "media_task_lifecycle", "skill_chat_feedback", "business_workflows", "parallel_run_ownership", "reference_production", "skill_extraction_delivery", "production_submission", "parallel_worktrees", "browser_fixture_isolation", "agent_fixture_isolation", "safe_maintenance"} else 300 if name in {"production_queue", "skill_calibration", "skill_libraries", "staged_production", "video_offline_correction", "video_receipts", "benchmark_contracts"} or name.startswith(("skill_version_", "skill_iteration_")) else 120
                 process = subprocess.run([sys.executable, *command], cwd=workspace, timeout=timeout,
                                          stdout=output, stderr=subprocess.STDOUT)
                 if is_unittest:
