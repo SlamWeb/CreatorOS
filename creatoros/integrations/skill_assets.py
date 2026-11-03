@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError
 
-from .producer_skills import MAX_LOCAL_SKILL_BYTES, SkillDigestConflict, _digest
+from .producer_skills import MAX_LOCAL_SKILL_BYTES, SkillDigestConflict, _digest, skill_write_outcome
 
 
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -175,14 +175,16 @@ def save_skill_image(catalog, skill_id: str, path: str, raw: bytes,
             raise ValueError("图片路径包含链接。")
         if target.exists() != overwrite:
             raise SkillAssetExistsError("图片目标已变化，请刷新后重试。")
-        temporary.replace(target)
-        temporary = None
+        with skill_write_outcome(skill_id, relative.as_posix()):
+            temporary.replace(target)
+            temporary = None
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-    return {"skill_id": skill_id, "path": relative.as_posix(), "kind": "image",
-            "digest": _digest(directory), "editable": True,
-            "operation": "replace" if overwrite else "add"}
+    with skill_write_outcome(skill_id, relative.as_posix()):
+        return {"skill_id": skill_id, "path": relative.as_posix(), "kind": "image",
+                "digest": _digest(directory), "editable": True,
+                "operation": "replace" if overwrite else "add"}
 
 
 def delete_skill_image(catalog, skill_id: str, path: str, expected_digest: str) -> dict:
@@ -193,11 +195,8 @@ def delete_skill_image(catalog, skill_id: str, path: str, expected_digest: str) 
     referenced = _referencing_files(catalog, directory, relative)
     if referenced:
         raise SkillReferencedError(referenced)
-    backup = _backup(catalog, skill_id, relative, target)
-    try:
+    _backup(catalog, skill_id, relative, target)
+    with skill_write_outcome(skill_id, relative.as_posix()):
         target.unlink()
-    except BaseException:
-        backup.unlink(missing_ok=True)
-        raise
-    return {"skill_id": skill_id, "path": relative.as_posix(), "kind": "image",
-            "digest": _digest(directory), "editable": True, "operation": "delete"}
+        return {"skill_id": skill_id, "path": relative.as_posix(), "kind": "image",
+                "digest": _digest(directory), "editable": True, "operation": "delete"}

@@ -100,7 +100,7 @@ def _draft_directory(catalog, source_directory: Path) -> tuple[Path, str]:
 
 def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: str,
                      *, source_directory: Path | None = None, creator_id: str | None = None) -> dict:
-    from .producer_skills import _digest, freeze_skill
+    from .producer_skills import _digest, freeze_skill, skill_write_outcome
     if skill_id == catalog.BUILTIN_ID:
         raise PermissionError("内置 Skill 只读。")
     if (not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200
@@ -128,34 +128,36 @@ def create_candidate(catalog, skill_id: str, expected_digest: str, request_id: s
     source = _check_digest(catalog, source_id, expected_digest)
     family = source["family_id"]
     now = datetime.now(timezone.utc).isoformat()
-    # A legacy working copy may differ from its imported original. Preserve
-    # that exact v1 separately rather than replacing historical import bytes.
-    if source["version_status"] == "released" and not source_record.get("release_digest"):
-        baseline = _managed(catalog, "version-baselines", source_id, expected_digest)
-        freeze_skill(Path(source["local_path"]), baseline, expected_digest)
-        source_record = {**source_record, **version_metadata(source_record),
-                         "release_digest": expected_digest,
-                         "created_at": source_record.get("created_at") or now}
-        _write_record(catalog, source_record)
     number = max((version_metadata(data)["version_number"] for data in _records(catalog)
                   if version_metadata(data)["family_id"] == family), default=1) + 1
     original = _managed(catalog, "versions", candidate_id)
     working = _managed(catalog, "working", candidate_id)
-    freeze_skill(draft or Path(source["local_path"]), original, draft_digest)
-    freeze_skill(original, working, draft_digest)
-    if _digest(working) != draft_digest:
-        raise ValueError("候选文件与请求输入不一致。")
-    record = {**source_record, "id": candidate_id, "family_id": family,
-              "parent_id": source_id, "parent_digest": expected_digest,
-              "version_number": number, "version_status": "candidate",
-              "created_at": now, "digest": draft_digest, "candidate_source_digest": draft_digest,
-              "candidate_request_key": request_key, "source_kind": "version"}
-    if creator_id is not None:
-        record["creator_id"] = creator_id
-        record.pop("source_creator_id", None)
-    record.pop("release_digest", None)
-    _write_record(catalog, record)  # visibility only after both complete copies exist
-    return catalog.describe(candidate_id)
+    baseline = (_managed(catalog, "version-baselines", source_id, expected_digest)
+                if source["version_status"] == "released" and not source_record.get("release_digest") else None)
+    with skill_write_outcome(candidate_id):
+        # A legacy working copy may differ from its imported original. Preserve
+        # that exact v1 separately rather than replacing historical import bytes.
+        if baseline is not None:
+            freeze_skill(Path(source["local_path"]), baseline, expected_digest)
+            source_record = {**source_record, **version_metadata(source_record),
+                             "release_digest": expected_digest,
+                             "created_at": source_record.get("created_at") or now}
+            _write_record(catalog, source_record)
+        freeze_skill(draft or Path(source["local_path"]), original, draft_digest)
+        freeze_skill(original, working, draft_digest)
+        if _digest(working) != draft_digest:
+            raise ValueError("候选文件与请求输入不一致。")
+        record = {**source_record, "id": candidate_id, "family_id": family,
+                  "parent_id": source_id, "parent_digest": expected_digest,
+                  "version_number": number, "version_status": "candidate",
+                  "created_at": now, "digest": draft_digest, "candidate_source_digest": draft_digest,
+                  "candidate_request_key": request_key, "source_kind": "version"}
+        if creator_id is not None:
+            record["creator_id"] = creator_id
+            record.pop("source_creator_id", None)
+        record.pop("release_digest", None)
+        _write_record(catalog, record)  # visibility only after both complete copies exist
+        return catalog.describe(candidate_id)
 
 
 def create_candidate_from_directory(catalog, skill_id: str, expected_digest: str,
@@ -166,7 +168,7 @@ def create_candidate_from_directory(catalog, skill_id: str, expected_digest: str
 
 
 def publish_candidate(catalog, skill_id: str, expected_digest: str) -> dict:
-    from .producer_skills import _digest, freeze_skill
+    from .producer_skills import _digest, freeze_skill, skill_write_outcome
     source = _check_digest(catalog, skill_id, expected_digest)
     record = catalog._record(skill_id)
     if source["version_status"] == "released":
@@ -175,18 +177,21 @@ def publish_candidate(catalog, skill_id: str, expected_digest: str) -> dict:
             raise ValueError("该 Skill 不是待发布候选。")
         return source
     original = _managed(catalog, "versions", source["id"])
+    seed = None
     if original.exists() and _digest(original) != expected_digest:
         # Keep the candidate's starting material too. A retry after either
         # rename can finish from the still-complete working copy.
         original_digest = _digest(original)
         seed = _managed(catalog, "candidate-seeds", source["id"], original_digest + "-" + uuid4().hex)
-        seed.parent.mkdir(parents=True, exist_ok=True)
-        original.rename(seed)
-    freeze_skill(Path(source["local_path"]), original, expected_digest)
-    record = {**record, "digest": expected_digest, "release_digest": expected_digest,
-              "version_status": "released", "released_at": datetime.now(timezone.utc).isoformat()}
-    _write_record(catalog, record)
-    return catalog.describe(source["id"])
+    with skill_write_outcome(source["id"]):
+        if seed is not None:
+            seed.parent.mkdir(parents=True, exist_ok=True)
+            original.rename(seed)
+        freeze_skill(Path(source["local_path"]), original, expected_digest)
+        record = {**record, "digest": expected_digest, "release_digest": expected_digest,
+                  "version_status": "released", "released_at": datetime.now(timezone.utc).isoformat()}
+        _write_record(catalog, record)
+        return catalog.describe(source["id"])
 
 
 def edit_target(catalog, skill_id: str, expected_digest: str, operation: dict,

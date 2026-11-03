@@ -89,6 +89,7 @@ from .chat import AgentChatService
 from .chat_image_actions import chat_image_action_routes, extraction_owner_path
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
+from .skill_scope import check_web_skill_scope, has_web_skill_scope
 from .account_context import CreatorContextBuilder
 from .chat_focus import ChatFocusBuilder
 from .skill_routes import skill_routes
@@ -111,7 +112,7 @@ from .observation_routes import observation_routes
 from .eval_routes import eval_routes
 from creatoros.evaluation.benchmark.store import BenchmarkStore
 from creatoros.integrations.codex_executable import resolve_codex_executable
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, skills_root_for
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, SkillWriteOutcomeUnknown, skills_root_for
 
 
 def create_app(
@@ -300,11 +301,14 @@ def create_app(
                 return _error_response(403, "origin_rejected", "写入只允许本机 Studio 页面。")
             if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
                 return _error_response(415, "json_required", "写请求需要 application/json。")
-        if mutating or request.headers.get("x-creatoros-agent-session"):
+        if mutating or request.headers.get("x-creatoros-agent-session") or has_web_skill_scope(request):
             # A concurrent HTTP reassignment cannot land between the ownership
             # check and the route action. This is local to this Studio process.
             async with scope_request_lock:
                 scoped_response = await agent_scope.check(request)
+                if scoped_response is not None:
+                    return scoped_response
+                scoped_response = await check_web_skill_scope(request, agent_scope)
                 if scoped_response is not None:
                     return scoped_response
                 return await call_next(request)
@@ -326,6 +330,11 @@ def create_app(
     @app.exception_handler(ExecutionOwnershipError)
     async def ownership_error_handler(_request: Request, error: ExecutionOwnershipError):
         return _error_response(503, "recovery_blocked", str(error))
+
+    @app.exception_handler(SkillWriteOutcomeUnknown)
+    async def skill_write_unknown_handler(_request: Request, error: SkillWriteOutcomeUnknown):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=409, content={"error": error.response()}, headers={"Cache-Control": "no-store"})
 
     @app.exception_handler(ValueError)
     async def value_error_handler(_request: Request, error: ValueError):

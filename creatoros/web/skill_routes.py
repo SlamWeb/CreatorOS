@@ -9,7 +9,7 @@ from sqlalchemy import update
 from typing import Literal
 
 from creatoros.storage import Series
-from creatoros.integrations.producer_skills import SkillDigestConflict
+from creatoros.integrations.producer_skills import SkillDigestConflict, SkillWriteOutcomeUnknown
 from creatoros.integrations.skill_assets import SkillAssetExistsError, SkillReferencedError, MAX_UPLOAD_BYTES
 from creatoros.integrations.skill_removal import SkillInUseError
 from .schemas import WriteRequest
@@ -57,6 +57,8 @@ def asset_response(action):
     """Share the same asset error contract with HTTP and Agent actions."""
     try:
         return JSONResponse(action(), headers={"Cache-Control": "no-store"})
+    except SkillWriteOutcomeUnknown as error:
+        return JSONResponse(status_code=409, content={"error": error.response()}, headers={"Cache-Control": "no-store"})
     except SkillDigestConflict as error:
         return JSONResponse(status_code=409, content={"error": {
             "code": "skill_digest_conflict", "message": str(error),
@@ -158,11 +160,14 @@ def skill_routes(database, service):
         try:
             session_id = request.headers.get("x-creatoros-agent-session")
             session = request.app.state.chat.get(session_id) if session_id else {}
-            creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+            creator_id = (session.get("creator_id") if session.get("scope_kind") == "creator"
+                          else getattr(request.state, "web_skill_creator", None))
             return JSONResponse(service.catalog.update_skill_file(
                 skill_id, payload.path, payload.content, payload.expected_digest,
                 display_name=payload.display_name, creator_id=creator_id,
             ), headers={"Cache-Control": "no-store"})
+        except SkillWriteOutcomeUnknown as error:
+            return JSONResponse(status_code=409, content={"error": error.response()}, headers={"Cache-Control": "no-store"})
         except SkillDigestConflict as error:
             return JSONResponse(status_code=409, content={"error": {
                 "code": "skill_digest_conflict", "message": str(error),
@@ -182,7 +187,8 @@ def skill_routes(database, service):
         def action():
             session_id = request.headers.get("x-creatoros-agent-session")
             session = request.app.state.chat.get(session_id) if session_id else {}
-            creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+            creator_id = (session.get("creator_id") if session.get("scope_kind") == "creator"
+                          else getattr(request.state, "web_skill_creator", None))
             if len(payload.data_base64) > 4 * ((MAX_UPLOAD_BYTES + 2) // 3) + 4:
                 raise OverflowError("单张图片最多 4 MiB。")
             try:
@@ -198,7 +204,8 @@ def skill_routes(database, service):
     def delete_skill_asset(skill_id: str, payload: DeleteSkillImageRequest, request: Request):
         session_id = request.headers.get("x-creatoros-agent-session")
         session = request.app.state.chat.get(session_id) if session_id else {}
-        creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+        creator_id = (session.get("creator_id") if session.get("scope_kind") == "creator"
+                      else getattr(request.state, "web_skill_creator", None))
         return asset_response(lambda: service.catalog.delete_skill_image(
             skill_id, payload.path, payload.expected_digest, creator_id=creator_id))
 

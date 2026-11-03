@@ -13,6 +13,7 @@ import subprocess
 import tarfile
 import time
 from pathlib import Path
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from functools import wraps
 from threading import Event, RLock, Thread, current_thread
@@ -43,6 +44,33 @@ class SkillDigestConflict(ValueError):
     def __init__(self, current_digest: str):
         super().__init__("Skill 已被其他编辑更新，请重新读取后再保存。")
         self.current_digest = current_digest
+
+
+class SkillWriteOutcomeUnknown(RuntimeError):
+    """A Skill mutation may have taken effect, but its receipt is unavailable."""
+
+    def __init__(self, skill_id: str, path: str | None = None):
+        super().__init__("Skill 写入可能已生效，请先重新读取该版本及目标文件核对，不要自动重试。")
+        self.skill_id = skill_id
+        self.path = path
+
+    def response(self) -> dict:
+        result = {"code": "studio_outcome_unknown", "message": str(self),
+                  "skill_id": self.skill_id, "outcome_unknown": True, "retryable": False}
+        if self.path is not None:
+            result["path"] = self.path
+        return result
+
+
+@contextmanager
+def skill_write_outcome(skill_id: str, path: str | None = None):
+    """Enter immediately before a mutation or while reading its final receipt."""
+    try:
+        yield
+    except SkillWriteOutcomeUnknown:
+        raise
+    except Exception as error:
+        raise SkillWriteOutcomeUnknown(skill_id, path) from error
 
 
 def _validate_skill_frontmatter(content: str) -> dict:
@@ -106,8 +134,12 @@ def _write(path: Path, value: dict):
 
 def _digest(directory: Path) -> str:
     digest = hashlib.sha256()
+    try:
+        resolved_root = directory.resolve()
+    except RuntimeError as error:
+        raise ValueError("Skill 目录无法解析。") from error
     for path in sorted(directory.rglob("*")):
-        if path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()):
+        if path.is_symlink() or not path.resolve().is_relative_to(resolved_root):
             raise ValueError("Skill 不允许符号链接或越界文件。")
         if path.is_file():
             digest.update(path.relative_to(directory).as_posix().encode())
@@ -306,18 +338,21 @@ class ProducerSkillCatalog:
         from .skill_versions import version_metadata
 
         data = self._record(reference)
-        directory = self._working_directory(data)
+        directory, initial_digest = self._checked_working_directory(data)
         skill = next((s for s in SkillLoader([directory]).discover()
                       if s.path == directory / "SKILL.md"), None)
         if skill is None:
             raise ValueError("本地 Skill 缺少有效 name/description 的 SKILL.md。")
         receipt = _inspect_checkout(directory, ".")
+        outputs = declared_skill_outputs(directory)
+        current_digest = _digest(directory)
+        if current_digest != initial_digest:
+            raise ValueError("Skill 读取期间已变化，请先重新读取后再操作。")
         current = {**data, **version_metadata(data), "name": skill.name, "display_name": skill.display_name or skill.name, "description": skill.description,
-                   "source_digest": data["digest"], "digest": _digest(directory),
+                   "source_digest": data["digest"], "digest": current_digest,
                    "local_path": str(directory), "role": self._role(data),
                    "carousel_compatible": receipt.carousel_compatible,
                    "compatibility_note": receipt.compatibility_note}
-        outputs = declared_skill_outputs(directory)
         # Existing carousel contracts retain their image capability. Output
         # declarations do not change the legacy carousel binding gate.
         outputs = sorted(set(outputs) | ({"image"} if self._producible(current) else set()))
@@ -600,16 +635,21 @@ class ProducerSkillCatalog:
                 _validate_skill_frontmatter(normalized)
             target_id, replayed = edit_target(self, skill_id, expected_digest,
                 {"operation": "text", "path": relative_path, "content": normalized}, creator_id=creator_id)
-            if replayed:
-                updated = self.read_skill_file(target_id, relative_path)
-                if updated["content"] != normalized:
-                    raise SkillDigestConflict(updated["digest"])
-                described = self.describe(target_id)
-                result = {**updated, "name": described["name"], "description": described["description"],
-                          "display_name": described["display_name"]}
-            else:
-                result = self._update_skill_file_locked(target_id, relative_path, normalized, expected_digest)
-            return edit_result(self, target_id, result)
+            # A released source may already have created a visible candidate.
+            candidate_outcome = (skill_write_outcome(target_id, relative_path)
+                                 if target_id != skill_id and not replayed else nullcontext())
+            with candidate_outcome:
+                if replayed:
+                    updated = self.read_skill_file(target_id, relative_path)
+                    if updated["content"] != normalized:
+                        raise SkillDigestConflict(updated["digest"])
+                    described = self.describe(target_id)
+                    result = {**updated, "name": described["name"], "description": described["description"],
+                              "display_name": described["display_name"]}
+                else:
+                    result = self._update_skill_file_locked(target_id, relative_path, normalized, expected_digest)
+                with skill_write_outcome(target_id, relative_path):
+                    return edit_result(self, target_id, result)
 
     def save_skill_image(self, skill_id: str, path: str, raw: bytes,
                          expected_digest: str, overwrite: bool = False, *, creator_id: str | None = None) -> dict:
@@ -629,15 +669,19 @@ class ProducerSkillCatalog:
                 raise ValueError("Skill 文件数量已达上限。")
             target_id, replayed = edit_target(self, skill_id, expected_digest,
                 {"operation": "image", "path": path, "sha256": hashlib.sha256(raw).hexdigest(), "overwrite": overwrite}, creator_id=creator_id)
-            if replayed:
-                updated = self.read_skill_file(target_id, path)
-                if updated["content"] != raw:
-                    raise SkillDigestConflict(updated["digest"])
-                result = {"path": path, "kind": "image", "digest": updated["digest"], "editable": True,
-                          "operation": "replace" if overwrite else "add"}
-            else:
-                result = save_skill_image(self, target_id, path, raw, expected_digest, overwrite=overwrite)
-            return edit_result(self, target_id, result)
+            candidate_outcome = (skill_write_outcome(target_id, path)
+                                 if target_id != skill_id and not replayed else nullcontext())
+            with candidate_outcome:
+                if replayed:
+                    updated = self.read_skill_file(target_id, path)
+                    if updated["content"] != raw:
+                        raise SkillDigestConflict(updated["digest"])
+                    result = {"path": path, "kind": "image", "digest": updated["digest"], "editable": True,
+                              "operation": "replace" if overwrite else "add"}
+                else:
+                    result = save_skill_image(self, target_id, path, raw, expected_digest, overwrite=overwrite)
+                with skill_write_outcome(target_id, path):
+                    return edit_result(self, target_id, result)
 
     def delete_skill_image(self, skill_id: str, path: str, expected_digest: str, *, creator_id: str | None = None) -> dict:
         from .skill_assets import (SkillAssetExistsError, SkillReferencedError, _target,
@@ -654,15 +698,19 @@ class ProducerSkillCatalog:
                 raise SkillReferencedError(referenced)
             target_id, replayed = edit_target(self, skill_id, expected_digest,
                 {"operation": "delete_image", "path": path}, creator_id=creator_id)
-            if replayed:
-                candidate_path = self.locate(target_id) / relative
-                if candidate_path.exists():
-                    raise SkillDigestConflict(self.describe(target_id)["digest"])
-                result = {"path": path, "kind": "image", "digest": self.describe(target_id)["digest"],
-                          "editable": True, "operation": "delete"}
-            else:
-                result = delete_skill_image(self, target_id, path, expected_digest)
-            return edit_result(self, target_id, result)
+            candidate_outcome = (skill_write_outcome(target_id, path)
+                                 if target_id != skill_id and not replayed else nullcontext())
+            with candidate_outcome:
+                if replayed:
+                    candidate_path = self.locate(target_id) / relative
+                    if candidate_path.exists():
+                        raise SkillDigestConflict(self.describe(target_id)["digest"])
+                    result = {"path": path, "kind": "image", "digest": self.describe(target_id)["digest"],
+                              "editable": True, "operation": "delete"}
+                else:
+                    result = delete_skill_image(self, target_id, path, expected_digest)
+                with skill_write_outcome(target_id, path):
+                    return edit_result(self, target_id, result)
 
     def remove_unused_skill(self, skill_id: str, expected_digest: str, database) -> dict:
         from .skill_removal import remove_unused_skill
@@ -717,19 +765,21 @@ class ProducerSkillCatalog:
             # Confirm the target is still the file inspected above, then atomically replace.
             if self._is_link_or_reparse(target) or target.resolve().parent != target.parent.resolve():
                 raise ValueError("Skill 文件路径越界或无效。")
-            temporary.replace(target)
-            temporary = None
+            with skill_write_outcome(skill_id, relative_path):
+                temporary.replace(target)
+                temporary = None
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
-        updated = self.read_skill_file(skill_id, relative_path)
-        described = self.describe(skill_id)
-        return {"skill_id": skill_id, "path": updated["path"], "content": updated["content"],
-                "kind": updated["kind"],
-                "digest": described["digest"], "name": described["name"],
-                "display_name": described["display_name"],
-                "description": described["description"], "editable": True}
+        with skill_write_outcome(skill_id, relative_path):
+            updated = self.read_skill_file(skill_id, relative_path)
+            described = self.describe(skill_id)
+            return {"skill_id": skill_id, "path": updated["path"], "content": updated["content"],
+                    "kind": updated["kind"],
+                    "digest": described["digest"], "name": described["name"],
+                    "display_name": described["display_name"],
+                    "description": described["description"], "editable": True}
 
     def _record(self, skill_id: str) -> dict:
         if not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id):
@@ -758,7 +808,7 @@ class ProducerSkillCatalog:
             raise ValueError("原 Run 的 Skill 快照缺失，导入原件也不匹配。")
         return directory
 
-    def _working_directory(self, data: dict) -> Path:
+    def _checked_working_directory(self, data: dict) -> tuple[Path, str]:
         directory = self.root / "working" / data["id"]
         if directory.is_symlink() or not directory.resolve().is_relative_to(self.root / "working"):
             raise ValueError("本地 Skill 路径越界。")
@@ -770,7 +820,7 @@ class ProducerSkillCatalog:
         digest = _digest(directory)
         if data.get("version_status") == "released" and data.get("release_digest") not in {None, digest}:
             raise ValueError("已发布 Skill 的文件已变化；请恢复版本原件，不能覆盖历史版本。")
-        return directory
+        return directory, digest
 
     def locate(self, skill_id: str) -> Path:
         """Read the editable local directory; no import-digest content lock."""

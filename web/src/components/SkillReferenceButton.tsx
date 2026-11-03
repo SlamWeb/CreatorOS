@@ -3,13 +3,13 @@ import { studioApi } from "../api/client";
 import type { ProducerSkillItem } from "../api/types";
 
 /** Bindings and old Runs refer to exact versions, not the library's family representative. */
-export function SkillReferenceButton({ id, known, fallback, className, onInspect, showVersion = false, resolving = false }: {
+export function SkillReferenceButton({ id, known, fallback, className, onInspect, showVersion = false, resolving = false, creatorId }: {
   id: string; known?: ProducerSkillItem; fallback?: string; className?: string;
-  showVersion?: boolean; resolving?: boolean;
+  showVersion?: boolean; resolving?: boolean; creatorId?: string | null;
   onInspect: (skill: ProducerSkillItem) => void;
 }) {
-  const history = useQuery({ queryKey: ["producer-skill-versions", id],
-    queryFn: ({ signal }) => studioApi.producerSkillVersions(id, signal), enabled: !known && !resolving, retry: false });
+  const history = useQuery({ queryKey: ["producer-skill-versions", id, creatorId ? `creator:${creatorId}` : "global"],
+    queryFn: ({ signal }) => studioApi.producerSkillVersions(id, signal, creatorId ?? undefined), enabled: !known && !resolving, retry: false });
   const skill = known ?? history.data?.items.find(item => item.id === id);
   const loading = !skill && (resolving || history.isPending || history.isFetching);
   const inspect = async () => {

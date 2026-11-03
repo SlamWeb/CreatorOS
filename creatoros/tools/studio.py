@@ -1,5 +1,6 @@
 """Thin model-facing adapters over the same Studio API used by the browser."""
 import json
+import re
 from hashlib import sha256
 from typing import Literal
 from urllib.parse import quote
@@ -349,10 +350,38 @@ def update_producer_skill_file(skill_id, path=None, content=None, expected_diges
         return apply_skill_edit_batch(skill_id, expected_digest, values.changes, context)
     if operation != "write_text":
         from .chat_images import _action
-        return _action("skill-asset", values.model_dump(exclude_none=True), context)
-    return _call(lambda c: c.request(
-        "PUT", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
-        payload={"path": path, "content": content, "expected_digest": expected_digest}), context)
+        result = _action("skill-asset", values.model_dump(exclude_none=True), context)
+    else:
+        result = _call(lambda c: c.request(
+            "PUT", f"/api/producer-skills/{quote(skill_id, safe='')}/files/content",
+            payload={"path": path, "content": content, "expected_digest": expected_digest}), context)
+    status = result.details.get("http_status") or 0
+    if result.is_error and (result.error_type == "studio_invalid_response" or status >= 500
+                            or (status == 409 and result.error_type == "studio_request_failed")):
+        try:
+            data = json.loads(result.content)
+        except (ValueError, TypeError):
+            data = {}
+        data.update(error="studio_outcome_unknown", outcome_unknown=True, retryable=False,
+                    message="Skill 写入结果待核对，请先查看版本和目标文件，不要自动重试。")
+        return ToolResult(content=json.dumps(data, ensure_ascii=False), is_error=True,
+                          error_type="studio_outcome_unknown", details=result.details)
+    if not result.is_error:
+        try:
+            data = json.loads(result.content)
+            identity, family, digest = data["skill_id"], data["family_id"], data["digest"]
+            valid = (isinstance(identity, str) and re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", identity)
+                     and isinstance(family, str) and re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", family)
+                     and isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest)
+                     and data.get("path") == path
+                     and (operation != "write_text" or isinstance(data.get("content"), str)))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            valid = False
+        if not valid:
+            return ToolResult(content=json.dumps({"error": "studio_outcome_unknown", "outcome_unknown": True,
+                "message": "Skill 写入回执不完整，请先核对版本列表和目标文件，不要自动重试。"}, ensure_ascii=False),
+                is_error=True, error_type="studio_outcome_unknown")
+    return result
 
 
 def _call(action, context=None):
@@ -371,7 +400,7 @@ def _call(action, context=None):
                                 "url": f"{client.base_url}/runs/{error.run_id}" if error.run_id else None,
                                 **error.details},
                                ensure_ascii=False),
-            is_error=True, error_type=error.code,
+            is_error=True, error_type=error.code, details={"http_status": error.status_code},
         )
     finally:
         client.close()

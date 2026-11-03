@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillDigestConflict, _digest
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillDigestConflict, SkillWriteOutcomeUnknown, _digest
 
 
 def image_bytes(color="blue"):
@@ -53,6 +53,58 @@ class SkillVersionTests(unittest.TestCase):
 
     def candidate(self, request_id="candidate-1"):
         return self.catalog.create_skill_candidate(self.skill_id, self.initial, request_id)
+
+    def test_catalog_observes_external_changes(self):
+        listed = next(item for item in self.catalog.list() if item["id"] == self.skill_id)
+        self.assertEqual(listed["digest"], self.initial)
+        (self.working / "assets/reference.png").write_bytes(image_bytes("red"))
+        current = self.catalog.describe(self.skill_id)
+        self.assertNotEqual(current["digest"], self.initial)
+        self.assertEqual(_digest(self.original), self.initial)
+        with self.assertRaises(SkillDigestConflict):
+            self.catalog.resolve_selected_version(self.skill_id, expected_digest=self.initial)
+
+    def test_description_rejects_asset_change_during_inspection(self):
+        from creatoros.integrations import producer_skills
+        inspect = producer_skills._inspect_checkout
+        def changing_inspection(*args, **kwargs):
+            receipt = inspect(*args, **kwargs)
+            (self.working / "assets/reference.png").write_bytes(image_bytes("red"))
+            return receipt
+        with patch("creatoros.integrations.producer_skills._inspect_checkout", side_effect=changing_inspection):
+            with self.assertRaisesRegex(ValueError, "读取期间已变化"):
+                self.catalog.describe(self.skill_id)
+
+    def test_published_version_rejects_change_during_inspection(self):
+        from creatoros.integrations import producer_skills
+        candidate = self.candidate()
+        released = self.catalog.publish_skill_candidate(candidate["id"], candidate["digest"])
+        inspect = producer_skills._inspect_checkout
+        def changing_inspection(*args, **kwargs):
+            receipt = inspect(*args, **kwargs)
+            Path(released["local_path"]).joinpath("scripts/build.py").write_text("external change", encoding="utf-8")
+            return receipt
+        with patch("creatoros.integrations.producer_skills._inspect_checkout", side_effect=changing_inspection):
+            with self.assertRaisesRegex(ValueError, "读取期间已变化"):
+                self.catalog.describe(released["id"])
+        self.assertEqual(_digest(self.catalog.original(released["id"], released["digest"])), released["digest"])
+
+    def test_description_rejects_change_while_reading_output_metadata(self):
+        from creatoros.integrations import producer_skills
+        read_outputs = producer_skills.declared_skill_outputs
+        def changing_outputs(directory):
+            outputs = read_outputs(directory)
+            skill_path = self.working / "SKILL.md"
+            skill_path.write_text(skill_path.read_text(encoding="utf-8") + "\nexternal change", encoding="utf-8")
+            return outputs
+        with patch("creatoros.integrations.producer_skills.declared_skill_outputs", side_effect=changing_outputs):
+            with self.assertRaisesRegex(ValueError, "读取期间已变化"):
+                self.catalog.describe(self.skill_id)
+
+    def test_digest_reports_an_unresolvable_root_as_validation_error(self):
+        with patch.object(Path, "resolve", side_effect=RuntimeError("link loop")):
+            with self.assertRaisesRegex(ValueError, "目录无法解析"):
+                _digest(self.working)
 
     def test_candidate_is_a_full_independent_copy_and_hidden_from_library(self):
         candidate = self.candidate()
@@ -162,7 +214,7 @@ class SkillVersionTests(unittest.TestCase):
         candidate = self.candidate()
         changed = self.catalog.update_skill_file(candidate["id"], "scripts/build.py", "new publication", candidate["digest"])
         with patch("creatoros.integrations.skill_versions._write_record", side_effect=OSError("disk unavailable")):
-            with self.assertRaises(OSError):
+            with self.assertRaises(SkillWriteOutcomeUnknown):
                 self.catalog.publish_skill_candidate(candidate["id"], changed["digest"])
         restarted = ProducerSkillCatalog(self.catalog.root)
         self.assertEqual(restarted.describe(candidate["id"])["version_status"], "candidate")
@@ -174,7 +226,7 @@ class SkillVersionTests(unittest.TestCase):
         candidate = self.candidate()
         changed = self.catalog.update_skill_file(candidate["id"], "scripts/build.py", "first candidate", candidate["digest"])
         with patch("creatoros.integrations.skill_versions._write_record", side_effect=OSError("disk unavailable")):
-            with self.assertRaises(OSError):
+            with self.assertRaises(SkillWriteOutcomeUnknown):
                 self.catalog.publish_skill_candidate(candidate["id"], changed["digest"])
         changed_again = self.catalog.update_skill_file(candidate["id"], "scripts/build.py", "second candidate", changed["digest"])
         published = self.catalog.publish_skill_candidate(candidate["id"], changed_again["digest"])

@@ -471,7 +471,7 @@ test("candidate keeps the full folder, asset changes stay isolated, and refresh 
   await expect(page.getByRole("dialog").getByRole("img", { name: "assets/diagram.png" })).toHaveJSProperty("naturalWidth", 1);
 });
 
-test("unknown candidate creation survives refresh, reuses its request identity, and never makes a second version", async ({ page, request }) => {
+test("unknown candidate creation survives refresh and is checked without a second write", async ({ page, request }) => {
   const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
   const versionsPath = `/api/producer-skills/${fixture.mind.id}/versions`;
   const before = await request.get(versionsPath).then(response => response.json());
@@ -486,10 +486,17 @@ test("unknown candidate creation survives refresh, reuses its request identity, 
   });
   const card = await openMind(page);
   await card.getByRole("button", { name: "创建修改候选", exact: true }).click();
-  await expect(card.getByRole("alert")).toContainText("模拟响应丢失");
+  await expect(card.getByText(/模拟响应丢失/)).toBeVisible();
   await page.reload();
-  await createCandidate(page, await openMind(page));
-  expect(ids).toHaveLength(2); expect(ids[0]).toBe(ids[1]);
+  const reopened = await openMind(page);
+  await expect(reopened.getByRole("button", { name: "创建修改候选", exact: true })).toBeDisabled();
+  await reopened.getByRole("button", { name: "核对创建结果", exact: true }).click();
+  await reopened.getByRole("button", { name: "v2 · 候选", exact: true }).click();
+  await expect(reopened.getByText(/无法确认它就是本次创建的候选/)).toBeVisible();
+  page.once("dialog", confirmation => confirmation.accept());
+  await reopened.getByRole("button", { name: "已核对，解除锁定", exact: true }).click();
+  await expect(reopened.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  expect(ids).toHaveLength(1);
   const after = await request.get(versionsPath).then(response => response.json());
   expect(after.items).toHaveLength(before.items.length + 1);
 });
@@ -546,7 +553,7 @@ test("candidate saves, switches and rolls back without any trial or production",
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("candidate can be used directly and unknown switch replays the same frozen digest after reload", async ({ page, request }) => {
+test("unknown switch is checked after reload without dispatching it again", async ({ page, request }) => {
   const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
   const response = await request.post("/api/series", { data: { name: `直接使用候选-${crypto.randomUUID().slice(0, 8)}`,
     mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id, description: "", audience: "", request_id: crypto.randomUUID() } });
@@ -563,13 +570,232 @@ test("candidate can be used directly and unknown switch replays the same frozen 
   await card.getByRole("button", { name: "栏目版本", exact: true }).click();
   await card.getByRole("combobox", { name: "版本应用栏目" }).selectOption(series.id);
   page.once("dialog", dialog => dialog.accept()); await card.getByRole("button", { name: "使用这个版本", exact: true }).click();
-  await expect(card.getByRole("button", { name: "核对并恢复上次操作" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "核对当前状态" })).toBeVisible();
   const accepted = await request.get(`/api/series/${series.id}`).then(r => r.json()); expect(accepted.mind_skill_id).toBe(candidateId);
   await page.reload();
-  await page.getByRole("dialog").getByRole("button", { name: "核对并恢复上次操作" }).click();
-  await expect(page.getByRole("dialog").getByRole("button", { name: "核对并恢复上次操作" })).toHaveCount(0);
-  expect(payloads).toHaveLength(2); expect(payloads[1]).toEqual(payloads[0]);
+  await page.getByRole("dialog").getByRole("button", { name: "核对当前状态" }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "核对当前状态" })).toHaveCount(0);
+  expect(payloads).toHaveLength(1);
   expect((await request.get(`/api/series/${series.id}`).then(r => r.json())).revision).toBe(accepted.revision);
+});
+
+test("incomplete Skill write receipt locks the draft across refresh and only reads to verify", async ({ page, request }) => {
+  const card = await openMind(page);
+  const candidateId = await createCandidate(page, card);
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    await route.fulfill({ status: 200, json: {} });
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n已保存但回执不完整。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(editor).toHaveValue(/已保存但回执不完整/);
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  await page.reload();
+  const reopened = page.getByRole("dialog");
+  await expect(reopened.getByText(/刷新前的未保存草稿和待上传图片没有保留/)).toBeVisible();
+  await reopened.getByRole("button", { name: "核对写入结果", exact: true }).click();
+  await reopened.getByRole("button", { name: "查看 v2 · 候选", exact: true }).click();
+  await expect(reopened.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidateId);
+  await expect(reopened.getByText("已保存但回执不完整。", { exact: true })).toBeVisible();
+  await expect(reopened.getByText(/不能确认它就是本次写入目标/)).toBeVisible();
+  page.once("dialog", confirmation => confirmation.accept());
+  await reopened.getByRole("button", { name: "已核对，解除锁定", exact: true }).click();
+  expect(writes).toBe(1);
+  const saved = await request.get(`/api/producer-skills/${candidateId}/files/text?path=SKILL.md`).then(r => r.json());
+  expect(saved.content).toContain("已保存但回执不完整。");
+});
+
+test("refresh while a Skill write is in flight keeps a scoped verification marker", async ({ page }) => {
+  const card = await openMind(page);
+  await createCandidate(page, card);
+  let accepted!: () => void, release!: () => void;
+  const committed = new Promise<void>(resolve => { accepted = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    accepted(); await gate;
+    try { await route.fulfill({ response: actual }); } catch { /* Reload closed the pending request. */ }
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n请求中刷新验证。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await committed;
+  await page.reload(); release();
+  const reopened = page.getByRole("dialog");
+  await expect(reopened.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(reopened.getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
+  expect(writes).toBe(1);
+});
+
+test("a 502 after a real Skill write does not unlock another submission", async ({ page }) => {
+  const card = await openMind(page);
+  await createCandidate(page, card);
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    await route.fulfill({ status: 502, json: { error: { code: "gateway_failure", message: "网关错误" } } });
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n502 回执验证。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  expect(writes).toBe(1);
+});
+
+test("a broken JSON receipt after a real Skill write remains unknown", async ({ page }) => {
+  const card = await openMind(page);
+  await createCandidate(page, card);
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{" });
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n坏 JSON 回执验证。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  expect(writes).toBe(1);
+});
+
+test("an unreadable 409 receipt after a real Skill write remains unknown", async ({ page, request }) => {
+  const card = await openMind(page);
+  const candidateId = await createCandidate(page, card);
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    await route.fulfill({ status: 409, contentType: "application/json", body: "{" });
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n不完整 409 回执验证。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  expect(writes).toBe(1);
+  const saved = await request.get(`/api/producer-skills/${candidateId}/files/text?path=SKILL.md`).then(r => r.json());
+  expect(saved.content).toContain("不完整 409 回执验证。");
+});
+
+test("an unreadable response stream after a real Skill write remains unknown", async ({ page, request }) => {
+  const card = await openMind(page);
+  const candidateId = await createCandidate(page, card);
+  let writes = 0;
+  page.on("request", req => {
+    if (req.method() === "PUT" && req.url().includes("/files/content")) writes++;
+  });
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const response = await originalFetch(input, init);
+      if (String(input).includes("/files/content") && init?.method === "PUT") {
+        response.json = async () => { throw new TypeError("simulated interrupted response stream"); };
+      }
+      return response;
+    };
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n响应流中断验证。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await expect(card.getByRole("button", { name: "保存文件", exact: true })).toBeDisabled();
+  expect(writes).toBe(1);
+  const saved = await request.get(`/api/producer-skills/${candidateId}/files/text?path=SKILL.md`).then(r => r.json());
+  expect(saved.content).toContain("响应流中断验证。");
+});
+
+test("a known unknown-write candidate is read without losing the draft or writing again", async ({ page }) => {
+  const card = await openMind(page);
+  const candidateId = await createCandidate(page, card);
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/files/content*", async route => {
+    if (route.request().method() !== "PUT") return route.continue();
+    writes++;
+    const actual = await route.fetch();
+    expect(actual.ok(), await actual.text()).toBeTruthy();
+    await route.fulfill({ status: 409, json: { error: { code: "studio_outcome_unknown", outcome_unknown: true,
+      skill_id: candidateId, path: "SKILL.md", message: "写入结果待核对。" } } });
+  });
+  await card.getByRole("button", { name: "编辑", exact: true }).click();
+  const editor = card.getByRole("textbox", { name: "编辑 SKILL.md" });
+  await editor.fill(`${await editor.inputValue()}\n已知候选核对。`);
+  await card.getByRole("button", { name: "保存文件", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toBeVisible();
+  await card.getByRole("button", { name: "核对写入结果", exact: true }).click();
+  await expect(card.getByText(/上次写入结果待核对/)).toHaveCount(0);
+  await expect(editor).toHaveValue(/已知候选核对/);
+  expect(writes).toBe(1);
+});
+
+test("account Skill inspector hides another account's candidate and creates its own", async ({ page, request }) => {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(r => r.json());
+  const first = await request.post("/api/creators", { data: { display_name: `Skill 账号甲 ${crypto.randomUUID()}` } }).then(r => r.json());
+  const second = await request.post("/api/creators", { data: { display_name: `Skill 账号乙 ${crypto.randomUUID()}` } }).then(r => r.json());
+  for (const account of [first, second]) {
+    const response = await request.post(`/api/creators/${account.id}/skills`, { data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() } });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  }
+  const foreign = await request.post(`/api/producer-skills/${fixture.mind.id}/versions?creator_id=${second.id}`,
+    { data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() } }).then(r => r.json());
+  let scopedHistory = false;
+  page.on("request", req => {
+    const url = new URL(req.url());
+    if (url.pathname === `/api/producer-skills/${fixture.mind.id}/versions` && url.searchParams.get("creator_id") === first.id) scopedHistory = true;
+  });
+  await page.goto(`/?creator=${first.id}&view=skills`);
+  await page.getByRole("region", { name: "账号 Skill 库" }).getByRole("button", { name: /inspector-mind/ }).click();
+  const card = page.getByRole("dialog", { name: "inspector-mind" });
+  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toBeVisible();
+  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" }).locator(`option[value="${foreign.id}"]`)).toHaveCount(0);
+  const ownId = await createCandidate(page, card);
+  expect(scopedHistory).toBe(true);
+  const own = await request.get(`/api/producer-skills/${fixture.mind.id}/versions?creator_id=${first.id}`).then(r => r.json());
+  expect(own.items.find((item: { id: string }) => item.id === ownId).creator_id).toBe(first.id);
+  const otherHistory = await request.get(`/api/producer-skills/${fixture.mind.id}/versions?creator_id=${second.id}`).then(r => r.json());
+  expect(otherHistory.items.some((item: { id: string }) => item.id === ownId)).toBe(false);
+});
+
+test("a missing unknown candidate can be explicitly unlocked after read-only checking", async ({ page }) => {
+  let writes = 0;
+  await page.route("**/api/producer-skills/*/versions", async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    writes++;
+    await route.fulfill({ status: 409, json: { error: { code: "studio_outcome_unknown", outcome_unknown: true,
+      skill_id: `inspector-mind--${"a".repeat(16)}`, message: "创建结果待核对。" } } });
+  });
+  const card = await openMind(page);
+  await card.getByRole("button", { name: "创建修改候选", exact: true }).click();
+  await card.getByRole("button", { name: "核对创建结果", exact: true }).click();
+  await expect(card.getByText(/暂未找到回执中的版本/)).toBeVisible();
+  page.once("dialog", confirmation => confirmation.accept());
+  await card.getByRole("button", { name: "已核对，解除锁定", exact: true }).click();
+  await expect(card.getByRole("button", { name: "创建修改候选", exact: true })).toBeEnabled();
+  expect(writes).toBe(1);
 });
 
 test("library version selection replaces only its Skill query and refresh restores the candidate", async ({ page, request }) => {

@@ -4,7 +4,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..integrations.producer_skills import SkillDigestConflict
+from ..integrations.producer_skills import SkillDigestConflict, SkillWriteOutcomeUnknown
 from ..integrations.skill_extraction import ExtractionError
 
 
@@ -40,6 +40,8 @@ def skill_version_routes(service):
     def call(action):
         try:
             return JSONResponse(jsonable_encoder(action()), headers={"Cache-Control": "no-store"})
+        except SkillWriteOutcomeUnknown as error:
+            return JSONResponse(status_code=409, content={"error": error.response()}, headers={"Cache-Control": "no-store"})
         except SkillDigestConflict as error:
             return JSONResponse(status_code=409, content={"error": {
                 "code": "skill_digest_conflict", "message": str(error), "current_digest": error.current_digest}})
@@ -58,7 +60,8 @@ def skill_version_routes(service):
     def create(skill_id: str, payload: CandidateRequest, request: Request):
         session_id = request.headers.get("x-creatoros-agent-session")
         session = request.app.state.chat.get(session_id) if session_id else {}
-        creator_id = session.get("creator_id") if session.get("scope_kind") == "creator" else None
+        creator_id = (session.get("creator_id") if session.get("scope_kind") == "creator"
+                      else getattr(request.state, "web_skill_creator", None))
         return call(lambda: service.catalog.create_skill_candidate(skill_id, **payload.model_dump(), creator_id=creator_id))
 
     @router.post("/producer-skills/{skill_id}/version-trials")

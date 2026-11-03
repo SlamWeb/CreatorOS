@@ -86,13 +86,23 @@ def apply_skill_edit_batch(skill_id: str, expected_digest: str,
             error_type = result.error_type or "skill_edit_failed"
             unknown = error_type in {"studio_outcome_unknown", "studio_invalid_response"}
             try:
-                detail = json.loads(result.content).get("message", "")
+                error_data = json.loads(result.content)
+                detail = error_data.get("message", "")
             except (ValueError, TypeError, AttributeError):
+                error_data = {}
                 detail = ""
             detail = detail if isinstance(detail, str) and len(detail) <= 300 else ""
+            if unknown:
+                candidate_id = error_data.get("skill_id")
+                if isinstance(candidate_id, str) and re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", candidate_id):
+                    current_id = candidate_id
+                # The previous digest describes the state before this write;
+                # it cannot be used as the current candidate's edit token.
+                current_digest = None
             return _receipt(current_id, current_digest, applied, total, index, error_type,
                             outcome_unknown=unknown, failed=change,
-                            message=("写入结果未知；已停止，须核对同一候选家族，不要重新提交整批。"
+                            message=(f"已确认完成 {len(applied)} 项；第 {index} 项写入结果未知，"
+                                     "已停止，请先核对 Skill 版本列表和目标文件，不要重新提交整批。"
                                      if unknown else
                                      f"此项失败{('：' + detail) if detail else ''}；已停止。之前成功的候选保留，未执行后续项。"))
         try:
@@ -107,7 +117,7 @@ def apply_skill_edit_batch(skill_id: str, expected_digest: str,
         except (ValueError, TypeError, KeyError):
             # The edit may have happened, but without a valid identity/digest we
             # cannot safely issue another compare-and-set operation.
-            return _receipt(current_id, current_digest, applied, total, index,
+            return _receipt(current_id, None, applied, total, index,
                             "studio_invalid_response", outcome_unknown=True, failed=change,
                             message="编辑回执缺少可核验的候选身份或摘要；已停止，须核对同一候选家族。")
         current_id, current_digest = next_id, next_digest

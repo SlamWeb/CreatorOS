@@ -273,7 +273,7 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
         return _skill_job(data, receipt_only=tool_name in _EXTRACTION_WRITES,
                           explicit_read=tool_name == "get_skill_extraction")
     if is_error and tool_name == "update_producer_skill_file":
-        return _error(data) | _pick(data, _SKILL + ("digest",) + _SKILL_BATCH)
+        return _error(data) | _pick(data, _SKILL + ("digest", "path") + _SKILL_BATCH)
     if is_error and tool_name not in _RESEARCH_TOOLS | _DISCUSSION_TOOLS:
         return _error(data)
     if tool_name == "manage_production_task":

@@ -103,7 +103,7 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
           {!poolItems.length && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目 Skill</button>}
           {poolItems.length > 0 && <div><span className="muted">栏目 Skill：</span>{poolItems.map((bound, index) => <span key={bound.id}>
             {index > 0 && <span aria-hidden="true"> · </span>}
-            <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} showVersion />
+            <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} creatorId={series.creator_id} showVersion />
           </span>)}</div>}
         </div>
       </div>;

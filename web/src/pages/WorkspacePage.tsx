@@ -166,7 +166,7 @@ export function WorkspacePage() {
           <button className="button button-primary" disabled={createSeries.isPending || !seriesDraft.name.trim()}>{createSeries.isPending ? "创建中…" : "创建"}</button></div>
       </form>
     </WorkspaceDialog>}
-    {inspectedSkill && <SkillInspector skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
+    {inspectedSkill && <SkillInspector key={`${account?.id ?? "library"}:${inspectedSkill.id}`} skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: account?.id, seriesId: series?.id }}
       onAgentEdit={account ? prompt => {
         setInspectedSkill(null); chat.open({ creatorId: account.id, accountName: account.display_name, draftSeed: prompt });

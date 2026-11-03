@@ -134,6 +134,50 @@ class SharedSkillForkTests(unittest.TestCase):
             self.assertNotIn(forbidden, ids)
             self.assertIn(self.original['id'], ids)
 
+    def test_account_scoped_web_hides_and_rejects_another_accounts_candidate(self):
+        result = self.invoke({'skill_id': self.original['id'], 'path': 'SKILL.md',
+            'content': self.old_text + '\nA private draft.\n', 'expected_digest': self.original['digest']})
+        self.assertFalse(result.is_error, result.content)
+        private = json.loads(result.content)['skill_id']
+        history = f"/api/producer-skills/{self.original['id']}/versions"
+        scoped = self.client.get(history, params={'creator_id': 'other'})
+        self.assertEqual(scoped.status_code, 200, scoped.text)
+        self.assertNotIn(private, {item['id'] for item in scoped.json()['items']})
+        # A query parameter cannot replace the account from an Agent session.
+        spoofed = self.client.get(history, params={'creator_id': 'review-lab'}, headers=self.headers(self.b))
+        self.assertEqual(spoofed.status_code, 200, spoofed.text)
+        self.assertNotIn(private, {item['id'] for item in spoofed.json()['items']})
+        # Header-free global Skill management remains available to the local user.
+        self.assertIn(private, {item['id'] for item in self.client.get(history).json()['items']})
+        endpoint = f'/api/producer-skills/{private}/files'
+        denied = self.client.get(endpoint + '/text', params={'creator_id': 'other', 'path': 'SKILL.md'})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        denied_write = self.client.put(endpoint + '/content', params={'creator_id': 'other'}, json={
+            'path': 'SKILL.md', 'content': self.old_text + '\nwrong account\n',
+            'expected_digest': self.catalog.describe(private)['digest']})
+        self.assertEqual(denied_write.status_code, 403, denied_write.text)
+        spoofed_write = self.client.put(endpoint + '/content', params={'creator_id': 'review-lab'},
+            headers=self.headers(self.b), json={'path': 'SKILL.md', 'content': self.old_text + '\nspoofed\n',
+                'expected_digest': self.catalog.describe(private)['digest']})
+        self.assertEqual(spoofed_write.status_code, 403, spoofed_write.text)
+        denied_publish = self.client.post(f'/api/producer-skills/{private}/publish-version', params={'creator_id': 'other'}, json={
+            'expected_digest': self.catalog.describe(private)['digest'], 'request_id': 'scope-publish'})
+        self.assertEqual(denied_publish.status_code, 403, denied_publish.text)
+        denied_switch = self.client.post('/api/series/other-series/skill-version', params={'creator_id': 'other'}, json={
+            'skill_id': private, 'expected_revision': 1, 'request_id': 'scope-switch'})
+        self.assertEqual(denied_switch.status_code, 403, denied_switch.text)
+        allowed = self.client.get(endpoint + '/text', params={'creator_id': 'review-lab', 'path': 'SKILL.md'})
+        self.assertEqual(allowed.status_code, 200, allowed.text)
+        self.assertIn('A private draft.', allowed.json()['content'])
+        own = self.client.post(history, params={'creator_id': 'review-lab'}, json={
+            'request_id': 'web-owned-candidate', 'expected_digest': self.original['digest']})
+        self.assertEqual(own.status_code, 200, own.text)
+        self.assertEqual(self.catalog._record(own.json()['id']).get('creator_id'), 'review-lab')
+        self.assertNotIn(own.json()['id'], {item['id'] for item in self.client.get(history, params={'creator_id': 'other'}).json()['items']})
+        global_candidate = self.client.post(history, json={'request_id': 'global-candidate', 'expected_digest': self.original['digest']})
+        self.assertEqual(global_candidate.status_code, 200, global_candidate.text)
+        self.assertIsNone(self.catalog._record(global_candidate.json()['id']).get('creator_id'))
+
     def test_stale_digest_and_foreign_attachment_do_not_create_candidate(self):
         raw, attachment = self.attachment(self.a)
         before = len(self.catalog.list_skill_versions(self.original['id'])['items'])

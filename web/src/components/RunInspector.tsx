@@ -111,7 +111,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
         {usedSkills.length ? <section className="run-skill-links" aria-label="本次运行使用的 Skill">
           {usedSkills.map(item => {
             const current = skills.data?.items.find(skill => skill.id === item.id);
-            return <SkillReferenceButton key={`${item.role}-${item.id}`} id={item.id} known={current} fallback={item.name}
+            return <SkillReferenceButton key={`${item.role}-${item.id}`} id={item.id} known={current} fallback={item.name} creatorId={run.creator_id}
               resolving={skills.isPending} className="run-skill-link" onInspect={setInspectedSkill} />;
           })}
           {skills.isError ? <button type="button" className="text-link" onClick={() => void skills.refetch()}>Skill 读取失败，重试</button> : null}
@@ -146,7 +146,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
       <dl className="technical-ids">{usedSkills.map(item => <div key={`${item.role}-${item.id}`}><dt>{item.name} · 冻结摘要</dt><dd>{item.digest ?? "未记录"}</dd></div>)}</dl>
       </div>
     </section>
-    {inspectedSkill && <SkillInspector key={inspectedSkill.id} skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
+    {inspectedSkill && <SkillInspector key={`${run.creator_id}:${inspectedSkill.id}`} skill={inspectedSkill} onClose={() => setInspectedSkill(null)}
       editContext={{ creatorId: run.creator_id, seriesId: run.series_id, runId: run.id, revisionId: revision?.id }} />}
   </article>;
 }
