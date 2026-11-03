@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import stat
 from pathlib import Path
 
 from creatoros.integrations.media_tools import decode_media, probe_media
@@ -170,9 +172,33 @@ def _check_unfinished_submission(previous, checkpoint):
     require_known_outcome()
 
 
+def _check_plain_tree(root):
+    """Reject links and Windows reparse points, including directory entries."""
+    def check(path):
+        info = path.lstat()
+        if (stat.S_ISLNK(info.st_mode) or
+                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+            raise VideoRecoveryEvidenceConflict("视频恢复工作区包含链接或重解析点；请核对原任务。")
+        if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)):
+            raise VideoRecoveryEvidenceConflict("视频恢复工作区包含不支持的文件类型；请核对原任务。")
+        return info
+
+    if not stat.S_ISDIR(check(root).st_mode):
+        raise VideoRecoveryEvidenceConflict("视频恢复工作区不是普通目录；请核对原任务。")
+    pending = [root]
+    while pending:
+        with os.scandir(pending.pop()) as entries:
+            for entry in entries:
+                path = Path(entry.path)
+                if stat.S_ISDIR(check(path).st_mode):
+                    pending.append(path)
+
+
 def _recover_work(directory, expected):
     for previous in sorted(directory.parent.glob("attempt-*"), reverse=True):
-        if previous.name >= directory.name or previous.is_symlink() or getattr(previous, "is_junction", lambda: False)():
+        info = previous.lstat()
+        if (previous.name >= directory.name or stat.S_ISLNK(info.st_mode) or
+                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
             continue
         path = previous / VIDEO_CHECKPOINT
         if path.is_symlink() or (path.exists() and not path.is_file()):
@@ -188,10 +214,14 @@ def _recover_work(directory, expected):
         _check_unfinished_submission(previous, checkpoint)
         if known_video_failure(checkpoint) is not None:
             return checkpoint  # The original failure needs no workspace copy or new turn.
-        for file in (previous / "work").rglob("*"):
-            if file.is_file():
-                safe_file(previous / "work", file)
-        shutil.copytree(previous / "work", directory / "work", dirs_exist_ok=True)
+        source_work, target_work = previous / "work", directory / "work"
+        _check_plain_tree(source_work)
+        if target_work.exists() or target_work.is_symlink():
+            _check_plain_tree(target_work)
+        # Do not follow a symlink that appears after the initial inspection.
+        # The final check rejects such a link instead of accepting the copy.
+        shutil.copytree(source_work, target_work, dirs_exist_ok=True, symlinks=True)
+        _check_plain_tree(target_work)
         if checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.accepted_sha256:
             accepted = safe_file(previous, previous / "received-video.mp4")
             if file_sha256(accepted) != checkpoint.accepted_sha256:
