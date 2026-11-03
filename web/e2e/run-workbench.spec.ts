@@ -22,13 +22,14 @@ test("a Run Skill waits for the catalog and opens after the first click", async 
   const catalogGate = new Promise<void>(resolve => { releaseCatalog = resolve; });
   let catalogWaiting = false;
   let versionRequests = 0;
+  const builtinVersions = /\/api\/producer-skills\/knowledge-to-carousel\/versions(?:\?.*)?$/;
   await page.route(/\/api\/producer-skills$/, async route => {
     const response = await route.fetch();
     catalogWaiting = true;
     await catalogGate;
     await route.fulfill({ response });
   });
-  await page.route(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/, route => {
+  await page.route(builtinVersions, route => {
     versionRequests++;
     return route.fulfill({ status: 422, json: { error: { message: "内置 Skill 没有版本列表" } } });
   });
@@ -51,10 +52,10 @@ test("a Run Skill waits for the catalog and opens after the first click", async 
     // A historic version may be absent from the current catalog. A successful
     // retry should open it immediately rather than requiring a second click.
     await page.unroute(/\/api\/producer-skills$/);
-    await page.unroute(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/);
+    await page.unroute(builtinVersions);
     await page.route(/\/api\/producer-skills$/, route => route.fulfill({ json: { items: [] } }));
     let attempts = 0;
-    await page.route(/\/api\/producer-skills\/knowledge-to-carousel\/versions$/, route => {
+    await page.route(builtinVersions, route => {
       attempts++;
       return attempts === 1
         ? route.fulfill({ status: 503, json: { error: { message: "暂时无法读取版本" } } })
