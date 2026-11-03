@@ -62,6 +62,11 @@ class ArtifactSubmissionTests(unittest.TestCase):
         record_turn(self.directory, "other-turn", "production", "completed")
         self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
         record_turn(self.directory, "turn-1", "production", "completed")
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+        from creatoros.integrations.visual_production import atomic_json
+        from creatoros.delivery.image import CHECKPOINT
+        self.checkpoint.turn_completed = True
+        atomic_json(self.directory / CHECKPOINT, self.checkpoint)
         before = {p: p.read_bytes() for p in self.directory.rglob("*") if p.is_file()}
         inspection = inspect_submission(self.directory)
         self.assertEqual(inspection["status"], "completed_evidence")
@@ -147,6 +152,26 @@ class ArtifactSubmissionTests(unittest.TestCase):
         self.assertTrue(handler.submit({**self.payload(path), "title": "different"}).get("outcome_unknown"))
         self.assertEqual((self.directory / SUBMISSION).read_bytes(), original)
 
+    def test_previous_completed_flag_cannot_certify_new_submission(self):
+        from creatoros.delivery.image import CHECKPOINT, Checkpoint
+        from creatoros.integrations.visual_production import atomic_json
+        from creatoros.integrations.worker_protocol import record_thread, record_turn
+        from creatoros.delivery.image_submission_check import inspect_submission
+        _, path = self.receive("first", (10, 80, 120))
+        self.checkpoint.turn_completed = True
+        handler = self.handler()
+        def commit_then_fail(target, value):
+            atomic_json(target, value)
+            if value.submission_sha256:
+                raise OSError("committed then failed")
+        with patch("creatoros.integrations.visual_production.atomic_json", side_effect=commit_then_fail):
+            self.assertTrue(handler.submit(self.payload(path))["outcome_unknown"])
+        persisted = Checkpoint.model_validate_json((self.directory / CHECKPOINT).read_text(encoding="utf-8"))
+        self.assertFalse(persisted.turn_completed)
+        record_thread(self.directory, persisted.thread_id)
+        record_turn(self.directory, "turn-1", "production", "completed")
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+
     def test_receipt_write_then_error_blocks_new_handler_and_preserves_evidence(self):
         from creatoros.integrations.artifact_submission import atomic_write_text
         from creatoros.delivery.image_submission_check import inspect_submission
@@ -206,11 +231,88 @@ class ArtifactSubmissionTests(unittest.TestCase):
 
 
 class SubmissionExecutionTests(unittest.TestCase):
-    def test_uncertain_submission_interrupts_turn_without_repair(self):
+    def test_interrupted_recovery_keeps_intent_and_third_attempt_never_dispatches(self):
         from openai_codex.generated import v2_all as sdk_types
         from openai_codex.models import Notification
         from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError
-        from creatoros.integrations.artifact_submission import atomic_write_text
+        from creatoros.delivery.image import SUBMISSION_INTENT
+        from creatoros.delivery.image_submission_check import inspect_submission
+        from creatoros.delivery.image_recovery import atomic_json
+        from tests.smoke_native_production import image, write_skill
+        with TemporaryDirectory(prefix="submission-recovery-") as temporary:
+            root = Path(temporary)
+            skill, generated = root / "skill", root / "generated"
+            write_skill(skill, "submit-fixture", "Test receipt")
+            path = generated / "thread" / "image.png"
+            payload = {"title": "Title", "text": "Caption", "hashtags": [], "complete": True,
+                       "artifacts": [{"order": 1, "source_image_path": str(path), "image_prompt": "Scene",
+                                      "reference_ids": [], "content": "text"}]}
+            calls = []
+            @asynccontextmanager
+            async def client(deadline, cancel_event, dynamic_tools):
+                handler = dynamic_tools[0].handler
+                async def start(*args, **options):
+                    async def turn(inputs, **controls):
+                        calls.append(1)
+                        async def stream():
+                            image(path)
+                            yield Notification("item/completed", sdk_types.ItemCompletedNotification.model_validate({
+                                "threadId": "thread", "turnId": "turn-1", "completedAtMs": 1,
+                                "item": {"type": "imageGeneration", "id": "image-1", "status": "completed",
+                                         "result": "", "savedPath": str(path)}}))
+                            self.assertTrue((await handler(payload))["accepted"])
+                            yield Notification("turn/completed", sdk_types.TurnCompletedNotification.model_validate({
+                                "threadId": "thread", "turn": {"id": "turn-1", "items": [], "status": "completed"}}))
+                        async def interrupt():
+                            pass
+                        return SimpleNamespace(id="turn-1", thread_id="thread", stream=stream, interrupt=interrupt)
+                    return SimpleNamespace(id="thread", turn=turn)
+                yield SimpleNamespace(thread_start=start, thread_resume=start)
+                raise OSError("SDK process exited after confirmed turn")
+            producer = CodexSdkProducer(project_root=root, generated_images_root=generated, timeout_seconds=10)
+            def produce(index):
+                return producer.produce_to(directory=root / "run" / "revision-001" / f"attempt-{index:03d}",
+                    pack_id="pack", creator_id="creator", series_id="series", topic_id="topic", topic_title="Topic",
+                    skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1")
+            with patch("creatoros.integrations.native_production._production_client", client):
+                with self.assertRaises(CodexProducerError):
+                    produce(1)
+                first = root / "run" / "revision-001" / "attempt-001"
+                self.assertEqual(inspect_submission(first)["status"], "completed_evidence")
+                before = {p.relative_to(first): p.read_bytes() for p in first.rglob("*") if p.is_file()}
+                from creatoros.delivery.image import CHECKPOINT
+                def checkpoint_then_error(target, value):
+                    atomic_json(target, value)
+                    if target.name == CHECKPOINT:
+                        raise OSError("recovery checkpoint committed then failure")
+                with patch("creatoros.delivery.image_recovery.atomic_json", side_effect=checkpoint_then_error):
+                    with self.assertRaises(OSError):
+                        produce(2)
+                second = first.parent / "attempt-002"
+                self.assertTrue((second / SUBMISSION_INTENT).is_file())
+                self.assertEqual(inspect_submission(second)["status"], "completed_evidence")
+                produce(3)  # Recovery may finish offline; it must not create a new SDK turn.
+                with patch("creatoros.delivery.image_recovery.ImageAssetStore.restore_from", side_effect=OSError("recovery interrupted")):
+                    with self.assertRaises(OSError):
+                        produce(4)
+                fourth = first.parent / "attempt-004"
+                self.assertTrue((fourth / SUBMISSION_INTENT).is_file())
+                self.assertEqual(inspect_submission(fourth)["status"], "unconfirmed")
+                with self.assertRaises(CodexProducerError) as failure:
+                    produce(5)
+                self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
+            self.assertEqual(len(calls), 1)
+            self.assertTrue(path.is_file())
+            self.assertEqual(before, {p.relative_to(first): p.read_bytes() for p in first.rglob("*") if p.is_file()})
+
+    def test_uncertain_submission_interrupts_turn_without_repair(self):
+        from threading import Event
+        from openai_codex.generated import v2_all as sdk_types
+        from openai_codex.models import Notification
+        from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError
+        from creatoros.integrations.visual_production import atomic_json
+        from creatoros.integrations.worker_protocol import record_thread, record_turn
+        from creatoros.delivery.image_submission_check import inspect_submission
         from tests.smoke_native_production import image, write_skill
         with TemporaryDirectory(prefix="submission-unknown-") as temporary:
             root = Path(temporary)
@@ -221,6 +323,7 @@ class SubmissionExecutionTests(unittest.TestCase):
                        "artifacts": [{"order": 1, "source_image_path": str(image_path),
                                       "image_prompt": "A scene", "reference_ids": [], "content": "text"}]}
             calls, interrupts, replies = [], [], []
+            cancel = Event()
             @asynccontextmanager
             async def client(deadline, cancel_event, dynamic_tools):
                 handler = dynamic_tools[0].handler
@@ -234,6 +337,7 @@ class SubmissionExecutionTests(unittest.TestCase):
                                 "item": {"type": "imageGeneration", "id": "image-1", "status": "completed",
                                          "result": "", "savedPath": str(image_path)}}))
                             replies.append(await handler(payload))
+                            cancel.set()  # Cancellation and unknown result become visible together.
                             yield Notification("turn/completed", sdk_types.TurnCompletedNotification.model_validate({
                                 "threadId": "submit-thread", "turn": {"id": "turn-1", "items": [], "status": "completed"}}))
                         async def interrupt():
@@ -241,21 +345,66 @@ class SubmissionExecutionTests(unittest.TestCase):
                         return SimpleNamespace(id="turn-1", thread_id="submit-thread", stream=stream, interrupt=interrupt)
                     return SimpleNamespace(id="submit-thread", turn=turn)
                 yield SimpleNamespace(thread_start=start, thread_resume=start)
-            def written_then_error(target, raw):
-                atomic_write_text(target, raw)
-                raise OSError("lost receipt acknowledgment")
+            def written_then_error(target, value):
+                atomic_json(target, value)
+                if value.submission_sha256:
+                    raise OSError("lost checkpoint acknowledgment")
             producer = CodexSdkProducer(project_root=root, generated_images_root=generated, timeout_seconds=10)
             with patch("creatoros.integrations.native_production._production_client", client), patch(
-                    "creatoros.integrations.artifact_submission.atomic_write_text", side_effect=written_then_error):
+                    "creatoros.integrations.visual_production.atomic_json", side_effect=written_then_error):
                 with self.assertRaises(CodexProducerError) as failure:
                     producer.produce_to(directory=root / "run" / "revision-001" / "attempt-001",
                         pack_id="pack", creator_id="creator", series_id="series", topic_id="topic", topic_title="Topic",
-                        skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1")
+                        skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1",
+                        cancel_event=cancel)
             self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
             self.assertTrue(replies[0]["outcome_unknown"])
             self.assertEqual((len(calls), len(interrupts)), (1, 1))
             self.assertTrue(image_path.is_file())
-            self.assertTrue((root / "run" / "revision-001" / "attempt-001" / SUBMISSION).is_file())
+            original = root / "run" / "revision-001" / "attempt-001"
+            self.assertTrue((original / SUBMISSION).is_file())
+            record_thread(original, "submit-thread")
+            record_turn(original, "turn-1", "production", "completed")
+            before = {p.relative_to(original): p.read_bytes() for p in original.rglob("*") if p.is_file()}
+            self.assertEqual(inspect_submission(original)["status"], "unconfirmed")
+            with patch("creatoros.integrations.native_production._production_client", client):
+                with self.assertRaises(CodexProducerError) as restart:
+                    producer.produce_to(directory=root / "run" / "revision-001" / "attempt-002",
+                        pack_id="pack", creator_id="creator", series_id="series", topic_id="topic", topic_title="Topic",
+                        skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1")
+            self.assertEqual(restart.exception.error_type, "image_delivery_unconfirmed")
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(before, {p.relative_to(original): p.read_bytes() for p in original.rglob("*") if p.is_file()})
+
+    def test_checkpoint_committed_then_error_and_completed_worker_cannot_resume(self):
+        from creatoros.delivery.image_submission_check import inspect_submission
+        from creatoros.integrations.worker_protocol import record_thread, record_turn
+        from creatoros.integrations.visual_production import atomic_json
+        from tests import test_file_delivery as fixtures
+        fixture = fixtures.FileDeliveryTests()
+        fixture.setUp()
+        try:
+            asset, path = fixture.receive("first", (10, 80, 120))
+            checkpoint = fixture.checkpoint
+            checkpoint.handoff_protocol = "tool-v1"
+            handler = ImageSubmission(fixture.directory, checkpoint, fixture.generated, fixture.bundle)
+            handler.turn_id = "turn-1"
+            payload = {"title": "Title", "text": "Caption", "hashtags": [], "complete": True,
+                       "artifacts": [fixture.page(1, source_image_path=str(path))]}
+            def committed_then_error(target, value):
+                atomic_json(target, value)
+                if value.submission_sha256:
+                    raise OSError("checkpoint committed but acknowledgement lost")
+            with patch("creatoros.integrations.visual_production.atomic_json", side_effect=committed_then_error):
+                self.assertTrue(handler.submit(payload)["outcome_unknown"])
+            record_thread(fixture.directory, checkpoint.thread_id)
+            record_turn(fixture.directory, "turn-1", "production", "completed")
+            before = {p: p.read_bytes() for p in fixture.directory.rglob("*") if p.is_file()}
+            self.assertEqual(inspect_submission(fixture.directory)["status"], "unconfirmed")
+            self.assertEqual(before, {p: p.read_bytes() for p in fixture.directory.rglob("*") if p.is_file()})
+            self.assertTrue(path.is_file())
+        finally:
+            fixture.doCleanups()
 
     def test_same_turn_correction_and_interrupted_receipt_resume_without_regeneration(self):
         from openai_codex.generated import v2_all as sdk_types

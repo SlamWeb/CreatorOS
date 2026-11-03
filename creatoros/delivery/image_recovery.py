@@ -1,6 +1,7 @@
 """Restore a verified native delivery into a new Attempt without starting a turn."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 from creatoros.integrations.worker_protocol import completed_delivery_turn
 
 from .files import atomic_json, safe_file
-from .image import (CHECKPOINT, RESPONSE, SUBMISSION, Artifact, Checkpoint, Delivery,
+from .image import (CHECKPOINT, RESPONSE, SUBMISSION, SUBMISSION_INTENT, Artifact, Checkpoint, Delivery,
                     accepted_submission, ingest, load_checkpoint, skill_refs)
 from .image_assets import ImageAssetStore
 from .image_materials import accept_delivery_value, accept_response, prepare_materials
@@ -17,6 +18,14 @@ from .image_submission_check import inspect_submission
 
 class ImageSubmissionUnconfirmed(ValueError):
     """Saved submission or intent cannot safely authorize another turn."""
+
+
+def _copy_evidence(source: Path, target: Path) -> None:
+    """Persist the guard first; a partial copy must remain visible to recovery."""
+    with source.open("rb") as reader, target.open("xb") as writer:
+        shutil.copyfileobj(reader, writer)
+        writer.flush()
+        os.fsync(writer.fileno())
 
 
 def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None = None) -> Checkpoint | None:
@@ -28,6 +37,9 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
         evidence = inspect_submission(previous)
         if evidence["status"] == "unconfirmed":
             raise ImageSubmissionUnconfirmed("图片提交结果待核对；原 Attempt 回执和图片已保留，不会启动新回合。")
+        if evidence["intent_present"]:
+            _copy_evidence(safe_file(previous, previous / SUBMISSION_INTENT, 32_000), directory / SUBMISSION_INTENT)
+            _copy_evidence(safe_file(previous, previous / "worker_receipt.json", 256_000), directory / "worker_receipt.json")
         if not (previous / CHECKPOINT).exists():
             continue
         value = load_checkpoint(previous, digest)
@@ -65,7 +77,8 @@ def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None
             accept_delivery_value(directory, value, generated_root or Path(), bundle, saved["submission"])
             ingest(directory, value, generated_root or Path())
             value.turn_completed = True
-            shutil.copy2(previous / "worker_receipt.json", directory / "worker_receipt.json")
+            if not evidence["intent_present"]:
+                shutil.copy2(previous / "worker_receipt.json", directory / "worker_receipt.json")
         if (value.handoff_protocol == "structured-v1" and not value.turn_completed
                 and (directory / "work" / RESPONSE).is_file()
                 and completed_delivery_turn(previous, value.thread_id)):

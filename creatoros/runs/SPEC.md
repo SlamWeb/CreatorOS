@@ -2,7 +2,7 @@
 
 ## 2026-11-03 图片提交结果未知
 
-- 图片交付提交写入可能部分成功时，生产报告不可技术重试的 `image_delivery_unconfirmed`，保留原 Attempt、回执和图片；同 Revision 显式恢复也不得启动新回合，须先核对证据。检查命令、旧回执兼容及断电限制见 [交付 SPEC](../delivery/SPEC.md)。
+- 图片交付提交写入可能部分成功时，生产报告不可技术重试的 `image_delivery_unconfirmed`，保留原 Attempt、回执和图片；即使同时收到取消，也不覆盖为可重试的用户中断。同 Revision 显式恢复也不得启动新回合，须先核对证据。检查命令、旧回执兼容及断电限制见 [交付 SPEC](../delivery/SPEC.md)。
 
 ## 2026-11-03 Windows 执行记录共享冲突
 
