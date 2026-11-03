@@ -72,11 +72,11 @@ class BenchmarkManifestTests(unittest.TestCase):
         from creatoros.evaluation.benchmark.grader import VERSION
         from creatoros.evaluation.benchmark.skill_evidence import VERSION as evidence_version
         document = json.loads(self.dataset.read_text(encoding="utf-8"))
-        revision = {"id": "oracle-v31-20261103", "grader_version": VERSION, "skill_evidence_version": evidence_version}
+        revision = {"id": "oracle-v32-b12-20261103", "grader_version": VERSION, "skill_evidence_version": evidence_version}
         document["evaluation_revision"] = revision
         self.dataset.write_text(json.dumps(document), encoding="utf-8")
         self.assertEqual(self.freeze()["evaluation_revision"], revision)
-        revision["grader_version"] = "old-grader"
+        revision["grader_version"] = "benchmark-v3.1-case-outcomes"
         self.dataset.write_text(json.dumps(document), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "evaluation revision"):
             manifest._dataset(self.dataset)

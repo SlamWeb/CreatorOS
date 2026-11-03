@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "dataset_id": "creatoros-trace-benchmark-v3.1-20261103",
+  "dataset_id": "creatoros-trace-benchmark-v3.2-20261103",
   "status": "oracle_revision_ready_for_new_freeze",
   "cases": [
     {
@@ -1751,7 +1751,8 @@
             }
           ],
           "preserve_existing": true,
-          "normalize_whitespace": true
+          "normalize_whitespace": true,
+          "optional_title_suffixes": ["辨析"]
         },
         {
           "kind": "table_delta",
@@ -7794,6 +7795,14 @@
         "B26": "Bind text and preserved asset bytes to one returned candidate; original working and immutable files remain unchanged.",
         "B28": "Bind removed asset, retained asset bytes and body to the same returned candidate; read-only complete file inventory required."
       }
+    },
+    "b12_title_revision": {
+      "version": "3.2",
+      "revised_at": "2026-11-03",
+      "parent_dataset_id": "creatoros-trace-benchmark-v3.1-20261103",
+      "parent_definition_sha256": "69a766951ed966d83693445e245e5467e6b82dde85a400ca16e4e6fb29fc3340",
+      "original_reports_and_scores_unchanged": true,
+      "reason": "B12 did not require a verbatim title; accept the explicit suffix 辨析 without relaxing topic pairs, status, ownership, count, or old rows."
     }
   },
   "scoring_policy": {
@@ -7806,8 +7815,8 @@
   },
   "scoring_protocol": "case-rubrics-v3",
   "evaluation_revision": {
-    "id": "oracle-v31-20261103",
-    "grader_version": "benchmark-v3.1-case-outcomes",
+    "id": "oracle-v32-b12-20261103",
+    "grader_version": "benchmark-v3.2-b12-title",
     "skill_evidence_version": "skill-working-inventory-v1",
     "comparison_policy": "Both baseline and changed-product batches must freeze these exact case bytes and evaluator source bytes; product sources are independently frozen."
   }

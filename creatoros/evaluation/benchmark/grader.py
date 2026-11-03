@@ -13,7 +13,7 @@ import re
 
 from .skill_evidence import VERSION as SKILL_EVIDENCE_VERSION
 
-VERSION = "benchmark-v3.1-case-outcomes"
+VERSION = "benchmark-v3.2-b12-title"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -404,11 +404,27 @@ def _expectation(expectation, evidence):
             if isinstance(item, list):
                 return [normalize(child) for child in item]
             return item
+        # Opt-in per expectation; never relax matching for other rows or fields.
+        suffixes = exp.get("optional_title_suffixes", [])
+        if (not isinstance(suffixes, list)
+                or any(not isinstance(suffix, str) or not normalize(suffix) for suffix in suffixes)
+                or (suffixes and (table != "topics" or any(not isinstance(pattern.get("title"), str)
+                                                         or not normalize(pattern["title"]) for pattern in value)))):
+            raise MissingEvidence("Optional topic title suffixes must be explicit nonempty strings")
+
+        def row_matches(row, pattern):
+            actual, expected = normalize(row), normalize(pattern)
+            if not suffixes:
+                return _contains_arguments(actual, expected)
+            title = expected.pop("title")
+            valid_titles = {title, *(title + normalize(suffix) for suffix in suffixes)}
+            return isinstance(actual.get("title"), str) and actual["title"] in valid_titles and _contains_arguments(actual, expected)
+
         # Bipartite matching avoids reusing one row for two overlapping patterns.
         matched = {}
         def assign(index, seen):
             for number, row in enumerate(added):
-                if number not in seen and _contains_arguments(normalize(row), normalize(value[index])):
+                if number not in seen and row_matches(row, value[index]):
                     seen.add(number)
                     if number not in matched or assign(matched[number], seen):
                         matched[number] = index
