@@ -12,13 +12,23 @@ from .image import (CHECKPOINT, RESPONSE, SUBMISSION, Artifact, Checkpoint, Deli
                     accepted_submission, ingest, load_checkpoint, skill_refs)
 from .image_assets import ImageAssetStore
 from .image_materials import accept_delivery_value, accept_response, prepare_materials
+from .image_submission_check import inspect_submission
+
+
+class ImageSubmissionUnconfirmed(ValueError):
+    """Saved submission or intent cannot safely authorize another turn."""
 
 
 def recover_checkpoint(directory: Path, digest: str, generated_root: Path | None = None) -> Checkpoint | None:
     if not re.fullmatch(r"attempt-\d{3}", directory.name):
         return None
     for previous in sorted(directory.parent.glob("attempt-[0-9][0-9][0-9]"), reverse=True):
-        if previous.name >= directory.name or not (previous / CHECKPOINT).exists():
+        if previous.name >= directory.name:
+            continue
+        evidence = inspect_submission(previous)
+        if evidence["status"] == "unconfirmed":
+            raise ImageSubmissionUnconfirmed("图片提交结果待核对；原 Attempt 回执和图片已保留，不会启动新回合。")
+        if not (previous / CHECKPOINT).exists():
             continue
         value = load_checkpoint(previous, digest)
         if value is None:

@@ -79,6 +79,21 @@ class NativeDeliveryRecoveryTests(unittest.TestCase):
         (directory / "error.txt").write_text("historical failure: outside image path", encoding="utf-8")
         (directory / "production_progress.json").write_text('{"status":"failed"}', encoding="utf-8")
 
+    def test_orphan_receipt_without_checkpoint_blocks_fallback_and_preserves_files(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed
+        from creatoros.delivery.image import SUBMISSION
+        older, checkpoint = self.attempt()
+        atomic_json(older / CHECKPOINT, checkpoint)
+        newer = older.parent / "attempt-002"
+        newer.mkdir()
+        (newer / SUBMISSION).write_text('{"partial":', encoding="utf-8")
+        next_attempt = older.parent / "attempt-003"
+        next_attempt.mkdir()
+        before = file_hashes(older.parent)
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(next_attempt, checkpoint.input_digest, self.generated)
+        self.assertEqual(file_hashes(older.parent), before)
+
     def test_work_copy_requires_same_thread_native_bytes_and_keeps_raw_index(self):
         directory, checkpoint, original, _ = self.copied_delivery()
         path = directory / "work" / "delivery.json"

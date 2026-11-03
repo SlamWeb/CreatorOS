@@ -53,6 +53,21 @@ class ArtifactSubmissionTests(unittest.TestCase):
         second_handler.turn_id = "turn-2"
         self.assertEqual(second_handler.submit(self.payload(path)), first)
 
+    def test_read_only_inspection_requires_matching_completed_turn(self):
+        from creatoros.delivery.image_submission_check import inspect_submission
+        from creatoros.integrations.worker_protocol import record_thread, record_turn
+        _, path = self.receive("first", (10, 80, 120))
+        self.handler().submit(self.payload(path))
+        record_thread(self.directory, self.checkpoint.thread_id)
+        record_turn(self.directory, "other-turn", "production", "completed")
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+        record_turn(self.directory, "turn-1", "production", "completed")
+        before = {p: p.read_bytes() for p in self.directory.rglob("*") if p.is_file()}
+        inspection = inspect_submission(self.directory)
+        self.assertEqual(inspection["status"], "completed_evidence")
+        self.assertTrue(inspection["receipt_matches_checkpoint"])
+        self.assertEqual(before, {p: p.read_bytes() for p in self.directory.rglob("*") if p.is_file()})
+
     def test_different_payload_cannot_replace_accepted_delivery(self):
         _, path = self.receive("first", (10, 80, 120))
         handler = self.handler()
@@ -98,10 +113,150 @@ class ArtifactSubmissionTests(unittest.TestCase):
         self.assertFalse(first["accepted"])
         self.assertFalse(second["accepted"])
         self.assertIsNone(self.checkpoint.submission_sha256)
-        self.assertTrue(handler.submit(self.payload(path))["accepted"])
+        self.assertTrue(handler.submit(self.payload(path)).get("outcome_unknown"))
+
+    def test_partial_receipt_write_latches_and_never_overwrites(self):
+        _, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        from creatoros.integrations.visual_production import atomic_json as real_atomic_json
+        def fail_final(target, checkpoint):
+            if checkpoint.submission_sha256:
+                raise OSError("failure after receipt saved")
+            return real_atomic_json(target, checkpoint)
+        with patch("creatoros.integrations.visual_production.atomic_json", side_effect=fail_final):
+            first = handler.submit(self.payload(path))
+        self.assertTrue(first.get("outcome_unknown"))
+        original = (self.directory / SUBMISSION).read_bytes()
+        second = handler.submit({**self.payload(path), "title": "different"})
+        self.assertTrue(second.get("outcome_unknown"))
+        self.assertEqual((self.directory / SUBMISSION).read_bytes(), original)
+        self.assertTrue(path.exists())
+
+    def test_final_checkpoint_write_then_error_latches_unknown(self):
+        _, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        from creatoros.integrations.visual_production import atomic_json as real_atomic_json
+        def commit_then_fail(target, checkpoint):
+            real_atomic_json(target, checkpoint)
+            if checkpoint.submission_sha256:
+                raise OSError("write completed but response unknown")
+        with patch("creatoros.integrations.visual_production.atomic_json", side_effect=commit_then_fail):
+            first = handler.submit(self.payload(path))
+        self.assertTrue(first.get("outcome_unknown"))
+        original = (self.directory / SUBMISSION).read_bytes()
+        self.assertTrue(handler.submit({**self.payload(path), "title": "different"}).get("outcome_unknown"))
+        self.assertEqual((self.directory / SUBMISSION).read_bytes(), original)
+
+    def test_receipt_write_then_error_blocks_new_handler_and_preserves_evidence(self):
+        from creatoros.integrations.artifact_submission import atomic_write_text
+        from creatoros.delivery.image_submission_check import inspect_submission
+        _, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        def written_then_error(target, raw):
+            atomic_write_text(target, raw)
+            raise OSError("receipt replaced but result lost")
+        with patch("creatoros.integrations.artifact_submission.atomic_write_text", side_effect=written_then_error):
+            self.assertTrue(handler.submit(self.payload(path)).get("outcome_unknown"))
+        original = (self.directory / SUBMISSION).read_bytes()
+        self.assertTrue(self.handler().submit({**self.payload(path), "title": "different"}).get("outcome_unknown"))
+        before = {p: p.read_bytes() for p in self.directory.rglob("*") if p.is_file()}
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+        self.assertEqual(before, {p: p.read_bytes() for p in self.directory.rglob("*") if p.is_file()})
+        self.assertEqual((self.directory / SUBMISSION).read_bytes(), original)
+        self.assertTrue(path.is_file())
+
+    def test_partial_intent_write_blocks_retry(self):
+        from creatoros.delivery.image import SUBMISSION_INTENT
+        from creatoros.delivery.image_submission_check import inspect_submission
+        _, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        with patch("creatoros.integrations.artifact_submission.os.fsync", side_effect=OSError("fsync failed")):
+            self.assertTrue(handler.submit(self.payload(path)).get("outcome_unknown"))
+        self.assertTrue((self.directory / SUBMISSION_INTENT).exists())
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+        self.assertTrue(self.handler().submit(self.payload(path)).get("outcome_unknown"))
+        self.assertTrue(path.is_file())
+
+    def test_partial_receipt_bytes_are_never_replaced_after_restart(self):
+        from creatoros.delivery.image_submission_check import inspect_submission
+        _, path = self.receive("first", (10, 80, 120))
+        def partial_then_error(target, raw):
+            target.write_text(raw[:30], encoding="utf-8")
+            raise OSError("partial receipt")
+        with patch("creatoros.integrations.artifact_submission.atomic_write_text", side_effect=partial_then_error):
+            self.assertTrue(self.handler().submit(self.payload(path)).get("outcome_unknown"))
+        before = (self.directory / SUBMISSION).read_bytes()
+        self.assertEqual(inspect_submission(self.directory)["status"], "unconfirmed")
+        self.assertTrue(self.handler().submit(self.payload(path)).get("outcome_unknown"))
+        self.assertEqual((self.directory / SUBMISSION).read_bytes(), before)
+        self.assertTrue(path.is_file())
+
+    def test_validation_does_not_remove_another_owner_intent(self):
+        from creatoros.delivery.image import SUBMISSION_INTENT
+        from creatoros.integrations.artifact_submission import FileDelivery
+        _, path = self.receive("first", (10, 80, 120))
+        handler = self.handler()
+        marker = self.directory / SUBMISSION_INTENT
+        def race_then_reject(*args, **kwargs):
+            marker.write_text("other owner", encoding="utf-8")
+            raise ValueError("invalid")
+        with patch.object(FileDelivery, "model_validate", side_effect=race_then_reject):
+            self.assertFalse(handler.submit(self.payload(path))["accepted"])
+        self.assertEqual(marker.read_text(encoding="utf-8"), "other owner")
 
 
 class SubmissionExecutionTests(unittest.TestCase):
+    def test_uncertain_submission_interrupts_turn_without_repair(self):
+        from openai_codex.generated import v2_all as sdk_types
+        from openai_codex.models import Notification
+        from creatoros.integrations.codex import CodexSdkProducer, CodexProducerError
+        from creatoros.integrations.artifact_submission import atomic_write_text
+        from tests.smoke_native_production import image, write_skill
+        with TemporaryDirectory(prefix="submission-unknown-") as temporary:
+            root = Path(temporary)
+            skill, generated = root / "skill", root / "generated"
+            write_skill(skill, "submit-fixture", "Test receipt")
+            image_path = generated / "submit-thread" / "image.png"
+            payload = {"title": "Title", "text": "Caption", "hashtags": [], "complete": True,
+                       "artifacts": [{"order": 1, "source_image_path": str(image_path),
+                                      "image_prompt": "A scene", "reference_ids": [], "content": "text"}]}
+            calls, interrupts, replies = [], [], []
+            @asynccontextmanager
+            async def client(deadline, cancel_event, dynamic_tools):
+                handler = dynamic_tools[0].handler
+                async def start(*args, **options):
+                    async def turn(inputs, **controls):
+                        calls.append(1)
+                        async def stream():
+                            image(image_path)
+                            yield Notification("item/completed", sdk_types.ItemCompletedNotification.model_validate({
+                                "threadId": "submit-thread", "turnId": "turn-1", "completedAtMs": 1,
+                                "item": {"type": "imageGeneration", "id": "image-1", "status": "completed",
+                                         "result": "", "savedPath": str(image_path)}}))
+                            replies.append(await handler(payload))
+                            yield Notification("turn/completed", sdk_types.TurnCompletedNotification.model_validate({
+                                "threadId": "submit-thread", "turn": {"id": "turn-1", "items": [], "status": "completed"}}))
+                        async def interrupt():
+                            interrupts.append(1)
+                        return SimpleNamespace(id="turn-1", thread_id="submit-thread", stream=stream, interrupt=interrupt)
+                    return SimpleNamespace(id="submit-thread", turn=turn)
+                yield SimpleNamespace(thread_start=start, thread_resume=start)
+            def written_then_error(target, raw):
+                atomic_write_text(target, raw)
+                raise OSError("lost receipt acknowledgment")
+            producer = CodexSdkProducer(project_root=root, generated_images_root=generated, timeout_seconds=10)
+            with patch("creatoros.integrations.native_production._production_client", client), patch(
+                    "creatoros.integrations.artifact_submission.atomic_write_text", side_effect=written_then_error):
+                with self.assertRaises(CodexProducerError) as failure:
+                    producer.produce_to(directory=root / "run" / "revision-001" / "attempt-001",
+                        pack_id="pack", creator_id="creator", series_id="series", topic_id="topic", topic_title="Topic",
+                        skill_directory=skill, skill_name="submit-fixture", production_protocol="native-v1")
+            self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
+            self.assertTrue(replies[0]["outcome_unknown"])
+            self.assertEqual((len(calls), len(interrupts)), (1, 1))
+            self.assertTrue(image_path.is_file())
+            self.assertTrue((root / "run" / "revision-001" / "attempt-001" / SUBMISSION).is_file())
+
     def test_same_turn_correction_and_interrupted_receipt_resume_without_regeneration(self):
         from openai_codex.generated import v2_all as sdk_types
         from openai_codex.models import Notification
@@ -156,7 +311,14 @@ class SubmissionExecutionTests(unittest.TestCase):
             with patch("creatoros.integrations.native_production._production_client", client):
                 with self.assertRaises(CodexProducerError):
                     produce(1)
-                result = produce(2)
+                with self.assertRaises(CodexProducerError) as failure:
+                    produce(2)
+                self.assertEqual(failure.exception.error_type, "image_delivery_unconfirmed")
+                self.assertEqual(len(calls), 1)
+                # Model an existing legacy attempt that predates intent markers;
+                # its supported receipt-only recovery behavior remains unchanged.
+                (root / "run" / "revision-001" / "attempt-001" / "artifact-submission-intent.json").unlink()
+                result = produce(3)
             self.assertEqual(len(created), 1)
             self.assertEqual([r["accepted"] for r in replies], [False, True, True])
             self.assertEqual(replies[1]["receipt_id"], replies[2]["receipt_id"])

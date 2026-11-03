@@ -4,12 +4,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from .atomic_file import atomic_write_text
 from creatoros.delivery.image_materials import FileDelivery, accept_delivery_value
 
-from creatoros.delivery.image import SUBMISSION, accepted_submission
+from creatoros.delivery.image import SUBMISSION, SUBMISSION_INTENT, accepted_submission
 MAX_FAILURES = 3
 RECEIVED_ONLY = "received:only"
 
@@ -26,6 +27,7 @@ class ImageSubmission:
         self.turn_id = None
         self._lock = asyncio.Lock()
         self._inflight_images = set()
+        self._outcome_unknown = False
 
     def observe_image_event(self, event):
         """Track observed generation events; a pending image makes the alias ambiguous."""
@@ -49,6 +51,8 @@ class ImageSubmission:
         # SDK server requests and event consumption use separate queues. Give
         # already emitted image completion events a bounded opportunity to drain.
         async with self._lock:
+            if self._outcome_unknown:
+                return self._unknown_result()
             if not isinstance(arguments, dict):
                 return {"accepted": False, "retryable": True, "error": "提交参数必须为JSON对象。"}
             from creatoros.delivery.image_assets import ImageAssetStore
@@ -70,6 +74,8 @@ class ImageSubmission:
             return self.submit(arguments)
 
     def submit(self, arguments):
+        if self._outcome_unknown:
+            return self._unknown_result()
         before = self.checkpoint.model_copy(deep=True)
         try:
             return self._submit(arguments)
@@ -78,8 +84,13 @@ class ImageSubmission:
             # in-memory acceptance that was not durably checkpointed.
             for field in type(before).model_fields:
                 setattr(self.checkpoint, field, getattr(before, field))
-            return {"accepted": False, "retryable": False,
-                    "error": "宿主保存交付失败，已有图片保留；请停止，不要重新生图。"}
+            self._outcome_unknown = True
+            return self._unknown_result()
+
+    @staticmethod
+    def _unknown_result():
+        return {"accepted": False, "retryable": False, "outcome_unknown": True,
+                "error": "图片提交结果待核对，原回执和图片已保留；请查看原 Attempt，不要重新生图。"}
 
     def _submit(self, arguments):
         from creatoros.delivery.image import CHECKPOINT, ingest, verified_pages
@@ -95,6 +106,11 @@ class ImageSubmission:
                 return {"accepted": False, "retryable": False,
                         "error": "本次交付已确认，不能用不同清单覆盖；原交付已保留。"}
             return saved["receipt"]
+        intent = self.directory / SUBMISSION_INTENT
+        receipt_file = self.directory / SUBMISSION
+        if (intent.exists() or intent.is_symlink() or receipt_file.exists() or receipt_file.is_symlink()):
+            self._outcome_unknown = True
+            return self._unknown_result()
         if checkpoint.submission_failures >= MAX_FAILURES:
             return {"accepted": False, "retryable": False, "error": "交付修正已达3次上限，已有图片保留。"}
         from creatoros.delivery.image_assets import ImageAssetStore
@@ -120,12 +136,33 @@ class ImageSubmission:
                     "received_images": [{"source_image_path": item.source_image_path,
                                          "image_prompt": item.revised_prompt} for item in assets],
                     "instruction": "清单只包含目前已接收的图片；若仍有生成或接收未完成，请等待，不要重新生图。"}
+        intent_owned = False
         try:
             value = FileDelivery.model_validate(arguments)
+            # Exclusive marker is durable before any delivery/index mutations.
+            # A crash or partially successful write leaves evidence to stop recovery.
+            try:
+                with intent.open("x", encoding="utf-8") as stream:
+                    intent_owned = True
+                    json.dump({"protocol": "image-submission-intent-v1", "thread_id": checkpoint.thread_id,
+                               "turn_id": self.turn_id, "input_digest": checkpoint.input_digest,
+                               "payload_sha256": payload_hash}, stream, ensure_ascii=False)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except FileExistsError:
+                self._outcome_unknown = True
+                return self._unknown_result()
             accept_delivery_value(self.directory, checkpoint, self.generated_root, self.bundle,
                                   value.model_dump())
             ingest(self.directory, checkpoint, self.generated_root)
         except ValueError as error:
+            # A rejected, validated submission has no accepted receipt. Allow
+            # existing correction semantics only after removing our own intent.
+            if intent_owned:
+                intent.unlink()
+            elif intent.exists() or intent.is_symlink() or receipt_file.exists() or receipt_file.is_symlink():
+                self._outcome_unknown = True
+                return self._unknown_result()
             checkpoint.submission_failures += 1
             atomic_json(self.directory / CHECKPOINT, checkpoint)
             from creatoros.delivery.image_assets import ImageAssetStore
