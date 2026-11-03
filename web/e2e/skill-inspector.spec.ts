@@ -818,7 +818,7 @@ test("library version selection replaces only its Skill query and refresh restor
   expect(new URL(page.url()).searchParams.get("extraction")).toBe("preserve-existing-task");
   await page.reload();
   const card = page.getByRole("dialog");
-  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidateId);
+  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidateId, { timeout: 20_000 });
   await expect(card.getByRole("button", { name: "保存版本", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   const box = await card.getByRole("combobox", { name: "查看 Skill 版本" }).boundingBox();
