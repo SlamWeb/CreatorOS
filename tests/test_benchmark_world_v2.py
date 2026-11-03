@@ -39,7 +39,19 @@ def isolated_worker(directory):
         expected = {"creator_a", "creator_b", "series_a", "series_b", "topic_a", "topic_b", "skill_a", "skill_b", "shared_skill", "video_skill", "run_a", "run_b", "collection_a", "foreign_collection", "bgm_material", "artifact_topic"}
         assert expected <= world.variables.keys(), expected - world.variables.keys()
         before = world.snapshot()
-        assert len(before["database"]) == 30, sorted(before["database"])
+        expected_tables = {
+            "agent_plan_steps", "agent_plans", "alembic_version", "content_attempts",
+            "content_revisions", "content_run_events", "content_runs", "creator_skill_refs",
+            "creators", "managed_materials", "manual_publications", "media_collections",
+            "operation_events", "pending_operations", "production_queue_history",
+            "production_queue_items", "production_tasks", "publication_accounts",
+            "publication_feedback_settings", "publication_feedback_states", "publication_metrics",
+            "publication_requests", "series", "series_skill_refs", "skill_calibrations",
+            "skill_iterations", "skill_switch_intents", "topic_removals",
+            "topic_research_queue_items", "topics", "write_receipts",
+        }
+        assert set(before["database"]) == expected_tables, sorted(before["database"])
+        assert before["database"]["production_queue_history"] == []
         assert before["database"]["skill_switch_intents"] == []
         assert all((world_root / name).resolve().is_relative_to(world_root) for name in before["files"])
         assert all((world_root / name).is_file() for name in before["files"])
@@ -92,7 +104,8 @@ def isolated_worker(directory):
                 assert denied.status_code == 403, (foreign, denied.status_code, denied.text)
                 assert denied.json()["error"]["code"] in {"agent_scope_rejected", "skill_scope_rejected"}
             during = world.snapshot()  # Windows exclusive executor lock must not break snapshots.
-            assert len(during["database"]) == 30
+            assert set(during["database"]) == expected_tables
+            assert during["database"]["production_queue_history"] == []
             assert during["database"]["skill_switch_intents"] == []
             assert during["database"]["content_attempts"] == initial_attempts
 
