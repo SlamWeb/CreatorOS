@@ -12,7 +12,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import func, select
 
 from creatoros.storage import ContentRun, MediaCollection, ProductionTask, Topic, TopicRemoval, WriteReceipt
-from creatoros.storage.models import ManagedMaterial
+from creatoros.storage.models import ManagedMaterial, ProductionTaskHistory
 from .models import RunModel, SkillOverrides
 from .service import ContentRunError
 from .submission import ProductionSubmission
@@ -356,15 +356,37 @@ class ProductionTaskService:
                 if not topic or session.get(TopicRemoval, topic_id):
                     raise ContentRunError("选题已移除。", code="not_found", status_code=404)
                 try:
-                    task.dependency_json = self.stages.dependencies(session, topic_id,
+                    latest = self.stages.dependencies(session, topic_id,
                         [dependency["task_id"] for dependency in task.dependency_json])
+                    if latest != task.dependency_json:
+                        raise ValueError("等待的图片版本已改变，请核对原任务并重新授权。")
                 except ValueError as error:
                     raise ContentRunError(str(error), code="invalid_task", status_code=422) from error
+                if task.last_error:
+                    session.add(ProductionTaskHistory(task_id=task.id, status=task.dispatch_state,
+                        last_error=task.last_error, dependencies=task.dependency_json))
                 task.dispatch_state, task.last_error = "waiting", None
             elif action != "remove":
                 raise ValueError("Unknown stage action")
         self.executor._wake.set()
         return self._list(topic_id) if action == "remove" else self._list(topic_id, [task_id])
+
+    def history(self, topic_id, task_id):
+        with self.database.session() as session:
+            topic = session.get(Topic, topic_id)
+            task = session.get(ProductionTask, task_id)
+            if not topic or session.get(TopicRemoval, topic_id) or not task or task.topic_id != topic_id:
+                raise ContentRunError("制作任务不存在。", code="not_found", status_code=404)
+            if not topic.series.is_active or not topic.series.creator_id or not topic.series.creator or not topic.series.creator.is_active:
+                raise ContentRunError("账号或栏目未启用。", code="scope_conflict", status_code=403)
+            frozen = task.definition_json
+            if (not isinstance(frozen, dict) or frozen.get("creator_id") != topic.series.creator_id
+                    or frozen.get("series_id") != topic.series_id):
+                raise ContentRunError("制作任务的冻结归属与当前账号不一致。", code="scope_conflict", status_code=403)
+            rows = session.scalars(select(ProductionTaskHistory).where(ProductionTaskHistory.task_id == task_id)
+                                   .order_by(ProductionTaskHistory.id))
+            return {"task_id": task_id, "history": [dict(status=row.status, last_error=row.last_error,
+                    dependencies=row.dependencies, recorded_at=row.recorded_at) for row in rows]}
 
     def _list(self, topic_id, identifiers=None):
         with self.database.session() as session:

@@ -1029,6 +1029,8 @@ class ContentRunService:
             attempt_id = str(uuid4())
             input_data = ContentRunInput.model_validate(revision.production_input_json)
             snapshot = content_run.input_snapshot_json
+            if input_data.task_id != content_run.task_id or snapshot.get("task_id") != content_run.task_id:
+                raise ContentRunError("任务与运行冻结标识不一致，请核对原记录。", code="scope_conflict", status_code=403)
             if (input_data.creator_id, input_data.series_id, input_data.topic_id) != (
                     snapshot['creator_id'], snapshot['series_id'], snapshot['topic_id']):
                 raise ContentRunError("当前版本与运行冻结归属不一致，请核对原记录。", code="scope_conflict", status_code=403)

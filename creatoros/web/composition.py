@@ -9,10 +9,12 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
+from creatoros.storage.models import ProductionTask, ProductionTaskHistory, ProductionQueueItem, ProductionQueueHistory
 
 from creatoros.integrations.producer_skills import ProducerSkillCatalog
 from creatoros.storage import (
@@ -132,6 +134,23 @@ class SeriesCompositionService:
                     raise CompositionError("账号不存在。", code="not_found", status_code=404)
                 if not creator.is_active:
                     raise CompositionError("账号已停用，无法归属栏目。", status_code=409, code="creator_inactive")
+            if series.creator_id != creator_id:
+                now = datetime.now(timezone.utc)
+                message = "栏目归属已变化，请核对后明确恢复。"
+                items = session.scalars(select(ProductionQueueItem).join(ContentRun).join(Topic).where(
+                    Topic.series_id == series_id, ProductionQueueItem.status == "pending"))
+                for item in items:
+                    if item.last_error is not None:
+                        session.add(ProductionQueueHistory(queue_item_id=item.id, expected_version=item.expected_version,
+                            status=item.status, submitted_at=item.submitted_at, started_at=item.started_at,
+                            completed_at=item.completed_at, last_error=item.last_error))
+                    item.status, item.last_error, item.completed_at = "needs_attention", message, now
+                tasks = session.scalars(select(ProductionTask).join(Topic).where(
+                    Topic.series_id == series_id, ProductionTask.dispatch_state == "waiting"))
+                for task in tasks:
+                    session.add(ProductionTaskHistory(task_id=task.id, status=task.dispatch_state,
+                        last_error=task.last_error, recorded_at=now, dependencies=task.dependency_json))
+                    task.dispatch_state, task.last_error = "needs_attention", message
             series.creator_id = creator_id
             session.flush()
             return series

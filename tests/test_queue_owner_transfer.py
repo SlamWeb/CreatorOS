@@ -46,9 +46,9 @@ class QueueOwnerTransferTests(TestCase):
             self.assertFalse(producer.release.is_set())
             producer.release.set()
             fixtures.wait(lambda: queue.snapshot(old.id)['status'] == 'needs_attention', timeout=15)
-            self.assertIn('账号不一致', queue.snapshot(old.id)['last_error'])
+            self.assertIn('归属已变化', queue.snapshot(old.id)['last_error'])
             self.assertEqual(producer.calls, ['topic-0'])
-            self.assertEqual(service.get(first.id).status.value, 'awaiting_approval')
+            fixtures.wait(lambda: service.get(first.id).status.value == 'awaiting_approval', timeout=15)
             self.assertEqual(service.get(old.id).status.value, 'queued')
             self.assertFalse(service.repository.list_attempts(service.get_active_revision(old.id).id))
             new = service.create('topic-2')
@@ -65,7 +65,7 @@ class QueueOwnerTransferTests(TestCase):
             self.assertEqual(producer.calls, ['topic-0', 'topic-2', 'topic-1'])
             history = queue.snapshot(old.id)['history']
             self.assertEqual(history[0]['last_error'], 'original failure evidence')
-            self.assertIn('账号不一致', history[1]['last_error'])
+            self.assertIn('归属已变化', history[1]['last_error'])
 
     def test_revision_owner_mismatch_rejected_before_attempt(self):
         producer = fixtures.Producer()
@@ -131,3 +131,121 @@ class QueueOwnerTransferTests(TestCase):
             fixtures.wait(lambda: not executor.is_submitted(run.id), timeout=15)
             self.assertEqual(service.get(run.id).status.value, 'awaiting_approval')
             self.assertEqual(producer.calls, ['topic-0'])
+
+    def test_roundtrip_holds_unclaimed_queue_and_staged_task_and_rolls_back_on_history_failure(self):
+        from sqlalchemy import event, select
+        from creatoros.web.composition import SeriesCompositionService
+        from creatoros.storage import ProductionTask
+        from creatoros.storage.models import ProductionTaskHistory, ProductionQueueHistory, ProductionQueueItem, Series, WriteReceipt
+        producer = fixtures.Producer()
+        service = self.service(producer)
+        ContentRepository(self.database).create_creator(creator_id='other', display_name='Fixture B', platform=CreatorPlatform.XIAOHONGSHU)
+        executor = self.executor(service)
+        app = create_app(database=self.database, run_service=service, run_executor=executor)
+        run = service.create('topic-0')
+        queue = ProductionQueue(service)
+        item = queue.enqueue(run.id, run.version)
+        definition = {'creator_id': 'creator', 'series_id': 'series', 'execution_spec': {}}
+        with self.database.session() as session:
+            session.get(ProductionQueueItem, item.id).last_error = 'old queue error'
+            session.add(ProductionTask(id='staged-fixture', topic_id='topic-1', title='Waiting', position=0,
+                create_request_id='fixture', kind='video', definition_json=definition,
+                dependency_json=[], dispatch_state='waiting', last_error='old staged error'))
+        def fail(*_):
+            raise RuntimeError('injected history failure')
+        event.listen(ProductionTaskHistory, 'before_insert', fail)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'injected history failure'):
+                with app.state.production_tasks.submissions.coordinate_ownership_change():
+                    SeriesCompositionService(self.database, None).assign_series('series', creator_id='other', expected_revision=1,
+                                                       request_id='rollback-transfer', origin='test')
+        finally:
+            event.remove(ProductionTaskHistory, 'before_insert', fail)
+        with self.database.session() as session:
+            self.assertEqual(session.get(Series, 'series').creator_id, 'creator')
+            self.assertEqual(session.get(ProductionQueueItem, item.id).status, 'pending')
+            self.assertEqual(session.get(ProductionTask, 'staged-fixture').last_error, 'old staged error')
+            self.assertEqual(list(session.scalars(select(ProductionTaskHistory))), [])
+            self.assertEqual(list(session.scalars(select(ProductionQueueHistory))), [])
+            self.assertIsNone(session.get(WriteReceipt, 'rollback-transfer'))
+        start_dispatcher = executor.start
+        with patch.object(executor, 'start'), serve(app) as base, httpx.Client(base_url=base, trust_env=False) as client:
+            self.assign(client, 'other', 1, 'roundtrip-out')
+            self.assertEqual(client.get('/api/topics/topic-1/production-tasks/staged-fixture/history').status_code, 403)
+            self.assign(client, 'creator', 2, 'roundtrip-back')
+            response = client.get('/api/topics/topic-1/production-tasks/staged-fixture/history')
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()['history'][0]['last_error'], 'old staged error')
+            self.assertEqual(queue.snapshot(run.id)['status'], 'needs_attention')
+            self.assertEqual(queue.snapshot(run.id)['history'][0]['last_error'], 'old queue error')
+            with self.database.session() as session:
+                task = session.get(ProductionTask, 'staged-fixture')
+                self.assertEqual(task.definition_json, definition)
+                self.assertEqual(task.dispatch_state, 'needs_attention')
+            scanned = Event()
+            next_pending = executor.queue.next_pending
+            def scan(**kwargs):
+                result = next_pending(**kwargs)
+                scanned.set()
+                return result
+            with patch.object(executor.queue, 'next_pending', side_effect=scan):
+                start_dispatcher()
+                self.assertTrue(scanned.wait(10))
+                executor.shutdown()
+            self.assertEqual(producer.calls, [])
+            self.assertEqual(queue.snapshot(run.id)['status'], 'needs_attention')
+            resumed = client.post('/api/topics/topic-1/production-tasks/staged-fixture/resume', json={})
+            self.assertEqual(resumed.status_code, 200, resumed.text)
+            history = client.get('/api/topics/topic-1/production-tasks/staged-fixture/history').json()['history']
+            self.assertEqual([row['last_error'] for row in history], ['old staged error', '栏目归属已变化，请核对后明确恢复。'])
+            self.assertEqual(producer.calls, [])
+
+    def test_task_identifiers_must_match_before_attempt(self):
+        from creatoros.storage import ProductionTask, ContentRun
+        producer = fixtures.Producer()
+        service = self.service(producer)
+        run = service.create('topic-0')
+        revision = service.get_active_revision(run.id)
+        with self.database.session() as session:
+            session.add(ProductionTask(id='fixture-task', topic_id='topic-0', title='Task', position=0,
+                create_request_id='fixture', definition_json={}, dependency_json=[], dispatch_state='dispatched'))
+            session.flush()
+            row = session.get(ContentRun, run.id)
+            row.task_id = 'fixture-task'
+            row.input_snapshot_json = {**row.input_snapshot_json, 'task_id': 'fixture-task'}
+        with service.guard:
+            with self.assertRaisesRegex(Exception, '标识不一致'):
+                service.claim(run.id, owner_id='local')
+        with self.database.session() as session:
+            rev = session.get(ContentRevision, revision.id)
+            rev.production_input_json = {**rev.production_input_json, 'task_id': 'fixture-task'}
+            row = session.get(ContentRun, run.id)
+            row.input_snapshot_json = {k: v for k, v in row.input_snapshot_json.items() if k != 'task_id'}
+        with service.guard:
+            with self.assertRaisesRegex(Exception, '标识不一致'):
+                service.claim(run.id, owner_id='local')
+        self.assertFalse(service.repository.list_attempts(revision.id))
+        self.assertEqual(producer.calls, [])
+
+
+    def test_0027_upgrade_preserves_existing_task_and_refuses_history_loss(self):
+        from alembic import command
+        from sqlalchemy import text
+        from creatoros.storage import ProductionTask
+        from creatoros.storage.models import ProductionTaskHistory
+        from tests.test_topic_edit_migration import config
+        command.downgrade(config(self.url), '20261103_0027')
+        with self.database.session() as session:
+            session.add(ProductionTask(id='migration-task', topic_id='topic-0', title='Old', position=0,
+                create_request_id='old', definition_json={'creator_id': 'creator', 'series_id': 'series'},
+                dependency_json=[], dispatch_state='waiting', last_error='saved error'))
+        with self.database.engine.connect() as conn:
+            old = conn.execute(text("SELECT * FROM production_tasks WHERE id='migration-task'")).one()
+        command.upgrade(config(self.url), 'head')
+        with self.database.engine.connect() as conn:
+            self.assertEqual(conn.execute(text("SELECT * FROM production_tasks WHERE id='migration-task'")).one(), old)
+        with self.database.session() as session:
+            session.add(ProductionTaskHistory(task_id='migration-task', status='waiting',
+                last_error='saved error', dependencies=[]))
+        with self.assertRaisesRegex(RuntimeError, '阶段任务历史证据'):
+            command.downgrade(config(self.url), '20261103_0027')

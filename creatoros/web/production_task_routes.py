@@ -48,6 +48,10 @@ def production_task_routes(service):
     def resume(topic_id: str, task_id: str):
         return service.control(topic_id, task_id, "resume")
 
+    @router.get("/{task_id}/history")
+    def history(topic_id: str, task_id: str):
+        return JSONResponse(jsonable_encoder(service.history(topic_id, task_id)), headers={"Cache-Control": "no-store"})
+
     @router.post("/{task_id}/cancel")
     def cancel(topic_id: str, task_id: str):
         return service.control(topic_id, task_id, "cancel")
