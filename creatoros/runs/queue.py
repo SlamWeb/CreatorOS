@@ -41,10 +41,12 @@ class ProductionQueue:
                 raise ContentRunError("外部导入作品不进入生产执行器。", code="external_import_readonly")
             if session.get(TopicRemoval, run.topic_id) is not None:
                 raise ContentRunError("选题已移除，不能启动或恢复生产。", code="topic_removed")
+            # Explicit recovery also must not reauthorize an old account's Run.
+            # Do this before clearing or archiving any prior queue error.
+            self.service._assert_existing_scope(session, run.topic_id, run)
             if initial_only:
                 if not isinstance(run.idempotency_key, str) or not run.idempotency_key.strip():
                     raise ContentRunError("运行标识不可用，请核对原任务。", code="invalid_request", status_code=422)
-                self.service._assert_existing_scope(session, run.topic_id, run)
                 if creator_id is not None and run.input_snapshot_json.get('creator_id') != creator_id:
                     raise ContentRunError("任务不属于当前账号。", code="scope_conflict", status_code=403)
                 # Any prior queue row is the original authorization, including

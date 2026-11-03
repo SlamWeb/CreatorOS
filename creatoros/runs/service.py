@@ -990,6 +990,7 @@ class ContentRunService:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
             self._assert_current_run(session, content_run)
+            self._assert_existing_scope(session, content_run.topic_id, content_run)
             self._assert_no_active_iteration(session, content_run.topic_id)
             active_topic_run = session.scalar(select(ContentRun.id).where(
                 ContentRun.topic_id == content_run.topic_id,
@@ -1027,6 +1028,10 @@ class ContentRunService:
             number = repository.next_attempt_number(revision.id)
             attempt_id = str(uuid4())
             input_data = ContentRunInput.model_validate(revision.production_input_json)
+            snapshot = content_run.input_snapshot_json
+            if (input_data.creator_id, input_data.series_id, input_data.topic_id) != (
+                    snapshot['creator_id'], snapshot['series_id'], snapshot['topic_id']):
+                raise ContentRunError("当前版本与运行冻结归属不一致，请核对原记录。", code="scope_conflict", status_code=403)
             run_root = self.output_root / input_data.creator_id / input_data.series_id / run_id
             previous_directories = [Path(attempt.output_directory)
                                     for rev in repository.list_revisions(run_id)

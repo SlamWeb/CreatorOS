@@ -505,13 +505,16 @@ def create_app(
 
     @app.post("/api/series/{series_id}/assignment", response_model=SeriesWriteResponse)
     def assign_series(series_id: str, payload: AssignmentRequest, request: Request) -> SeriesWriteResponse:
-        result_id, deduplicated = composition.assign_series(
-            series_id,
-            creator_id=payload.creator_id,
-            expected_revision=payload.expected_revision,
-            request_id=payload.request_id,
-            origin=_request_origin(request),
-        )
+        # Serialize the ownership change against queue claim and submission;
+        # already-dispatched workers are not cancelled and run outside these locks.
+        with executor._lock, runs._write_lock:
+            result_id, deduplicated = composition.assign_series(
+                series_id,
+                creator_id=payload.creator_id,
+                expected_revision=payload.expected_revision,
+                request_id=payload.request_id,
+                origin=_request_origin(request),
+            )
         return _series_write_response(payload.request_id, result_id, deduplicated)
 
     @app.post("/api/series/{series_id}/queue", response_model=QueueTopicsResponse, status_code=201)
