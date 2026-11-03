@@ -80,11 +80,28 @@ class PlanCapabilityTests(unittest.TestCase):
             return hashlib.sha256(encoded).hexdigest()
 
         self.assertEqual((len(tool_registry), len(tools)), (57, 53))
-        # 3b8769d -> 21df7fd intentionally adds reference Skill selection; the
-        # previous overall digest failed even though the other contracts stayed fixed.
-        self.assertEqual(digest(tools), "d04835d7e8a0af253f3c8ebc820ec9b7181319d91718850f89c7f7ecd664934e")
+        # The current contract deliberately adds read-only production receipt
+        # lookup and clarifies that a shared release may be forked privately.
+        self.assertEqual(digest(tools), "329be3ebd45c5af8ecded8945305df2df0149e2c95dca70f8282b7d6597e3403")
         original = copy.deepcopy(tools)
-        # Restore only the explicitly introduced plan-update contract, then
+        topics = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_topics")
+        receipt_description = "；制作结果未知时get原topic_id及返回的production_request_id只读核对，回执unknown不等于未提交，勿换ID重做"
+        self.assertEqual(topics["description"].count(receipt_description), 1)
+        topics["description"] = topics["description"].replace(receipt_description, "")
+        self.assertNotIn("production_request_id", topics["parameters"]["required"])
+        self.assertEqual(topics["parameters"]["properties"].pop("production_request_id"), {
+            "anyOf": [{"maxLength": 64, "minLength": 1, "type": "string"}, {"type": "null"}],
+            "default": None,
+            "description": "仅 get：使用未知制作结果中返回的原 request_id 只读核对该次回执。",
+            "title": "Production Request Id",
+        })
+        skill = next(tool["function"] for tool in original if tool["function"]["name"] == "update_producer_skill_file")
+        fork_description = ("账号对话中可用的非内置发布版即使原件can_edit=false，用户明确要求时也可另存当前账号私有候选；"
+                            "不覆盖共享原件，不访问其他账号私有候选。只问权限或明确不写入时不调用本工具。")
+        self.assertEqual(skill["description"].count(fork_description), 1)
+        skill["description"] = skill["description"].replace(fork_description, "")
+        self.assertEqual(digest(original), "d04835d7e8a0af253f3c8ebc820ec9b7181319d91718850f89c7f7ecd664934e")
+        # Revert the explicitly introduced plan-update contract and then
         # verify the entire prior 53-tool snapshot still matches exactly.
         plan = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_plan")
         updated = ("get 当前计划后 update 只传需修改或新增的完整步骤：修改用原步骤 ID，新 ID 只追加；其他步骤保留。"
