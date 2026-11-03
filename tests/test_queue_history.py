@@ -1,14 +1,36 @@
 """Queue receipt recovery on an isolated SQLite database; no real producer."""
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from pathlib import Path
+import traceback
 from unittest import TestCase
 
-from sqlalchemy import text
+from sqlalchemy import event, text
 from alembic import command
 from tests.test_topic_edit_migration import config
+from creatoros.runs import ContentRunService
 from creatoros.runs.queue import ProductionQueue
+from creatoros.storage import Database
 from creatoros.tools.model_projection import _run
 from creatoros.storage.models import ContentRevision, ContentRun
 from tests import test_production_queue as fixtures
+
+
+def _spawn_enqueue(url, output_root, run_id, version, ready, start, results):
+    """Windows spawn entrypoint: independent database, no executor or producer."""
+    database = Database(url)
+    try:
+        service = ContentRunService(database, producer_factory=lambda: None,
+                                    output_root=Path(output_root), production_protocol="legacy")
+        ready.put(True)
+        if not start.wait(20):
+            raise TimeoutError("spawn barrier timed out")
+        item = ProductionQueue(service).enqueue(run_id, version)
+        results.put(("ok", item.id, item.status))
+    except BaseException:
+        results.put(("error", traceback.format_exc()))
+    finally:
+        database.close()
 
 
 class QueueHistoryTests(TestCase):
@@ -85,6 +107,70 @@ class QueueHistoryTests(TestCase):
         fixtures.wait(lambda: not executor.is_submitted(run.id))
         self.assertEqual(producer.calls, ["topic-0"])
         self.assertEqual(self.assert_history(queue, run)["status"], "succeeded")
+
+    def test_windows_spawn_concurrent_reauthorization(self):
+        producer, service, run, queue = self.failed_receipt()
+        ctx = multiprocessing.get_context("spawn")
+        ready, results, start = ctx.Queue(), ctx.Queue(), ctx.Event()
+        children = [ctx.Process(target=_spawn_enqueue,
+                    args=(self.url, str(self.root / "outputs"), run.id, run.version, ready, start, results))
+                    for _ in range(4)]
+        try:
+            for child in children:
+                child.start()
+            for _ in children:
+                self.assertTrue(ready.get(timeout=30))
+            start.set()
+            received = [results.get(timeout=30) for _ in children]
+            for child in children:
+                child.join(timeout=30)
+                self.assertEqual(child.exitcode, 0)
+            self.assertTrue(all(row[0] == "ok" and row[2] == "pending" for row in received), received)
+            self.assertEqual(len({row[1] for row in received}), 1)
+            self.assertEqual(self.assert_history(queue, run)["status"], "pending")
+            with self.database.engine.connect() as conn:
+                self.assertEqual(conn.scalar(text("SELECT count(*) FROM production_queue_items")), 1)
+                self.assertEqual(conn.scalar(text("SELECT count(*) FROM production_queue_history")), 1)
+                self.assertEqual(conn.scalar(text("SELECT count(*) FROM content_attempts")), 0)
+            self.assertEqual(producer.calls, [])
+        finally:
+            start.set()
+            for child in children:
+                if child.is_alive():
+                    child.terminate()
+                if child.pid is not None:
+                    child.join(timeout=5)
+            ready.close()
+            results.close()
+
+    def test_bound_session_outer_failure_rolls_back_history_and_queue(self):
+        producer, service, run, queue = self.failed_receipt()
+        before = queue.snapshot(run.id)
+        with self.assertRaisesRegex(RuntimeError, "outer failure"):
+            with self.database.session() as session:
+                session.execute(text("BEGIN IMMEDIATE"))
+                queue.enqueue(run.id, run.version, bound_session=session)
+                self.assertEqual(session.scalar(text("SELECT count(*) FROM production_queue_history")), 1)
+                self.assertEqual(session.scalar(text("SELECT status FROM production_queue_items")), "pending")
+                raise RuntimeError("outer failure")
+        self.assertEqual(queue.snapshot(run.id), before)
+        self.assertEqual(producer.calls, [])
+
+    def test_is_submitted_does_not_read_history(self):
+        producer, service, run, queue = self.failed_receipt()
+        queue.enqueue(run.id, run.version)
+        executor = self.executor(service)
+        statements = []
+        def capture(_conn, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement.lower())
+        event.listen(self.database.engine, "before_cursor_execute", capture)
+        try:
+            self.assertTrue(executor.is_submitted(run.id))
+        finally:
+            event.remove(self.database.engine, "before_cursor_execute", capture)
+        self.assertFalse(any("production_queue_history" in sql for sql in statements), statements)
+        self.assertEqual(self.assert_history(queue, run)["status"], "pending")
+        self.assertEqual(producer.calls, [])
 
     def test_incomplete_run_snapshot_rejects_without_changing_receipt(self):
         producer, service, run, queue = self.failed_receipt()

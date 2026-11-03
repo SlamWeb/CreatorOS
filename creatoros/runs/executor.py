@@ -96,8 +96,7 @@ class ManagedRunExecutor:
 
     def is_submitted(self, run_id: str) -> bool:
         with self._lock:
-            item = self.queue.snapshot(run_id)
-            return item is not None and item["status"] in {"pending", "running"}
+            return self.queue.is_submitted(run_id)
 
     def queue_snapshot(self, run_id: str | None = None):
         with self._lock:
