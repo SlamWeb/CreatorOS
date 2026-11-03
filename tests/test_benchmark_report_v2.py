@@ -49,6 +49,40 @@ class BenchmarkReportTests(unittest.TestCase):
     def summarize(self):
         return summarize_batch(self.root, self.dataset)
 
+    def test_guarded_reports_require_matching_receipt_and_keep_raw_report(self):
+        from creatoros.evaluation.benchmark.nonvideo_guard import policy, COMPARABILITY
+        import hashlib
+        self.plan(["B41"])
+        manifest_path = self.root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        frozen = policy(["B41"])
+        manifest["model_configuration"] = {"benchmark_guard": frozen}
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        directory = self.record("B41")
+        original = hashlib.sha256((directory / "report.json").read_bytes()).hexdigest()
+        missing = self.summarize()
+        self.assertEqual(missing["cases"][0]["status"], "failed")
+        self.assertEqual(missing["cases"][0]["observed_error"], "guard_evidence_missing_or_mismatched")
+        self.assertEqual(missing["benchmark_guard"]["policy"], frozen)
+        self.assertIn(COMPARABILITY, (self.root / "RESULTS.md").read_text(encoding="utf-8"))
+        receipt = {"policy": frozen, "case_id": "B49", "video_dispatch_installed": True,
+                   "publication_client_installed": True, "network_sandbox": False}
+        (directory / "guard.json").write_text(json.dumps(receipt), encoding="utf-8")
+        self.assertEqual(self.summarize()["cases"][0]["status"], "failed")
+        receipt["case_id"] = "B41"
+        (directory / "guard.json").write_text(json.dumps(receipt), encoding="utf-8")
+        passed = self.summarize()
+        self.assertEqual(passed["cases"][0]["status"], "passed")
+        self.assertEqual(passed["cases"][0]["benchmark_guard"]["status"], "passed")
+        self.assertEqual(original, hashlib.sha256((directory / "report.json").read_bytes()).hexdigest())
+
+    def test_old_report_has_no_guard_requirement(self):
+        self.plan(["B41"])
+        self.record("B41")
+        result = self.summarize()
+        self.assertEqual(result["cases"][0]["status"], "passed")
+        self.assertNotIn("benchmark_guard", result)
+
     def test_old_batch_uses_its_verified_definitions_after_working_dataset_changes(self):
         import hashlib
         original = self.dataset.read_bytes()

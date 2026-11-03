@@ -361,6 +361,10 @@ def main():
                                     "state_consistent": "needs_review", "protocol_valid": "failed"}}
             write_json(root / "browser.json", browser)
             semantic_status = "needs_review"
+        from creatoros.evaluation.benchmark.nonvideo_guard import evidence as guard_evidence
+        guard_check = guard_evidence(manifest, case["id"], root)
+        if guard_check is not None and guard_check["status"] != "passed" and error is None:
+            error = {"kind": "GuardEvidenceError", "message": "Frozen guard evidence missing or mismatched", "stage": "guard_evidence"}
         scores = score_case(case, grade, semantic_judge)
         grade["diagnostic_status"] = grade["auto_status"]
         grade["auto_status"] = scores["program"]["status"]
@@ -379,6 +383,8 @@ def main():
                        "output_tokens": metrics["agent"]["usage"]["output_tokens"]}
                       if metrics["agent"]["usage_status"] == "complete" else None),
             "semantic_status": semantic_status, "scores": scores, "error": error, **grade}
+        if guard_check is not None:
+            report["benchmark_guard"] = guard_check
         report["evidence_files"] = [{"name": path.name, "label": path.stem} for path in root.glob("*.json") if path.name != "report.json"]
         report["evidence_files"].append({"name": "answer.txt", "label": "最终回复"}) if (root / "answer.txt").exists() else None
         write_json(root / "report.json", report)
