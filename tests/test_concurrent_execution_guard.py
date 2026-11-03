@@ -230,7 +230,10 @@ class ConcurrentExecutionGuardTests(unittest.TestCase):
                         self.guard.finish("owner-0")
                     except BaseException as error:
                         errors.append(error)
-                with patch.object(Path, "replace", autospec=True, side_effect=observed):
+                # Hold the retry clock still until the independent process has
+                # observed the lock, even if this machine is heavily scheduled.
+                with patch("creatoros.runs.ownership.monotonic", return_value=0), \
+                     patch.object(Path, "replace", autospec=True, side_effect=observed):
                     thread = Thread(target=finish)
                     thread.start()
                     self.assertTrue(conflict.wait(5))
