@@ -127,7 +127,7 @@
 .skill-file-markdown th, .skill-file-markdown td { border: 1px solid var(--line); padding: 8px 12px; }
 .skill-file-markdown a, .skill-file-link { color: var(--accent); }
 .skill-file-link { padding: 0; border: 0; background: none; text-decoration: underline; font-size: inherit; }
-.skill-image-preview { text-align: center; }
+.skill-image-preview, .skill-image-preview [role="status"], .skill-image-preview [role="alert"] { display: block; text-align: center; }
 .skill-image-preview img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; }
 .skill-file-image-unavailable { color: var(--muted); font-size: 12px; }
 @keyframes skill-inspector-enter { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }

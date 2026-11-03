@@ -410,6 +410,7 @@ test("real files: full Markdown, source, script, image, local links; viewing nev
   const tree = dialog.getByRole("navigation", { name: "Skill 文件结构" });
   await expect(tree.getByRole("button", { name: "SKILL.md", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(dialog.getByRole("img", { name: "assets/diagram.png" })).toHaveJSProperty("naturalWidth", 320);
+  await expect(dialog.locator(".skill-file-markdown p div, .skill-file-markdown p p")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("skill-desktop.png") });
   await dialog.getByRole("button", { name: "源码", exact: true }).click();
   await expect(dialog.locator("pre")).toContainText("name: inspector-mind");
@@ -429,6 +430,25 @@ test("real files: full Markdown, source, script, image, local links; viewing nev
   await expect(page.getByRole("button", { name: "inspector-mind", exact: true })).toBeFocused();
   expect(writes).toEqual([]);
   expect(external).toEqual([]);
+});
+
+test("Markdown image preview can retry without invalid nested blocks", async ({ page }) => {
+  let imageRequests = 0;
+  let imageAvailable = false;
+  await page.route("**/api/producer-skills/*/files/content?*", async route => {
+    if (new URL(route.request().url()).searchParams.get("path") !== "assets/diagram.png") return route.continue();
+    imageRequests++;
+    if (!imageAvailable) return route.fulfill({ status: 404, body: "missing" });
+    return route.continue();
+  });
+  const dialog = await openMind(page);
+  const preview = dialog.locator(".skill-file-markdown .skill-image-preview");
+  await expect(preview.getByRole("alert")).toContainText("图片无法读取");
+  await expect(dialog.locator(".skill-file-markdown p div, .skill-file-markdown p p")).toHaveCount(0);
+  imageAvailable = true;
+  await preview.getByRole("button", { name: "重新加载图片" }).click();
+  await expect(preview.getByRole("img")).toHaveJSProperty("naturalWidth", 320);
+  expect(imageRequests).toBeGreaterThanOrEqual(2);
 });
 
 test("add is explicit; filled slot can inspect without clearing; keyboard remains inside modal", async ({ page }) => {

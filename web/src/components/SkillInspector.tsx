@@ -624,10 +624,10 @@ function SkillRenameForm({ skillId, initialName, onDirty, onBusy, onCancel, onSa
 function SkillImage({ url, path }: { url: string; path: string }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  return <div className="skill-image-preview">
-    {!loaded && !failed && <p role="status">正在加载图片…</p>}
-    {failed ? <div role="alert"><p>图片无法读取或格式不支持。</p>
-      <button type="button" onClick={() => { setFailed(false); setLoaded(false); }}>重新加载图片</button></div>
+  return <span className="skill-image-preview">
+    {!loaded && !failed && <span role="status">正在加载图片…</span>}
+    {failed ? <span role="alert"><span>图片无法读取或格式不支持。</span>
+      <button type="button" onClick={() => { setFailed(false); setLoaded(false); }}>重新加载图片</button></span>
       : <img src={url} alt={path} onLoad={() => setLoaded(true)} onError={() => setFailed(true)} />}
-  </div>;
+  </span>;
 }
