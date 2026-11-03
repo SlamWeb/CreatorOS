@@ -278,8 +278,7 @@ def structured_prompt(checkpoint, *, continuing=False, repair=False, rules=COMPO
             "正常取得结果时无需额外读取目录或抄写宿主asset_id。"
             "code-mode中的生图结果用generatedImage(result)输出，不要假定返回值有content数组或仅打印JSON。"
             "若结果为空或没有图片路径，先等已发出的调用结束。"
-            "在submit_artifacts的source_image_path填received:only可查询当前已接收图片路径，但不会自动选择；"
-            "按返回的实际路径明确提交，也可读取当前工作目录的generated-assets.json，"
+            "读取当前工作目录的generated-assets.json，"
             "使用images中的source_image_path和revised_prompt交付已有图片，不因输出为空就重新生图。"
             "库存为空时先核对调用状态，只有明确生成失败才重试，不把未显示结果当成生成失败。"
             "artifacts按最终展示顺序排列，order从1连续编号。"
@@ -302,7 +301,9 @@ def submission_prompt(checkpoint=None, *, rules=COMPOSITION_RULES, repair=False)
     return text.replace(
         "最终只返回output_schema规定的JSON：正文直接填content，参考素材填材料表的reference_ids编号，",
         "最终必须调用submit_artifacts提交完整清单，不以最终回复代替提交：正文填content，参考素材填材料表的reference_ids编号，"
-    ) + ("\n提交错误会作为工具结果返回；retryable=true时依据错误修正清单并再次提交。"
+    ) + ("\n若无法读取库存文件，可在submit_artifacts的source_image_path填received:only查询当前已接收图片，"
+         "它不会自动选择；等待已发出的生成结束后，再按返回的实际路径明确提交。"
+         "\n提交错误会作为工具结果返回；retryable=true时依据错误修正清单并再次提交。"
          "retryable=false时停止。只有accepted=true才能汇报交付完成；不要重新生图修复清单。")
 
 

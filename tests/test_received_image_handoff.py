@@ -42,10 +42,12 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertEqual(len(self.store.read().assets), 1)
 
     def test_existing_accepted_only_receipt_remains_stable_if_another_event_arrives_later(self):
+        import asyncio
         import hashlib
-        from creatoros.delivery.image import accepted_submission, ingest
+        from creatoros.delivery.image import CHECKPOINT, accepted_submission, ingest
         from creatoros.delivery.image_materials import accept_delivery_value
         from creatoros.integrations.artifact_submission import SUBMISSION, canonical
+        from creatoros.integrations.visual_production import atomic_json
         first, path = self.receive("first", (10, 80, 120))
         handler = self.handler()
         payload = self.payload("received:only")
@@ -55,18 +57,31 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertTrue(accepted["accepted"], accepted)
         receipt_path = self.directory / SUBMISSION
         state = json.loads(receipt_path.read_text(encoding="utf-8"))
-        state["payload_sha256"] = hashlib.sha256(canonical(payload).encode()).hexdigest()
+        alias_hash = hashlib.sha256(canonical(payload).encode()).hexdigest()
+        state["payload_sha256"] = alias_hash
+        state["receipt"]["receipt_id"] = "delivery_" + alias_hash[:20]
+        accepted = state["receipt"]
         raw = canonical(state)
         receipt_path.write_text(raw, encoding="utf-8")
         self.checkpoint.submission_sha256 = hashlib.sha256(raw.encode()).hexdigest()
+        atomic_json(self.directory / CHECKPOINT, self.checkpoint)
         self.receive("late", (90, 30, 10))
+        self.checkpoint = type(self.checkpoint).model_validate_json((self.directory / CHECKPOINT).read_text(encoding="utf-8"))
+        handler = self.handler()
+        receipt_before = receipt_path.read_bytes()
+        checkpoint_before = (self.directory / CHECKPOINT).read_bytes()
+        from pathlib import Path
+        image_before = Path(self.checkpoint.pages[0].image_path).read_bytes()
         saved = accepted_submission(self.directory, self.checkpoint)
         self.assertEqual(saved["submission"]["artifacts"][0]["source_image_path"], str(path))
         accept_delivery_value(self.directory, self.checkpoint, self.generated, self.bundle,
                               saved["submission"])
         ingest(self.directory, self.checkpoint, self.generated)
         self.assertEqual(self.checkpoint.pages[0].asset_id, first.asset_id)
-        self.assertEqual(handler.submit(payload), accepted)
+        self.assertEqual(asyncio.run(handler(payload)), accepted)
+        self.assertEqual(receipt_path.read_bytes(), receipt_before)
+        self.assertEqual((self.directory / CHECKPOINT).read_bytes(), checkpoint_before)
+        self.assertEqual(Path(self.checkpoint.pages[0].image_path).read_bytes(), image_before)
 
     def test_only_received_image_refuses_ambiguous_inventory_and_keeps_existing_images(self):
         first, first_path = self.receive("first", (10, 80, 120))
@@ -205,12 +220,15 @@ class ReceivedImageHandoffTests(unittest.TestCase):
         self.assertEqual(len(self.store.read().assets), 1)
 
     def test_production_instructions_show_image_output_and_missing_result_recovery(self):
+        from creatoros.integrations.native_production import structured_prompt
         prompt = submission_prompt()
         self.assertIn("generatedImage(result)", prompt)
         self.assertIn("结果为空或没有图片路径", prompt)
         self.assertIn("generated-assets.json", prompt)
         self.assertIn("received:only", prompt)
         self.assertNotIn("不需要读取generated-assets.json", prompt)
+        self.assertIn("generated-assets.json", structured_prompt(None))
+        self.assertNotIn("submit_artifacts", structured_prompt(None))
 
 
 if __name__ == "__main__":
