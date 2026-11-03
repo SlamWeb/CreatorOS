@@ -55,7 +55,6 @@ class ManagedRunExecutor:
         self._wake = Event()
         self._stop = Event()
         self._dispatcher: Thread | None = None
-        self._shutdown_marker: Thread | None = None
         self._blocked_error: str | None = None
 
     def start(self):
@@ -154,18 +153,8 @@ class ManagedRunExecutor:
             deadline = monotonic() + self.shutdown_timeout
             for _, task in active:
                 task.cancel.set()
-            def interrupt_active():
-                for run_id, task in active:
-                    if task.future.done():
-                        continue
-                    try:
-                        self.service.interrupt_owner(run_id, owner_id=task.owner_id)
-                    except Exception as error:
-                        errors.append(error)
-            # Database contention must not delay notifying other workers, nor
-            # give five serial status writes five separate shutdown budgets.
-            self._shutdown_marker = Thread(target=interrupt_active, daemon=True, name="creatoros-shutdown-state")
-            self._shutdown_marker.start()
+            # Keep each lease until its worker records the actual cancellation
+            # or unknown result. A late result must not lose to a shutdown mark.
             futures = [task.future for _, task in active]
             if futures:
                 _, pending = wait(futures, timeout=max(0, deadline - monotonic()))
@@ -177,9 +166,6 @@ class ManagedRunExecutor:
                         future.result()
                     except Exception as error:
                         errors.append(error)
-            self._shutdown_marker.join(timeout=max(0, deadline - monotonic()))
-            if self._shutdown_marker.is_alive():
-                raise ExecutionOwnershipError("关停状态保存未按时结束，保留独占锁；请检查数据库和执行记录。")
             pool.shutdown(wait=True, cancel_futures=True)
             if self._dispatcher is not None:
                 self._dispatcher.join(timeout=max(0, deadline - monotonic()))

@@ -228,13 +228,13 @@ class ParallelProductionTests(unittest.TestCase):
         wait(lambda: len(producer.snapshot()[1]) == 2)
         executor.shutdown_timeout = .15
         marker_started, marker_release = Event(), Event()
-        original = service.interrupt_owner
+        original = service._mark_interrupted
         def delayed_marker(*args, **kwargs):
             marker_started.set()
             marker_release.wait(4)
             return original(*args, **kwargs)
         try:
-            with patch.object(service, "interrupt_owner", delayed_marker):
+            with patch.object(service, "_mark_interrupted", delayed_marker):
                 started = monotonic()
                 with self.assertRaises(ExecutionOwnershipError):
                     executor.shutdown()
@@ -246,8 +246,7 @@ class ParallelProductionTests(unittest.TestCase):
                     LocalExecutionGuard(self.database).__enter__()
         finally:
             marker_release.set()
-            wait(lambda: not executor._shutdown_marker.is_alive()
-                 and all(task.future.done() for task in executor._active.values()))
+            wait(lambda: all(task.future.done() for task in executor._active.values()))
             # Isolated fixture reconciliation after every writer really exited.
             service.guard.assert_clean()
             service.guard.__exit__()

@@ -47,6 +47,11 @@ from .task_execution import freeze_execution_spec, verify_execution_spec
 from .skill_selection import resolve_image_skills
 from .prepared_submission import PreparedRun, production_scope, run_skill_ids, verify_prepared_run
 
+UNCONFIRMED_PRODUCTION_ERRORS = frozenset({
+    "codex_interrupt_unconfirmed", "image_delivery_unconfirmed",
+    "video_delivery_unconfirmed", "video_delivery_evidence_conflict",
+})
+
 
 def _serialized(method):
     @wraps(method)
@@ -663,7 +668,8 @@ class ContentRunService:
                     self.heartbeat(prepared["run_id"], owner_id=owner_id)
                 except Exception:
                     cancel_event.set()
-                    self.interrupt_owner(prepared["run_id"], owner_id=owner_id, message="续租失败，已停止本次生产。")
+                    # Keep the owner until the producer reports its outcome.
+                    # Clearing it here would erase a late unknown result.
                     return
 
         heartbeat = Thread(target=renew, daemon=True, name="content-run-heartbeat")
@@ -729,9 +735,7 @@ class ContentRunService:
             raise
         except Exception as error:
             try:
-                if cancel_event.is_set() and getattr(error, "error_type", "") not in {
-                    "codex_interrupt_unconfirmed", "image_delivery_unconfirmed"
-                }:
+                if cancel_event.is_set() and getattr(error, "error_type", "") not in UNCONFIRMED_PRODUCTION_ERRORS:
                     self._mark_interrupted(run_id, prepared["attempt_id"], monotonic() - started, owner_id=owner)
                 else:
                     self._mark_failed(
@@ -947,8 +951,10 @@ class ContentRunService:
         validated = 0
         failed = 0
         for content_run in self.repository.list_runs_with_status(ContentRunStatus.PRODUCING):
-            self._interrupt_stale_run(content_run.id)
-            interrupted += 1
+            if self._interrupt_stale_run(content_run.id):
+                failed += 1
+            else:
+                interrupted += 1
         for content_run in self.repository.list_runs_with_status(ContentRunStatus.VALIDATING):
             try:
                 self._validate_active(content_run.id)
@@ -1426,6 +1432,7 @@ class ContentRunService:
             retryable=retryable,
             elapsed=elapsed,
             owner_id=owner_id,
+            allow_expired_owner=error_type in UNCONFIRMED_PRODUCTION_ERRORS,
         )
 
     @_serialized
@@ -1443,15 +1450,30 @@ class ContentRunService:
         retryable: bool,
         elapsed: float,
         owner_id: str | None = None,
+        allow_expired_owner: bool = False,
     ) -> None:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
+            if owner_id is not None and allow_expired_owner:
+                # Acquire SQLite's writer before reading the owner/Attempt. A
+                # new owner cannot slip between this check and the state write.
+                acquired = session.execute(update(ContentRun).where(
+                    ContentRun.id == run_id, ContentRun.lease_owner == owner_id,
+                    ContentRun.status == ContentRunStatus.PRODUCING,
+                ).values(lease_owner=ContentRun.lease_owner))
+                if acquired.rowcount != 1:
+                    raise ContentRunLeaseError("执行者已变化，拒绝晚到回写。")
             content_run = self._require(repository, run_id)
             attempt = repository.get_attempt(attempt_id)
             if attempt is None:
                 raise ContentRunError("ContentAttempt 不存在。")
             if owner_id is not None:
-                self._assert_lease(content_run, owner_id)
+                if allow_expired_owner:
+                    if (content_run.lease_owner != owner_id or content_run.status is not ContentRunStatus.PRODUCING
+                            or attempt.status is not ContentAttemptStatus.RUNNING):
+                        raise ContentRunLeaseError("执行者或 Attempt 已变化，拒绝晚到回写。")
+                else:
+                    self._assert_lease(content_run, owner_id)
                 self._assert_attempt(repository, content_run, attempt)
             previous = content_run.status
             now = datetime.now(timezone.utc)
@@ -1501,7 +1523,7 @@ class ContentRunService:
                 payload={"stage": stage, "error_type": error_type, "retryable": retryable},
             )
 
-    def _interrupt_stale_run(self, run_id: str) -> None:
+    def _interrupt_stale_run(self, run_id: str) -> bool:
         content_run = self.get(run_id)
         revision = self.repository.get_revision_number(run_id, content_run.active_revision_number)
         if revision is None:
@@ -1510,12 +1532,62 @@ class ContentRunService:
         running = next((item for item in reversed(attempts) if item.status is ContentAttemptStatus.RUNNING), None)
         if running is None:
             raise ContentRunError("producing 状态缺少 running Attempt。")
+        evidence_error = self._stale_delivery_evidence(running.output_directory)
+        if evidence_error:
+            error_type, message = evidence_error
+            self._finish_error(
+                run_id, running.id, status=ContentRunStatus.FAILED,
+                attempt_status=ContentAttemptStatus.FAILED, event_type=ContentRunEventType.FAILED,
+                stage="producing", error_type=error_type, message=message, retryable=False, elapsed=0,
+            )
+            return True
         self._finish_error(
             run_id, running.id, status=ContentRunStatus.INTERRUPTED,
             attempt_status=ContentAttemptStatus.INTERRUPTED, event_type=ContentRunEventType.INTERRUPTED,
             stage="producing", error_type="recovery_interrupted", message="上次执行进程已退出，等待显式恢复。",
             retryable=True, elapsed=0,
         )
+        return False
+
+    @staticmethod
+    def _stale_delivery_evidence(output_directory):
+        """Only called after the DB guard proves no registered writer survives."""
+        if not output_directory:
+            return None
+        directory = Path(output_directory)
+        import stat
+        try:
+            info = directory.lstat()
+        except FileNotFoundError:
+            return None  # Old attempts may have stopped before creating their output.
+        except OSError as error:
+            return "delivery_evidence_conflict", f"原 Attempt 无法读取：{error}"
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+            return "delivery_evidence_conflict", "原 Attempt 是链接或重解析点，无法核对执行证据。"
+        if not stat.S_ISDIR(info.st_mode):
+            return "delivery_evidence_conflict", "原 Attempt 不是可核对的目录。"
+        from creatoros.delivery.image_submission_check import inspect_submission
+        if inspect_submission(directory)["status"] == "unconfirmed":
+            return "image_delivery_unconfirmed", "图片提交结果待核对，原 Attempt 已保留，不会自动恢复。"
+        from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint
+        path = directory / VIDEO_CHECKPOINT
+        if not path.exists() and not path.is_symlink():
+            return None
+        from creatoros.delivery.files import safe_file
+        from creatoros.delivery.video_receipt import (_check_unfinished_submission, known_video_failure,
+                                                      VideoRecoveryEvidenceConflict, VideoRecoveryUnconfirmed)
+        try:
+            checkpoint = VideoCheckpoint.model_validate_json(safe_file(directory, path, 8_000_000).read_text(encoding="utf-8"))
+            _check_unfinished_submission(directory, checkpoint)
+            if (checkpoint.handoff_protocol == "submit-tool-v1" and checkpoint.turn_completed
+                    and not checkpoint.accepted_sha256 and known_video_failure(checkpoint) is None):
+                raise VideoRecoveryUnconfirmed("视频回合已结束但未确认交付。")
+        except VideoRecoveryUnconfirmed as error:
+            return "video_delivery_unconfirmed", str(error)
+        except (VideoRecoveryEvidenceConflict, OSError, ValueError) as error:
+            return "video_delivery_evidence_conflict", f"视频执行证据无法核对：{error}"
+        return None
 
     @_serialized
     def heartbeat(self, run_id: str, *, owner_id: str) -> datetime:
