@@ -8,14 +8,50 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import time
 from tempfile import TemporaryDirectory
 import unittest
 from urllib.request import urlopen
 
 from creatoros.config import PROJECT_ROOT
-from creatoros.maintenance.__main__ import control, read_json, wait_closed
+from creatoros.maintenance.__main__ import ControlError, control, managed, port_open, read_json, wait_closed
 from creatoros.maintenance.state import Layout, snapshot, verify_snapshot
 from tests import test_maintenance_state as fixtures
+
+
+def close_test_instance(layout, port, *, timeout=15):
+    """Gracefully close only this fixture's unchanged, idle managed instance."""
+    original = read_json(layout.instance_file)
+    deadline = time.monotonic() + timeout
+    trace = []
+    while time.monotonic() < deadline:
+        receipt, status = managed(layout, port)
+        if (receipt != original or receipt.get("port") != port
+                or status.get("instance_id") != original.get("instance_id")
+                or status.get("pid") != original.get("pid")):
+            raise RuntimeError("测试实例身份或端口已改变，停止清理。")
+        if type(status.get("held")) is not bool or type(status.get("idle")) is not bool:
+            raise RuntimeError("测试实例状态无效，停止清理。")
+        trace.append({"held": status.get("held"), "idle": status.get("idle"),
+                      "busy": status.get("info", {}).get("busy")})
+        if status.get("idle") is not True:
+            time.sleep(.1)
+            continue
+        action = "shutdown" if status.get("held") is True else "begin"
+        try:
+            control(receipt, action)
+        except ControlError as error:
+            # The production client intentionally hides the 409 body. A fresh
+            # authenticated status/identity check is mandatory before retrying.
+            if str(error) != f"受管服务拒绝 {action}（HTTP 409）；未强制停止进程。":
+                raise
+            trace.append({"rejected": action, "http": 409})
+            time.sleep(.1)
+            continue
+        if action == "shutdown":
+            wait_closed(layout, port, 30, receipt["pid"])
+            return trace
+    raise RuntimeError(f"测试实例未能安全关闭，未强制终止。状态记录：{trace}")
 
 
 class MaintenanceProcessTests(unittest.TestCase):
@@ -35,32 +71,49 @@ class MaintenanceProcessTests(unittest.TestCase):
         temporary_root = PROJECT_ROOT / "tmp"
         temporary_root.mkdir(exist_ok=True)
         self.temporary = TemporaryDirectory(prefix="maintenance-process-", dir=temporary_root)
-        self.addCleanup(self.temporary.cleanup)
+        self._cleanup_safe = False
+        self.addCleanup(self.cleanup_directory)
         self.root = Path(self.temporary.name)
         self.path = self.root / "isolated.db"
         shutil.copyfile(fixtures.MaintenanceStateTests.seed_db, self.path)
         self.layout = Layout.from_paths(self.path, self.root / "outputs")
         self.layout.output.mkdir()
         (self.layout.output / "old-image.png").write_bytes(b"old image, not a new generation")
-        with socket.socket() as reserved:
-            reserved.bind(("127.0.0.1", 0))
-            self.port = reserved.getsockname()[1]
+        while True:
+            with socket.socket() as reserved:
+                reserved.bind(("127.0.0.1", 0))
+                self.port = reserved.getsockname()[1]
+            if self.port != 8765:
+                break
         self.addCleanup(self.close_managed)
 
     def command(self, action, *options):
         environment = os.environ.copy()
-        environment["DEEPSEEK_API_KEY"] = ""  # No model input is authorized by these fixtures.
+        environment["PYTHON_DOTENV_DISABLED"] = "1"
+        for name in list(environment):
+            if name.endswith(("_API_KEY", "_ACCESS_SECRET", "_SESSION_COOKIE")):
+                environment.pop(name)
         return subprocess.run([sys.executable, "-m", "creatoros.maintenance", action,
             "--database-url", "sqlite:///" + self.path.as_posix(),
             "--output-root", str(self.layout.output), "--port", str(self.port), *options],
             cwd=PROJECT_ROOT, env=environment, capture_output=True, text=True, encoding="utf-8", timeout=100)
 
+    def cleanup_directory(self):
+        if not self._cleanup_safe:
+            # Leave evidence in place if we could not prove the fixture stopped.
+            self.temporary._finalizer.detach()
+            raise RuntimeError(f"测试实例未确认退出，保留隔离目录：{self.root}")
+        self.temporary.cleanup()
+
     def close_managed(self):
+        self._cleanup_safe = False
         if self.layout.instance_file.exists():
-            receipt = read_json(self.layout.instance_file)
-            control(receipt, "begin")
-            control(receipt, "shutdown")
-            wait_closed(self.layout, self.port, 30, receipt.get("pid"))
+            self._cleanup_trace = close_test_instance(self.layout, self.port)
+        elif port_open(self.port):
+            raise RuntimeError("隔离端口仍被占用且缺少实例登记，保留测试目录。")
+        elif self.layout.control_dir.exists():
+            wait_closed(self.layout, self.port, 1)
+        self._cleanup_safe = True
 
     def test_routine_and_full_restart_preserve_old_rsi_rows_files_and_idle_queue(self):
         before = snapshot(self.layout)
@@ -103,6 +156,35 @@ class MaintenanceProcessTests(unittest.TestCase):
             else:
                 self.assertNotIn("original_rows_unchanged", result)
                 self.assertNotIn("files_unchanged", result)
+
+    def test_cleanup_retries_actual_busy_response_and_closes_same_fixture(self):
+        started = self.command("restart")
+        self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+        receipt = read_json(self.layout.instance_file)
+        view = self.layout.chats / "cleanup-busy-injection/view.json"
+        view.parent.mkdir(parents=True)
+        actual_control = control
+        rejections = []
+        def control_with_busy_once(current, action):
+            if action == "shutdown" and not rejections:
+                view.write_text(json.dumps({"status": "running", "requests": []}), encoding="utf-8")
+                try:
+                    return actual_control(current, action)
+                except ControlError as error:
+                    rejections.append(str(error))
+                    raise
+                finally:
+                    view.unlink()
+            return actual_control(current, action)
+        from unittest.mock import patch
+        with patch(__name__ + ".control", side_effect=control_with_busy_once):
+            self.close_managed()
+        self.assertEqual(rejections, ["受管服务拒绝 shutdown（HTTP 409）；未强制停止进程。"])
+        self.assertTrue(self._cleanup_safe)
+        self.assertIn({"rejected": "shutdown", "http": 409}, self._cleanup_trace)
+        self.assertFalse(self.layout.instance_file.exists())
+        self.assertFalse(port_open(self.port))
+        self.assertEqual(receipt["port"], self.port)
 
     def test_pending_migration_automatically_uses_full_checks(self):
         from alembic.script import ScriptDirectory
