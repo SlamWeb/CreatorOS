@@ -9,6 +9,7 @@ import re
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 
 _SKILL = re.compile(r"^/api/producer-skills/(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})(?:/(versions|content|files(?:/(?:content|text))?|assets|publish-version))?$")
@@ -35,9 +36,14 @@ async def check_web_skill_scope(request: Request, guard):
                 return guard._skill_denied()
             try:
                 if skill_id == guard.research.catalog.BUILTIN_ID:
-                    result = {"family_id": skill_id, "items": [guard._builtin_version()], "bindings": []}
+                    # The built-in projection currently scans the catalog too.
+                    item = await run_in_threadpool(guard._builtin_version)
+                    result = {"family_id": skill_id, "items": [item], "bindings": []}
                 else:
-                    result = request.app.state.skill_versions.history(skill_id)
+                    # Version history validates every edition and may read many
+                    # assets. Keep the request's scope lock, but do not block
+                    # the event loop while those synchronous checks run.
+                    result = await run_in_threadpool(request.app.state.skill_versions.history, skill_id)
             except (ValueError, OSError, KeyError):
                 return JSONResponse(status_code=404, content={"error": {
                     "code": "not_found", "message": "Skill 版本不可用或未登记。"}})

@@ -1,14 +1,17 @@
 """Account-scoped shared Skill forks over the real Agent tool and loopback API."""
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from io import BytesIO
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 from time import monotonic, sleep
 from types import SimpleNamespace
 import unittest
 from uuid import uuid4
+from unittest.mock import patch
 
 import httpx
 from PIL import Image
@@ -75,6 +78,69 @@ class SharedSkillForkTests(unittest.TestCase):
 
     def headers(self, sid):
         return {'x-creatoros-agent-session': sid}
+
+    def test_scoped_version_scan_keeps_unrelated_reads_responsive_and_serializes_writes(self):
+        """A slow Skill history must not stall the server's entire event loop."""
+        started, release, write_started = Event(), Event(), Event()
+        history = self.app.state.skill_versions.history
+        create = self.app.state.writes.create_creator
+
+        def slow_history(skill_id):
+            started.set()
+            if not release.wait(20):
+                raise TimeoutError('test did not release Skill history')
+            return history(skill_id)
+
+        def observed_write(payload):
+            write_started.set()
+            return create(payload)
+
+        url = f"/api/producer-skills/{self.original['id']}/versions"
+        with patch.object(self.app.state.skill_versions, 'history', side_effect=slow_history), \
+                patch.object(self.app.state.writes, 'create_creator', side_effect=observed_write):
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                version = pool.submit(self.client.get, url, params={'creator_id': 'other'})
+                try:
+                    self.assertTrue(started.wait(10), 'scoped history was not reached')
+                    # This route does not use the scoped lock and should answer
+                    # before the slow history is released.
+                    read = pool.submit(self.client.get, '/api/health')
+                    self.assertEqual(read.result(timeout=5).status_code, 200)
+                    write = pool.submit(self.client.post, '/api/creators', json={'display_name': '隔离并发测试'})
+                    self.assertFalse(write_started.wait(.3), 'a write bypassed the scoped lock')
+                finally:
+                    release.set()
+                self.assertEqual(version.result(timeout=20).status_code, 200)
+                self.assertEqual(write.result(timeout=20).status_code, 201)
+                self.assertTrue(write_started.is_set())
+
+    def test_scoped_builtin_version_scan_also_keeps_unrelated_reads_responsive(self):
+        from creatoros.web.agent_scope import AgentScopeGuard
+
+        builtin = self.catalog.BUILTIN_ID
+        self.app.state.skill_library.add('other', builtin, 'builtin-scope-test')
+        started, release = Event(), Event()
+        describe = AgentScopeGuard._builtin_version
+
+        def slow_builtin(guard):
+            started.set()
+            if not release.wait(20):
+                raise TimeoutError('test did not release built-in Skill projection')
+            return describe(guard)
+
+        with patch.object(AgentScopeGuard, '_builtin_version', new=slow_builtin):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                version = pool.submit(self.client.get, f'/api/producer-skills/{builtin}/versions',
+                                      params={'creator_id': 'other'})
+                try:
+                    self.assertTrue(started.wait(10), 'built-in Skill projection was not reached')
+                    read = pool.submit(self.client.get, '/api/health')
+                    self.assertEqual(read.result(timeout=5).status_code, 200)
+                finally:
+                    release.set()
+                response = version.result(timeout=20)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()['items'][0]['id'], builtin)
 
     def test_shared_skill_permissions_reach_account_model_without_writing(self):
         captures = []
