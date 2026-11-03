@@ -287,7 +287,7 @@ test("Mind and Visualize directly bind original IDs through HTTP and SQLite with
   expect(response.request().postDataJSON()).not.toHaveProperty("skill_name");
   const result = await response.json();
   const expected = { id: result.series.id, name, skill_name: null, mind_skill_id: mind.id, production_skill_id: visual.id };
-  await expect(page.getByRole("status")).toContainText(`已创建「${name}」`);
+  await expect(page.getByRole("status").filter({ hasText: `已创建「${name}」。` })).toHaveText(`已创建「${name}」。`);
   await page.reload();
   const persisted = await request.get(`/api/series/${result.series.id}`).then(reply => reply.json());
   expect(persisted).toMatchObject(expected);
@@ -350,7 +350,7 @@ test("unknown direct-create response retries the same receipt after reload inste
   expect(result.deduplicated).toBe(true);
   expect(sent).toHaveLength(2);
   expect(sent[1]).toEqual(sent[0]);
-  await expect(page.getByRole("status")).toContainText(`已创建「${name}」`);
+  await expect(page.getByRole("status").filter({ hasText: `已创建「${name}」。` })).toHaveText(`已创建「${name}」。`);
   const after = await request.get(`/test/composer-evidence?name=${encodeURIComponent(name)}`).then(reply => reply.json());
   expect(after.series).toEqual(first.series);
   expect(after.counts).toEqual(first.counts);
