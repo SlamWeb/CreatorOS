@@ -103,6 +103,7 @@ test("product actions retain form, conflict, navigation and download behavior", 
   expect(saved.revisions[0].cards).toHaveLength(3);
   expect(saved.revisions[1].instruction).toBe("保留第一张，只调整第二张。");
   expect(saved.revisions[1].attempts).toHaveLength(0);
+  expect(await page.evaluate(id => sessionStorage.getItem(`creatoros.run-review-draft.v1:${encodeURIComponent(id)}`), run.id)).toBeNull();
   await page.getByRole("button", { name: "开始生产", exact: true }).click();
   await page.getByRole("button", { name: "批准第 2 版" }).click();
   await expect(page.getByText("已批准 · 尚未发布", { exact: true })).toBeVisible();
@@ -172,6 +173,8 @@ for (const mode of ["lost-approve", "bad-json-revise"] as const) {
       expect(actual.revisions[1].instruction).toBe("只修改第二页的例子");
       expect(actual.revisions[1].attempts).toHaveLength(0);
       await expect(page.getByLabel("告诉生产者要改哪里")).toHaveCount(0);
+      await expect(page.getByRole("textbox", { name: "未保存的返工草稿" })).toHaveCount(0);
+      expect(await page.evaluate(id => sessionStorage.getItem(`creatoros.run-review-draft.v1:${encodeURIComponent(id)}`), runId)).toBeNull();
     }
     expect(writes).toBe(1);
   });
@@ -237,6 +240,8 @@ for (const responseStatus of [503, 409]) test(`unknown ${responseStatus} review 
   if (revise) {
     await expect(page.getByLabel("告诉生产者要改哪里")).toHaveValue("保留待核对草稿");
     await expect(page.getByRole("button", { name: "保存返工要求" })).toBeEnabled();
+    await page.reload();
+    await expect(page.getByRole("textbox", { name: "未保存的返工草稿" })).toHaveValue("保留待核对草稿");
   }
   expect(writes).toBe(1);
 });
@@ -274,4 +279,29 @@ test("review is not submitted if the pending marker cannot be persisted", async 
   await expect(page.getByRole("alert").filter({ hasText: "无法保存待核对状态，本次没有提交" })).toBeVisible();
   expect(writes).toBe(0);
   expect((await (await page.request.get(`/api/runs/${runId}`)).json()).status).toBe("awaiting_approval");
+});
+
+
+test("real conflicting revision preserves the rejected draft across remount and reload", async ({ page }) => {
+  const runId = await readyReview(page);
+  const before = await (await page.request.get(`/api/runs/${runId}`)).json();
+  await page.getByRole("button", { name: "提出返工", exact: true }).click();
+  await page.getByLabel("告诉生产者要改哪里").fill("我的草稿：修改第二张");
+  const other = await page.request.post(`/api/runs/${runId}/revisions`, { data: {
+    expected_version: before.version, instruction: "其他操作的返工要求",
+  } });
+  expect(other.ok(), await other.text()).toBeTruthy();
+  let writes = 0;
+  page.on("request", request => { if (request.method() === "POST" && request.url().endsWith(`/api/runs/${runId}/revisions`)) writes++; });
+  const response = page.waitForResponse(response => response.url().endsWith(`/api/runs/${runId}/revisions`) && response.request().method() === "POST");
+  await page.getByRole("button", { name: "保存返工要求" }).click();
+  expect((await response).status()).toBe(409);
+  await page.getByRole("button", { name: "重新检查", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "未保存的返工草稿" })).toHaveValue("我的草稿：修改第二张");
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "未保存的返工草稿" })).toHaveValue("我的草稿：修改第二张");
+  const current = await (await page.request.get(`/api/runs/${runId}`)).json();
+  expect(current.revisions).toHaveLength(2);
+  expect(current.revisions[1].instruction).toBe("其他操作的返工要求");
+  expect(writes).toBe(1);
 });

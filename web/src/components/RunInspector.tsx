@@ -301,6 +301,10 @@ function Publication({ revision }: { revision: RevisionView }) {
 
 type ReviewPending = { action: "approve" | "revise"; version: number; revisionId: string; instruction: string; kind: "unknown" | "conflict" };
 const reviewPendingKey = (runId: string) => `creatoros.run-review-pending.v1:${encodeURIComponent(runId)}`;
+const reviewDraftKey = (runId: string) => `creatoros.run-review-draft.v1:${encodeURIComponent(runId)}`;
+function readReviewDraft(runId: string): string {
+  try { return sessionStorage.getItem(reviewDraftKey(runId)) ?? ""; } catch { return ""; }
+}
 function validReviewRun(value: RunDetail | null | undefined, id: string): value is RunDetail {
   return !!value && value.id === id && Number.isInteger(value.version) && Number.isInteger(value.active_revision_number)
     && typeof value.status === "string" && Array.isArray(value.allowed_actions) && Array.isArray(value.revisions)
@@ -323,6 +327,7 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
 }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<ReviewPending | null>(() => readReviewPending(run));
+  const [recoveredDraft, setRecoveredDraft] = useState(() => readReviewDraft(run.id));
   const [instruction, setInstruction] = useState(() => readReviewPending(run)?.instruction ?? "");
   const [editing, setEditing] = useState(() => readReviewPending(run)?.action === "revise");
   const [receipt, setReceipt] = useState("");
@@ -333,6 +338,12 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
   const clearPending = () => {
     sessionStorage.removeItem(reviewPendingKey(run.id));
     setPending(null);
+  };
+  const preserveDraft = (text: string) => {
+    const existing = sessionStorage.getItem(reviewDraftKey(run.id));
+    if (existing && existing !== text) throw new Error("已有另一份保留草稿，请先复制并删除它，再重新检查本次请求。");
+    sessionStorage.setItem(reviewDraftKey(run.id), text);
+    setRecoveredDraft(text);
   };
   const mutation = useMutation({
     mutationFn: async (action: "approve" | "revise") => {
@@ -352,7 +363,10 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
       try { clearPending(); } catch { setCheckError("无法清除待核对状态，请检查浏览器存储。"); }
       queryClient.setQueryData(["run", run.id], result);
       setReceipt(action === "revise" ? "返工要求已保存，点击开始生产后才会调用 Codex。" : "已批准 · 尚未发布");
-      if (action === "revise") { setEditing(false); setInstruction(""); onRevision(); }
+      if (action === "revise") {
+        if (recoveredDraft === instruction) { sessionStorage.removeItem(reviewDraftKey(run.id)); setRecoveredDraft(""); }
+        setEditing(false); setInstruction(""); onRevision();
+      }
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409 && ["conflict", "version_conflict", "artifact_changed"].includes(error.code) && !error.outcomeUnknown) {
@@ -389,16 +403,29 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
         setCheckError("读取到的版本早于原请求，请稍后重新核对。");
         return;
       }
-      queryClient.setQueryData(["run", run.id], current);
       if (pending.kind === "unknown" && current.version <= pending.version) {
         setCheckError("当前状态尚未变化，不能确认原请求已结束；请核实后再决定是否解除锁定。");
         setCanRelease(true);
         return;
       }
-      if (current.version > pending.version) setEditing(false);
+      if (pending.action === "revise" && pending.instruction.trim()) {
+        const original = current.revisions.find(item => item.id === pending.revisionId);
+        const next = original && current.revisions.find(item => item.revision_number === original.revision_number + 1);
+        // A rejected 409 cannot have committed. For an unknown outcome, only
+        // treat the text as saved when the immediate successor contains it.
+        const saved = pending.kind === "unknown" && next?.instruction === pending.instruction.trim();
+        if (saved && sessionStorage.getItem(reviewDraftKey(run.id)) === pending.instruction) {
+          sessionStorage.removeItem(reviewDraftKey(run.id)); setRecoveredDraft("");
+        }
+        if (!saved) {
+          preserveDraft(pending.instruction);
+        }
+      }
       clearPending(); mutation.reset();
-    } catch {
-      setCheckError("读取或保存核对状态失败；原请求仍待核对，请稍后重试。");
+      if (current.version > pending.version) setEditing(false);
+      queryClient.setQueryData(["run", run.id], current);
+    } catch (error) {
+      setCheckError(error instanceof Error && error.message.startsWith("已有另一份保留草稿") ? error.message : "读取或保存核对状态失败；原请求仍待核对，请稍后重试。");
     } finally { setChecking(false); }
   };
   return <div className="review-actions">
@@ -413,12 +440,20 @@ function ReviewActions({ run, revision, onRevision, discussion, freshAction, pub
     </div> : null}
     {run.status === "approved" ? <p className="approval-receipt">{run.publication ? "已发布" : "已批准 · 尚未发布"}</p> : null}
     {editing ? <form onSubmit={(e) => { e.preventDefault(); submit("revise"); }}><label>告诉生产者要改哪里<Textarea autoFocus readOnly={locked} value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={10_000} rows={4} placeholder={revision.video ? "例如：开场停留两秒，降低背景音乐音量。" : "例如：第二张的例子太抽象，换成点餐场景。"} /></label><div className="form-actions"><Button type="submit" variant="default" disabled={!instruction.trim() || mutation.isPending || locked}>保存返工要求</Button><Button variant="ghost" type="button" onClick={() => setEditing(false)}>收起</Button></div><p className="approval-note">保留旧产物，创建新版本；现在不会开始生产。</p></form> : null}
+    {recoveredDraft ? <section aria-label="未保存的返工草稿">
+      <p>无法确认这份返工要求已保存。草稿仅保存在当前浏览器标签页，请复制或自行恢复，不会自动提交。</p>
+      <textarea aria-label="未保存的返工草稿" readOnly value={recoveredDraft} rows={4} />
+      {run.allowed_actions.includes("revise") && !locked ? <Button type="button" variant="secondary" onClick={() => { setInstruction(recoveredDraft); setEditing(true); }}>恢复草稿到返工表单</Button> : null}
+      <Button type="button" variant="ghost" onClick={() => { sessionStorage.removeItem(reviewDraftKey(run.id)); setRecoveredDraft(""); }}>删除已保留草稿</Button>
+    </section> : null}
     {receipt && run.status !== "approved" ? <p className="copy-receipt" role="status">{receipt}</p> : null}
     {locked ? <div className="form-error" role="alert">{pending.kind === "conflict" ? "内容已变化，请重新检查；本次操作没有被自动重试。" : "上次操作结果待核对，请先只读检查，不要重复提交。"}<button className="text-link" disabled={checking || mutation.isPending} onClick={() => void check()}>{checking ? "正在检查…" : "重新检查"}</button>{checkError && <p>{checkError}</p>}
       {canRelease && <button type="button" className="text-link" onClick={() => {
         if (!window.confirm("状态尚未改变，原请求可能仍在执行。确认已经核实并自行承担重复提交风险，解除锁定？解除不会自动提交。")) return;
-        try { clearPending(); mutation.reset(); setCanRelease(false); setCheckError(""); }
-        catch { setCheckError("无法清除待核对状态，请检查浏览器存储。"); }
+        try {
+          if (pending.action === "revise" && pending.instruction.trim()) preserveDraft(pending.instruction);
+          clearPending(); mutation.reset(); setCanRelease(false); setCheckError("");
+        } catch (error) { setCheckError(error instanceof Error && error.message.startsWith("已有另一份保留草稿") ? error.message : "无法保存草稿或清除待核对状态，请检查浏览器存储。"); }
       }}>已核实，解除锁定</button>}</div>
       : mutation.isError ? <div className="form-error" role="alert">{mutation.error.message}</div> : null}
   </div>;
