@@ -56,6 +56,33 @@ class NativeDeliveryRecoveryTests(unittest.TestCase):
         checkpoint = prepare_attempt(directory, self.pair, self.catalog)
         return directory, checkpoint
 
+    def test_valid_legacy_checkpoint_recovers_across_four_digit_attempts(self):
+        original, checkpoint = self.attempt()
+        older = original.parent / "attempt-999"
+        original.rename(older)
+        atomic_json(older / CHECKPOINT, checkpoint)
+        current = older.parent / "attempt-1000"
+        prepare_attempt(current, self.pair, self.catalog)
+        restored = recover_checkpoint(current, request_digest(current), self.generated)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.thread_id, checkpoint.thread_id)
+
+    def test_newer_valid_image_checkpoint_wins_over_older_unknown_across_1000(self):
+        from creatoros.delivery.image import SUBMISSION_INTENT
+        original, checkpoint = self.attempt()
+        older = original.parent / "attempt-999"
+        original.rename(older)
+        (older / SUBMISSION_INTENT).write_text("unconfirmed", encoding="utf-8")
+        newer = older.parent / "attempt-1000"
+        fresh_checkpoint = prepare_attempt(newer, self.pair, self.catalog)
+        atomic_json(newer / CHECKPOINT, fresh_checkpoint)
+        current = older.parent / "attempt-1001"
+        prepare_attempt(current, self.pair, self.catalog)
+        restored = recover_checkpoint(current, request_digest(current), self.generated)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.thread_id, fresh_checkpoint.thread_id)
+        self.assertTrue((older / SUBMISSION_INTENT).is_file())
+
     def copied_delivery(self, name="run", *, complete=True):
         directory, checkpoint = self.attempt(name)
         original = self.generated / checkpoint.thread_id / "1.png"

@@ -12,7 +12,7 @@ import hashlib
 import stat
 from pathlib import Path
 
-from creatoros.delivery.files import safe_file
+from creatoros.delivery.files import AttemptDirectoryConflict, earlier_attempt_directories, safe_file
 from creatoros.delivery.image import CHECKPOINT, SUBMISSION, Checkpoint, accepted_submission
 from creatoros.delivery.image_submission_check import inspect_submission
 from creatoros.delivery.video import VIDEO_CHECKPOINT, VideoCheckpoint, VideoDelivery
@@ -34,11 +34,8 @@ def inspect_recovery_evidence(output_directory: str | Path | None) -> tuple[str,
         return None
     current = Path(output_directory)
     try:
-        candidates = set(current.parent.glob("attempt-*"))
-        candidates.add(current)
-        for directory in sorted(candidates, reverse=True):
-            if directory.name > current.name:
-                continue
+        candidates = [current, *earlier_attempt_directories(current)]
+        for directory in candidates:
             try:
                 info = directory.lstat()
             except FileNotFoundError:
@@ -91,5 +88,5 @@ def inspect_recovery_evidence(output_directory: str | Path | None) -> tuple[str,
                     return "video_delivery_evidence_conflict", f"视频执行证据无法核对：{error}"
                 return None
         return None
-    except OSError as error:
+    except (OSError, AttemptDirectoryConflict) as error:
         return "delivery_evidence_conflict", f"原 Attempt 无法读取：{error}"

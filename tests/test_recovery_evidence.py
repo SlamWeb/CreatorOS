@@ -97,6 +97,135 @@ class RecoveryEvidenceTests(unittest.TestCase):
         self.video_checkpoint(failure_sha256=hashlib.sha256(response.encode()).hexdigest(), response=response)
         self.assertEqual(inspect_recovery_evidence(self.first), ("video_generation_failed", "original failure evidence"))
 
+    def test_image_unknown_crosses_999_to_1000_and_1001(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        self.first.rename(self.root / "attempt-999")
+        previous = self.root / "attempt-999"
+        (previous / SUBMISSION_INTENT).write_text("partial", encoding="utf-8")
+        for number in (1000, 1001):
+            with self.subTest(number=number):
+                current = self.root / f"attempt-{number}"
+                current.mkdir()
+                self.assertEqual(inspect_recovery_evidence(current)[0], "image_delivery_unconfirmed")
+                with self.assertRaises(ImageSubmissionUnconfirmed):
+                    recover_checkpoint(current, "a" * 64)
+
+    def test_video_unknown_crosses_999_to_1000_and_1001(self):
+        from creatoros.delivery.video_receipt import VideoRecoveryUnconfirmed, _recover_work
+        self.first.rename(self.root / "attempt-999")
+        self.first = self.root / "attempt-999"
+        self.video_checkpoint(submission_guard="armed")
+        for number in (1000, 1001):
+            with self.subTest(number=number):
+                current = self.root / f"attempt-{number}"
+                current.mkdir()
+                self.assertEqual(inspect_recovery_evidence(current)[0], "video_delivery_unconfirmed")
+                with self.assertRaises(VideoRecoveryUnconfirmed):
+                    _recover_work(current, "a" * 64)
+
+    def test_legal_newer_video_checkpoint_wins_numerically_over_999(self):
+        from creatoros.delivery.video_receipt import _recover_work
+        self.first.rename(self.root / "attempt-999")
+        self.first = self.root / "attempt-999"
+        self.video_checkpoint(submission_guard="armed")
+        newer = self.root / "attempt-1000"
+        (newer / "work").mkdir(parents=True)
+        checkpoint = VideoCheckpoint(input_digest="a" * 64, thread_id="newer", handoff_protocol="final-json-v1")
+        (newer / VIDEO_CHECKPOINT).write_text(checkpoint.model_dump_json(), encoding="utf-8")
+        current = self.root / "attempt-1001"
+        current.mkdir()
+        self.assertIsNone(inspect_recovery_evidence(current))
+        self.assertEqual(_recover_work(current, "a" * 64).thread_id, "newer")
+
+    def test_1000_unknown_is_seen_by_1001_for_both_media(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryUnconfirmed, _recover_work
+        self.first.rename(self.root / "attempt-1000")
+        self.first = self.root / "attempt-1000"
+        current = self.root / "attempt-1001"
+        current.mkdir()
+        marker = self.first / SUBMISSION_INTENT
+        marker.write_text("unknown", encoding="utf-8")
+        self.assertEqual(inspect_recovery_evidence(current)[0], "image_delivery_unconfirmed")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        marker.unlink()  # The following isolated fixture models a video Attempt.
+        self.video_checkpoint(submission_guard="armed")
+        self.assertEqual(inspect_recovery_evidence(current)[0], "video_delivery_unconfirmed")
+        with self.assertRaises(VideoRecoveryUnconfirmed):
+            _recover_work(current, "a" * 64)
+
+    def test_duplicate_numeric_attempt_names_fail_closed(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
+        (self.root / "attempt-1").mkdir()
+        current = self.root / "attempt-1000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        with self.assertRaises(VideoRecoveryEvidenceConflict):
+            _recover_work(current, "a" * 64)
+
+    def test_image_recovery_never_follows_prior_attempt_symlink(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        external = self.root / "external"
+        external.mkdir()
+        (external / "unrelated").write_bytes(b"unchanged")
+        (self.root / "attempt-999").symlink_to(external, target_is_directory=True)
+        current = self.root / "attempt-1000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        self.assertEqual((external / "unrelated").read_bytes(), b"unchanged")
+
+    def test_unsafe_regular_file_attempt_is_not_skipped(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
+        (self.root / "attempt-999").write_bytes(b"evidence")
+        current = self.root / "attempt-1000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        with self.assertRaises(VideoRecoveryEvidenceConflict):
+            _recover_work(current, "a" * 64)
+
+    def test_very_large_attempt_numbers_have_no_fixed_width_limit(self):
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        self.first.rename(self.root / "attempt-999999999999999999999999")
+        previous = self.root / "attempt-999999999999999999999999"
+        (previous / SUBMISSION_INTENT).write_text("unknown", encoding="utf-8")
+        current = self.root / "attempt-1000000000000000000000000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "image_delivery_unconfirmed")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+
+    @unittest.skipUnless(__import__("os").name == "nt", "Windows junction")
+    def test_prior_attempt_junction_is_never_followed(self):
+        import os
+        import subprocess
+        from creatoros.delivery.image_recovery import ImageSubmissionUnconfirmed, recover_checkpoint
+        from creatoros.delivery.video_receipt import VideoRecoveryEvidenceConflict, _recover_work
+        external = self.root / "external"
+        external.mkdir()
+        (external / "unrelated").write_bytes(b"unchanged")
+        link = self.root / "attempt-999"
+        result = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(external)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.addCleanup(os.rmdir, link)
+        current = self.root / "attempt-1000"
+        current.mkdir()
+        self.assertEqual(inspect_recovery_evidence(current)[0], "delivery_evidence_conflict")
+        with self.assertRaises(ImageSubmissionUnconfirmed):
+            recover_checkpoint(current, "a" * 64)
+        with self.assertRaises(VideoRecoveryEvidenceConflict):
+            _recover_work(current, "a" * 64)
+        self.assertEqual((external / "unrelated").read_bytes(), b"unchanged")
+
 
 if __name__ == "__main__":
     unittest.main()
