@@ -174,6 +174,9 @@ def _production_tasks(data: dict) -> dict:
 
 def _run(data: dict) -> dict:
     result = _pick(data, _RUN)
+    queue = result.get("production_queue")
+    if isinstance(queue, dict) and isinstance(queue.get("history"), list):
+        queue["history_count"] = len(queue.pop("history"))
     if "revisions" in data:
         result["revisions"] = _list(data["revisions"], lambda revision: _pick(revision, _REVISION) | (
             {"video": _pick(revision["video"], ("url", "duration_seconds", "width", "height", "byte_size", "sha256", "has_audio"))}

@@ -1,5 +1,10 @@
 # ContentRun SPEC
 
+## 2026-11-03 显式恢复的队列历史
+
+- 显式重派同一 Run/Revision 的 failed 或 needs_attention 队列行前，将状态、版本、错误及提交/开始/完成时间追加到 `production_queue_history`，与队列重置同事务；Run 详情的 `production_queue.history` 可按顺序读取，Agent 模型投影只包含历史条数。pending/running 重放不会重复追加；旧记录不回填。历史写入失败则整个重派回滚，不启动生产。
+- SQLite 无绑定 session 的入队先取得写事务，防止独立提交者同时归档同一终态；已有绑定事务继续沿用其事务边界。后续认领时冻结输入/文件出错仍可查看原队列证据；不改变原 Attempt 或自动恢复规则。队列历史随其 Run 删除，不能从中推断生产已发生或成功。隔离 SQLite 测试覆盖旧输入/冻结文件错误、成功与并发重派、历史写失败回滚、模型投影及迁移保护；受控 Producer 不代表真实生产。
+
 ## 2026-11-03 fresh 重放与首次授权
 
 - Agent `start_content_run(action=fresh)` 与 `StudioClient.start(mode=fresh)` 对同一请求只做首次授权；`/api/runs/{id}/execute` 的 `initial_only` 在 SQLite 写事务中复核账号、版本和队列。已存在队列时只读原回执，包括 `needs_attention`、`failed`、`cancelled`，不重排、不清错误、不启动新 Attempt；无队列且仍为全新、未尝试的 fresh Run 才入队。响应丢失时原身份与运行记录用于核对。
