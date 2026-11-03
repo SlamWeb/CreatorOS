@@ -30,6 +30,118 @@ test.beforeEach(async ({ request }) => {
   expect(result.ok(), await result.text()).toBeTruthy();
 });
 
+async function scopedSkillFixture(request: Page["request"]) {
+  const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
+  const accountResponse = await request.post("/api/creators", { data: { display_name: `Skill 优先读取-${crypto.randomUUID()}` } });
+  expect(accountResponse.ok(), await accountResponse.text()).toBeTruthy();
+  const account = await accountResponse.json();
+  for (const skill of [fixture.mind, fixture.production]) {
+    const added = await request.post(`/api/creators/${account.id}/skills`, {
+      data: { skill_id: skill.id, request_id: crypto.randomUUID() },
+    });
+    expect(added.ok(), await added.text()).toBeTruthy();
+  }
+  const series = await request.post("/api/series", { data: {
+    name: `Skill 读取栏目-${crypto.randomUUID()}`, creator_id: account.id,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id,
+    description: "", audience: "", request_id: crypto.randomUUID(),
+  } });
+  expect(series.ok(), await series.text()).toBeTruthy();
+  return { account, fixture };
+}
+
+test("scoped Skill reads its files and body before starting slow version history", async ({ page, request }) => {
+  const { account, fixture } = await scopedSkillFixture(request);
+  await page.goto(`/workspace?creator=${account.id}&view=skills`);
+  const skill = page.getByRole("region", { name: "账号 Skill 库", exact: true })
+    .getByRole("button", { name: /^inspector-mind/ });
+  await expect(skill).toBeVisible();
+
+  let releaseFiles!: () => void, releaseBody!: () => void, releaseHistory!: () => void;
+  const fileGate = new Promise<void>(resolve => { releaseFiles = resolve; });
+  const bodyGate = new Promise<void>(resolve => { releaseBody = resolve; });
+  const historyGate = new Promise<void>(resolve => { releaseHistory = resolve; });
+  let filesStarted = false, bodyStarted = false, historyStarted = false;
+  const base = `/api/producer-skills/${fixture.mind.id}`;
+  await page.route(url => url.pathname === `${base}/files` && url.searchParams.get("creator_id") === account.id,
+    async route => { filesStarted = true; await fileGate; await route.continue().catch(() => {}); });
+  await page.route(url => url.pathname === `${base}/files/content` && url.searchParams.get("creator_id") === account.id,
+    async route => { bodyStarted = true; await bodyGate; await route.continue().catch(() => {}); });
+  await page.route(url => url.pathname === `${base}/versions` && url.searchParams.get("creator_id") === account.id,
+    async route => { historyStarted = true; await historyGate; await route.continue().catch(() => {}); });
+  try {
+    await skill.click();
+    const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => filesStarted).toBe(true);
+    expect(historyStarted).toBe(false);
+    releaseFiles();
+    await expect.poll(() => bodyStarted).toBe(true);
+    expect(historyStarted).toBe(false);
+    releaseBody();
+    await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+    await expect.poll(() => historyStarted).toBe(true);
+    await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+    releaseHistory();
+    await expect(dialog.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(fixture.mind.id);
+  } finally { releaseFiles(); releaseBody(); releaseHistory(); }
+});
+
+test("scoped Skill file failure still allows switching to another version", async ({ page, request }) => {
+  const { account, fixture } = await scopedSkillFixture(request);
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`, {
+    data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() },
+  });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  await page.goto(`/workspace?creator=${account.id}&view=skills`);
+  const skill = page.getByRole("region", { name: "账号 Skill 库", exact: true })
+    .getByRole("button", { name: /^inspector-mind/ });
+  await expect(skill).toBeVisible();
+  await page.route(url => url.pathname === `/api/producer-skills/${fixture.mind.id}/files`
+    && url.searchParams.get("creator_id") === account.id,
+  route => route.fulfill({ status: 503, json: { error: { message: "受控文件读取失败" } } }));
+  const writes: string[] = [];
+  page.on("request", item => { if (item.method() !== "GET") writes.push(new URL(item.url()).pathname); });
+  await skill.click();
+  const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+  await expect(dialog.getByRole("alert").filter({ hasText: "受控文件读取失败" })).toBeVisible();
+  const selector = dialog.getByRole("combobox", { name: "查看 Skill 版本" });
+  await expect(selector).toBeVisible();
+  await selector.selectOption(candidate.id);
+  await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+});
+
+test("a stalled file read can be bypassed to choose another Skill version", async ({ page, request }) => {
+  const { account, fixture } = await scopedSkillFixture(request);
+  const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`, {
+    data: { expected_digest: fixture.mind.digest, request_id: crypto.randomUUID() },
+  });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const candidate = await made.json() as { id: string };
+  await page.goto(`/workspace?creator=${account.id}&view=skills`);
+  const skill = page.getByRole("region", { name: "账号 Skill 库", exact: true })
+    .getByRole("button", { name: /^inspector-mind/ });
+  await expect(skill).toBeVisible();
+  let release!: () => void, blocked = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(url => url.pathname === `/api/producer-skills/${fixture.mind.id}/files`
+    && url.searchParams.get("creator_id") === account.id, async route => {
+    blocked = true; await gate; await route.continue().catch(() => {});
+  });
+  try {
+    await skill.click();
+    const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
+    await expect.poll(() => blocked).toBe(true);
+    await dialog.getByRole("button", { name: "先查看版本", exact: true }).click();
+    const selector = dialog.getByRole("combobox", { name: "查看 Skill 版本" });
+    await expect(selector).toBeVisible();
+    await selector.selectOption(candidate.id);
+    await expect(dialog.getByText("完整 Skill 结尾标记", { exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
 test("early Skill detail opens before the catalog completes", async ({ page, request }) => {
   const fixture = await request.post("/test/skill-files", { data: {} }).then(response => response.json());
   const made = await request.post(`/api/producer-skills/${fixture.mind.id}/versions`,

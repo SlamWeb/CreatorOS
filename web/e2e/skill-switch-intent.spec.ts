@@ -26,7 +26,8 @@ async function prepareScopedSwitch(page: Page, request: APIRequestContext) {
   const response = await created;
   expect(response.ok(), await response.text()).toBeTruthy();
   const candidate = await response.json();
-  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id);
+  // Real history validates every edition; a long-lived fixture may have many.
+  await expect(card.getByRole("combobox", { name: "查看 Skill 版本" })).toHaveValue(candidate.id, { timeout: 20_000 });
   await card.getByRole("button", { name: "栏目版本", exact: true }).click();
   await card.getByRole("combobox", { name: "版本应用栏目" }).selectOption(series.id);
   return { account, series, candidate, card, source: fixture.mind };

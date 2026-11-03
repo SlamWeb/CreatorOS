@@ -146,10 +146,6 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
   const [hasCheckedWrite, setHasCheckedWrite] = useState(false);
   const fileListId = useId();
   const latestId = useId();
-  const versions = useQuery({ queryKey: ["producer-skill-versions", activeSkill.id, scope],
-    queryFn: ({ signal }) => studioApi.producerSkillVersions(activeSkill.id, signal, creatorId), enabled: activeSkill.id.includes("--"), retry: false });
-  const currentSkill = versions.data?.items.find(item => item.id === activeSkill.id) ?? activeSkill;
-  const candidate = currentSkill.version_status === "candidate";
   const files = useQuery({
     queryKey: ["producer-skill-files", activeSkill.id, scope],
     queryFn: ({ signal }) => studioApi.producerSkillFiles(activeSkill.id, signal, creatorId),
@@ -163,6 +159,16 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     enabled: file?.kind === "markdown" || file?.kind === "text",
     retry: false, gcTime: 0,
   });
+  // History validates every edition and can block the scoped file reads on the
+  // server. Let the selected file settle first; a failure must not hide the
+  // version selector, since another edition may still be readable.
+  const textFile = file?.kind === "markdown" || file?.kind === "text";
+  const previewSettled = files.isError || (files.isSuccess && (!textFile || text.isFetched));
+  const loadHistory = activeSkill.id.includes("--") && previewSettled;
+  const versions = useQuery({ queryKey: ["producer-skill-versions", activeSkill.id, scope],
+    queryFn: ({ signal }) => studioApi.producerSkillVersions(activeSkill.id, signal, creatorId), enabled: loadHistory, retry: false });
+  const currentSkill = versions.data?.items.find(item => item.id === activeSkill.id) ?? activeSkill;
+  const candidate = currentSkill.version_status === "candidate";
   const dirty = (editing && draft !== text.data?.content) || renameDirty;
   const markerKeys = (pending: UncertainWrite) => Array.from(new Set(
     [skill.family_id, skill.id, activeSkill.family_id, pending.sourceId, pending.skillId].filter((id): id is string => !!id),
@@ -476,8 +482,10 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
     {versions.data ? <SkillVersionControls key={activeSkill.id} skill={currentSkill} digest={files.data?.digest ?? currentSkill.digest ?? ""}
       history={versions.data} scope={scope} creatorId={creatorId} seriesId={editContext?.seriesId} disabled={scopeUnavailable || save.isPending || renameBusy || assetSave.isPending || assetDelete.isPending || skillDelete.isPending || editing || renaming || !!assetDraft || !!uncertainWrite}
       onChoose={chooseVersion} onBusy={setVersionBusy} />
-      : <div className="skill-version-loading">{activeSkill.id.includes("--") && versions.isPending ? <span role="status">正在读取版本…</span>
-        : files.data?.editable && <span role="alert">{versions.error?.message} <button type="button" onClick={() => void versions.refetch()}>重新读取版本</button></span>}</div>}
+      : <div className="skill-version-loading">{activeSkill.id.includes("--") && versions.isPending ? <>
+        <span role="status">正在读取版本…</span>
+        {!loadHistory && !versions.isFetching && <button type="button" onClick={() => void versions.refetch()}>先查看版本</button>}
+      </> : versions.isError && <span role="alert">{versions.error.message} <button type="button" onClick={() => void versions.refetch()}>重新读取版本</button></span>}</div>}
     {files.isPending ? <p className="skill-inspector-state" role="status">正在读取 Skill 文件…</p>
       : files.isError && !files.data ? <div className="skill-inspector-state" role="alert"><p>{files.error.message}</p>
         <button type="button" onClick={() => void files.refetch()}>重新读取</button></div>
