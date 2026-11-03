@@ -1001,8 +1001,9 @@ test("incomplete Skill write receipt locks the draft across refresh and only rea
 });
 
 test("refresh while a Skill write is in flight keeps a scoped verification marker", async ({ page }) => {
+  test.setTimeout(120_000);
   const card = await openMind(page);
-  await createCandidate(page, card);
+  const candidateId = await createCandidate(page, card);
   let accepted!: () => void, release!: () => void;
   const committed = new Promise<void>(resolve => { accepted = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -1020,8 +1021,17 @@ test("refresh while a Skill write is in flight keeps a scoped verification marke
   await editor.fill(`${await editor.inputValue()}\n请求中刷新验证。`);
   await card.getByRole("button", { name: "保存文件", exact: true }).click();
   await committed;
+  const markerKey = `creatoros.skill-write-unknown.v2:global:${encodeURIComponent(candidateId)}`;
+  const marker = async () => page.evaluate(key => {
+    const value = sessionStorage.getItem(key);
+    return value === null ? null : JSON.parse(value);
+  }, markerKey);
+  expect(await marker()).toEqual({ sourceId: candidateId, path: "SKILL.md", kind: "text" });
   await page.reload(); release();
+  expect(await marker()).toEqual({ sourceId: candidateId, path: "SKILL.md", kind: "text" });
+  expect(new URL(page.url()).searchParams.get("skill")).toBe(candidateId);
   const reopened = page.getByRole("dialog");
+  await expect(reopened).toBeVisible({ timeout: 30_000 });
   await expect(reopened.getByText(/上次写入结果待核对/)).toBeVisible();
   await expect(reopened.getByRole("button", { name: "编辑", exact: true })).toBeDisabled();
   expect(writes).toBe(1);
