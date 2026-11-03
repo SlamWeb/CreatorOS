@@ -73,6 +73,8 @@ class NativeDeliveryRecoveryTests(unittest.TestCase):
         older = original.parent / "attempt-999"
         original.rename(older)
         (older / SUBMISSION_INTENT).write_text("unconfirmed", encoding="utf-8")
+        (older.parent / "attempt-001").mkdir()
+        (older.parent / "attempt-1").mkdir()
         newer = older.parent / "attempt-1000"
         fresh_checkpoint = prepare_attempt(newer, self.pair, self.catalog)
         atomic_json(newer / CHECKPOINT, fresh_checkpoint)
