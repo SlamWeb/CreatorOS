@@ -28,6 +28,7 @@ CASES = [
     ("media_export_recovery", ["-m", "unittest", "tests.test_media_export_recovery", "-v"]),
     ("safe_maintenance", ["-m", "unittest", "tests.test_maintenance_state",
                           "tests.test_maintenance_control", "tests.test_maintenance_cli", "tests.test_maintenance_process",
+                          "tests.test_maintenance_cleanup",
                           "tests.test_publication_feedback", "-v"]),
     ("judge_semantics", ["-m", "unittest", "tests.test_judge_regression_suite", "-v"]),
     ("topic_management", ["-m", "unittest", "tests.test_topic_management_http",
