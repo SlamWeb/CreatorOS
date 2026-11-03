@@ -10,7 +10,7 @@ import contextlib
 import io
 
 from tests.run_reliability import (classify_unittest, select_cases, module_inventory,
-                                   reject_operational_plan_fixture, ISOLATION_CASES, main)
+                                   reject_operational_plan_fixture, BENCHMARK_CASES, ISOLATION_CASES, main)
 
 
 class ReliabilityRunnerTests(unittest.TestCase):
@@ -71,6 +71,13 @@ class ReliabilityRunnerTests(unittest.TestCase):
             self.assertIn("tests.test_isolated_dev", inventory["declared_isolation_modules"])
             self.assertNotIn("tests.test_isolated_dev", inventory["not_in_any_python_gate"])
             self.assertIn("tests.test_isolated_dev", inventory["selected_modules"])
+
+    def test_nonvideo_guard_is_in_benchmark_gate(self):
+        root = Path(__file__).resolve().parents[1]
+        inventory = module_inventory(root, BENCHMARK_CASES)
+        self.assertIn("tests.test_benchmark_nonvideo_guard", inventory["declared_benchmark_modules"])
+        self.assertIn("tests.test_benchmark_nonvideo_guard", inventory["selected_modules"])
+        self.assertNotIn("tests.test_benchmark_nonvideo_guard", inventory["declared_modules_missing_from_checkout"])
 
     def test_old_plan_fixture_is_rejected_before_any_tool_can_dispatch(self):
         with TemporaryDirectory() as folder:

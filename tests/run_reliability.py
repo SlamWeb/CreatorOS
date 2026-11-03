@@ -114,7 +114,7 @@ CASES = [
 BENCHMARK_CASES = [("benchmark_contracts", ["-m", "unittest", *[
     "tests." + name for name in (
         "test_benchmark_metrics_v2", "test_benchmark_grader_v2", "test_benchmark_manifest_v2",
-        "test_benchmark_report_v2", "test_benchmark_server_v2", "test_benchmark_cases_v2",
+        "test_benchmark_report_v2", "test_benchmark_server_v2", "test_benchmark_cases_v2", "test_benchmark_nonvideo_guard",
         "test_benchmark_capture_v2", "test_benchmark_isolation", "test_benchmark_probes_v2",
         "test_benchmark_world_v2",
         "test_benchmark_scoring", "test_benchmark_store_v3", "test_benchmark_media_oracles_v3",
