@@ -22,13 +22,18 @@ from tests import test_maintenance_state as fixtures
 def fixture_environment(root, database, *, source=None):
     """Prevent inherited service settings or credentials reaching child processes."""
     source = os.environ if source is None else source
-    secret_fragments = ("TOKEN", "SECRET", "PASSWORD", "COOKIE", "CREDENTIAL", "API_KEY")
-    environment = {name: value for name, value in source.items()
-                   if not name.upper().startswith("CREATOROS_")
-                   and not any(fragment in name.upper() for fragment in secret_fragments)}
+    system_names = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "SYSTEMDRIVE",
+                    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "PROCESSOR_ARCHITECTURE",
+                    "NUMBER_OF_PROCESSORS", "OS"}
+    environment = {name: value for name, value in source.items() if name.upper() in system_names}
+    profile = root / "empty-profile"
+    temporary = root / "isolated-temp"
     environment.update(
         DATABASE_URL="sqlite:///" + database.as_posix(), PYTHON_DOTENV_DISABLED="1",
-        CODEX_HOME=str(root / "empty-codex-home"), TEMP=str(root), TMP=str(root), TMPDIR=str(root),
+        PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
+        HOME=str(profile), USERPROFILE=str(profile), APPDATA=str(profile / "AppData" / "Roaming"),
+        LOCALAPPDATA=str(profile / "AppData" / "Local"), CODEX_HOME=str(root / "empty-codex-home"),
+        TEMP=str(temporary), TMP=str(temporary), TMPDIR=str(temporary),
         CREATOROS_XHS_MCP_URL="http://127.0.0.1:1/mcp",
         CREATOROS_XHS_MCP_TOKEN_FILE=str(root / "nonexistent-platform-token"),
         PERSONCLONE_BASE_URL="http://127.0.0.1:1", ZHIHU_OPENAPI_BASE_URL="http://127.0.0.1:1",
@@ -91,7 +96,10 @@ class MaintenanceProcessTests(unittest.TestCase):
         self._cleanup_safe = False
         self.addCleanup(self.cleanup_directory)
         self.root = Path(self.temporary.name)
-        (self.root / "empty-codex-home").mkdir()
+        for directory in (self.root / "empty-codex-home", self.root / "isolated-temp",
+                          self.root / "empty-profile" / "AppData" / "Roaming",
+                          self.root / "empty-profile" / "AppData" / "Local"):
+            directory.mkdir(parents=True)
         self.path = self.root / "isolated.db"
         shutil.copyfile(fixtures.MaintenanceStateTests.seed_db, self.path)
         self.layout = Layout.from_paths(self.path, self.root / "outputs")

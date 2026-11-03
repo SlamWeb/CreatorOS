@@ -22,17 +22,27 @@ class MaintenanceCleanupTests(unittest.TestCase):
                      "XHS_TOKEN": "sensitive", "SOME_SECRET_FILE": "sensitive",
                      "DB_PASSWORD": "sensitive", "BROWSER_COOKIE": "sensitive",
                      "SERVICE_CREDENTIAL": "sensitive", "MIXED_API_KEY_SETTING": "sensitive",
+                     "AWS_ACCESS_KEY_ID": "sensitive", "NONSTANDARD_AUTH": "sensitive",
+                     "UNUSUAL_LICENSE": "sensitive", "USERPROFILE": "host-profile", "HOME": "host-home",
                      "CODEX_HOME": "host-codex", "DATABASE_URL": "host-db"}
         root = Path("fixture-root")
         env = process_fixture.fixture_environment(root, root / "isolated.db", source=inherited)
         for name in ("creatoros_worker_count", "XHS_TOKEN", "SOME_SECRET_FILE", "DB_PASSWORD",
-                     "BROWSER_COOKIE", "SERVICE_CREDENTIAL", "MIXED_API_KEY_SETTING"):
+                     "BROWSER_COOKIE", "SERVICE_CREDENTIAL", "MIXED_API_KEY_SETTING", "AWS_ACCESS_KEY_ID",
+                     "NONSTANDARD_AUTH", "UNUSUAL_LICENSE"):
             self.assertNotIn(name, env)
         self.assertEqual(env["PATH"], "fixture-path")
         self.assertEqual(env["CODEX_HOME"], str(root / "empty-codex-home"))
+        self.assertEqual(env["HOME"], str(root / "empty-profile"))
+        self.assertEqual(env["USERPROFILE"], str(root / "empty-profile"))
+        self.assertEqual(env["TEMP"], str(root / "isolated-temp"))
+        self.assertEqual(env["TMP"], env["TEMP"])
+        self.assertEqual(env["TMPDIR"], env["TEMP"])
         self.assertEqual(env["CREATOROS_XHS_MCP_TOKEN_FILE"], str(root / "nonexistent-platform-token"))
         self.assertEqual(env["CREATOROS_XHS_MCP_URL"], "http://127.0.0.1:1/mcp")
         self.assertEqual(env["PYTHON_DOTENV_DISABLED"], "1")
+        self.assertEqual(env["PYTHONUTF8"], "1")
+        self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
         self.assertIn("isolated.db", env["DATABASE_URL"])
 
     def test_transient_busy_shutdown_rechecks_before_retry(self):
