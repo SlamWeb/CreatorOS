@@ -75,10 +75,17 @@ test("idle chat and closed floating panel do not keep fetching sessions", async 
     if (path === "/api/agent/sessions") counts.list++;
     if (path === `/api/agent/sessions/${session.id}/events`) counts.stream++;
   });
+  const initialDetail = page.waitForResponse(response => response.request().method() === "GET"
+    && new URL(response.url()).pathname === `/api/agent/sessions/${session.id}`);
+  const initialList = page.waitForResponse(response => response.request().method() === "GET"
+    && new URL(response.url()).pathname === "/api/agent/sessions");
   await page.goto(`/agent?creator=${creator.id}&chat=${session.id}`);
+  const [detailResponse, listResponse] = await Promise.all([initialDetail, initialList]);
+  expect(detailResponse.status()).toBe(200);
+  expect(listResponse.status()).toBe(200);
   await expect(page.locator(".agent-history-list button")).toHaveCount(1);
   await expect(page.getByText("记录已保存")).toBeVisible();
-  expect(counts).toEqual({ detail: 1, list: 1, stream: 0 });
+  await expect.poll(() => ({ ...counts })).toEqual({ detail: 1, list: 1, stream: 0 });
   await page.waitForTimeout(11_000);
   expect(counts).toEqual({ detail: 1, list: 1, stream: 0 });
 
