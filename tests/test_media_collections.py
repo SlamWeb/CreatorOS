@@ -457,7 +457,8 @@ class MediaCollectionMigrationTests(unittest.TestCase):
                 # Require each to be empty, then still compare every v17
                 # table and every original row exactly.
                 for table in ("agent_plan_steps", "agent_plans", "creator_skill_refs",
-                              "managed_materials", "series_skill_refs", "skill_switch_intents"):
+                              "managed_materials", "production_queue_history", "series_skill_refs",
+                              "skill_switch_intents"):
                     self.assertEqual(after.pop(table), [])
                 for row in after["content_runs"]:
                     self.assertIsNone(row.pop("task_id"))
@@ -465,6 +466,14 @@ class MediaCollectionMigrationTests(unittest.TestCase):
                 with database.engine.connect() as connection:
                     self.assertIn("media_collections", inspect(connection).get_table_names())
                     self.assertEqual(connection.execute(text("SELECT count(*) FROM media_collections")).scalar_one(), 0)
+                    inspector = inspect(connection)
+                    self.assertEqual({column["name"] for column in inspector.get_columns("production_queue_history")},
+                                     {"id", "queue_item_id", "expected_version", "status", "submitted_at",
+                                      "started_at", "completed_at", "last_error", "archived_at"})
+                    foreign_keys = inspector.get_foreign_keys("production_queue_history")
+                    self.assertEqual([(fk["constrained_columns"], fk["referred_table"], fk["referred_columns"],
+                                       fk["options"].get("ondelete")) for fk in foreign_keys],
+                                     [(["queue_item_id"], "production_queue_items", ["id"], "CASCADE")])
                     self.assertFalse(compare_metadata(MigrationContext.configure(connection), Base.metadata))
                     self.assertFalse(connection.execute(text("PRAGMA foreign_key_check")).all())
                     self.assertEqual(connection.execute(text("PRAGMA integrity_check")).scalar_one(), "ok")
