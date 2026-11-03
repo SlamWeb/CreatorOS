@@ -328,10 +328,22 @@ test("Run detail shows its frozen Skill and opens the current local card", async
   const seeded = await request.post("/test/skill-files", { data: {} });
   expect(seeded.ok(), await seeded.text()).toBeTruthy();
   const fixture = await seeded.json() as { mind: { id: string }; production: { id: string } };
-  const snapshot = { creator_id: "e2e_lab", series_id: "e2e_series", topic_id: "e2e_topic",
+  const created = await request.post("/api/creators", { data: { display_name: "隔离账号" } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const account = await created.json() as { id: string };
+  const composed = await request.post("/api/series", { data: { name: "Skill 来源验收", creator_id: account.id,
+    mind_skill_id: fixture.mind.id, production_skill_id: fixture.production.id,
+    description: "", audience: "", request_id: crypto.randomUUID().replaceAll("-", "") } });
+  expect(composed.ok(), await composed.text()).toBeTruthy();
+  const { series } = await composed.json() as { series: { id: string } };
+  const added = await request.post(`/api/creators/${account.id}/skills`, {
+    data: { skill_id: fixture.mind.id, request_id: crypto.randomUUID() },
+  });
+  expect(added.ok(), await added.text()).toBeTruthy();
+  const snapshot = { creator_id: account.id, series_id: series.id, topic_id: "e2e_topic",
     topic_title: "冻结 Skill 版本验收", skill_name: fixture.mind.id, skill_digest: "a".repeat(64) };
   await page.route("**/api/runs/run-skill-fixture", route => route.fulfill({ json: {
-    id: "run-skill-fixture", creator_id: "e2e_lab", creator_name: "隔离账号", series_id: "e2e_series", series_name: "Skill 来源验收",
+    id: "run-skill-fixture", creator_id: account.id, creator_name: "隔离账号", series_id: series.id, series_name: "Skill 来源验收",
     topic_id: "e2e_topic", topic_title: "冻结 Skill 版本验收", status: "approved", version: 3,
     active_revision_number: 1, updated_at: "2026-10-06T00:00:00Z", completed_at: null, heartbeat_at: null,
     lease_expires_at: null, retryable: false, error_stage: null, error_type: null, error_message: null,
