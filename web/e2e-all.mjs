@@ -13,7 +13,7 @@ const groups = [
     "account-analytics.spec.ts", "account-chat.spec.ts", "account-navigator.spec.ts",
     "agent-composer-controls.spec.ts", "agent-discussion.spec.ts", "agent-layout.spec.ts",
     "agent-research.spec.ts", "artifact-download.spec.ts", "batch-production.spec.ts",
-    "bulk-topic-queue.spec.ts", "chat-image-links.spec.ts", "chat-images.spec.ts", "chat-links.spec.ts",
+    "bulk-topic-queue.spec.ts", "chat-image-links.spec.ts", "chat-images.spec.ts", "chat-links.spec.ts", "chat-view-recovery.spec.ts",
     "content-navigation.spec.ts", "eval.spec.ts", "fresh-production.spec.ts", "home-page.spec.ts",
     "observation.spec.ts", "polling.spec.ts", "production-progress.spec.ts", "publication-request.spec.ts",
     "reply-trace.spec.ts", "run-workbench.spec.ts", "series-settings.spec.ts", "skill-calibration.spec.ts",
