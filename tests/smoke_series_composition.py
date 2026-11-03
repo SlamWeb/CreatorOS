@@ -94,6 +94,15 @@ def _assert_head_schema(connection):
     assert diff == [], f"模型与迁移结果存在漂移：{diff}"
 
 
+def _assert_upgraded_series(connection, original):
+    migrated = _rows(connection, "series")
+    assert len(migrated) == len(original) == 1
+    row = migrated[0]
+    assert set(row) - set(original[0]) == {"mind_skill_id", "production_skill_id", "revision"}
+    assert {key: row[key] for key in original[0]} == original[0], "旧栏目字段被迁移修改"
+    assert row["mind_skill_id"] is None and row["production_skill_id"] is None and row["revision"] == 1
+
+
 def check_data_preservation(url: str) -> None:
     upgrade_database(url, OLD_REVISION)
     engine = create_engine(url)
@@ -106,13 +115,7 @@ def check_data_preservation(url: str) -> None:
         assert _rows(connection, "creators") == before["creators"]
         _assert_upgraded_topics(connection, before["topics"])
         _assert_upgraded_runs(connection, before["content_runs"])
-        migrated = _rows(connection, "series")
-        assert len(migrated) == len(before["series"]) == 1
-        row = migrated[0]
-        for key, value in before["series"][0].items():
-            assert row[key] == value, f"旧栏目字段 {key} 被迁移修改"
-        assert row["mind_skill_id"] is None and row["production_skill_id"] is None
-        assert row["revision"] == 1
+        _assert_upgraded_series(connection, before["series"])
     # 降级回旧结构：纯旧数据必须完整保留。
     _alembic("downgrade", url, OLD_REVISION)
     with engine.connect() as connection:
@@ -126,9 +129,7 @@ def check_data_preservation(url: str) -> None:
         _assert_upgraded_runs(connection, before["content_runs"])
         assert _rows(connection, "creators") == before["creators"]
         _assert_upgraded_topics(connection, before["topics"])
-        row = _rows(connection, "series")[0]
-        assert {key: row[key] for key in before["series"][0]} == before["series"][0]
-        assert row["mind_skill_id"] is None and row["production_skill_id"] is None and row["revision"] == 1
+        _assert_upgraded_series(connection, before["series"])
     engine.dispose()
 
 
