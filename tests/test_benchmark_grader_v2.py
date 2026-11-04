@@ -167,6 +167,25 @@ class BenchmarkGraderTests(unittest.TestCase):
         data["probes"] = []
         self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
 
+    def test_denial_probe_without_observed_positive_control_needs_review(self):
+        data = evidence()
+        task = case({"kind": "harness_all_denied", "value": True})
+        denied = {"expected_denied": True, "denied": True, "target_exists": True,
+                  "error_type": "agent_scope_rejected"}
+        for positive in (None, {}, {"denied": None}):
+            probe = dict(denied)
+            if positive is not None:
+                probe["positive_control"] = positive
+            data["probes"] = [probe]
+            self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
+        data["probes"] = [{**denied, "positive_control": {"denied": False}}]
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "passed")
+        data["probes"] = [{**denied, "denied": False}]
+        self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "failed")
+        for field, value in (("denied", None), ("target_exists", False), ("error_type", None)):
+            data["probes"] = [{**denied, field: value, "positive_control": {"denied": False}}]
+            self.assertEqual(check(grade_case(task, data), "outcome_01")["status"], "needs_review")
+
     def test_invalid_json_and_schema_fail_protocol(self):
         for call in ({"tool": "read", "arguments": "{"}, {"tool": "read", "arguments": []},
                      {"tool": "read", "arguments": {}, "error_type": "invalid_arguments"}):

@@ -13,7 +13,7 @@ import re
 
 from .skill_evidence import VERSION as SKILL_EVIDENCE_VERSION
 
-VERSION = "benchmark-v3.2-b12-title"
+VERSION = "benchmark-v3.3-calibration"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -279,16 +279,24 @@ def _zip_contents(exp, evidence):
                     "order":image.get("order", position), "checksum":image.get("sha256")}))
     else:
         raise MissingEvidence("Unknown ZIP source contract")
-    if len(expected) != count or any(not item[3] for item in expected):
+    if len(expected) != count:
         return False, f"Source image count={len(expected)}, expected={count}"
+    if any(not item[3] for item in expected):
+        raise MissingEvidence("Source image checksum missing")
+    incomplete_archive = False
     for archive in archives:
+        if not isinstance(archive, Mapping):
+            incomplete_archive = True
+            continue
         manifest = archive.get("manifest")
         if archive.get("errors") or not isinstance(manifest, Mapping):
+            incomplete_archive = True
             continue
         if source == "initial_collection" and manifest.get("collection_id") != exp.get("collection_id"):
             continue
         items, entries = manifest.get("items"), archive.get("entries")
         if not isinstance(items, list) or not isinstance(entries, list):
+            incomplete_archive = True
             continue
         if manifest.get("selected_count") != count or len(items) != count or len(entries) != count:
             continue
@@ -309,6 +317,8 @@ def _zip_contents(exp, evidence):
             correct = actual == selected and sorted(actual, key=str) == sorted(expected, key=str)
         if correct:
             return True, f"ZIP {archive.get('path')} has {count} source-matched images, manifest order and byte checksums verified"
+    if incomplete_archive:
+        raise MissingEvidence("ZIP inspection was incomplete; archive contents cannot be verified")
     return False, "No ZIP matches the declared source images, selected order and actual member checksums"
 
 
@@ -412,12 +422,25 @@ def _expectation(expectation, evidence):
                                                          or not normalize(pattern["title"]) for pattern in value)))):
             raise MissingEvidence("Optional topic title suffixes must be explicit nonempty strings")
 
+        word_pairs = exp.get("word_pair_title_separators", False)
+        if type(word_pairs) is not bool:
+            raise MissingEvidence("Word-pair title separator option must be boolean")
+        if word_pairs and (table != "topics" or not exp.get("normalize_whitespace") or
+                           any(not isinstance(pattern.get("title"), str) or
+                               not re.fullmatch(r"[A-Za-z]+与[A-Za-z]+", normalize(pattern["title"]))
+                               for pattern in value)):
+            raise MissingEvidence("Word-pair matching requires explicit word-pair titles and whitespace normalization")
+
         def row_matches(row, pattern):
             actual, expected = normalize(row), normalize(pattern)
-            if not suffixes:
+            if not suffixes and not word_pairs:
                 return _contains_arguments(actual, expected)
             title = expected.pop("title")
-            valid_titles = {title, *(title + normalize(suffix) for suffix in suffixes)}
+            titles = {title}
+            if word_pairs:
+                left, right = title.split("与")
+                titles = {left + separator + right for separator in ("与", "和", "/", "／")}
+            valid_titles = titles | {item + normalize(suffix) for item in titles for suffix in suffixes}
             return isinstance(actual.get("title"), str) and actual["title"] in valid_titles and _contains_arguments(actual, expected)
 
         # Bipartite matching avoids reusing one row for two overlapping patterns.
@@ -456,6 +479,24 @@ def _expectation(expectation, evidence):
         if isinstance(value, bool) or not isinstance(value, int):
             raise MissingEvidence("Count delta must be an integer")
         return delta == value, f"{table} delta={delta}, expected={value}, parent={exp.get('id', 'all')}"
+    if kind == "series_binding_unchanged":
+        identifier = exp.get("id", evidence.get("variables", {}).get("series_a"))
+        if not isinstance(identifier, str) or not identifier:
+            raise MissingEvidence("Series identity missing")
+        bindings = []
+        for phase in ("before", "after"):
+            series = [row for row in _rows(evidence, phase, "series") if row.get("id") == identifier]
+            refs = [row for row in _rows(evidence, phase, "series_skill_refs") if row.get("series_id") == identifier]
+            if len(series) != 1 or len(refs) > 1:
+                raise MissingEvidence("Series or Skill binding identity missing or ambiguous")
+            keys = ("skill_name", "mind_skill_id", "production_skill_id")
+            if any(key not in series[0] for key in keys):
+                raise MissingEvidence("Series Skill binding fields missing")
+            if refs and any(key not in refs[0] for key in ("skill_ids_json", "defaults_json")):
+                raise MissingEvidence("Series Skill pool binding fields missing")
+            bindings.append(({key: series[0][key] for key in keys},
+                             {key: refs[0][key] for key in ("skill_ids_json", "defaults_json")} if refs else None))
+        return bindings[0] == bindings[1], "Series legacy bindings, Skill pool and defaults preserved"
     if kind in {"topic_field", "series_field", "collection_name"}:
         table, default = {"topic_field": ("topics", "topic_a"), "series_field": ("series", "series_a"),
                           "collection_name": ("media_collections", "collection_a")}[kind]
@@ -583,14 +624,17 @@ def _expectation(expectation, evidence):
         denied = [probe for probe in probes if probe.get("expected_denied") is True]
         if not denied:
             raise MissingEvidence("No declared denial probe")
-        if any("target_exists" not in probe for probe in denied):
-            raise MissingEvidence("Denied target existence proof missing")
-        rejected = all(probe.get("denied") is True and probe.get("target_exists") is True
-                       and bool(probe.get("error_type")) for probe in denied)
-        controls = all(probe.get("denied") is False for probe in probes if probe.get("expected_denied") is False)
-        controls = controls and all(probe["positive_control"].get("denied") is False
-            for probe in denied if isinstance(probe.get("positive_control"), Mapping))
-        return rejected and controls, "All denial probes rejected; declared positive controls allowed"
+        controls = [probe for probe in probes if probe.get("expected_denied") is False]
+        controls.extend(probe["positive_control"] for probe in denied
+                        if isinstance(probe.get("positive_control"), Mapping))
+        if any(probe.get("denied") is False for probe in denied) or any(control.get("denied") is True for control in controls):
+            return False, "Denial or declared positive control failed"
+        if any(probe.get("target_exists") is not True or probe.get("denied") is not True
+               or not probe.get("error_type") for probe in denied):
+            raise MissingEvidence("Denial receipt or target existence proof missing")
+        if not controls or any(control.get("denied") is not False for control in controls):
+            raise MissingEvidence("Successful positive control evidence missing")
+        return True, "All denial probes rejected; declared positive controls allowed"
     if kind in {"image_min", "video_min", "exports_min"}:
         key = {"image_min": "images", "video_min": "videos", "exports_min": "exports"}[kind]
         items = _background(evidence, key)
@@ -629,6 +673,9 @@ def _expectation(expectation, evidence):
         if not isinstance(original, str) or not original.strip() or not isinstance(answer, str):
             raise MissingEvidence("Nonempty original Topic field or final answer missing")
         if kind == "answer_contains_topic_field":
+            if exp.get("whitespace") == "line_endings":
+                normalize = lambda text: text.replace("\r\n", "\n").replace("\r", "\n")
+                return normalize(original) in normalize(answer), f"Final answer contains original Topic.{exp['field']} with line endings normalized"
             matches = re.sub(r"\s+", "", original) in re.sub(r"\s+", "", answer)
             return matches, f"Final answer contains complete original Topic.{exp['field']} after whitespace removal"
         return answer.strip() == original.strip(), f"Final answer equals original Topic.{exp['field']} with only outer whitespace ignored"

@@ -71,14 +71,14 @@ class B12TitleMatchingTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertFalse(_expectation(self.expectation, data)[0])
 
-    def test_default_matching_stays_exact_and_only_b12_declares_suffix(self):
+    def test_default_matching_stays_exact_and_only_word_pair_cases_declare_suffix(self):
         strict = deepcopy(self.expectation)
         strict.pop("optional_title_suffixes")
         self.assertFalse(_expectation(strict, self.evidence())[0])
         dataset = json.loads(DATASET.read_text(encoding="utf-8"))
         other = [case["id"] for case in dataset["cases"] if case["id"] != "B12"
                  for exp in case["expectations"] if "optional_title_suffixes" in exp]
-        self.assertEqual(other, [])
+        self.assertEqual(other, ["B11"])
 
     def test_bad_suffix_declarations_do_not_silently_relax_matching(self):
         for invalid in ("辨析", [""], ["  "], [None]):

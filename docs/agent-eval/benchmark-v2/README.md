@@ -1,6 +1,6 @@
 # 运行当前50题 Agent Benchmark
 
-唯一现行题目为 [cases.json](cases.json)（creatoros-trace-benchmark-v3.2-20261103），逐题意图、预期结果和程序/语义规则见 [CASE_STANDARDS.md](CASE_STANDARDS.md)，现行契约见 [SPEC](SPEC.md)。
+唯一现行题目为 [cases.json](cases.json)（creatoros-trace-benchmark-v3.3-20261105），逐题意图、预期结果和程序/语义规则见 [CASE_STANDARDS.md](CASE_STANDARDS.md)，现行契约见 [SPEC](SPEC.md)。
 
 每题有自己的程序检查和语义问题，不统一凑条数。两类分数分开；集合按题分别取均值，暂不设综合权重。未知结果留null并报覆盖率，关键错误独立阻止通过。工具Schema、Token/缓存/延迟和成本单列诊断。
 
@@ -9,13 +9,13 @@
 从仓库根目录，用已安装产品依赖的Python执行；凭证从环境或忽略的.env读取。
 
 ```powershell
-python -m creatoros.evaluation.benchmark.run freeze --batch oracle-v32-pilot --cases B12
-python -m creatoros.evaluation.benchmark.run run --batch oracle-v32-pilot --workers 1
-python -m creatoros.evaluation.benchmark.run freeze --batch oracle-v32-baseline
-python -m creatoros.evaluation.benchmark.run run --batch oracle-v32-baseline --workers 3
+python -m creatoros.evaluation.benchmark.run freeze --batch oracle-v33-pilot --cases B12
+python -m creatoros.evaluation.benchmark.run run --batch oracle-v33-pilot --workers 1
+python -m creatoros.evaluation.benchmark.run freeze --batch oracle-v33-baseline
+python -m creatoros.evaluation.benchmark.run run --batch oracle-v33-baseline --workers 3
 ```
 
-本轮冻结身份 `oracle-v32-b12-20261103`；前后产品对比须使用同一份修正题集与判分/采证源码，各建新批次。具体边界见 [SPEC](SPEC.md#v32-b12-标题修正)。旧批不改写、不重判，当前没有本修订的真实模型成绩。
+本轮冻结身份 `oracle-v33-calibration-20261105`；前后产品对比须使用同一份修正题集与判分/采证源码，各建新批次。旧批不改写、不重判，当前没有本修订的50题真实模型成绩。
 
 运行前先冻结全部定义、所选题、产品/判分源码与配置。每批每题仅首尝试，不择优；变化后另建批次。数据在data/agent-benchmark-v2/<batch>/；summary.json和RESULTS.md/RESULTS-LOCAL.md含逐题分数、原始证据入口及成本。没有重复独立trial时不计算pass^k。
 

@@ -70,7 +70,15 @@ def _dimension(items):
 
 def score_case(case, grade, judge):
     validate_case_scoring(case)
-    checks = {item["id"]: item for item in grade.get("checks", [])}
+    checks = {}
+    for item in grade.get("checks", []):
+        if not isinstance(item, Mapping) or not isinstance(item.get("id"), str):
+            continue
+        identifier = item["id"]
+        if identifier in checks:
+            checks[identifier] = {"status": "needs_review", "detail": "Duplicate evidence check ID"}
+        else:
+            checks[identifier] = item
     spec = case["scoring"]
     program = []
     for rule in spec["program_checks"]:
@@ -82,7 +90,9 @@ def score_case(case, grade, judge):
     try:
         valid_judge = validate_judge(case, judge)
         from .judge_timing import qualify_temporal_judgments
+        from .visual_guard import qualify_visual_judgments
         valid_judge = qualify_temporal_judgments(case, valid_judge)
+        valid_judge = qualify_visual_judgments(case, valid_judge)
         judgments = {item["id"]: item for item in valid_judge["items"]}
     except ValueError:
         judgments = {}

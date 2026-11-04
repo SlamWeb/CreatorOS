@@ -195,11 +195,15 @@ def check_collector_component_fixture(world, collect):
     directories = [world.runs.output_root / "collector-component-fixture" / f"attempt-{n}" for n in (1, 2)]
     def write(directory, name, value):
         (directory / name).write_text(json.dumps(value), encoding="utf-8")
-    submission = {"accepted": True, "thread_id": "component-thread", "turn_id": "component-turn", "input_digest": "fixture"}
+    accepted_arguments = {"artifacts": [{"source_image_path": "/generated/image.png"}]}
+    payload_sha = hashlib.sha256(json.dumps(accepted_arguments, ensure_ascii=False, sort_keys=True,
+                                             separators=(",", ":")).encode()).hexdigest()
+    submission = {"accepted": True, "thread_id": "component-thread", "turn_id": "component-turn",
+                  "input_digest": "fixture", "payload_sha256": payload_sha}
     events = [
         {"type": "imageGeneration", "id": "image-1", "status": "completed"},
-        {"type": "dynamicToolCall", "id": "submit-1", "tool": "submit_artifacts", "result": {"accepted": False, "error": "图片路径不存在"}},
-        {"type": "dynamicToolCall", "id": "submit-2", "tool": "submit_artifacts", "result": {"content": [{"type": "text", "text": json.dumps({"accepted": True})}]}},
+        {"type": "dynamicToolCall", "id": "submit-1", "tool": "submit_artifacts", "arguments": {"artifacts": [{"source_image_path": "/generated/missing.png"}]}, "result": {"accepted": False, "error": "图片路径不存在"}},
+        {"type": "dynamicToolCall", "id": "submit-2", "tool": "submit_artifacts", "arguments": accepted_arguments, "result": {"content": [{"type": "text", "text": json.dumps({"accepted": True})}]}},
     ]
     rows = [{"method": "item/completed", "thread_id": "component-thread", "turn_id": "component-turn",
              "status": item.get("status", "completed"), "payload": {"item": item}} for item in events]
@@ -215,7 +219,7 @@ def check_collector_component_fixture(world, collect):
             "submission_sha256": digest, "usage": {"input_tokens": 100 + 50 * (number - 1), "cached_input_tokens": 40,
                                                        "output_tokens": 10, "reasoning_output_tokens": 5}})
         write(directory, "native_image_assets.json", {"thread_id": "component-thread", "assets": [{
-            "item_id": "image-1", "turn_id": "component-turn", "asset_id": "fixture-asset",
+            "item_id": "image-1", "turn_id": "component-turn", "asset_id": "fixture-asset", "source_image_path": "/generated/image.png",
             "file_name": "image.png", "sha256": hashlib.sha256(world.reference).hexdigest(), "width": 480, "height": 640}]})
         write(directory, "worker_receipt.json", {"thread_id": "component-thread", "turns": [{"id": "component-turn", "status": "completed"}]})
         (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
@@ -225,6 +229,27 @@ def check_collector_component_fixture(world, collect):
         assert evidence["images"]["received_unique"] == 1 and evidence["images"]["completed_generation_items"] == 1
         assert evidence["generation_coverage"]["status"] == "complete"
         assert evidence["nested_constraints"]["status"] == "passed", evidence["nested_constraints"]
+        for directory in directories:
+            wrong_error = json.loads(json.dumps(rows))
+            wrong_error[1]["payload"]["item"]["result"]["error"] = "接收图片路径越界。"
+            (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in wrong_error) + "\n", encoding="utf-8")
+        assert collect(world)["nested_constraints"]["status"] == "needs_review", "Out-of-scope is not a missing-file rejection"
+        for directory in directories:
+            mismatch = json.loads(json.dumps(rows))
+            mismatch[2]["payload"]["item"]["arguments"]["artifacts"][0]["source_image_path"] = "/generated/other.png"
+            (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in mismatch) + "\n", encoding="utf-8")
+        assert collect(world)["nested_constraints"]["status"] == "needs_review", "Accepted path must match generated image and receipt"
+        for directory in directories:
+            extra = json.loads(json.dumps(rows))
+            more = json.loads(json.dumps(extra[0]))
+            more["payload"]["item"]["id"] = "image-2"
+            extra.insert(1, more)
+            (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in extra) + "\n", encoding="utf-8")
+        assert collect(world)["nested_constraints"]["status"] == "failed", "A second generation is a definite failure"
+        for directory in directories:
+            (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+            (directory / "received-images/image.png").write_bytes(b"changed")
+        assert collect(world)["nested_constraints"]["status"] == "needs_review", "Received bytes must match the inventory hash"
         for directory in directories:
             # Keep final accepted receipt and real bytes, but remove public acceptance proof.
             (directory / "codex_public_events.jsonl").write_text("\n".join(json.dumps(row) for row in rows[:2]) + "\n", encoding="utf-8")

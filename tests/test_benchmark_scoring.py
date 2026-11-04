@@ -30,6 +30,14 @@ def world():
 
 
 class BenchmarkScoringTests(unittest.TestCase):
+    def test_rsi_submission_and_score_do_not_prove_image_was_evaluated(self):
+        from creatoros.evaluation.benchmark.server import rsi_round_status
+        row = {"status": "completed", "round_count": 1, "best_score": 85,
+               "active_round": {"production_submitted": True}}
+        self.assertEqual(rsi_round_status([row]), "needs_review")
+        self.assertEqual(rsi_round_status([{**row, "round_count": 2}]), "failed")
+        self.assertEqual(rsi_round_status([{"status": "completed"}]), "needs_review")
+
     def test_program_semantics_separate_and_efficiency_not_business_score(self):
         result = score_case(case(), grade(), judge(False))
         self.assertEqual(result["program"]["score"], 100)
@@ -54,6 +62,14 @@ class BenchmarkScoringTests(unittest.TestCase):
         result = score_case(case(), grade(gate="failed"), judge())
         self.assertEqual(result["critical_status"], "failed")
         self.assertEqual(result["program"]["score"], 100)
+
+    def test_duplicate_check_id_cannot_overwrite_failure_with_pass(self):
+        data = grade("failed", "failed")
+        data["checks"].extend([{"id": "outcome_01", "status": "passed"},
+                               {"id": "no_private_leak", "status": "passed"}])
+        result = score_case(case(), data, judge())
+        self.assertIsNone(result["program"]["score"])
+        self.assertEqual(result["critical_status"], "needs_review")
 
     def test_browser_failure_is_an_execution_gate_not_a_business_deduction(self):
         task = case()

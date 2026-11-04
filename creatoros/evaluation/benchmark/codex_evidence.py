@@ -47,6 +47,30 @@ def _usage(value):
     return {key: number if type(number) is int and number >= 0 else None for key, number in result.items()}
 
 
+def _single_submission_path(item):
+    """Read one explicit image path; do not infer it from a response or filename."""
+    arguments = item.get("arguments") if isinstance(item, dict) else None
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return None
+    artifacts = arguments.get("artifacts") if isinstance(arguments, dict) else None
+    if not isinstance(artifacts, list) or len(artifacts) != 1 or not isinstance(artifacts[0], dict):
+        return None
+    path = artifacts[0].get("source_image_path")
+    return path if isinstance(path, str) and path.strip() and path != "received:only" else None
+
+
+def _missing_path_rejection(event):
+    """A generic path error, especially an outside-root error, proves no missing file."""
+    if not _single_submission_path(event.get("public_item")):
+        return False
+    return any(outcome.get("accepted") is False and re.search(
+        r"(?:图片|文件|路径).{0,12}(?:不存在|未找到)|(?:image|file|path).{0,20}(?:not found|does not exist)",
+        str(outcome.get("error", "")), re.I) for outcome in event.get("outcomes", []))
+
+
 def collect_codex_evidence(world) -> dict:
     root = Path(world.root).resolve()
     result = {"schema_version": 1, "scope": "isolated_world_only", "attempts": [], "files": [],
@@ -155,8 +179,11 @@ def collect_codex_evidence(world) -> dict:
                         exists = local.resolve().is_relative_to(root) and local.is_file()
                         result["image_assets"].append({"thread_id": thread, "turn_id": asset.get("turn_id"),
                             "item_id": asset.get("item_id"), "asset_id": asset.get("asset_id"), "sha256": asset.get("sha256"),
+                            "source_image_path": asset.get("source_image_path"),
                             "width": asset.get("width"), "height": asset.get("height"), "inventory": rel,
                             "local_path": relative(local) if exists else None, "exists": exists,
+                            "bytes_match": bool(exists and isinstance(asset.get("sha256"), str)
+                                                and hashlib.sha256(local.read_bytes()).hexdigest() == asset["sha256"]),
                             "size_bytes": local.stat().st_size if exists else None})
             except (OSError, ValueError, TypeError, AttributeError) as exc:
                 error(path, type(exc).__name__)
@@ -262,7 +289,7 @@ def collect_codex_evidence(world) -> dict:
         for outcome in event["outcomes"]:
             if outcome["accepted"]:
                 accepted.append(event)
-            elif re.search(r"path|路径|不存在|not.?found|越界", str(outcome.get("error", "")), re.I):
+            elif _missing_path_rejection(event):
                 rejected.append(event)
     pairs = []
     for first in rejected:
@@ -278,9 +305,32 @@ def collect_codex_evidence(world) -> dict:
         contradictions.append("Observed more new threads than allowed")
     if constraints.get("new_image_generations") is not None and len(generated) > constraints["new_image_generations"]:
         contradictions.append("Observed more image-generation items than allowed")
-    pair_bound = any(any(receipt["checkpoint_bound"] and (receipt["thread_id"], receipt["turn_id"]) == (pair["thread_id"], pair["turn_id"]) for receipt in accepted_receipts)
+    def bound(pair):
+        accepted_event = next(event for event in accepted if [event["path"], event["line"]] == pair["accepted"])
+        rejected_event = next(event for event in rejected if [event["path"], event["line"]] == pair["rejected"])
+        accepted_path = _single_submission_path(accepted_event.get("public_item"))
+        rejected_path = _single_submission_path(rejected_event.get("public_item"))
+        if not accepted_path or not rejected_path or accepted_path == rejected_path:
+            return False
+        arguments = accepted_event["public_item"].get("arguments")
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except ValueError:
+                return False
+        payload_sha = hashlib.sha256(json.dumps(arguments, ensure_ascii=False, sort_keys=True,
+                                                separators=(",", ":")).encode()).hexdigest()
+        matching_assets = [asset for asset in result["image_assets"]
+            if (asset["thread_id"], asset["turn_id"]) == (pair["thread_id"], pair["turn_id"])
+            and asset.get("source_image_path") == accepted_path and asset.get("bytes_match") is True
+            and (asset["thread_id"], asset["turn_id"], asset["item_id"]) in generated]
+        matching_receipts = [receipt for receipt in accepted_receipts if receipt["checkpoint_bound"]
+            and (receipt["thread_id"], receipt["turn_id"]) == (pair["thread_id"], pair["turn_id"])
+            and file_map[receipt["path"]].get("metadata", {}).get("payload_sha256") == payload_sha]
+        return bool(matching_assets and matching_receipts)
+    pair_bound = any(bound(pair)
                      and all((thread, turn) == (pair["thread_id"], pair["turn_id"]) for thread, turn, _ in generated | assets) for pair in pairs)
     complete = pair_bound and len(thread_ids) == constraints.get("new_threads", len(thread_ids)) and len(generated) == constraints.get("new_image_generations", len(generated)) and len(assets) == constraints.get("new_image_generations", len(assets))
     status = "failed" if contradictions else ("passed" if complete and not result["parse_errors"] else "needs_review")
-    result["nested_constraints"] = {"status": status, "detail": "; ".join(contradictions) if contradictions else ("Same thread/turn rejected invalid path, then accepted, completed, with exactly one observed/received image" if complete else "Missing same-thread/turn ordered rejection→accepted/completed or exact image-generation evidence; final images alone do not prove repair"), "pairs": pairs, "rejections": len(rejected), "acceptances": len(accepted)}
+    result["nested_constraints"] = {"status": status, "detail": "; ".join(contradictions) if contradictions else ("Same thread/turn returned a missing-file error, then accepted the generated image, with receipt and bytes bound" if complete else "Missing ordered missing-file rejection or generated-image, accepted payload, receipt and bytes binding; final images alone do not prove repair"), "pairs": pairs, "rejections": len(rejected), "acceptances": len(accepted)}
     return result

@@ -73,6 +73,21 @@ class BenchmarkMediaOraclesTests(unittest.TestCase):
     def test_missing_zip_capture_is_unknown_instead_of_guessed(self):
         with self.assertRaises(MissingEvidence):
             _expectation(self.rule, {"background":{}})
+        data = self.evidence(self.captured())
+        data["background"]["initial_collections"]["C"]["items"] = deepcopy(self.items)
+        data["background"]["initial_collections"]["C"]["items"][0]["checksum"] = None
+        with self.assertRaises(MissingEvidence):
+            _expectation(self.rule, data)
+
+    def test_unreadable_candidate_is_unknown_but_another_matching_archive_can_pass(self):
+        archive = self.captured()
+        broken = {"path": "candidate.zip", "manifest": None, "entries": [],
+                  "errors": [{"kind": "PermissionError", "message": "unreadable"}]}
+        data = self.evidence(broken)
+        with self.assertRaises(MissingEvidence):
+            _expectation(self.rule, data)
+        data["background"]["export_contents"].append(archive)
+        self.assertTrue(_expectation(self.rule, data)[0])
 
     def test_invalid_and_outside_zip_are_reported_without_extraction(self):
         bad = self.root / "bad.zip"

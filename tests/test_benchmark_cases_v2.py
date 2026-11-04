@@ -49,8 +49,9 @@ class BenchmarkCasesV3Tests(unittest.TestCase):
         self.assertTrue(all(c["origin"]["type"] in {"trace", "adversarial_variant"} for c in self.cases.values()))
 
     def test_revision_is_explicit_and_preserves_parent_identity(self):
-        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v3.2-20261103")
-        self.assertEqual(self.dataset["evaluation_revision"]["grader_version"], "benchmark-v3.2-b12-title")
+        self.assertEqual(self.dataset["dataset_id"], "creatoros-trace-benchmark-v3.3-20261105")
+        self.assertEqual(self.dataset["evaluation_revision"]["grader_version"], "benchmark-v3.3-calibration")
+        self.assertEqual(self.dataset["revision"]["calibration_revision"]["parent_dataset_id"], "creatoros-trace-benchmark-v3.2-20261103")
         self.assertEqual(self.dataset["revision"]["b12_title_revision"]["parent_definition_sha256"],
                          "69a766951ed966d83693445e245e5467e6b82dde85a400ca16e4e6fb29fc3340")
         self.assertEqual(self.dataset["revision"]["oracle_revision"]["parent_dataset_id"], "creatoros-trace-benchmark-v3-20261102")
@@ -99,7 +100,7 @@ class BenchmarkCasesV3Tests(unittest.TestCase):
                 data["variables"]["skill_a"] = skill_id
                 self.assertEqual(grade_case(self.cases["B29"], data)["auto_status"], "passed")
 
-    def test_137_item_pagination_accepts_different_page_sizes_but_rejects_one_page(self):
+    def test_137_item_pagination_accepts_different_page_sizes_and_single_read(self):
         task = self.cases["B07"]
         self.assertEqual(task["pagination_fixture"]["visible_items"], 137)
         for size, pages in ((100, 2), (50, 3), (20, 7)):
@@ -108,7 +109,8 @@ class BenchmarkCasesV3Tests(unittest.TestCase):
                 self.assertEqual(grade_case(task, evidence(calls))["auto_status"], "passed")
         one_page = evidence([call("manage_topics", action="list", series_id="SA", query={"offset": 0, "limit": 100})])
         result = grade_case(task, one_page)
-        self.assertEqual(next(c for c in result["checks"] if c["id"] == "required_01")["status"], "failed")
+        # Completeness is checked against the actual answer, not inferred from call count.
+        self.assertEqual(next(c for c in result["checks"] if c["id"] == "required_01")["status"], "passed")
 
     def test_extra_read_is_an_efficiency_diagnostic_not_a_business_failure(self):
         task = self.cases["B07"]
@@ -122,10 +124,33 @@ class BenchmarkCasesV3Tests(unittest.TestCase):
         self.assertEqual(scores["critical_status"], "passed")
 
     def test_new_oracles_compare_real_fields_threads_and_frozen_candidate(self):
-        self.assertIn({"kind": "answer_contains_topic_field", "id": "{topic_a}", "field": "brief"}, self.cases["B06"]["expectations"])
+        self.assertIn({"kind": "answer_contains_topic_field", "id": "{topic_a}", "field": "brief", "whitespace": "line_endings"}, self.cases["B06"]["expectations"])
         self.assertIn({"kind": "answer_equals_topic_field", "id": "{topic_a}", "field": "title"}, self.cases["B08"]["expectations"])
         self.assertIn({"kind": "codex_threads_min", "value": 3}, self.cases["B42"]["expectations"])
         self.assertIn({"kind": "candidate_used", "id": "{skill_a}", "topic_id": "{topic_a}", "value": True}, self.cases["B46"]["expectations"])
+
+    def test_b18_complete_brief_rejects_summary_and_missing_evidence(self):
+        data = evidence([call("manage_topics", action="get", topic_id="TA")])
+        data["before"]["database"]["topics"][0]["brief"] = "重复内容。重复内容。最后约束。"
+        data["final_answer"] = "重复内容。重复内容。最后约束。"
+        rule = self.cases["B18"]["expectations"][-1]
+        from creatoros.evaluation.benchmark.grader import _expectation, MissingEvidence
+        self.assertTrue(_expectation(rule, data)[0])
+        data["final_answer"] = "重复内容两遍。最后约束。"
+        self.assertFalse(_expectation(rule, data)[0])
+        del data["final_answer"]
+        with self.assertRaises(MissingEvidence):
+            _expectation(rule, data)
+
+    def test_b06_verbatim_preserves_inner_spaces_and_normalizes_line_endings(self):
+        data = evidence([])
+        data["before"]["database"]["topics"][0]["brief"] = "show  and tell\r\nlast line"
+        rule = next(x for x in self.cases["B06"]["expectations"] if x["kind"] == "answer_contains_topic_field")
+        from creatoros.evaluation.benchmark.grader import _expectation
+        data["final_answer"] = "show  and tell\nlast line"
+        self.assertTrue(_expectation(rule, data)[0])
+        data["final_answer"] = "show and tell\nlast line"
+        self.assertFalse(_expectation(rule, data)[0])
 
     def test_rsi_dispatch_level_is_separate_from_the_strict_delivery_repair_case(self):
         rsi = next(x["question"] for x in self.cases["B04"]["rubric"] if "trial/dispatch" in x["question"])
