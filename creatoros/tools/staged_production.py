@@ -49,10 +49,11 @@ ManageSkillLibraryArgs = ActionContract(Annotated[
 
 class ManageMaterialArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
-    action: Literal["list", "get", "import_link", "analyze", "analysis", "analysis_status"]
+    action: Literal["list", "get", "import_link", "import_status", "analyze", "analysis", "analysis_status"]
     creator_id: str | None = Field(default=None, min_length=1, max_length=80, description="省略用当前账号。")
     material_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
-    source_url: str | None = Field(default=None, min_length=1, max_length=2000, description="用户提供的音乐/视频分享链接，不传主机路径。")
+    source_url: str | None = Field(default=None, min_length=1, max_length=10000, description="用户提供的音乐/视频分享原文。")
+    import_id: str | None = Field(default=None, min_length=1, max_length=100)
     start: float = Field(default=0, ge=0, description="音乐分析片段起点，秒。")
     duration: float | None = Field(default=None, gt=0, le=300, description="音乐分析片段时长，秒；不填使用默认。")
     force: bool = Field(default=False, description="明确要求重新分析时设为 true。")
@@ -65,6 +66,10 @@ class ManageMaterialArgs(BaseModel):
             raise ValueError("此操作需要 material_id，不能带分享链接。")
         if self.action == "import_link" and (not self.source_url or self.material_id):
             raise ValueError("import_link 需要 source_url，不能带素材 ID。")
+        if self.action == "import_status" and (not self.import_id or self.material_id or self.source_url):
+            raise ValueError("import_status 只接受导入任务 ID。")
+        if self.action != "import_status" and self.import_id:
+            raise ValueError("只有 import_status 接受导入任务 ID。")
         if self.action == "list" and (self.material_id or self.source_url):
             raise ValueError("list 不接受素材 ID 或分享链接。")
         return self
@@ -124,7 +129,7 @@ def manage_skill_library(action, creator_id=None, series_id=None, skill_id=None,
 
 
 def manage_material(action, creator_id=None, material_id=None, source_url=None,
-                    start=0, duration=None, force=False, offset=0, limit=20, context=None):
+                    import_id=None, start=0, duration=None, force=False, offset=0, limit=20, context=None):
     def invoke(client):
         owner = _creator(creator_id, context)
         root = f"/api/creators/{quote(owner, safe='')}/materials"
@@ -136,7 +141,9 @@ def manage_material(action, creator_id=None, material_id=None, source_url=None,
         elif action == "get":
             data = client.request("GET", root + "/" + quote(material_id, safe=""))
         elif action == "import_link":
-            data = client.request("POST", root, payload={"source_url": source_url}, timeout_seconds=150)
+            data = client.request("POST", root + "/imports", payload={"source_url": source_url})
+        elif action == "import_status":
+            data = client.request("GET", root + "/imports/" + quote(import_id, safe=""))
         else:
             data = client.request("GET", root)
             items = data.get("items", [])

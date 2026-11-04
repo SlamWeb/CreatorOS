@@ -212,7 +212,7 @@ tool_registry = {
              execute=get_skill_install, args_model=SkillJobArgs),
         Tool(name="manage_skill_library", description="管理当前账号 Skill 库和栏目池，账号由宿主绑定。get可带series_id读取栏目池；已有覆盖所需范围的目录且未变化时复用。add只传skill_id引用可用Skill；remove传skill_id和所见expected_version；set_pool只传series_id、expected_version、skill_ids保存栏目池。宿主保留仍有效的旧默认，不传defaults或主辅。共享引用不授予修改原件权限。",
              execute=manage_skill_library, args_model=ManageSkillLibraryArgs),
-        Tool(name="manage_material", description="查询当前账号音频素材；analyze 后台分析已有音乐，analysis_status 查进度，analysis 读结果。用户分享链接用于视频时直接交给 Codex。",
+        Tool(name="manage_material", description="管理当前账号 BGM：list/get 查询，import_link 后台导入分享原文，import_status 查进度；analyze 后台分析，analysis_status 查进度，analysis 读结果。",
              execute=manage_material, args_model=ManageMaterialArgs),
         Tool(name="list_producer_skills", description="列出已安装发布版；账号库和栏目池用manage_skill_library。include_versions=true查当前账号可访问家族全部版本/候选，可用family_skill_id限定。正文按需读取，不生产。",
              execute=list_producer_skills, args_model=ListProducerSkillsArgs),

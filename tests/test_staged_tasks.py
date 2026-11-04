@@ -120,6 +120,37 @@ class StagedTasksTests(unittest.TestCase):
             self.assertEqual(session.scalar(select(func.count()).select_from(ContentRun)), 2)
             self.assertEqual(session.scalar(select(func.count()).select_from(ProductionQueueItem)), 2)
 
+    def test_video_freezes_existing_analysis_and_audio_before_waiting(self):
+        import json
+        from creatoros.integrations.video_production import _video_prompt
+        from creatoros.runs.task_contracts import TaskExecutionSpec
+        receipt = {"inputSha256": self.audio["sha256"], "sourceStartSeconds": 0, "sourceEndSeconds": 1}
+        onsets = {"analysisOffset": 0, "analysisDurationSeconds": 1,
+                  "events": [{"id": "event-1", "timeSeconds": 0.5, "accepted": True}]}
+        self.materials.save_analysis("creator", self.audio["id"], {"tag": "original"}, receipt, onsets)
+        images, image = self.image()
+        result = self.tasks.create("topic", request_id="video-with-analysis", tasks=[self.video_payload(images, image)])
+        task_id = result["items"][0]["id"]
+        with self.db.session() as session:
+            spec = TaskExecutionSpec.model_validate(session.get(ProductionTask, task_id).definition_json["execution_spec"])
+        analysis = next(item for item in spec.materials if item.kind == "bgm_analysis")
+        audio = next(item for item in spec.materials if item.kind == "audio")
+        frozen = Path(analysis.path).read_bytes()
+        self.assertEqual(json.loads(frozen)["analysis"]["tag"], "original")
+        self.assertEqual(Path(audio.path).read_bytes(), self.materials.resolve("creator", self.audio["id"])["path"].read_bytes())
+        self.materials.save_analysis("creator", self.audio["id"], {"tag": "replacement"}, receipt, onsets)
+        self.assertEqual(Path(analysis.path).read_bytes(), frozen)
+        prompt = _video_prompt(spec, {"topic_title": "选题"}, self.tasks.stages.root / task_id)
+        self.assertIn("bgm_analysis", prompt)
+        self.assertIn("不要重复分析", prompt)
+        self.assertIn("audio", prompt)
+        self.runs.execute(image["run_id"])
+        self.tasks.stages.advance()
+        video = self.runs.get(self.tasks.list("topic")["items"][1]["run_id"])
+        dispatched = TaskExecutionSpec.model_validate(video.input_snapshot_json["execution_spec"])
+        frozen_in_run = next(item for item in dispatched.materials if item.kind == "bgm_analysis")
+        self.assertEqual(Path(frozen_in_run.path).read_bytes(), frozen)
+
     def test_failed_dependency_pause_explicit_continue_and_cancel_do_not_create_run(self):
         images, image = self.image()
         result = self.tasks.create("topic", request_id="video", tasks=[self.video_payload(images, image)])

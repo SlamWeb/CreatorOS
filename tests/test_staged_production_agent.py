@@ -27,6 +27,15 @@ from tests import test_skill_version_scope as scope_fixture
 
 
 class StagedAgentSchemaTests(unittest.TestCase):
+    def test_material_import_status_requires_only_its_identifier(self):
+        from creatoros.tools.staged_production import ManageMaterialArgs
+        self.assertEqual(ManageMaterialArgs(action="import_status", import_id="a" * 64).import_id, "a" * 64)
+        for values in ({"action": "import_status"},
+                       {"action": "import_status", "import_id": "a" * 64, "source_url": "https://example.com"},
+                       {"action": "list", "import_id": "a" * 64}):
+            with self.subTest(values=values), self.assertRaises(ValidationError):
+                ManageMaterialArgs.model_validate(values)
+
     def test_shared_task_instructions_validate_before_dispatch(self):
         task = {'kind':'image','title':'图片','brief':'具体画面'}
         parsed = StartRunArgs.model_validate({
@@ -86,8 +95,8 @@ class StagedAgentSchemaTests(unittest.TestCase):
         for name in ("manage_skill_library", "manage_material"):
             self.assertIn(name, schemas)
             self.assertNotIn('"creator_id"', json.dumps(schemas[name]["parameters"]))
-        self.assertEqual(schemas["manage_material"]["parameters"]["properties"]["action"]["enum"], ["list", "get", "analyze", "analysis", "analysis_status"])
-        self.assertNotIn("source_url", schemas["manage_material"]["parameters"]["properties"])
+        self.assertEqual(schemas["manage_material"]["parameters"]["properties"]["action"]["enum"], ["list", "get", "import_link", "import_status", "analyze", "analysis", "analysis_status"])
+        self.assertIn("source_url", schemas["manage_material"]["parameters"]["properties"])
 
     def test_waiting_task_and_resource_projections_preserve_handoff_ids(self):
         data = {"topic_id": "topic", "collection_id": "images", "items": [{"id": "task", "title": "等待剪辑",
@@ -249,10 +258,9 @@ class StagedAgentHttpTests(unittest.TestCase):
         self.assertEqual(denied_analysis.status_code, 403)
         denied = self.client.get(f"/api/creators/other/materials/{receipt['id']}", headers=self.header(self.other))
         self.assertEqual(denied.status_code, 403)
-        failed = self.call("manage_material", action="import_link", source_url="http://127.0.0.1/music.mp3")
-        self.assertTrue(failed.is_error, failed.content)
-        self.assertEqual(failed.error_type, "bgm_direct_handoff_required")
-        self.assertIn("bgm_reference", failed.content)
+        imported = self.call("manage_material", action="import_link", source_url="http://127.0.0.1/music.mp3")
+        self.assertFalse(imported.is_error, imported.content)
+        self.assertIn(json.loads(imported.content)["status"], {"running", "failed"})
         self.assertEqual(len(self.app.state.materials.list("review-lab")), 1)
 
     def test_new_series_can_start_empty_without_secret_builtin_binding(self):

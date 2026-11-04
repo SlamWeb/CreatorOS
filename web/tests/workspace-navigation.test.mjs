@@ -27,6 +27,12 @@ test("account and column transitions clear stale object context but preserve unr
   assert.equal(column.toString(), "creator=b&keep=x&series=b1");
   assert.equal(selectSeriesParams(new URLSearchParams("creator=a&topics=all"), "free", null, true).toString(), "topics=all&series=free");
 });
+test("switching accounts leaves the previous account's BGM view", () => {
+  const original = new URLSearchParams("creator=a&view=bgm&keep=x");
+  assert.equal(selectAccountParams(original, "b").toString(), "creator=b&keep=x");
+  assert.equal(selectAccountParams(original, "a").toString(), "creator=a&view=bgm&keep=x");
+  assert.equal(original.toString(), "creator=a&view=bgm&keep=x");
+});
 
 test("late deletion responses do not move a user who already navigated elsewhere", () => {
   const current = new URLSearchParams("creator=b&series=b1&topic=other&keep=x");

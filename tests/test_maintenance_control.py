@@ -112,6 +112,53 @@ class MaintenanceControlTests(unittest.TestCase):
                     self.assertFalse(self.controller.held)
                     self.assertEqual(self.shutdown_calls, [])
 
+    def test_active_bgm_import_blocks_maintenance_until_finished(self):
+        from time import monotonic, sleep
+        from creatoros.storage import ContentRepository
+
+        ContentRepository(self.db).create_creator(creator_id="bgm-owner", display_name="BGM")
+        store = self.app.state.materials
+        entered, finish = threading.Event(), threading.Event()
+
+        def download(_creator, _source):
+            entered.set()
+            if not finish.wait(10):
+                raise RuntimeError("controlled download timed out")
+            return {"id": "controlled-material"}
+
+        with patch.object(store, "from_url", side_effect=download) as imported, \
+                patch.object(store, "start_analysis", return_value={"status": "completed"}) as analyzed:
+            job = store.start_import("bgm-owner", "https://v.douyin.com/controlled/")
+            try:
+                self.assertTrue(entered.wait(5))
+                with self.client() as client:
+                    self.controller.held = False
+                    response = self.call(client, "begin")
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertIn("bgm_import", response.json()["info"]["busy"])
+                    self.assertFalse(self.controller.held)
+                    self.assertEqual(self.shutdown_calls, [])
+                    # Even a previously held controller must not interrupt an active import.
+                    self.controller.held = True
+                    response = self.call(client, "shutdown")
+                    self.assertEqual(response.status_code, 409, response.text)
+                    self.assertIn("bgm_import", response.json()["info"]["busy"])
+                    self.assertEqual(self.shutdown_calls, [])
+                    self.controller.held = False
+                    finish.set()
+                    deadline = monotonic() + 5
+                    while store.import_status("bgm-owner", job["id"])["status"] == "running" and monotonic() < deadline:
+                        sleep(.02)
+                    self.assertEqual(store.import_status("bgm-owner", job["id"])["status"], "completed")
+                    self.assertEqual(self.call(client, "begin").status_code, 200)
+                    self.assertTrue(self.controller.held)
+                    self.assertEqual(self.call(client, "shutdown").status_code, 200)
+                    self.assertEqual(self.shutdown_calls, [True])
+                imported.assert_called_once()
+                analyzed.assert_called_once_with("bgm-owner", "controlled-material")
+            finally:
+                finish.set()
+
     def test_worker_lock_contention_blocks_instead_of_waiting(self):
         acquired, release = threading.Event(), threading.Event()
         def hold():

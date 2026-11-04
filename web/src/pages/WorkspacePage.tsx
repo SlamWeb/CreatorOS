@@ -9,6 +9,7 @@ import { SkillInspector } from "../components/SkillInspector";
 import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { MediaCollections } from "../components/MediaCollections";
+import { BgmPool, QA_BGM_CREATOR } from "../components/BgmPool";
 import { CreatorSkillLibrary } from "../components/SkillLibrary";
 import { useWorkInbox } from "../components/TaskInbox";
 import { AccountNavigator } from "../components/AccountNavigator";
@@ -115,6 +116,8 @@ export function WorkspacePage() {
 
   const allSeries = seriesAll.data ?? [];
   const seriesId = series?.id ?? null;
+  const requestedView = params.get("view") ?? "content";
+  const shownView = requestedView === "bgm" && account?.id !== QA_BGM_CREATOR ? "content" : requestedView;
   const scopeUnavailable = !!inspectedSkill?.creatorId && (workspaceLoading || !!workspaceError || creators.isError
     || !accountVerified || account?.id !== inspectedSkill.creatorId);
   const inspectSkill = (skill: ProducerSkillItem) => setInspectedSkill({ skill, creatorId: account?.id,
@@ -153,14 +156,14 @@ export function WorkspacePage() {
     <main className="workspace-main">
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {(accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && !series && !["data", "materials", "skills"].includes(params.get("view") ?? "") && <CreatorTaskSummary key={account.id} creatorId={account.id} />}
+      {account && !series && !["data", "materials", "skills", "bgm"].includes(shownView) && <CreatorTaskSummary key={account.id} creatorId={account.id} />}
       {!series && !accountMissing && (!params.has("creator") || account) && <>
       <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
         {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={beginNewSeries}>新建栏目</button>}
       </header>
-      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"},{value:"skills",label:"Skill 库"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials","skills"].includes(params.get("view") ?? "") ? params.get("view") : "content") === tab.value}
+      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"},...(account.id === QA_BGM_CREATOR ? [{value:"bgm",label:"BGM"}] : []),{value:"skills",label:"Skill 库"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials","skills","bgm"].includes(shownView) ? shownView : "content") === tab.value}
         onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value !== "content") next.set("view",tab.value); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
-      {account && params.get("view") === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={inspectSkill} /> : account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
+      {account && params.get("view") === "bgm" && account.id === QA_BGM_CREATOR ? <BgmPool key={account.id} creatorId={account.id} /> : account && params.get("view") === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={inspectSkill} /> : account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
       <AccountOverview key={account?.id ?? "unassigned"} creatorId={account?.id ?? null} series={accountSeries}
         onSelect={id => selectSeries(id)} hasUnseen={id => inbox.hasUnseen("series", id)}
         onCreate={beginNewSeries} />

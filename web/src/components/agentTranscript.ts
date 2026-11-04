@@ -9,7 +9,7 @@ export type ChatEntryData = { id?: string; kind: string; text?: string; name?: s
   complete?: boolean; terminal?: boolean; model_request_id?: string; tool_call_id?: string;
   research?: ResearchSnapshot; discussion?: DiscussionSnapshot;
   background?: { kind?: string; id?: string; status?: string; operation?: string; note?: string };
-  links?: ChatLink[]; attachments?: ChatAttachment[] };
+  links?: ChatLink[]; attachments?: ChatAttachment[]; materials?: { id: string; name: string; kind: string; url: string; analysis_available?: boolean }[] };
 
 export type ChatSession = { id: string; title: string; version: number; status: string; error: string | null;
   scope_kind: "overview" | "creator"; creator_id: string | null;

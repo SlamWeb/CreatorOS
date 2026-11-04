@@ -13,3 +13,6 @@
 .agent-composer .agent-compose-status { flex: 1; min-width: 0; }
 .chat-user .chat-images { margin-bottom: 10px; white-space: normal; }
 @media (max-width: 600px) { .chat-image { width: 80px; height: 80px; } .agent-composer .agent-compose-status { font-size: 12px; } }
+.chat-audio-drafts { display:flex; flex-wrap:wrap; gap:6px; padding:4px 0; }
+.chat-audio-drafts span { display:flex; align-items:center; gap:6px; max-width:100%; padding:6px 9px; border-radius:8px; background:#f1f3f6; overflow-wrap:anywhere; }
+.chat-audio-drafts button { border:0; background:none; display:flex; cursor:pointer; }

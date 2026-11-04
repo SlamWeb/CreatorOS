@@ -16,7 +16,7 @@ export function resolveWorkspaceSelection<A extends Account, S extends Series>(
 export function selectAccountParams(previous: URLSearchParams, id: string, resetView = false) {
   const next = new URLSearchParams(previous);
   next.set("creator", id);
-  if (resetView) next.delete("view");
+  if (resetView || (previous.get("creator") !== id && next.get("view") === "bgm")) next.delete("view");
   for (const key of ["series", "topics", "offset", "select", "research", "operation", "topic", "chat", "collection", "collection_topic"]) next.delete(key);
   return next;
 }

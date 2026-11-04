@@ -30,6 +30,15 @@ test("pending recovery preserves the original reasoning, identity and version", 
   assert.equal(isReasoningEffort("xhigh"), true);
   assert.equal(isReasoningEffort("none"), false);
 });
+test("pending recovery retains audio identities and accepts older requests without them", () => {
+  const pending = { sessionId: "chat-a", text: "", request_id: "request-a", expected_version: 3,
+    attachment_ids: [], material_ids: ["a".repeat(64)], reasoning_effort: "high" };
+  assert.deepEqual(parsePendingAgentTurn(JSON.stringify(pending), "chat-a"), pending);
+  assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, material_ids: ["../audio"] }), "chat-a"), null);
+  assert.equal(parsePendingAgentTurn(JSON.stringify({ ...pending, material_ids: null }), "chat-a"), null);
+  const { material_ids, ...legacy } = pending;
+  assert.deepEqual(parsePendingAgentTurn(JSON.stringify(legacy), "chat-a"), legacy);
+});
 test("new choices default high while legacy pending requests retain their exact values", () => {
   assert.deepEqual(REASONING_EFFORTS, ["low", "medium", "high", "xhigh", "ultra"]);
   for (const legacy of ["none", "max"]) {

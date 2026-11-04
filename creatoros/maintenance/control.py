@@ -101,6 +101,8 @@ class MaintenanceController:
         materials = getattr(service, "materials", None)
         if materials and any(item.get("status") == "running" for item in materials._analysis_jobs.values()):
             busy.append("bgm_analysis")
+        if materials and any(item.get("status") == "running" for item in getattr(materials, "_import_jobs", {}).values()):
+            busy.append("bgm_import")
         extraction = service.skill_extractions
         if extraction.active_id or extraction._draining:
             busy.append("skill_extraction")

@@ -2,7 +2,8 @@ import { memo, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, CircleAlert, Copy, LoaderCircle, Minus, Plus } from "lucide-react";
+import { Check, CircleAlert, Copy, LoaderCircle, Minus, Music2, Plus } from "lucide-react";
+import { apiUrl } from "../../api/client";
 import { ChatTrace } from "../../components/ChatTrace";
 import { ChatToolDetails } from "../../components/ChatToolDetails";
 import { ResearchActivity } from "../../components/ResearchActivity";
@@ -34,7 +35,7 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hid
 }) {
   const hidden = new Set<string>(hiddenLinkUrls ? JSON.parse(hiddenLinkUrls) : []);
   const links = uniqueChatLinks(entry.links ?? []).filter(link => !hidden.has(link.url));
-  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}
+  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{!!entry.materials?.length && <div className="chat-audio-drafts" aria-label="消息音频">{entry.materials.map(item => <span key={item.id}><Music2 size={15} /><a href={apiUrl(item.url)} target="_blank" rel="noopener noreferrer">{item.name}</a></span>)}</div>}{entry.text}
     {entry.iteration_mode && <small className="chat-user-iteration">RSI · 最多 3 轮</small>}</div>;
   if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,

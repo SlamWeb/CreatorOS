@@ -64,6 +64,10 @@ class StagedTasks:
                 bgm = self.materials.resolve(creator_id, inputs["bgm_material_id"])
                 spec.materials.append(TaskMaterial(id=bgm["id"], kind="audio", path=str(bgm["path"]),
                                                    sha256=bgm["sha256"], name=bgm["name"]))
+                analysis = self.materials.resolve_analysis(creator_id, bgm["id"])
+                if analysis:
+                    spec.materials.append(TaskMaterial(id=bgm["id"] + "-analysis", kind="bgm_analysis",
+                        path=str(analysis["path"]), sha256=analysis["sha256"], name="bgm-analysis.json"))
             else:
                 spec.bgm_reference = inputs["bgm_reference"]
         elif inputs or dependencies:

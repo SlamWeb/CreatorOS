@@ -251,6 +251,7 @@ def create_app(
     app.state.media_collections = MediaCollectionService(db, artifacts)
     app.state.skill_library = skill_library
     app.state.materials = MaterialStore(db)
+    chat.materials = app.state.materials
     app.state.production_tasks = ProductionTaskService(db, runs, executor, library=skill_library,
         collections=app.state.media_collections, materials=app.state.materials)
     app.state.reference_production = ReferenceProductionService(db, runs, executor, writes.pending_operations,

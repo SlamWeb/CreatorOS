@@ -232,7 +232,7 @@ ACCOUNT_INSTRUCTIONS = REPLY_POLICY + LANGUAGE_POLICY + (
     "同一个选题需要多张独立理由图或场景图时，用start_content_run(action=tasks,topic_id,tasks)，先拟好每条具体内容，每项显式kind=image和完整brief，只要求自己这一张；25张即25项并行任务。同题自动收进同一素材集，不拆成多个选题。只有用户明确要求一个会话连续做多页作品时才用单任务多图。"
     "用户要求生图后再剪辑时，先用manage_plan安排完整的图片→收图→视频依赖，不要仅提交图片就结束或要求用户等图齐再来发消息；BGM分享文本本身即可提交剪辑步骤。"
     "用户要求等待或有多步依赖时用 manage_plan 制定通用步骤并由宿主推进，不轮询或重复提交。仅需等待完成并汇报（包括先核验结果）时，不要添加request_review；计划终态会唤醒本会话。只有需要根据结果决定、调整或追加后续动作时才添加request_review，arguments 为 {\"question\":\"具体要判断什么\"}；后台暂停计划并唤醒你，读取当前计划，根据结果调整未开始步骤，再明确 resume。失败步骤只有实际调用 skip 并取得状态 skipped 的回执后才能说已跳过；只改后续步骤并不等于已跳过。需要跳过时先读取最新计划及版本，确认该步骤 skippable=true，调用 skip 后按新版本调整依赖；不安全或未知的步骤不跳过。无把握或结果未知就说明并等待用户，绝不重复提交生产。多张图可在一个 start_content_run 步骤内列多个独立 tasks，并设 wait_for_completion=true。收集本次图片时，新建素材集并令 run_ids 为 {\"$ref\":\"图片步骤ID.items.*.run_id\"}，依赖该图片步骤，不传 topic_id；视频步骤使用 {\"$ref\":\"素材集步骤ID.collection_id\"} 作为 inputs.collection_id 并依赖素材集步骤。视频任务明确 kind=video 和 BGM；按需要选择账号 Skill，不区分主辅。"
-    "视频inputs使用图片集合/导出与BGM文件素材ID或用户提供的BGM分享原文二选一；用户给分享链接时，将完整分享文本原样放进bgm_reference交给Codex结合Skill处理，不需要先解析、下载或调用manage_material(import_link)。任务受理不代表音轨已取得或视频已完成。"
+    "BGM池支持从分享原文后台导入并分析；已保存的音频可用素材ID及已有分析。直接制作时也可把完整分享原文放进bgm_reference交给Codex，无需先导入或解析。任务受理不代表音轨已取得或视频已完成。"
     "图片完成后可人工选片导出再制视频；用户明确授权等待选中的生图任务时填写depends_on，由持久后台推进，不轮询、不重交。"
     "查看原选题可读各项进度；各任务失败独立处理，不重跑已成功的任务，不重复提交整批。"
     "任务接受不等于完成；旧失败/中断不被批量提交自动恢复。人工验收和发布确认仍保留。"
@@ -738,7 +738,7 @@ class AgentChatService:
             plans.fail_continuation(*args, outcome=outcome)
 
     def submit(self, session_id, request_id, text, version, studio_url, attachment_ids=None,
-               reasoning_effort=None, iteration_mode=False, context_target=None):
+               reasoning_effort=None, iteration_mode=False, context_target=None, material_ids=None):
         if context_target is not None:
             from .chat_focus import ChatContextTarget
             context_target = ChatContextTarget.model_validate(context_target).model_dump(exclude_none=True)
@@ -747,6 +747,9 @@ class AgentChatService:
         if reasoning_effort is not None and reasoning_effort not in DEEPSEEK_REASONING_EFFORTS:
             raise HTTPException(422, "请选择有效的推理程度。")
         attachment_ids = list(attachment_ids or [])
+        material_ids = list(material_ids or [])
+        if len(material_ids) > 10 or len(set(material_ids)) != len(material_ids):
+            raise HTTPException(422, "每次最多发送 10 个不同音频素材。")
         if len(attachment_ids) > MAX_IMAGES or len(set(attachment_ids)) != len(attachment_ids):
             raise HTTPException(422, "每次最多发送 6 张不同图片。")
         with self.lock:
@@ -757,6 +760,7 @@ class AgentChatService:
             for item in doc["requests"]:
                 if item["id"] == request_id:
                     if (item["text"] != text or item.get("attachment_ids", []) != attachment_ids
+                            or item.get("material_ids", []) != material_ids
                             or item.get("context_target") != context_target
                             or item.get("iteration_mode", False) != iteration_mode
                             or (reasoning_effort is not None
@@ -779,22 +783,33 @@ class AgentChatService:
                     raise HTTPException(503, "当前服务尚未加载选题资料入口，请保留草稿并稍后重试。")
                 self.focus_context_builder.validate(doc.get("creator_id"), context_target)
             attachments = [self.attachments.get(session_id, value) for value in attachment_ids]
+            materials = []
+            if material_ids:
+                store = getattr(self, "materials", None)
+                if not store or not doc.get("creator_id"):
+                    raise HTTPException(422, "请在账号对话中添加音频。")
+                try:
+                    materials = [{key: value for key, value in store.resolve(doc["creator_id"], mid).items() if key != "path"}
+                                 for mid in material_ids]
+                except ValueError as error:
+                    raise HTTPException(422, str(error)) from error
             provider = self.provider_factory()
             if isinstance(provider, DeepSeekProvider):
                 provider.image_resolver = lambda ref: self.attachments.resolve(session_id, ref)
                 provider.set_reasoning_effort(reasoning_effort)
             doc["requests"].append({"id": request_id, "text": text, "status": "running",
-                                    "attachment_ids": attachment_ids, "reasoning_effort": reasoning_effort,
+                                    "attachment_ids": attachment_ids, "material_ids": material_ids, "reasoning_effort": reasoning_effort,
                                     **({"context_target": context_target} if context_target else {}),
                                     "iteration_mode": iteration_mode})
             doc["entries"].append({"kind": "user", "text": text, "turn_id": request_id,
                                    "iteration_mode": iteration_mode,
                                    **({"context_target": context_target} if context_target else {}),
-                                   **({"attachments": attachments} if attachments else {})})
+                                   **({"attachments": attachments} if attachments else {}),
+                                   **({"materials": materials} if materials else {})})
             doc.update(status="running", error=None, version=doc["version"] + 1,
                        reasoning_effort=reasoning_effort)
             if doc["title"] == "新对话":
-                doc["title"] = text[:36] or attachments[0]["name"][:36]
+                doc["title"] = text[:36] or (attachments or materials)[0]["name"][:36]
             try:
                 self._save(doc)
             except OSError as error:
@@ -804,7 +819,7 @@ class AgentChatService:
                     pass
                 raise ChatViewNotStarted() from error
             self.active[session_id], self.providers[session_id] = doc, provider
-            thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id, attachments, iteration_mode, context_target), daemon=True)
+            thread = Thread(target=self._run, args=(doc, text, studio_url, provider, request_id, attachments, iteration_mode, context_target), kwargs={"materials": materials}, daemon=True)
             self.threads[session_id] = thread
             thread.start()
             return self._view(doc)
@@ -929,7 +944,7 @@ class AgentChatService:
                 entries.append({"kind": kind, **data})
             self._save(doc)
 
-    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None, before_continuation_output=None):
+    def _run(self, doc, text, studio_url, provider, request_id=None, attachments=None, iteration_mode=False, context_target=None, host_observation=None, on_done=None, before_continuation_output=None, materials=None):
         status, error = "idle", None
         history_read_failed = False
         continuation = next((item for item in doc["requests"] if item["id"] == request_id), None) if host_observation else None
@@ -966,15 +981,29 @@ class AgentChatService:
                     "skill_selection": "各项仅用skill_ids选择精确版本，不使用skills主辅角色或skill_overrides。",
                     "bgm_share_field": "inputs.bgm_reference",
                     "audio_import_required": False,
+                    "bgm_pool": "用户要求入池时用 manage_material import_link；选已保存歌曲用 bgm_material_id，已有分析随任务冻结。",
                     "independent_images": "一图一task，25张独立理由图=25项tasks，同一选题收进同一素材集",
                     "image_then_video": "用manage_plan等待图片完成后继续剪辑，分享原文直接给Codex",
                     "obsolete_history": "旧回复中必须先取得音频素材ID的说法已作废"}
+                store = getattr(self, "materials", None)
+                if store:
+                    try:
+                        tracks = store.list(doc["creator_id"])
+                    except (OSError, ValueError):
+                        focus["data"]["bgm_index_note"] = "音乐索引暂不可用，可稍后重试查看素材。"
+                    else:
+                        focus["data"]["bgm_index"] = [{key: item.get(key) for key in ("id", "name", "duration_seconds", "analysis_available", "analysis_status")}
+                                                        for item in tracks[:50]]
+                        if len(tracks) > 50:
+                            focus["data"]["bgm_index_note"] = "仅列最近50项，其他音乐可用 manage_material 查询。"
+                if materials:
+                    focus["data"]["attached_bgm"] = materials
             permitted_tools = ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS
             if host_observation:
                 # A continuation acts on this plan only. It cannot directly submit
                 # new production; permitted plan edits are additionally checked.
                 permitted_tools = permitted_tools & CONTINUATION_TOOLS
-            run_agent(provider, console=WebConsole(text or "（用户发送了图片，请根据上下文判断用途；用途不明时先询问。）"),
+            run_agent(provider, console=WebConsole(text or "（用户发送了附件，请根据上下文判断用途；用途不明时先询问。）"),
                       user_attachments=attachments,
                       host_observation=host_observation,
                       **({"request_context": focus, "user_context_ref": context_target} if focus else {}),

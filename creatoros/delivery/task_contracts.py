@@ -20,7 +20,7 @@ class TaskSkill(TaskContract):
 
 class TaskMaterial(TaskContract):
     id: str = Field(min_length=1, max_length=128)
-    kind: Literal["images_zip", "audio", "video"]
+    kind: Literal["images_zip", "audio", "video", "bgm_analysis"]
     path: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     name: str = Field(min_length=1, max_length=255)

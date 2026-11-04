@@ -105,6 +105,10 @@ class AgentScopeGuard:
         pool = re.fullmatch(r"/api/series/([^/]+)/skills", path)
         if pool:
             return None if method in {"GET", "PUT"} and self._owns_series(pool.group(1), creator_id) else self._denied()
+        imports = re.fullmatch(r"/api/creators/([^/]+)/materials/imports(?:/([^/]+))?", path)
+        if imports:
+            allowed = (method == "POST" and imports.group(2) is None) or method == "GET"
+            return None if imports.group(1) == creator_id and allowed else self._denied()
         analysis = re.fullmatch(r"/api/creators/([^/]+)/materials/([^/]+)/analysis(?:/(run|status))?", path)
         if analysis:
             allowed = (method == "GET" and analysis.group(3) in {None, "status"}) or (method == "POST" and analysis.group(3) == "run")
