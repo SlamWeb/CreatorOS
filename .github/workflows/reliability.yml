@@ -101,7 +101,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [general, agent-plan, staged, compact, media, reference-selection]
+        group: [general, agent-plan, bgm, staged, compact, media, reference-selection]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/reliability-runtime

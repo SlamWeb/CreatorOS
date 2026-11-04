@@ -17,12 +17,17 @@ runs:
   using: composite
   steps:
     - uses: actions/setup-python@v5
+      if: inputs.python-deps == 'true'
       with:
         python-version: '3.11'
         cache: pip
         cache-dependency-path: |
           requirements.txt
           requirements-web.txt
+    - uses: actions/setup-python@v5
+      if: inputs.python-deps != 'true'
+      with:
+        python-version: '3.11'
     - name: Prepare canonical workspace temp before installs or tests
       shell: pwsh
       run: python -m tests.ci_environment prepare --workspace "$env:GITHUB_WORKSPACE" --job "$env:GITHUB_JOB" --github-env "$env:GITHUB_ENV"

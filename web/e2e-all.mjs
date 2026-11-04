@@ -23,6 +23,7 @@ const groups = [
     "workbench-locator.spec.ts", "workspace-gallery.spec.ts", "workspace-management.spec.ts",
   ] },
   { name: "agent-plan", config: "playwright.agent-plan.config.ts", source: "fresh plan fixture; continuation held", specs: ["agent-plan.spec.ts"] },
+  { name: "bgm", config: "playwright.config.ts", source: "fresh Studio database; real audio upload and ffprobe; controlled analysis and chat", specs: ["bgm-pool.spec.ts"] },
   { name: "staged", config: "playwright.staged.config.ts", source: "fresh task fixture and controlled image/video producer", specs: ["production-tasks.spec.ts", "staged-production.spec.ts"] },
   { name: "compact", config: "playwright.compact-results.config.ts", source: "fresh compact-chat fixture and controlled producer", specs: ["compact-chat.spec.ts", "single-task-preview.spec.ts", "agent-transcript.spec.ts"] },
   { name: "media", config: "playwright.media.config.ts", directory: "media-tests",
