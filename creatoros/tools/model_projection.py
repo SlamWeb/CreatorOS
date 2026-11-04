@@ -308,8 +308,8 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
             result["available_versions"] = _list(data["available_versions"], lambda item: _pick(item, _SKILL + ("digest",)))
         return result
     if tool_name == "manage_material":
-        fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url", "analysis_available")
-        return _pick(data, ("action", "creator_id", "status", "message", "analysis", "receipt") + fields) | _items(data, fields)
+        fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url", "analysis_available", "analysis_status")
+        return _pick(data, ("action", "creator_id", "status", "message", "analysis", "receipt", "material_id", "source_url") + fields) | _items(data, fields)
     if tool_name == "manage_media_collection":
         if data.get("export_id"):
             # Keep exact handoff identities for a later video task; UI receipts

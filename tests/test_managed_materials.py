@@ -15,6 +15,46 @@ from creatoros.storage import ContentRepository, Database, upgrade_database
 
 
 class MaterialTests(unittest.TestCase):
+    def test_share_import_preserves_failure_and_scopes_status(self):
+        from creatoros.integrations.managed_materials import MaterialStore
+        with TemporaryDirectory() as temporary:
+            url = f"sqlite:///{Path(temporary).as_posix()}/test.db"
+            upgrade_database(url)
+            db = Database(url)
+            try:
+                repo = ContentRepository(db)
+                for name in ("a", "b"):
+                    repo.create_creator(creator_id=name, display_name=name)
+                store = MaterialStore(db)
+                text = "复制打开抖音 https://v.douyin.com/failed/ 作品"
+                with patch.object(store, "from_url", side_effect=ValueError("获取失败")):
+                    job = store.start_import("a", text)
+                    deadline = monotonic() + 5
+                    while store.import_status("a", job["id"])["status"] == "running" and monotonic() < deadline:
+                        sleep(.02)
+                status = MaterialStore(db).import_status("a", job["id"])
+                self.assertEqual(status["status"], "failed")
+                self.assertEqual(status["source_url"], text)
+                self.assertEqual(status["message"], "获取失败")
+                self.assertEqual(len(store.list_imports("a")), 1)
+                self.assertEqual(store.list_imports("b"), [])
+                with self.assertRaises(ValueError):
+                    store.import_status("b", job["id"])
+                from fastapi import FastAPI
+                from fastapi.testclient import TestClient
+                from creatoros.web.material_routes import material_routes
+                app = FastAPI()
+                app.include_router(material_routes(store))
+                with TestClient(app) as client:
+                    listing = client.get("/api/creators/a/materials/imports")
+                    self.assertEqual(listing.status_code, 200)
+                    self.assertEqual(listing.json()["items"][0]["status"], "failed")
+                    detail = client.get(f"/api/creators/a/materials/imports/{job['id']}")
+                    self.assertEqual(detail.status_code, 200)
+                    self.assertEqual(detail.json()["source_url"], text)
+            finally:
+                db.close()
+
     def test_share_link_allowlist_rejects_other_origins_before_network_or_downloader(self):
         from creatoros.integrations.managed_materials import MaterialStore
         from types import SimpleNamespace
@@ -58,6 +98,11 @@ class MaterialTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     store.resolve("b", receipt["id"])
                 self.assertFalse(store.list("a")[0]["analysis_available"])
+                # Listing is used for chat context; do not hash/read each audio.
+                with patch.object(store, "resolve", side_effect=AssertionError("unexpected material resolve")), \
+                        patch.object(Path, "read_bytes", side_effect=AssertionError("unexpected audio read")):
+                    item = store.list("a")[0]
+                self.assertEqual(item["analysis_status"], "not_started")
                 analysis_receipt = {"inputSha256": receipt["sha256"], "sourceStartSeconds": 0,
                                     "sourceEndSeconds": 1}
                 onsets = {"analysisOffset": 0, "analysisDurationSeconds": 1,

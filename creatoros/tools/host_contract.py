@@ -31,9 +31,8 @@ def model_tool_schemas(schemas, context):
         function = schema["function"]
         name = function["name"]
         if name == "manage_material":
-            function["parameters"]["properties"]["action"]["enum"] = ["list", "get", "analyze", "analysis", "analysis_status"]
-            function["parameters"]["properties"].pop("source_url", None)
-            function["description"] = "查询当前账号音频或视频素材；analyze 后台分析已有音频，analysis_status 查询状态，analysis 获取摘要。用户提供 BGM 分享链接制作视频时仍直接传 bgm_reference。"
+            function["parameters"]["properties"]["action"]["enum"] = ["list", "get", "import_link", "import_status", "analyze", "analysis", "analysis_status"]
+            function["description"] = "管理当前账号 BGM：list/get 查询；import_link 后台导入分享原文并分析，import_status 查看；analyze 后台分析已有音频，analysis_status 查询状态，analysis 获取摘要。后台任务运行时不要反复查询。"
         if context.archive_only_reads and name == "read_file":
             function["description"] = "读取当前会话的工具结果归档文本；不能读取项目文件、Skill 文件或其他会话。"
             function["parameters"]["properties"]["path"]["description"] = "当前会话归档结果中提供的路径。"

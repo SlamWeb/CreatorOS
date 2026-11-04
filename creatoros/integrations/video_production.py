@@ -53,6 +53,9 @@ def _video_prompt(spec, payload, directory, *, recovery=False, submit_tool=False
             "缺失工具或素材时 complete=false、video_path=null，并在 error 中写明实际原因，不伪造文件。\n"
             + ("用户提供的 BGM 分享原文如下，请按选中剪辑 Skill 的指引自行获取和使用音频；无需 CreatorOS 预先解析：\n"
                + spec.bgm_reference + "\n" if spec.bgm_reference else "")
+            + ("已提供该音频的分析文件 bgm_analysis，请先读取并复用其中 analysis、receipt 和 onsets；"
+               "音频文件另以 audio 提供。分析结果是候选，注意片段起点；按任务需要使用，不要重复分析。\n"
+               if any(item.kind == "bgm_analysis" for item in spec.materials) else "")
             + ("这是同 Revision 的技术恢复，先检查已有工程和渲染文件，再继续；沿用固定素材。\n" if recovery else "")
             + json.dumps({"task": payload, "skills": skills, "materials": materials,
                           "tools": {name: media_tool(name) for name in ("ffmpeg", "ffprobe")}}, ensure_ascii=False))

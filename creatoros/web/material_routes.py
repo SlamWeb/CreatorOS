@@ -8,6 +8,7 @@ class MaterialUpload(WriteRequest):
     name: str | None = Field(default=None, max_length=200)
     data_base64: str | None = None
     source_url: str | None = Field(default=None, max_length=2000)
+    analyze: bool = False
 
     @model_validator(mode="after")
     def mode(self):
@@ -20,6 +21,10 @@ class MaterialAnalysis(WriteRequest):
     analysis: dict
     receipt: dict
     onsets: dict
+
+
+class MaterialImport(WriteRequest):
+    source_url: str = Field(min_length=1, max_length=2000)
 
 
 class MaterialAnalysisRequest(WriteRequest):
@@ -37,8 +42,26 @@ def material_routes(store):
 
     @router.post("", status_code=201)
     def upload(creator_id: str, body: MaterialUpload):
-        return (store.from_url(creator_id, body.source_url) if body.source_url else
-                store.upload(creator_id, body.name, body.data_base64))
+        result = (store.from_url(creator_id, body.source_url) if body.source_url else
+                  store.upload(creator_id, body.name, body.data_base64))
+        if body.analyze:
+            try:
+                result["analysis_status"] = store.start_analysis(creator_id, result["id"])["status"]
+            except (ValueError, OSError, RuntimeError) as error:
+                result.update(analysis_status="failed", analysis_message=str(error))
+        return result
+
+    @router.post("/imports", status_code=202)
+    def import_material(creator_id: str, body: MaterialImport):
+        return store.start_import(creator_id, body.source_url)
+
+    @router.get("/imports")
+    def list_imports(creator_id: str):
+        return {"items": store.list_imports(creator_id)}
+
+    @router.get("/imports/{identifier}")
+    def import_status(creator_id: str, identifier: str):
+        return store.import_status(creator_id, identifier)
 
     @router.get("/{identifier}")
     def get(creator_id: str, identifier: str):

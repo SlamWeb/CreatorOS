@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import json
 import math
+import re
 from pathlib import Path
 import os
 import shutil
@@ -34,6 +35,7 @@ class MaterialStore:
                      Path(path).resolve().with_suffix(".materials") if path and path != ":memory:" else None)
         self._analysis_lock = threading.Lock()
         self._analysis_jobs = {}
+        self._import_jobs = {}
 
     def _creator(self, session, creator_id):
         creator = session.get(Creator, creator_id)
@@ -104,9 +106,15 @@ class MaterialStore:
     def list(self, creator_id):
         with self.database.session() as session:
             self._creator(session, creator_id)
-            return [{**self._view(row), "analysis_available": (self._path(row).parent / "bgm-analysis.json").is_file()}
-                    for row in session.scalars(select(ManagedMaterial).where(
-                ManagedMaterial.creator_id == creator_id).order_by(ManagedMaterial.created_at.desc()))]
+            rows = list(session.scalars(select(ManagedMaterial).where(
+                ManagedMaterial.creator_id == creator_id).order_by(ManagedMaterial.created_at.desc())))
+            values = []
+            for row in rows:
+                path = self._path(row)
+                available = (path.parent / "bgm-analysis.json").is_file()
+                values.append({**self._view(row), "analysis_available": available,
+                               "analysis_status": self._analysis_status_for_path(creator_id, row.id, path, available)["status"]})
+        return values
 
     def resolve(self, creator_id, identifier):
         with self.database.session() as session:
@@ -153,17 +161,20 @@ class MaterialStore:
 
     def analysis_status(self, creator_id, identifier):
         audio = self.resolve(creator_id, identifier)
+        return self._analysis_status_for_path(creator_id, identifier, audio["path"], audio["analysis_available"])
+
+    def _analysis_status_for_path(self, creator_id, identifier, audio_path, analysis_available):
         with self._analysis_lock:
             job = self._analysis_jobs.get((creator_id, identifier))
             if job:
                 return dict(job)
-        saved = audio["path"].parent / "bgm-analysis-status.json"
+        saved = audio_path.parent / "bgm-analysis-status.json"
         if saved.is_file():
             status = json.loads(saved.read_text(encoding="utf-8"))
             if status.get("status") == "running":
                 return {"status": "interrupted", "message": "上次分析中断，可手动重新开始。"}
             return status
-        return {"status": "completed" if self.resolve_analysis(creator_id, identifier) else "not_started"}
+        return {"status": "completed" if analysis_available else "not_started"}
 
     def start_analysis(self, creator_id, identifier, *, start=0, duration=None, force=False):
         audio = self.resolve(creator_id, identifier)
@@ -175,14 +186,20 @@ class MaterialStore:
         with self._analysis_lock:
             if self._analysis_jobs.get(key, {}).get("status") == "running":
                 return {"status": "running"}
-            if not force and (audio["path"].parent / "bgm-analysis.json").is_file():
-                return {"status": "completed", "analysis_available": True}
+            analysis_path = audio["path"].parent / "bgm-analysis.json"
+            if not force and analysis_path.is_file():
+                saved = json.loads(analysis_path.read_text(encoding="utf-8"))
+                receipt = saved.get("receipt", {})
+                requested_end = min(audio["duration_seconds"], start + duration) if duration else audio["duration_seconds"]
+                if (abs(receipt.get("sourceStartSeconds", -1) - start) < .05 and
+                        abs(receipt.get("sourceEndSeconds", -1) - requested_end) < .1):
+                    return {"status": "completed", "analysis_available": True}
             self._analysis_jobs[key] = {"status": "running"}
             atomic_write_text(audio["path"].parent / "bgm-analysis-status.json", '{"status":"running"}')
 
         def run():
             try:
-                script = Path.home() / ".codex" / "skills" / "bgm-understanding" / "scripts" / "analyze_bgm.py"
+                script = Path(__file__).resolve().parents[1] / "skills" / "bgm-collection" / "scripts" / "analyze_bgm.py"
                 if not script.is_file():
                     raise ValueError("没有找到 bgm-understanding 分析器。")
                 configured = os.getenv("CREATOROS_BGM_PYTHON")
@@ -208,6 +225,85 @@ class MaterialStore:
 
         threading.Thread(target=run, name="creatoros-bgm-analysis", daemon=True).start()
         return {"status": "running"}
+
+    def _import_path(self, creator_id, identifier):
+        if self.root is None or not re.fullmatch(r"[a-f0-9]{64}", identifier):
+            raise ValueError("导入记录无效。")
+        owner = hashlib.sha256(creator_id.encode()).hexdigest()
+        return self.root / "imports" / owner / (identifier + ".json")
+
+    def import_status(self, creator_id, identifier):
+        with self.database.session() as session:
+            self._creator(session, creator_id)
+        path = self._import_path(creator_id, identifier)
+        with self._analysis_lock:
+            item = self._import_jobs.get((creator_id, identifier))
+            if item:
+                return dict(item)
+        if not path.is_file():
+            raise ValueError("导入记录不存在。")
+        item = json.loads(path.read_text(encoding="utf-8"))
+        if item["status"] == "running":
+            return {**item, "status": "interrupted", "message": "上次导入中断，可重新提交链接。"}
+        return item
+
+    def list_imports(self, creator_id):
+        with self.database.session() as session:
+            self._creator(session, creator_id)
+        folder = self._import_path(creator_id, "0" * 64).parent
+        if not folder.exists():
+            return []
+        return [self.import_status(creator_id, path.stem) for path in folder.glob("*.json")]
+
+    def start_import(self, creator_id, source_url):
+        with self.database.session() as session:
+            self._creator(session, creator_id)
+        if not isinstance(source_url, str) or not source_url.strip() or len(source_url) > 2000:
+            raise ValueError("请提供音乐分享链接。")
+        source_url = source_url.strip()
+        match = re.search(r"https?://[^\s<>\]\)）]+", source_url)
+        if not match:
+            raise ValueError("分享内容中没有找到链接。")
+        url = match.group(0).rstrip("。，,.!！")
+        identity = hashlib.sha256((creator_id + ":" + source_url).encode("utf-8")).hexdigest()
+        path = self._import_path(creator_id, identity)
+        key = (creator_id, identity)
+        with self._analysis_lock:
+            active = self._import_jobs.get(key)
+            if active and active["status"] == "running":
+                return dict(active)
+            if path.is_file():
+                prior = json.loads(path.read_text(encoding="utf-8"))
+                if prior.get("status") == "completed":
+                    return prior
+            item = {"id": identity, "status": "running", "source_url": source_url}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, json.dumps(item, ensure_ascii=False))
+            self._import_jobs[key] = item
+
+        def run():
+            try:
+                material = self.from_url(creator_id, url)
+            except Exception as error:
+                result = {**item, "status": "failed", "message": str(error)}
+            else:
+                result = {**item, "status": "completed", "material_id": material["id"]}
+                try:
+                    result["analysis_status"] = self.start_analysis(creator_id, material["id"])["status"]
+                except Exception as error:
+                    result.update(analysis_status="failed", message=str(error))
+            with self._analysis_lock:
+                self._import_jobs[key] = result
+                atomic_write_text(path, json.dumps(result, ensure_ascii=False))
+
+        try:
+            threading.Thread(target=run, name="creatoros-bgm-import", daemon=True).start()
+        except RuntimeError as error:
+            item = {**item, "status": "failed", "message": str(error)}
+            with self._analysis_lock:
+                self._import_jobs[key] = item
+                atomic_write_text(path, json.dumps(item, ensure_ascii=False))
+        return dict(item)
 
     def from_url(self, creator_id, source_url):
         parsed = urlsplit(source_url)

@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, apiUrl, request, studioApi } from "../api/client";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, CircleAlert, Copy, History, LoaderCircle, Minus, Plus, Repeat2, X } from "lucide-react";
+import { Check, CircleAlert, Copy, History, LoaderCircle, Minus, Music2, Plus, Repeat2, X } from "lucide-react";
 import { ChatTrace } from "../components/ChatTrace";
 import { ChatToolDetails } from "../components/ChatToolDetails";
 import { ResearchActivity } from "../components/ResearchActivity";
@@ -15,6 +15,7 @@ import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, 
 import { useAgentChat } from "../components/AgentChatHost";
 import { AgentPlan } from "../components/AgentPlan";
 import { AgentComposerControls } from "../components/AgentComposerControls";
+import { QA_BGM_CREATOR, uploadBgm } from "../components/BgmPool";
 import { contextFocusDraftKey, initialReasoningEffort, isReasoningEffort, parseContextFocusDraft, parsePendingAgentTurn,
   pendingAgentTurnKey, REASONING_EFFORTS, reasoningPreferenceKey, sameContextTarget,
   type ChatContextFocus, type ChatContextTarget, type PendingAgentTurn, type ReasoningEffort, type ReplayReasoningEffort } from "../components/agentComposerState";
@@ -40,6 +41,14 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   read_image: "看图片", extract_skill_from_images: "提炼 Skill", create_skill_draft: "保存 Skill 草稿", import_content_images: "导入成品",
   read_file: "读取历史资料", read_tool_result: "回读工具结果" };
 const base = "/api/agent/sessions";
+type AudioDraft = { id: string; name: string };
+const audioKey = (sessionId: string) => `creatoros.agent.audio.v1:${sessionId}`;
+function readAudioDraft(sessionId: string | null): AudioDraft[] {
+  if (!sessionId) return [];
+  try { const value: unknown = JSON.parse(sessionStorage.getItem(audioKey(sessionId)) ?? "[]");
+    return Array.isArray(value) ? value.filter(item => item && typeof item.name === "string" && /^[a-f0-9]{64}$/.test(item.id)) : [];
+  } catch { return []; }
+}
 const newestSession = newestChatSession;
 const draftStorageKey = (scope: string) => `creatoros.agent.draft.v1:${encodeURIComponent(scope)}`;
 const iterationDraftKey = (scope: string) => `creatoros.agent.iteration-draft.v1:${encodeURIComponent(scope)}`;
@@ -89,6 +98,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyId = useId();
   const [attachmentDrafts, setAttachmentDrafts] = useState<Record<string, ChatAttachment[]>>({});
+  const [audioDrafts, setAudioDrafts] = useState<Record<string, AudioDraft[]>>({});
+  const audioInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const uploadLock = useRef(false);
   const sendLock = useRef(false);
@@ -126,6 +137,11 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const id = standalone ? params.get("chat") : ((selectedChats[scopeKey] ?? readSessionValue(selectedChatStorageKey(scopeKey))) || null);
   viewRef.current = `${scopeKey}:${id ?? "new"}`;
   const attachments = id ? (attachmentDrafts[id] ?? readAttachmentDraft(id)) : [];
+  const audioAttachments = id ? (audioDrafts[id] ?? readAudioDraft(id)) : [];
+  const saveAudio = (sessionId: string, next: AudioDraft[]) => {
+    try { if (next.length) sessionStorage.setItem(audioKey(sessionId), JSON.stringify(next)); else sessionStorage.removeItem(audioKey(sessionId)); } catch { /* Keep in memory. */ }
+    setAudioDrafts(previous => ({ ...previous, [sessionId]: next }));
+  };
   const saveAttachments = (sessionId: string, next: ChatAttachment[]) => {
     writeAttachmentDraft(sessionId, next);
     setAttachmentDrafts(previous => ({ ...previous, [sessionId]: next }));
@@ -374,17 +390,29 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       updateError(scopeKey, `${fileName} 上传失败：${e instanceof Error ? e.message : "请重新选择图片。"} 已上传的图片仍保留，请重新选择失败的图片。`);
     } finally { uploadLock.current = false; setUploading(false); }
   };
+  const addAudio = async (file: File) => {
+    if (creatorId !== QA_BGM_CREATOR || uploadLock.current || sendLock.current || pendingTurn || checkingPending || cannotSend || doc?.status === "running") return;
+    uploadLock.current = true; setUploading(true); updateError(scopeKey, "");
+    try {
+      const target = await ensureSession(doc, creatorId, scopeKey, viewRef.current);
+      const material = await uploadBgm(creatorId, file);
+      const current = readAudioDraft(target.id);
+      if (!current.some(item => item.id === material.id)) saveAudio(target.id, [...current, { id: material.id, name: material.name }]);
+      void cache.invalidateQueries({ queryKey: ["video-materials", creatorId] });
+    } catch (e) { updateError(scopeKey, `${file.name} 上传失败：${e instanceof Error ? e.message : "请重试。"}`); }
+    finally { uploadLock.current = false; setUploading(false); }
+  };
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, effort, iterationMode, contextTarget, pending }: {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, materialIds, effort, iterationMode, contextTarget, pending }: {
       text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
-      sourceView: string; imageIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean;
+      sourceView: string; imageIds: string[]; materialIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean;
       contextTarget?: ChatContextTarget; pending?: PendingAgentTurn;
     }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
       const snapshot: PendingAgentTurn = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
-        expected_version: target.version, attachment_ids: imageIds, reasoning_effort: effort, iteration_mode: iterationMode,
+        expected_version: target.version, attachment_ids: imageIds, material_ids: materialIds, reasoning_effort: effort, iteration_mode: iterationMode,
         ...(contextTarget ? { context_target: { ...contextTarget } } : {}) };
       savePendingTurn(target.id, snapshot);
       writeSessionValue(reasoningPreferenceKey(target.id), snapshot.reasoning_effort);
@@ -392,6 +420,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       return request<Session>(`${base}/${target.id}/turns`, { method: "POST", body: JSON.stringify({
         text: snapshot.text, request_id: snapshot.request_id, expected_version: snapshot.expected_version,
         attachment_ids: snapshot.attachment_ids, reasoning_effort: snapshot.reasoning_effort,
+        ...(snapshot.material_ids?.length ? { material_ids: snapshot.material_ids } : {}),
         ...(snapshot.iteration_mode === undefined ? {} : { iteration_mode: snapshot.iteration_mode }),
         ...(snapshot.context_target === undefined ? {} : { context_target: snapshot.context_target }),
       }) });
@@ -400,6 +429,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       cache.setQueryData<Session>(["agent-session", variables.submittedScopeKey, next.id], old => newestSession(old, next));
       if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
       saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
+      saveAudio(next.id, readAudioDraft(next.id).filter(item => !(variables.pending?.material_ids ?? variables.materialIds).includes(item.id)));
       savePendingTurn(next.id, null);
       clearSubmittedFocus(variables.submittedScopeKey, variables.pending?.context_target ?? variables.contextTarget);
       writeSessionValue(iterationDraftKey(variables.submittedScopeKey), "");
@@ -433,23 +463,24 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         setIterationDrafts(previous => ({ ...previous, [submittedScopeKey]: false }));
         if (readSessionValue(draftStorageKey(submittedScopeKey)).trim() === original.text) updateDraft(submittedScopeKey, "");
         saveAttachments(original.sessionId, readAttachmentDraft(original.sessionId).filter(image => !original.attachment_ids.includes(image.id)));
+        saveAudio(original.sessionId, readAudioDraft(original.sessionId).filter(item => !(original.material_ids ?? []).includes(item.id)));
       } else if (latest.status === "running") {
         updateError(submittedScopeKey, "当前对话正在处理其他指令，请完成后再核对这次提交。");
       } else {
         sendLock.current = true;
         send.mutate({ text: original.text, current: latest, scopeCreatorId: creatorId,
           submittedScopeKey, sourceView: `${submittedScopeKey}:${original.sessionId}`,
-          imageIds: original.attachment_ids, effort: original.reasoning_effort, iterationMode: original.iteration_mode === true, pending: original });
+          imageIds: original.attachment_ids, materialIds: original.material_ids ?? [], effort: original.reasoning_effort, iterationMode: original.iteration_mode === true, pending: original });
       }
     } catch (e) {
       updateError(submittedScopeKey, `核对失败：${e instanceof Error ? e.message : "请稍后再试。"} 原请求仍保留。`);
     } finally { setCheckingPending(false); }
   };
   const submit = () => {
-    if ((!draft.trim() && !attachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
+    if ((!draft.trim() && !attachments.length && !audioAttachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
     updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey,
-      sourceView: viewRef.current, imageIds: attachments.map(image => image.id), effort: reasoningEffort, iterationMode,
+      sourceView: viewRef.current, imageIds: attachments.map(image => image.id), materialIds: audioAttachments.map(item => item.id), effort: reasoningEffort, iterationMode,
       ...(contextFocus ? { contextTarget: { ...contextFocus.target } } : {}) });
   };
   const chooseSession = (next: string | null) => {
@@ -535,14 +566,19 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       </div>}
       {!!attachments.length && <ChatImages attachments={attachments} disabled={uploading || send.isPending || !!pendingTurn || doc?.status === "running"}
         remove={imageId => { if (id) saveAttachments(id, attachments.filter(image => image.id !== imageId)); }} />}
+      {!!audioAttachments.length && <div className="chat-audio-drafts" aria-label="待发送音频">{audioAttachments.map(item => <span key={item.id}><Music2 size={15} />{item.name}<button type="button" aria-label={`移除音频 ${item.name}`} disabled={uploading || send.isPending || !!pendingTurn || doc?.status === "running"} onClick={() => { if (id) saveAudio(id, audioAttachments.filter(value => value.id !== item.id)); }}><X size={14} /></button></span>)}</div>}
       <textarea ref={composerInput} aria-label="给 Agent 的消息" placeholder={creatorId ? "围绕这个账号的栏目与选题继续…" : "说说你想做什么…"} value={draft} maxLength={8000} rows={1}
         onChange={e => updateDraft(scopeKey, e.target.value)} onPaste={e => {
-          const files = Array.from(e.clipboardData.items).filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter((file): file is File => !!file);
-          if (files.length) { e.preventDefault(); void addImages(files); }
+          const files = Array.from(e.clipboardData.items).filter(item => item.kind === "file" && (item.type.startsWith("image/") || item.type.startsWith("audio/"))).map(item => item.getAsFile()).filter((file): file is File => !!file);
+          const images = files.filter(file => file.type.startsWith("image/"));
+          const audio = files.find(file => file.type.startsWith("audio/"));
+          if (images.length) { e.preventDefault(); void addImages(images); }
+          else if (audio && creatorId === QA_BGM_CREATOR) { e.preventDefault(); void addAudio(audio); }
         }} onKeyDown={e => {
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
         }} />
       <div className="agent-composer-toolbar"><ImagePicker disabled={uploading || send.isPending || !!pendingTurn || checkingPending || cannotSend || (!!id && !doc) || doc?.status === "running" || attachments.length >= MAX_CHAT_IMAGES} add={files => void addImages(files)} />
+        {creatorId === QA_BGM_CREATOR && <><input className="sr-only" tabIndex={-1} ref={audioInput} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" aria-label="选择音频文件" onChange={event => { const file = event.target.files?.[0]; if (file) void addAudio(file); event.target.value = ""; }} /><button className="chat-image-picker" type="button" aria-label="添加音频" title="添加音频到 BGM 池" disabled={uploading || send.isPending || !!pendingTurn || checkingPending || cannotSend || (!!id && !doc) || doc?.status === "running"} onClick={() => audioInput.current?.click()}><Music2 size={19} aria-hidden="true" /></button></>}
         <AgentComposerControls key={`${scopeKey}:${id ?? "new"}`} usage={!scopeMismatch && !session.isError ? doc?.context_usage : null}
           effort={reasoningEffort} options={reasoningOptions} actualEffortMap={doc?.reasoning_effort_map}
           disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)} onChange={chooseReasoning} />
@@ -550,8 +586,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
           title="仅授权本次请求：最多试用 3 轮，交付候选，不自动切换栏目"
           disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)}
           onClick={() => chooseIterationMode(!iterationMode)}><Repeat2 size={15} aria-hidden="true" />RSI</button>
-        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传图片…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : ""}</span></span>
-        <button className="button button-primary" disabled={(!draft.trim() && !attachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
+        <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传文件…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : ""}</span></span>
+        <button className="button button-primary" disabled={(!draft.trim() && !attachments.length && !audioAttachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
       {pendingTurn && !send.isPending && <div className="agent-submit-recovery">
         <span>上次提交待核对</span><button type="button" disabled={checkingPending || cannotSend || (!!id && !doc)} onClick={() => void recoverPending()}>
           {checkingPending ? "正在核对…" : "核对并恢复上次提交"}</button>
@@ -569,7 +605,7 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hid
 }) {
   const hidden = new Set<string>(hiddenLinkUrls ? JSON.parse(hiddenLinkUrls) : []);
   const links = uniqueChatLinks(entry.links ?? []).filter(link => !hidden.has(link.url));
-  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{entry.text}
+  if (entry.kind === "user") return <div className="chat-user">{!!entry.attachments?.length && <ChatImages attachments={entry.attachments} />}{!!entry.materials?.length && <div className="chat-audio-drafts" aria-label="消息音频">{entry.materials.map(item => <span key={item.id}><Music2 size={15} /><a href={apiUrl(item.url)} target="_blank" rel="noopener noreferrer">{item.name}</a></span>)}</div>}{entry.text}
     {entry.iteration_mode && <small className="chat-user-iteration">RSI · 最多 3 轮</small>}</div>;
   if (entry.kind === "assistant") return entry.text ? <div className="chat-reply"><div className="chat-answer"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{
     table: ({ children }) => <div className="chat-table-scroll" tabIndex={0} role="region" aria-label="表格，可横向滚动"><table>{children}</table></div>,

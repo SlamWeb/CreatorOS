@@ -12,6 +12,7 @@ export type ChatContextFocus = { target: ChatContextTarget; title: string };
 export type PendingAgentTurn = {
   sessionId: string; text: string; request_id: string; expected_version: number;
   attachment_ids: string[]; reasoning_effort: ReplayReasoningEffort;
+  material_ids?: string[];
   iteration_mode?: boolean;
   context_target?: ChatContextTarget;
 };
@@ -50,6 +51,7 @@ export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAg
       typeof value.request_id === "string" && !!value.request_id &&
       Number.isInteger(value.expected_version) && value.expected_version >= 0 &&
       Array.isArray(value.attachment_ids) && value.attachment_ids.every(id => typeof id === "string") &&
+      (value.material_ids === undefined || Array.isArray(value.material_ids) && value.material_ids.every(id => typeof id === "string" && /^[a-f0-9]{64}$/.test(id))) &&
       isReplayReasoningEffort(value.reasoning_effort) &&
       (value.context_target === undefined || isChatContextTarget(value.context_target)) &&
       (value.iteration_mode === undefined || typeof value.iteration_mode === "boolean") ? value : null;

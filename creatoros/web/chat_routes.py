@@ -19,6 +19,7 @@ class ChatTurnRequest(BaseModel):
     request_id: str = Field(pattern=r"^[a-f0-9-]{36}$")
     text: str = Field(default="", max_length=8000)
     attachment_ids: list[str] = Field(default_factory=list, max_length=MAX_IMAGES)
+    material_ids: list[str] = Field(default_factory=list, max_length=10)
     expected_version: int = Field(ge=0)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "ultra", "none", "max"] = "high"
     iteration_mode: bool = False
@@ -83,7 +84,7 @@ def chat_routes(service):
     @router.post("/{session_id}/turns", status_code=202)
     def submit(session_id: UUID, payload: ChatTurnRequest, request: Request):
         text = payload.text.strip()
-        if (not text and not payload.attachment_ids) or text.startswith("/"):
+        if (not text and not payload.attachment_ids and not payload.material_ids) or text.startswith("/"):
             raise HTTPException(422, "请输入自然语言；网页不执行 CLI 斜杠命令。")
         # Use the actual listener, never a Host header or shared process env mutation.
         host, port = request.scope.get("server") or (None, None)
@@ -92,6 +93,7 @@ def chat_routes(service):
         base = f"http://{'[' + host + ']' if ':' in host else host}:{port}"
         return service.submit(str(session_id), payload.request_id, text, payload.expected_version, base,
                               attachment_ids=payload.attachment_ids,
+                              material_ids=payload.material_ids,
                               context_target=payload.context_target.model_dump(exclude_none=True) if payload.context_target else None,
                               iteration_mode=payload.iteration_mode,
                               reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)

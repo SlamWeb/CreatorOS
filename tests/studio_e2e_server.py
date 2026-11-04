@@ -209,6 +209,20 @@ def waiting_task_fixture():
 app.router.routes.insert(0, app.router.routes.pop())
 
 
+@app.post("/test/bgm-account")
+def bgm_account_fixture():
+    from creatoros.storage import Creator
+    from creatoros.storage.models import CreatorPlatform
+    identity = "creator-f2304a25ec244d8484d8"
+    with database.session() as session:
+        if not session.get(Creator, identity):
+            session.add(Creator(id=identity, display_name="QA像素", platform=CreatorPlatform.XIAOHONGSHU))
+    return {"id": identity}
+
+
+app.router.routes.insert(0, app.router.routes.pop())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8877)
