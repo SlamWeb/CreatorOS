@@ -137,9 +137,9 @@ test("unknown response survives refresh and explicitly replays the exact origina
   await expect(page.getByRole("combobox", { name: "推理程度" })).toBeDisabled();
   expect(submitted).toHaveLength(1);
   await page.getByRole("button", { name: "核对并恢复上次提交" }).click();
-  await expect(page.getByRole("button", { name: "核对并恢复上次提交" })).toHaveCount(0);
-  expect(submitted).toHaveLength(2);
+  await expect.poll(() => submitted.length).toBe(2);
   expect(submitted[1]).toEqual(submitted[0]);
+  await expect(page.getByText("上次提交待核对")).toHaveCount(0);
 });
 
 test("RSI grants only the submitted turn and resets after acceptance", async ({ page }) => {
