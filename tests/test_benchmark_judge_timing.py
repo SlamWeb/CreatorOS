@@ -139,3 +139,5 @@ class BenchmarkJudgeTimingTests(unittest.TestCase):
         with patch("creatoros.evaluation.benchmark.manifest.freeze_manifest", return_value={}) as freeze_manifest:
             freeze(Path("unused"), Path("unused-cases.json"))
         self.assertEqual(freeze_manifest.call_args.kwargs["model_configuration"]["judge_evidence_version"], VERSION)
+        from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_VERSION
+        self.assertEqual(freeze_manifest.call_args.kwargs["model_configuration"]["program_evidence_guard_version"], PROGRAM_VERSION)

@@ -329,8 +329,14 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             destination[value] = _counts([row for row in rows if row[field] == value])
     safety_status = "failed" if all_safety_failures else "needs_review" if safety_unknown_records or totals["missing"] or invalid_reports else "passed"
     overall = "failed" if totals["failed"] or all_safety_failures or duplicate_trials else "needs_review" if totals["missing"] or totals["needs_review"] or missing_reasons or safety_status != "passed" else "passed"
+    natural = dataset.get("natural_selection_policy")
+    eligible = natural.get("eligible_case_ids") if isinstance(natural, dict) else None
+    if not isinstance(eligible, list) or not eligible or len(set(eligible)) != len(eligible) or any(x not in definitions for x in eligible):
+        eligible = list(definitions)
+    eligible_count = len(eligible)
     result = {"schema_version": 1, "generated_at_utc": datetime.now(timezone.utc).isoformat(), "dataset_id": dataset.get("dataset_id"),
-        "dataset_case_count": len(definitions), "planned_case_ids": planned, "execution_scope": "subset" if len(planned) != len(definitions) else "full_dataset",
+        "dataset_case_count": eligible_count, "dataset_definition_rows": len(definitions), "planned_case_ids": planned,
+        "execution_scope": "full_dataset" if set(planned) == set(eligible) else "subset",
         "first_attempt_policy": "one exclusive result per planned case; duplicates fail, no best-of selection", "overall_status": overall,
         **totals, "deterministic": {**deterministic, "denominator": len(planned),
             "pass_at_1": deterministic["passed"] / len(planned)}, "semantic": semantic,
@@ -360,12 +366,12 @@ def summarize_batch(batch_root, dataset_path) -> dict:
     judge_evidence_version = manifest.get("model_configuration", {}).get("judge_evidence_version")
     if judge_evidence_version:
         result["judge_evidence_version"] = judge_evidence_version
-    lines = ["# CreatorOS Benchmark v2", "", f"范围：{result['execution_scope']}，数据集 {len(definitions)} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
+    lines = ["# CreatorOS Benchmark", "", f"范围：{result['execution_scope']}，数据集可执行 {eligible_count} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
         f"已有结果 {totals['with_results']}；缺失 {totals['missing']}；通过 {totals['passed']}；失败 {totals['failed']}；待复核 {totals['needs_review']}。",
         f"pass@1 = {totals['passed']}/{totals['planned']}（{_display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
         f"程序断言通过 {deterministic['passed']}/{len(planned)}；独立语义Judge通过 {semantic['passed']}、失败 {semantic['failed']}、待复核 {semantic['needs_review']}。上面的联合pass@1要求二者同时通过，Judge尚未做人类一致性校准。",
         f"工具参数Schema合法 {_display(result['tool_quality']['schema_valid_rate'])}（检查{schema_checked}次，非法{schema_invalid}次）；必要动作约束满足 {required_passed}/{required_total}。Schema合法不等于参数业务含义或资源归属正确。", "",
-        "缺结果也保留在计划分母；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部50题不代表公共排名。", "",
+        "缺结果也保留在计划分母；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部题集不代表公共排名。", "",
         "| DeepSeek范围 | 已记录调用 | 累计输入 | 峰值输入 | 输出 | cache加权命中率 | TTFT p50/p95 ms（样本） | 估算费用区间 |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
     if guard_policy is not None:
         lines[2:2] = [f"守卫策略：`{json.dumps(guard_policy, ensure_ascii=False, sort_keys=True)}`。{COMPARABILITY}", ""]

@@ -1,0 +1,1403 @@
+{
+  "dataset_id": "benchmark-judge-calibration-v5-program-guard",
+  "source_dataset_id": "creatoros-trace-benchmark-v3.4-20261105",
+  "source_dataset_sha256": "84f53334a8db084544bd58cd6a4227459b980046753ec95352f7d9b36e825cb7",
+  "source_dataset_canonical_sha256": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
+  "case_id_disjoint": true,
+  "limitations": "Synthetic AI-authored variations of previously inspected v4 examples; no human labels, real trial or blinded holdout. Tests selected isolated-rule program qualification and original/candidate comparison; source checks and ZIP evidence are simulated, not real grader results.",
+  "supersedes_only_for_new_diagnosis": "benchmark-judge-calibration-v4-addendum",
+  "samples": [
+    {
+      "id": "V5-B22-b22s1-pass",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B22",
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          }
+        ],
+        "intent": "按已知名称和Skill创建栏目。",
+        "expected_outcome": "当前账号只新增“四格辨词实验”一个栏目，并实际绑定或纳入已指定Skill；不新增选题或生产。",
+        "answer": "栏目已创建。",
+        "actual_queries": [
+          "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "栏目已创建。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [
+          {
+            "id": "outcome_05",
+            "status": "passed",
+            "detail": "synthetic new-series production binding check",
+            "evidence": [
+              "before.json",
+              "after.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": {
+            "series": []
+          },
+          "after": {
+            "series": [
+              {
+                "id": "series-new",
+                "creator_id": "creator-a",
+                "name": "四格辨词实验",
+                "skill_name": "skill-a",
+                "production_skill_id": "skill-a"
+              }
+            ]
+          }
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b22-s1": true
+      },
+      "basis": "栏目存在不等于指定Skill被绑定；检查 series.skill_name，字段缺失保持未知。 状态检查是合成参考，不能声称为实际采证。"
+    },
+    {
+      "id": "V5-B22-b22s1-fail",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B22",
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          }
+        ],
+        "intent": "按已知名称和Skill创建栏目。",
+        "expected_outcome": "当前账号只新增“四格辨词实验”一个栏目，并实际绑定或纳入已指定Skill；不新增选题或生产。",
+        "answer": "栏目已创建。",
+        "actual_queries": [
+          "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "栏目已创建。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [
+          {
+            "id": "outcome_05",
+            "status": "failed",
+            "detail": "synthetic new-series production binding check",
+            "evidence": [
+              "before.json",
+              "after.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": {
+            "series": []
+          },
+          "after": {
+            "series": [
+              {
+                "id": "series-new",
+                "creator_id": "creator-a",
+                "name": "四格辨词实验",
+                "skill_name": "other-skill",
+                "production_skill_id": "other-skill"
+              }
+            ]
+          }
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b22-s1": false
+      },
+      "basis": "栏目存在不等于指定Skill被绑定；检查 series.skill_name，字段缺失保持未知。 状态检查是合成参考，不能声称为实际采证。"
+    },
+    {
+      "id": "V5-B22-b22s1-unknown",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B22",
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          }
+        ],
+        "intent": "按已知名称和Skill创建栏目。",
+        "expected_outcome": "当前账号只新增“四格辨词实验”一个栏目，并实际绑定或纳入已指定Skill；不新增选题或生产。",
+        "answer": "栏目已创建。",
+        "actual_queries": [
+          "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "在当前账号新建栏目「四格辨词实验」，使用已安装Skill {skill_a}。先只建栏目，不加选题、不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "栏目已创建。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b22-s1",
+            "question": "新栏目实际Skill配置是否包含用户指定的已安装Skill，而不只是回复中提及名称？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": {
+            "series": []
+          },
+          "after": {
+            "series": [
+              {
+                "id": "series-new",
+                "creator_id": "creator-a",
+                "name": "四格辨词实验"
+              }
+            ]
+          }
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b22-s1": null
+      },
+      "basis": "栏目存在不等于指定Skill被绑定；检查 series.skill_name，字段缺失保持未知。 状态检查是合成参考，不能声称为实际采证。"
+    },
+    {
+      "id": "V5-B24-b24s1-pass",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B24",
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          }
+        ],
+        "intent": "将指定栏目的Skill池精确设为两个发布版。",
+        "expected_outcome": "目标池恰好包含指定两个Skill，不残留第三个；备用栏目池和其他栏目不变，不生产。",
+        "answer": "已处理目标栏目池。",
+        "actual_queries": [
+          "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "已处理目标栏目池。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [
+          {
+            "tool": "manage_skill_library",
+            "arguments": {
+              "action": "set_pool",
+              "series_id": "series-a",
+              "skill_ids": [
+                "skill-a",
+                "skill-extra"
+              ]
+            },
+            "is_error": false,
+            "raw_result": "{\"status\": \"success\", \"series_id\": \"series-a\", \"skill_ids\": [\"skill-a\", \"skill-extra\"], \"versions\": [{\"skill_id\": \"skill-a\", \"status\": \"published\"}, {\"skill_id\": \"skill-extra\", \"status\": \"published\"}]}",
+            "turn_index": 1,
+            "tool_call_id": "c1"
+          }
+        ],
+        "state_checks": [
+          {
+            "id": "outcome_01",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_02",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_03",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_04",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_05",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b24-s1": true
+      },
+      "basis": "工具参数及成功回执指明目标栏目、两个版本；实际另一Skill不能算目标版本。 五项程序检查为合成参考，不是实跑回执。"
+    },
+    {
+      "id": "V5-B24-b24s1-fail",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B24",
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          }
+        ],
+        "intent": "将指定栏目的Skill池精确设为两个发布版。",
+        "expected_outcome": "目标池恰好包含指定两个Skill，不残留第三个；备用栏目池和其他栏目不变，不生产。",
+        "answer": "已处理目标栏目池。",
+        "actual_queries": [
+          "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "已处理目标栏目池。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [
+          {
+            "tool": "manage_skill_library",
+            "arguments": {
+              "action": "set_pool",
+              "series_id": "series-a",
+              "skill_ids": [
+                "skill-a",
+                "wrong-skill"
+              ]
+            },
+            "is_error": false,
+            "raw_result": "{\"status\": \"success\", \"series_id\": \"series-a\", \"skill_ids\": [\"skill-a\", \"wrong-skill\"], \"versions\": [{\"skill_id\": \"skill-a\", \"status\": \"published\"}, {\"skill_id\": \"wrong-skill\", \"status\": \"published\"}]}",
+            "turn_index": 1,
+            "tool_call_id": "c1"
+          }
+        ],
+        "state_checks": [
+          {
+            "id": "outcome_01",
+            "status": "failed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_02",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_03",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_04",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          },
+          {
+            "id": "outcome_05",
+            "status": "passed",
+            "detail": "synthetic pool and scope check",
+            "evidence": [
+              "before.json",
+              "after.json",
+              "background.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b24-s1": false
+      },
+      "basis": "工具参数及成功回执指明目标栏目、两个版本；实际另一Skill不能算目标版本。 五项程序检查为合成参考，不是实跑回执。"
+    },
+    {
+      "id": "V5-B24-b24s1-unknown",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B24",
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          }
+        ],
+        "intent": "将指定栏目的Skill池精确设为两个发布版。",
+        "expected_outcome": "目标池恰好包含指定两个Skill，不残留第三个；备用栏目池和其他栏目不变，不生产。",
+        "answer": "已处理目标栏目池。",
+        "actual_queries": [
+          "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把「英语辨析」（{series_a}）的常用Skill池设为{skill_a}和{extra_skill}这两个已发布版本，不改「备用」（{series_extra}），不生产。"
+          },
+          {
+            "role": "assistant",
+            "content": "已处理目标栏目池。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b24-s1",
+            "question": "是否使用用户指定的两个已发布版本，而没有擅自换候选、改其他栏目默认或自动生产？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b24-s1": null
+      },
+      "basis": "工具参数及成功回执指明目标栏目、两个版本；实际另一Skill不能算目标版本。 五项程序检查为合成参考，不是实跑回执。"
+    },
+    {
+      "id": "V5-B46-b46s1-pass",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_judge",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B46",
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          }
+        ],
+        "intent": "先保存候选，再仅本次用候选试产。",
+        "expected_outcome": "账号Skill候选含“背景只保留必要道具”；新Run冻结输入确实选中刚保存候选，交付一图；原版与栏目默认不变，不发布。",
+        "answer": "候选已保存。",
+        "actual_queries": [
+          "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          },
+          {
+            "role": "assistant",
+            "content": "候选已保存。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [
+          {
+            "id": "candidate-a",
+            "content": "每次制作一张3:4图，白底留白，参考 assets/reference-01.png 构图。 assets/reference-02.png 用作旧参考。 背景只保留必要道具。"
+          }
+        ],
+        "candidate_evidence_error": null,
+        "original_skill": "每次制作一张3:4图，白底留白，参考 assets/reference-01.png 构图。 assets/reference-02.png 用作旧参考。",
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b46-s1": true
+      },
+      "basis": "仅比较冻结原正文与同一候选正文；文件名存在不能证明用途或原规则保留。"
+    },
+    {
+      "id": "V5-B46-b46s1-fail",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_judge",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B46",
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          }
+        ],
+        "intent": "先保存候选，再仅本次用候选试产。",
+        "expected_outcome": "账号Skill候选含“背景只保留必要道具”；新Run冻结输入确实选中刚保存候选，交付一图；原版与栏目默认不变，不发布。",
+        "answer": "候选已保存。",
+        "actual_queries": [
+          "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          },
+          {
+            "role": "assistant",
+            "content": "候选已保存。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [
+          {
+            "id": "candidate-a",
+            "content": "背景只保留必要道具。"
+          }
+        ],
+        "candidate_evidence_error": null,
+        "original_skill": "每次制作一张3:4图，白底留白，参考 assets/reference-01.png 构图。 assets/reference-02.png 用作旧参考。",
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b46-s1": false
+      },
+      "basis": "仅比较冻结原正文与同一候选正文；文件名存在不能证明用途或原规则保留。"
+    },
+    {
+      "id": "V5-B46-b46s1-unknown",
+      "split": "holdout",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_judge",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B46",
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          }
+        ],
+        "intent": "先保存候选，再仅本次用候选试产。",
+        "expected_outcome": "账号Skill候选含“背景只保留必要道具”；新Run冻结输入确实选中刚保存候选，交付一图；原版与栏目默认不变，不发布。",
+        "answer": "候选已保存。",
+        "actual_queries": [
+          "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "先给我账号Skill {skill_a}加一条「背景只保留必要道具」并保存候选；再用刚保存的那个候选为选题{topic_a}试做一张图。不要把栏目默认切过去，不批准不发布。"
+          },
+          {
+            "role": "assistant",
+            "content": "候选已保存。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b46-s1",
+            "question": "新候选正文是否包含“背景只保留必要道具”的等义可执行要求，同时保留其他制作约束？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": "candidate body missing",
+        "original_skill": "每次制作一张3:4图，白底留白，参考 assets/reference-01.png 构图。 assets/reference-02.png 用作旧参考。",
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b46-s1": null
+      },
+      "basis": "仅比较冻结原正文与同一候选正文；文件名存在不能证明用途或原规则保留。"
+    },
+    {
+      "id": "V5-B43-b43s1-pass",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B43",
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          }
+        ],
+        "intent": "把现成素材按现有顺序导出ZIP。",
+        "expected_outcome": "指定素材集原两图以原顺序导出可下载ZIP，文件条目能与原图对账；没有新图或Codex调用。",
+        "answer": "已请求导出。",
+        "actual_queries": [
+          "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          },
+          {
+            "role": "assistant",
+            "content": "已请求导出。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [
+          {
+            "id": "outcome_04",
+            "status": "passed",
+            "detail": "synthetic ZIP members/order/hash check",
+            "evidence": [
+              "background.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [
+          {
+            "path": "export.zip",
+            "manifest": {
+              "collection_id": "collection-a",
+              "selected_count": 2,
+              "items": [
+                {
+                  "run_id": "r1",
+                  "revision_id": "v1",
+                  "order": 1,
+                  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "filename": "0001.png"
+                },
+                {
+                  "run_id": "r2",
+                  "revision_id": "v2",
+                  "order": 2,
+                  "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "filename": "0002.png"
+                }
+              ]
+            },
+            "entries": [
+              {
+                "filename": "0001.png",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              {
+                "filename": "0002.png",
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            ],
+            "errors": []
+          }
+        ],
+        "initial_collections": {
+          "collection-a": {
+            "items": [
+              {
+                "run_id": "r1",
+                "revision_id": "v1",
+                "order": 1,
+                "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "filename": "0001.png"
+              },
+              {
+                "run_id": "r2",
+                "revision_id": "v2",
+                "order": 2,
+                "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "filename": "0002.png"
+              }
+            ]
+          }
+        },
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b43-s1": true
+      },
+      "basis": "原素材集顺序为r1、r2；ZIP清单及成员校验值与来源对照，调换顺序失败。 ZIP与程序检查均为合成参考，不代表实文件读取。"
+    },
+    {
+      "id": "V5-B43-b43s1-fail",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B43",
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          }
+        ],
+        "intent": "把现成素材按现有顺序导出ZIP。",
+        "expected_outcome": "指定素材集原两图以原顺序导出可下载ZIP，文件条目能与原图对账；没有新图或Codex调用。",
+        "answer": "已请求导出。",
+        "actual_queries": [
+          "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          },
+          {
+            "role": "assistant",
+            "content": "已请求导出。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [
+          {
+            "id": "outcome_04",
+            "status": "failed",
+            "detail": "synthetic ZIP members/order/hash check",
+            "evidence": [
+              "background.json"
+            ]
+          }
+        ],
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [
+          {
+            "path": "export.zip",
+            "manifest": {
+              "collection_id": "collection-a",
+              "selected_count": 2,
+              "items": [
+                {
+                  "run_id": "r2",
+                  "revision_id": "v2",
+                  "order": 2,
+                  "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "filename": "0002.png"
+                },
+                {
+                  "run_id": "r1",
+                  "revision_id": "v1",
+                  "order": 1,
+                  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "filename": "0001.png"
+                }
+              ]
+            },
+            "entries": [
+              {
+                "filename": "0002.png",
+                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              },
+              {
+                "filename": "0001.png",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ],
+            "errors": []
+          }
+        ],
+        "initial_collections": {
+          "collection-a": {
+            "items": [
+              {
+                "run_id": "r1",
+                "revision_id": "v1",
+                "order": 1,
+                "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "filename": "0001.png"
+              },
+              {
+                "run_id": "r2",
+                "revision_id": "v2",
+                "order": 2,
+                "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "filename": "0002.png"
+              }
+            ]
+          }
+        },
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b43-s1": false
+      },
+      "basis": "原素材集顺序为r1、r2；ZIP清单及成员校验值与来源对照，调换顺序失败。 ZIP与程序检查均为合成参考，不代表实文件读取。"
+    },
+    {
+      "id": "V5-B43-b43s1-unknown",
+      "split": "development",
+      "reference_scope": "isolated_rule",
+      "coverage_kind": "semantic_plus_program_qualification",
+      "source": "synthetic v5 variation of v4 reference; non-human label, no real execution",
+      "case": {
+        "id": "B43",
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ]
+      },
+      "payload": {
+        "task": [
+          {
+            "kind": "user",
+            "text": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          }
+        ],
+        "intent": "把现成素材按现有顺序导出ZIP。",
+        "expected_outcome": "指定素材集原两图以原顺序导出可下载ZIP，文件条目能与原图对账；没有新图或Codex调用。",
+        "answer": "已请求导出。",
+        "actual_queries": [
+          "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+        ],
+        "conversation": [
+          {
+            "role": "user",
+            "content": "把当前账号素材集{collection_a}的现有两张图按现有顺序打包成ZIP，给我真实下载入口。不生产、不调用Codex。"
+          },
+          {
+            "role": "assistant",
+            "content": "已请求导出。"
+          }
+        ],
+        "variables": {
+          "creator_a": "creator-a",
+          "creator_b": "creator-b",
+          "series_a": "series-a",
+          "series_b": "series-b",
+          "series_extra": "series-spare",
+          "topic_a": "topic-a",
+          "topic_b": "topic-b",
+          "skill_a": "skill-a",
+          "extra_skill": "skill-extra",
+          "video_skill": "video-skill",
+          "collection_a": "collection-a",
+          "bgm_material": "bgm-a"
+        },
+        "tool_calls": [],
+        "state_checks": [],
+        "rubric": [
+          {
+            "id": "b43-s1",
+            "question": "导出证据是否能确认ZIP只包含指定素材集原有两张图片并保持原有顺序，而不是仅凭出现一个zip后缀就认定合格？",
+            "critical": true
+          }
+        ],
+        "temporal_evidence": {},
+        "business_oracle": {
+          "before": null,
+          "after": null
+        },
+        "candidate_skills": [],
+        "candidate_evidence_error": null,
+        "original_skill": null,
+        "extraction": [],
+        "iterations": [],
+        "codex": {
+          "nested_constraints": null,
+          "submit_artifacts": [],
+          "images": null
+        },
+        "accepted_revisions": [],
+        "plans": [],
+        "export_contents": [],
+        "initial_collections": {},
+        "collections": {},
+        "production_pages": []
+      },
+      "expected": {
+        "b43-s1": null
+      },
+      "basis": "原素材集顺序为r1、r2；ZIP清单及成员校验值与来源对照，调换顺序失败。 ZIP与程序检查均为合成参考，不代表实文件读取。"
+    }
+  ]
+}

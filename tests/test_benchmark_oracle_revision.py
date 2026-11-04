@@ -51,6 +51,13 @@ def candidate_evidence():
 
 
 class RevisedOracleTests(unittest.TestCase):
+    def test_b19_uses_same_exact_removal_for_deleted_and_archived_topics(self):
+        path = Path(__file__).resolve().parents[1] / "docs/agent-eval/benchmark-v2/cases.json"
+        case = next(x for x in json.loads(path.read_text(encoding="utf8"))["cases"] if x["id"] == "B19")
+        rule = next(x for x in case["expectations"] if x["kind"] == "topic_removal_exact")
+        for status in ("deleted", "archived"):
+            self.assertTrue(_expectation(rule, removal_evidence(status))[0])
+
     def test_exact_removal_handles_deleted_or_archived_and_rejects_extra_changes(self):
         exp = {"kind": "topic_removal_exact", "id": "{topic_a}"}
         for status in ("deleted", "archived"):
@@ -131,6 +138,17 @@ class RevisedOracleTests(unittest.TestCase):
             del data["background"][key]
             with self.subTest(missing=key), self.assertRaises(MissingEvidence):
                 _expectation({"kind": "candidate_asset_absent", "id": "{skill_a}", "field": "assets/missing.png"}, data)
+
+    def test_b27_original_assets_are_preserved_even_when_adding_reference(self):
+        data = candidate_evidence()
+        path = f"{ROOT}/working/{SELECTED}/assets/reference-new.png"
+        data["after"]["files"][path] = "new-image"
+        data["background"]["skill_manifests"][SELECTED]["assets/reference-new.png"] = "new-image"
+        rule = {"kind":"candidate_assets_include_original", "id":"{skill_a}"}
+        self.assertTrue(_expectation(rule, data)[0])
+        data["after"]["files"][f"{ROOT}/working/{SELECTED}/assets/reference-01.png"] = "wrong"
+        data["background"]["skill_manifests"][SELECTED]["assets/reference-01.png"] = "wrong"
+        self.assertFalse(_expectation(rule, data)[0])
 
     def test_missing_failed_or_ambiguous_edit_receipts_cannot_select_candidate(self):
         exp = {"kind": "candidate_body_contains", "id": "{skill_a}", "value": "reference-01.png"}

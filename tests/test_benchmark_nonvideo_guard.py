@@ -25,6 +25,7 @@ class NonvideoGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             guard.validate(manifest)
         self.assertFalse(guard.validate({"model_configuration": {}}))
+        self.assertEqual(guard.policy(["B06", "B11", "B16"])["case_ids"], ["B06", "B11", "B16"])
 
     def test_video_dispatch_denied_and_image_dispatch_untouched(self):
         original = video_production.produce_video

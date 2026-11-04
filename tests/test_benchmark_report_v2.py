@@ -83,6 +83,19 @@ class BenchmarkReportTests(unittest.TestCase):
         self.assertEqual(result["cases"][0]["status"], "passed")
         self.assertNotIn("benchmark_guard", result)
 
+    def test_natural_suite_reports_only_eligible_cases_not_placeholders(self):
+        dataset = json.loads(self.dataset.read_text(encoding="utf-8"))
+        dataset["natural_selection_policy"] = {"eligible_case_ids":["B01", "B02"]}
+        self.dataset.write_text(json.dumps(dataset), encoding="utf-8")
+        self.plan(["B01", "B02"])
+        self.record("B01")
+        self.record("B02")
+        result = self.summarize()
+        self.assertEqual(result["dataset_case_count"], 2)
+        self.assertEqual(result["dataset_definition_rows"], 50)
+        self.assertEqual(result["execution_scope"], "full_dataset")
+        self.assertIn("数据集可执行 2 题", (self.root / "RESULTS.md").read_text(encoding="utf-8"))
+
     def test_judge_evidence_version_is_reported_without_rewriting_raw_result(self):
         from creatoros.evaluation.benchmark.judge_timing import VERSION
         import hashlib

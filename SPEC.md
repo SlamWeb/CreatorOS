@@ -1,6 +1,6 @@
 # CreatorOS 项目 SPEC
 
-**更新：2026-11-03。** 本文记录产品目标、重构方向与验收入口，不是部署状态报告。最初审查以 `main` 的 `e0ae9ad` 为基线；本工作树的当前模块与已知边界见 [项目地图](docs/PROJECT_MAP.md)。运行中的服务和其他工作树可能不同，操作前需重新核对。
+**更新：2026-11-05。** 本文记录产品目标、重构方向与验收入口，不是部署状态报告。最初审查以 `main` 的 `e0ae9ad` 为基线；本工作树的当前模块与已知边界见 [项目地图](docs/PROJECT_MAP.md)。运行中的服务和其他工作树可能不同，操作前需重新核对。
 
 旧版根 SPEC 的历史记录保留在 Git 中，可用 `git show e0ae9ad:SPEC.md` 查阅。领域契约优先查下列专项文档的现行段落，再核对源码；其中日期较早的实施记录不自动构成现行要求。
 
@@ -19,7 +19,7 @@ CreatorOS 是创作者的多账号工作台：将优秀作品和经验沉淀为�
 | Skill 与版本 | [版本](docs/skill-versions/SPEC.md)、[校准](docs/skill-calibration/SPEC.md)、[迭代](docs/skill-iterations/SPEC.md) | Skill 正文和 assets 的版本可被任务冻结；候选、栏目绑定和旧快照不能混为一谈。 |
 | 制作与交付 | [Run SPEC](creatoros/runs/SPEC.md)、[多阶段制作](docs/staged-production/SPEC.md)、[任务契约](docs/production-tasks/SPEC.md) | 已有持久队列、Run / Revision / Attempt、冻结输入、图片与视频的不同验收；具体实现及支持范围以代码和专项契约为准。 |
 | 素材与发布 | [素材集](docs/media-collections/SPEC.md)、[发布与反馈](creatoros/publication/SPEC.md) | 素材、审批、发布及反馈是不同状态；批准不等于发布。 |
-| 观察与评测 | [Observation](docs/observation/SPEC.md)、[Benchmark](docs/agent-eval/benchmark-v2/SPEC.md)、[可靠性](docs/reliability/SPEC.md) | 保留 Trace 与历史证据；当前题集 B01–B50 的程序和语义评分分别展示，新规则不回填旧成绩。Judge 未经人工校准，缺失证据不算通过。 |
+| 观察与评测 | [Observation](docs/observation/SPEC.md)、[Benchmark](docs/agent-eval/benchmark-v2/SPEC.md)、[可靠性](docs/reliability/SPEC.md) | 保留 Trace 与历史证据；受控回归 B01–B50 与独立自然表达题集分别冻结，程序和语义评分分别展示，新规则不回填旧成绩。Judge 未经人工校准，缺失证据不算通过。 |
 | 安全维护 | [维护 SPEC](creatoros/maintenance/SPEC.md)、[维护说明](creatoros/maintenance/README.md) | 运行中/已授权排队任务的检查与恢复遵循维护契约；普通审计不扫描全部历史文件。 |
 
 实际数据由 SQLite、受管文件以及会话/Trace 文件共同保存；数据库行、文件和外部模型任务不是一个可整体回滚的事务。知乎热点、Creator Routing 和独立 PersonClone 实验线继续保留，除明确需求外不擅自删除。

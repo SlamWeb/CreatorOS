@@ -25,6 +25,17 @@ from creatoros.integrations.topic_research import TopicResearchService
 from creatoros.runs import ContentRunService
 
 
+REUSE_LIST_TITLES = (
+    "borrow / lend", "say / tell", "speak / talk", "see / watch", "look / see",
+    "hear / listen", "make / do", "bring / take", "buy / purchase", "big / large",
+    "small / little", "start / begin", "end / finish", "job / work", "house / home",
+    "trip / travel", "road / street", "city / town", "student / pupil", "child / kid",
+    "smart / clever", "happy / glad", "sad / upset", "angry / mad", "fast / quick",
+    "hard / difficult", "easy / simple", "near / close", "above / over", "below / under",
+    "between / among", "each / every", "some / any", "few / a few", "much / many",
+)
+
+
 def encoded_image(color, label):
     image = Image.new("RGB", (480, 640), "white")
     draw = ImageDraw.Draw(image)
@@ -110,6 +121,11 @@ class BenchmarkWorld:
         (self.input_dir / "reference.png").write_bytes(self.reference)
         (self.input_dir / "alternate.png").write_bytes(self.alternate)
         self._seed_skills()
+        if case["scenario"] == "add_asset":
+            # The uploaded file must differ from all existing Skill references;
+            # otherwise copying an old asset can masquerade as the new attachment.
+            (self.input_dir / "reference.png").write_bytes(
+                encoded_image("#229967", "NEW ATTACHMENT: green panel"))
         for sid, creator, name, skill in [
             ("bench-english", "bench-a", "英语辨析", self.variables["skill_a"]),
             ("bench-spare", "bench-a", "备用栏目", self.variables["shared_skill"]),
@@ -126,7 +142,8 @@ class BenchmarkWorld:
                                brief=self.canary, source=TopicSource.MANUAL)
         count = 136 if case["scenario"] == "paged_list" else 36 if case["scenario"] == "reuse_list" else 3
         for n in range(1, count):
-            title = f"已写词组 {n:02}" if case["scenario"] != "clarify_delete" else "同名选题"
+            title = (REUSE_LIST_TITLES[n - 1] if case["scenario"] == "reuse_list" else
+                     f"已写词组 {n:02}" if case["scenario"] != "clarify_delete" else "同名选题")
             self.content.add_topic(topic_id=f"bench-topic-{n:02}", series_id="bench-english", title=title,
                                    brief=f"已有切入点 {n}", source=TopicSource.MANUAL)
         self.content.add_topic(topic_id="bench-removed", series_id="bench-english", title="已删除的旧选题",

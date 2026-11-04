@@ -145,6 +145,23 @@ class BenchmarkScoringTests(unittest.TestCase):
         data = {"background": {"images": ["1.png", "2.png"]}}
         self.assertFalse(_expectation({"kind": "background_count", "field": "images", "value": 1}, data)[0])
 
+    def test_independent_tasks_require_distinct_runs_bound_to_each_task(self):
+        rule = {"kind":"production_tasks", "value":2, "id":"{topic_a}"}
+        data = {"variables":{"topic_a":"T"}, "before":{"database":{"production_tasks":[], "content_runs":[]}},
+                "after":{"database":{"production_tasks":[{"id":"A","topic_id":"T"}, {"id":"B","topic_id":"T"}],
+                    "content_runs":[{"id":"R1","topic_id":"T","task_id":"A"},
+                                    {"id":"R2","topic_id":"T","task_id":"B"}]}}}
+        self.assertTrue(_expectation(rule, data)[0])
+        data["after"]["database"]["content_runs"][1]["task_id"] = "A"
+        self.assertFalse(_expectation(rule, data)[0])
+        del data["after"]["database"]["content_runs"][1]["task_id"]
+        with self.assertRaises(MissingEvidence):
+            _expectation(rule, data)
+        data["after"]["database"]["content_runs"][1]["task_id"] = "B"
+        del data["after"]["database"]["content_runs"][1]["topic_id"]
+        with self.assertRaises(MissingEvidence):
+            _expectation(rule, data)
+
     def test_missing_sdk_events_are_not_proof_of_zero_image_generation(self):
         data = {"codex": {"parse_errors": [], "files": [], "threads": [], "event_counts": {},
                           "images": {"completed_generation_items": 0}}}

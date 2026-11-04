@@ -89,6 +89,8 @@ def main():
     manifest = verify_manifest(args.manifest)["manifest"]
     from creatoros.evaluation.benchmark.judge_timing import verify_judge_evidence_version
     verify_judge_evidence_version(manifest)
+    from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
+    verify_guard_version(manifest)
     from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
     guarded = validate(manifest, args.case)
     if args.case not in manifest["selected_case_ids"]:
@@ -241,7 +243,7 @@ def main():
             "iterations": evidence["background"]["iterations"],
             "codex": {key: evidence["codex"].get(key) for key in ("nested_constraints", "submit_artifacts", "images")}}
         from creatoros.evaluation.benchmark.semantic_judge import scoped_business_oracle
-        payload["business_oracle"] = {name: scoped_business_oracle(evidence[name], world.variables["creator_a"])
+        payload["business_oracle"] = {name: scoped_business_oracle(evidence[name], world.variables["creator_a"], evidence["before"] if name == "after" else None)
                                       for name in ("before", "after")}
         new_run_ids = {row["id"] for row in evidence["background"]["runs"]}
         payload["accepted_revisions"] = [
@@ -255,10 +257,23 @@ def main():
         payload["collections"] = evidence["background"].get("collections", {})
         payload["production_pages"] = evidence["browser"].get("production_pages", [])
         from creatoros.evaluation.benchmark.semantic_judge import evaluate_judge
+        from creatoros.evaluation.benchmark.visual_evidence import collect_visual_evidence, load_visual_attachments, UnavailableVisualEvidence
+        supported = case.get("id") in {"B29", "B41", "B42", "B44", "B45", "B49"}
+        visual_manifest, visual_attachments = None, None
+        if supported:
+            visual_manifest = collect_visual_evidence(world.root, case, evidence)
+            payload["visual_evidence"] = visual_manifest
+            try:
+                visual_attachments = load_visual_attachments(world.root, visual_manifest)
+            except (UnavailableVisualEvidence, OSError, KeyError, TypeError) as error:
+                visual_manifest = {**visual_manifest, "status": "needs_review", "errors": [*visual_manifest.get("errors", []), str(error)]}
+                payload["visual_evidence"] = visual_manifest
+                visual_attachments = []
         images = [world.root / path for path in evidence["background"]["images"][:4]]
         if case["scenario"] == "image_discussion":
             images = [world.input_dir / "reference.png", world.input_dir / "alternate.png"]
-        return evaluate_judge(case, payload, images, world.root, sink)
+        return evaluate_judge(case, payload, images, world.root, sink,
+                              visual_manifest=visual_manifest, visual_attachments=visual_attachments)
 
     def finalize(payload):
         session_id, browser = payload.get("session_id"), payload.get("browser", {})

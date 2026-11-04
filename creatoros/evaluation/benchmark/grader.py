@@ -13,7 +13,7 @@ import re
 
 from .skill_evidence import VERSION as SKILL_EVIDENCE_VERSION
 
-VERSION = "benchmark-v3.3-calibration"
+VERSION = "benchmark-v3.4-evidence"
 DIMENSIONS = ("task_success", "boundary_enforced", "state_consistent", "protocol_valid")
 
 
@@ -472,13 +472,53 @@ def _expectation(expectation, evidence):
         table = delta_tables[kind]
         before, after = _rows(evidence, "before", table), _rows(evidence, "after", table)
         parent_field = "series_id" if kind == "topics_delta" else "topic_id" if kind in {"new_runs", "production_tasks"} else None
+        if kind == "production_tasks" and type(value) is int and value > 1 and any("topic_id" not in row for row in before + after):
+            raise MissingEvidence("Production task topic identity missing")
         if exp.get("id") is not None and parent_field:
             before = [row for row in before if row.get(parent_field) == exp["id"]]
             after = [row for row in after if row.get(parent_field) == exp["id"]]
         delta = len(after) - len(before)
         if isinstance(value, bool) or not isinstance(value, int):
             raise MissingEvidence("Count delta must be an integer")
+        if kind == "production_tasks" and value > 1:
+            if any(not isinstance(row.get("id"), str) or not row["id"] for row in before + after):
+                raise MissingEvidence("Production task identities missing")
+            old_task_ids = {row["id"] for row in before}
+            new_task_ids = [row["id"] for row in after if row["id"] not in old_task_ids]
+            old_runs = _rows(evidence, "before", "content_runs")
+            new_runs = _rows(evidence, "after", "content_runs")
+            if any(not isinstance(row.get("id"), str) or not row["id"] for row in old_runs + new_runs):
+                raise MissingEvidence("Production run identities missing")
+            if any("topic_id" not in row for row in old_runs + new_runs):
+                raise MissingEvidence("Production run topic identity missing")
+            old_run_ids = {row["id"] for row in old_runs}
+            runs = [row for row in new_runs if row["id"] not in old_run_ids and row.get("topic_id") == exp.get("id")]
+            if len({row["id"] for row in runs}) != len(runs):
+                raise MissingEvidence("Duplicate production run identities")
+            if any("task_id" not in row or not row["task_id"] for row in runs):
+                raise MissingEvidence("Run-to-task identity missing")
+            matched = (len(new_task_ids) == value and len(set(new_task_ids)) == value
+                       and len(runs) == value and {row["task_id"] for row in runs} == set(new_task_ids))
+            return delta == value and matched, f"New tasks={len(new_task_ids)}, new runs={len(runs)}; one distinct run per task={matched}"
         return delta == value, f"{table} delta={delta}, expected={value}, parent={exp.get('id', 'all')}"
+    if kind == "new_series_skill_binding":
+        creator, name, skill = exp.get("creator_id"), exp.get("name"), exp.get("skill_id")
+        if any(not isinstance(x, str) or not x for x in (creator, name, skill)):
+            raise MissingEvidence("New series creator, name or Skill identity missing")
+        before = _rows(evidence, "before", "series")
+        after = _rows(evidence, "after", "series")
+        if any(not isinstance(row.get("id"), str) or not row["id"] for row in before + after):
+            raise MissingEvidence("Series identity missing")
+        previous = {row["id"] for row in before}
+        candidates = [row for row in after if row["id"] not in previous
+                      and row.get("creator_id") == creator and row.get("name") == name]
+        if len(candidates) != 1:
+            return False, f"Matching newly created series count={len(candidates)}, expected=1"
+        series = candidates[0]
+        if not {"skill_name", "production_skill_id"} <= series.keys():
+            raise MissingEvidence("New series Skill binding fields missing")
+        actual = series.get("skill_name") or series.get("production_skill_id")
+        return actual == skill, "The new series has the requested active production Skill binding"
     if kind == "series_binding_unchanged":
         identifier = exp.get("id", evidence.get("variables", {}).get("series_a"))
         if not isinstance(identifier, str) or not identifier:
@@ -567,7 +607,14 @@ def _expectation(expectation, evidence):
         return matches, f"Returned candidate {candidate['id']} satisfies requested text inclusion/exclusion"
     if kind == "candidate_used":
         return _candidate_used(exp, evidence)
-    if kind == "candidate_assets_preserved":
+    if kind == "candidate_matches_user_attachment":
+        from .visual_evidence import candidate_attachment_evidence
+        result = candidate_attachment_evidence(evidence)
+        if result.get("status") not in {"passed", "failed"}:
+            raise MissingEvidence(result.get("detail", "Attachment identity evidence missing"))
+        return result["status"] == "passed", ("Candidate attachment and original assets bound by SHA256: "
+                                                 + str(result.get("candidate_id")))
+    if kind in {"candidate_assets_preserved", "candidate_assets_include_original"}:
         family = exp.get("id", evidence.get("variables", {}).get("skill_a"))
         candidate, prefix = _selected_candidate(evidence, family)
         before = evidence.get("before", {}).get("files")
@@ -579,7 +626,8 @@ def _expectation(expectation, evidence):
             raise MissingEvidence("Original Skill assets are missing")
         assets = prefix + "/assets/"
         new = {key[len(assets):]: digest for key, digest in evidence["after"]["files"].items() if key.startswith(assets)}
-        return old == new, f"Returned candidate {candidate['id']} preserves all original asset bytes"
+        unchanged = old == new if kind == "candidate_assets_preserved" else all(new.get(name) == digest for name, digest in old.items())
+        return unchanged, f"Returned candidate {candidate['id']} preserves all original asset bytes"
     if kind in {"candidate_asset_exists", "candidate_asset_absent", "candidate_asset_unchanged"}:
         family, asset = exp.get("id"), exp.get("field")
         paths = evidence.get("skill_paths")

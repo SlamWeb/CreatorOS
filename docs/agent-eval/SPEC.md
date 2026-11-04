@@ -1,6 +1,6 @@
 # Agent Benchmark 当前入口
 
-唯一现行 Agent 题集为 [B01–B50](benchmark-v2/cases.json)，运行与判分契约见 [benchmark-v2/SPEC.md](benchmark-v2/SPEC.md)，显式付费运行命令见 [README](benchmark-v2/README.md)。
+现行 Agent 评测包括 [受控回归 B01–B50](benchmark-v2/cases.json) 和独立的 [自然表达题集](natural-v1/README.md)。自然题集目前有20道合成改写，其他30条仅作宿主兼容占位，不得执行；两套结果独立冻结，不混算。运行与判分契约见 [benchmark-v2/SPEC.md](benchmark-v2/SPEC.md)。
 
 - 程序分与语义分独立记录，暂不设置综合权重。
 - 各题按自身需求定义预期结果与评分项：简单 CRUD 检查最终数据，复杂多轮和生产题检查必要的因果链路，不凑统一数量的规则。

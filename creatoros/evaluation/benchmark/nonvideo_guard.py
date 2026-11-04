@@ -1,7 +1,7 @@
 """Opt-in benchmark dispatch guards; not an operating-system sandbox."""
 import json
 
-ALLOWED_CASES = ("B04", "B41", "B42", "B44", "B46", "B48", "B49", "B50")
+ALLOWED_CASES = ("B04", "B06", "B11", "B16", "B41", "B42", "B44", "B46", "B48", "B49", "B50")
 POLICY = "nonvideo-no-publication-v1"
 COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接等同。"
 
@@ -9,7 +9,7 @@ COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接
 def policy(case_ids):
     selected = list(case_ids or [])
     if not selected or len(selected) != len(set(selected)) or any(x not in ALLOWED_CASES for x in selected):
-        raise ValueError("Nonvideo guard requires an explicit subset of the eight allowed cases; B47 is forbidden")
+        raise ValueError("Nonvideo guard requires an explicit allowed subset; B47 is forbidden")
     return {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}
 
 

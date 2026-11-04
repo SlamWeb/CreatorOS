@@ -20,6 +20,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
     from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_EVIDENCE_GUARD_VERSION
     from importlib.metadata import version
     pricing = {"currency": "USD", "source": "https://api-docs.deepseek.com/quick_start/pricing/",
         "frozen_at": datetime.now(timezone.utc).isoformat(), "billing_note": "bounds span off-peak and peak; estimate, not invoice",
@@ -29,6 +30,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     configuration = {"provider_request_model": "deepseek-flash", "provider": "deepseek", "retries": 0,
         "agent_reasoning": "product default high", "judge_model": "deepseek-flash", "judge_reasoning": "none",
         "judge_evidence_version": JUDGE_EVIDENCE_VERSION,
+        "program_evidence_guard_version": PROGRAM_EVIDENCE_GUARD_VERSION,
         "codex_model": CODEX_MODEL, "codex_effort": CODEX_EFFORT, "codex_sdk_version": version("openai-codex"),
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
@@ -97,7 +99,10 @@ def wait_for_trial(server, root: Path, case_id: str, *, timeout: float = 120) ->
 
 def execute_case(batch, case, index, manifest, dataset_path):
     from creatoros.evaluation.benchmark.manifest import verify_manifest
-    verify_manifest(batch / "manifest.json")
+    from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
+    verify_guard_version(manifest)
+    verified_manifest = verify_manifest(batch / "manifest.json")["manifest"]
+    verify_guard_version(verified_manifest)
     root = batch / "records" / uuid4().hex
     root.mkdir(parents=True, exist_ok=False)
     (batch / "claims").mkdir(exist_ok=True)
@@ -176,6 +181,8 @@ def main():
             raise ValueError("Run/report must use the frozen dataset")
         if args.action == "run":
             from creatoros.evaluation.benchmark.nonvideo_guard import validate
+            from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
+            verify_guard_version(manifest)
             validate(manifest)
             cases = json.loads(dataset_path.read_text(encoding="utf-8"))["cases"]
             selected = [case for case in cases if case["id"] in manifest["selected_case_ids"]]

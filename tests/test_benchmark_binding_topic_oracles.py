@@ -69,6 +69,21 @@ class BindingAndTopicOracleTests(unittest.TestCase):
             with self.assertRaises(MissingEvidence):
                 _expectation(item, data)
 
+    def test_b22_new_series_binds_the_requested_active_skill(self):
+        rule = next(x for x in self.cases["B22"]["expectations"] if x["kind"] == "new_series_skill_binding")
+        old = {"id":"old", "creator_id":"A", "name":"existing", "skill_name":"SK", "production_skill_id":None}
+        created = {"id":"new", "creator_id":"A", "name":"四格辨词实验", "skill_name":"SK", "production_skill_id":None}
+        data = {"variables":{"creator_a":"A", "skill_a":"SK"},
+                "before":{"database":{"series":[old]}}, "after":{"database":{"series":[old, created]}}}
+        self.assertTrue(_expectation(rule, data)[0])
+        created["skill_name"] = "wrong"
+        self.assertFalse(_expectation(rule, data)[0])
+        created["skill_name"], created["production_skill_id"] = None, "SK"
+        self.assertTrue(_expectation(rule, data)[0])
+        del created["production_skill_id"]
+        with self.assertRaises(MissingEvidence):
+            _expectation(rule, data)
+
 
 if __name__ == "__main__":
     unittest.main()

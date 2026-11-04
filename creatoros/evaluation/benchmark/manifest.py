@@ -65,6 +65,8 @@ def _relative(path: Path) -> str:
 
 def _dataset(path: Path) -> dict:
     doc = json.loads(path.read_text(encoding="utf-8"))
+    from .natural_suite import validate_natural_document
+    validate_natural_document(doc)
     revision = doc.get("evaluation_revision")
     if revision is not None:
         from .grader import VERSION as grader_version
@@ -221,6 +223,8 @@ def freeze_manifest(path, dataset_path, *, pricing, model_configuration, case_id
     selected = list(all_ids if case_ids is None else case_ids)
     if not selected or len(set(selected)) != len(selected) or any(x not in all_ids for x in selected):
         raise ValueError("Selected case IDs must be a nonempty unique subset of the frozen 50")
+    from .natural_suite import validate_selection
+    validate_selection(doc, None if case_ids is None else selected)
     paths = _default_sources() if source_paths is None else [Path(p) if Path(p).is_absolute() else PROJECT_ROOT / p for p in source_paths]
     names = {_relative(p): p.resolve() for p in paths}
     names[dataset_name] = dataset
@@ -301,6 +305,9 @@ def verify_manifest(path) -> dict:
                     _digest((target.parent / frozen["path"]).read_bytes()) != frozen["sha256"]):
                 raise ValueError("Frozen dataset copy changed")
         _configuration(manifest["pricing"], manifest["model_configuration"])
+        if "program_evidence_guard_version" in manifest["model_configuration"]:
+            from .program_evidence_guard import verify_guard_version
+            verify_guard_version(manifest)
         hashes = manifest["source_hashes"]
         if not isinstance(hashes, dict) or not hashes:
             raise ValueError("No frozen source hashes")
@@ -318,6 +325,8 @@ def verify_manifest(path) -> dict:
         if changed:
             raise ValueError("Frozen source changed: " + ", ".join(sorted(set(changed))))
         dataset = _dataset(PROJECT_ROOT / manifest["dataset_path"])
+        from .natural_suite import validate_selection
+        validate_selection(dataset, manifest.get("selected_case_ids"))
         expected_groups = [{"id": c["id"], "family": c["family"], "split": c["split"], "origin_type": c["origin"]["type"]} for c in dataset["cases"]]
         if manifest["case_groups"] != expected_groups or manifest["all_case_ids"] != [f"B{n:02}" for n in range(1, 51)]:
             raise ValueError("Frozen case groups changed")
