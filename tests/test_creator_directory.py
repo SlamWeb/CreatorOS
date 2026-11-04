@@ -78,7 +78,9 @@ class CreatorDirectoryTests(unittest.TestCase):
 
         def hold_directory_read(connection, cursor, statement, parameters, context, executemany):
             sql = " ".join(statement.lower().split())
-            if "select creators.id, creators.display_name" in sql and "from creators" in sql:
+            # The delete endpoint also selects Creator, including these two
+            # columns. Only pause the directory's two-column projection.
+            if sql.startswith("select creators.id, creators.display_name from creators"):
                 ready.set()
                 if not release.wait(15):
                     raise TimeoutError("directory snapshot gate was not released")
