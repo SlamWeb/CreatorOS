@@ -137,6 +137,20 @@ class PlanCapabilityTests(unittest.TestCase):
         # The current contract deliberately adds read-only production receipt
         # lookup and clarifies that a shared release may be forked privately.
         original = copy.deepcopy(tools)
+        # BGM import now runs asynchronously; verify the approved additions
+        # before reverting them for comparison with the old registry snapshot.
+        material = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_material")
+        self.assertEqual(material["description"], "管理当前账号 BGM：list/get 查询，import_link 后台导入分享原文，import_status 查进度；analyze 后台分析，analysis_status 查进度，analysis 读结果。")
+        material["description"] = "查询当前账号音频素材；analyze 后台分析已有音乐，analysis_status 查进度，analysis 读结果。用户分享链接用于视频时直接交给 Codex。"
+        material_props = material["parameters"]["properties"]
+        self.assertEqual(material_props["action"]["enum"], ["list", "get", "import_link", "import_status", "analyze", "analysis", "analysis_status"])
+        material_props["action"]["enum"].remove("import_status")
+        self.assertEqual(material_props.pop("import_id"), {"anyOf": [{"maxLength": 100, "minLength": 1, "type": "string"}, {"type": "null"}], "default": None, "title": "Import Id"})
+        self.assertNotIn("import_id", material["parameters"]["required"])
+        self.assertEqual(material_props["source_url"]["anyOf"][0]["maxLength"], 10000)
+        self.assertEqual(material_props["source_url"]["description"], "用户提供的音乐/视频分享原文。")
+        material_props["source_url"]["anyOf"][0]["maxLength"] = 2000
+        material_props["source_url"]["description"] = "用户提供的音乐/视频分享链接，不传主机路径。"
         # Normalize the explicitly approved waiting-plan guidance first.
         plan = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_plan")
         guidance = ("明确要求生产完成后核验、继续处理或汇报结果时，即使只有一项生产也创建计划，"

@@ -141,7 +141,7 @@ test("an upload cannot send mid-flight or leak to another history session", asyn
   let release!: () => void;
   state.controls.holdUpload = new Promise<void>(resolve => { release = resolve; });
   await select(page);
-  await expect(page.getByRole("status")).toContainText("正在上传图片");
+  await expect(page.getByRole("status")).toContainText("正在上传文件");
   await expect(page.getByRole("button", { name: "发送 ↑" })).toBeDisabled();
   await page.locator(".agent-new").click();
   release();

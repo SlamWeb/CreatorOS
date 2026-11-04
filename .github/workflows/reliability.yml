@@ -32,6 +32,7 @@ jobs:
       - uses: ./.github/actions/reliability-runtime
         with:
           python-deps: 'true'
+          node: 'true'
           media: 'true'
       - name: Backend reliability allowlist shard ${{ matrix.shard }}/2
         run: python -m tests.run_reliability --shard ${{ matrix.shard }}/2
