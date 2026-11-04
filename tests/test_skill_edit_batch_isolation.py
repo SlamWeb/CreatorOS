@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import socket
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -116,7 +117,7 @@ class SkillEditBatchIsolationTests(unittest.TestCase):
             self.assertEqual(len(list((root / "inputs").glob("*.png"))), 8)
             self.assertEqual(len({hashlib.sha256(p.read_bytes()).hexdigest() for p in (root / "inputs").glob("*.png")}), 8)
             self.assertFalse((root / "execution-started.json").exists())
-            with sqlite3.connect(root / "studio.db") as db:
+            with closing(sqlite3.connect(root / "studio.db")) as db:
                 self.assertEqual(db.execute("SELECT count(*) FROM content_runs").fetchone()[0], 0)
                 creators = {row[0] for row in db.execute("SELECT id FROM creators")}
                 self.assertEqual(creators, {setup["creator_a"], setup["creator_b"]})

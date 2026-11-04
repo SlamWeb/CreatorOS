@@ -88,7 +88,7 @@ class MediaBrowserIsolationTest(unittest.TestCase):
         parent = REPO / "tmp"
         parent.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="media-config-guards-", dir=parent) as temporary, \
-                tempfile.TemporaryDirectory(prefix="media-foreign-") as foreign:
+                tempfile.TemporaryDirectory(prefix="media-foreign-", dir=REPO.parent) as foreign:
             base = Path(temporary)
             source = base / "source.db"
             source.touch()
