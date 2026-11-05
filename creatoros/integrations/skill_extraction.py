@@ -189,13 +189,15 @@ async def sdk_extract(directory, images, mode, instruction, cancel, on_thread, c
                                      if s["role"] != "mind"), default_kind)
             if native_files:
                 parsed = read_file_drafts(directory, mode, result.final_response or "", default_kind)
-            else:
-                publish("host-delivery", "status", "宿主接收草稿", "running", "模型已返回内容；宿主正在校验并写入本次草稿，脚本不会执行。")
-                try:
-                    parsed = apply_delivery(directory, mode, result.final_response or "", images, default_kind, cancel)
-                except ValueError as error:
-                    raise ExtractionError(str(error)) from error
-                publish("host-delivery", "status", "宿主接收草稿", "completed", "本次草稿文件校验通过；尚未确认入库。")
+        if not native_files:
+            # On Windows the SDK process keeps its cwd open until the client
+            # closes; release it before promoting the draft tree.
+            publish("host-delivery", "status", "宿主接收草稿", "running", "模型已返回内容；宿主正在校验并写入本次草稿，脚本不会执行。")
+            try:
+                parsed = apply_delivery(directory, mode, result.final_response or "", images, default_kind, cancel)
+            except ValueError as error:
+                raise ExtractionError(str(error)) from error
+            publish("host-delivery", "status", "宿主接收草稿", "completed", "本次草稿文件校验通过；尚未确认入库。")
         progress.finish("completed")
         if activity:
             progress.diagnostic("public_activity", lambda: activity.finish("completed", "Codex 已结束，草稿文件校验通过；尚未确认入库。"))

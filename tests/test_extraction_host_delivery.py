@@ -1,7 +1,11 @@
 """Completed SDK replies deliver bounded drafts without shell/file tool access."""
 import base64
+import asyncio
 import io
 import json
+import os
+import subprocess
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -73,6 +77,36 @@ class ExtractionHostDeliveryTests(unittest.TestCase):
         data = stream.getvalue()
         upload = self.service.upload(f"color-{index}.png", base64.b64encode(data).decode())
         return upload["id"], data
+
+    @unittest.skipUnless(os.name == "nt", "Windows directory sharing semantics")
+    def test_sdk_working_directory_is_released_before_host_promotes_draft(self):
+        sdk = ControlledSdk(manifest())
+        process = None
+        @asynccontextmanager
+        async def client(*args, **kwargs):
+            nonlocal process
+            async with sdk.client(*args, **kwargs) as wrapped:
+                original_start = wrapped.thread_start
+                async def thread_start(**controls):
+                    nonlocal process
+                    process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                                               cwd=controls["cwd"], stdout=subprocess.DEVNULL,
+                                               stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+                    return await original_start(**controls)
+                wrapped.thread_start = thread_start
+                try:
+                    yield wrapped
+                finally:
+                    if process:
+                        process.terminate()
+                        process.wait(timeout=10)
+        with patch("creatoros.integrations.skill_extraction._production_client", client), \
+             patch("creatoros.integrations.skill_extraction.collect_observed_turn", sdk.collect):
+            job = self.service.submit("windows-cwd-lifetime", source_text="An existing reference")
+            self.service.worker.join(20)
+        current = self.service.get(job["id"])
+        self.assertEqual(current["status"], "ready", current.get("error"))
+        self.assertIn("Use this method", self.service.file(job["id"], "legacy_end_to_end", "SKILL.md").read_text())
 
     def test_complete_reply_delivers_fifteen_originals_and_text_assets_without_tools(self):
         images = [self.upload(index) for index in range(15)]
@@ -158,6 +192,34 @@ class ExtractionHostDeliveryTests(unittest.TestCase):
         directory = self.root / name
         (directory / "draft").mkdir(parents=True)
         return directory
+
+    def test_sdk_close_error_or_cancel_does_not_publish_and_preserves_existing_draft(self):
+        from creatoros.integrations.skill_extraction import sdk_extract
+        from creatoros.integrations.producer_skills import _digest
+        for failure in ("close_error", "cancel"):
+            with self.subTest(failure=failure):
+                directory = self.operation("close-" + failure)
+                skill = directory / "draft/skill"
+                skill.mkdir()
+                (skill / "SKILL.md").write_text(document("existing"), encoding="utf-8")
+                (skill / "asset.bin").write_bytes(b"existing bytes")
+                before = _digest(directory / "draft")
+                cancel = Event()
+                sdk = ControlledSdk(manifest())
+                @asynccontextmanager
+                async def client(*args, **kwargs):
+                    async with sdk.client(*args, **kwargs) as wrapped:
+                        yield wrapped
+                        if failure == "close_error":
+                            raise OSError("SDK close failed")
+                        cancel.set()
+                with patch("creatoros.integrations.skill_extraction._production_client", client), \
+                     patch("creatoros.integrations.skill_extraction.collect_observed_turn", sdk.collect), \
+                     self.assertRaises((OSError, ValueError)):
+                    asyncio.run(sdk_extract(directory, [], "single", "update", cancel, lambda _: None))
+                self.assertEqual(_digest(directory / "draft"), before)
+                self.assertFalse((directory / "draft_delivery.json").exists())
+                self.assertEqual(json.loads((directory / "response.txt").read_text(encoding="utf-8")), sdk.reply)
 
     def test_invalid_paths_and_conflicts_never_write_partial_draft(self):
         for index, path in enumerate(("../outside.md", "C:\\outside.md", "/outside.md", "x/../../outside.md",
