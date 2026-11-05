@@ -89,10 +89,12 @@ def score_case(case, grade, judge):
         program.append({**rule, "status": status, "detail": found.get("detail", "Required evidence check missing")})
     try:
         valid_judge = validate_judge(case, judge)
+        from .judge_contradiction_guard import qualify_explicit_contradictions
         from .judge_timing import qualify_temporal_judgments
         from .visual_guard import qualify_visual_judgments
         from .grounding_guard import qualify_grounding_judgments
         from .program_evidence_guard import qualify_program_judgments
+        valid_judge = qualify_explicit_contradictions(case, valid_judge)
         valid_judge = qualify_temporal_judgments(case, valid_judge)
         valid_judge = qualify_visual_judgments(case, valid_judge)
         valid_judge = qualify_grounding_judgments(case, valid_judge)

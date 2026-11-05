@@ -256,12 +256,23 @@ def main():
         payload["initial_collections"] = evidence["background"].get("initial_collections", {})
         payload["collections"] = evidence["background"].get("collections", {})
         payload["production_pages"] = evidence["browser"].get("production_pages", [])
+        if "video_evidence" in evidence:
+            payload["video_evidence"] = evidence["video_evidence"]
+        research_evidence = evidence.get("research_evidence")
+        if isinstance(research_evidence, dict) and research_evidence.get("status") == "complete":
+            payload["research_source_data"] = research_evidence.get("sources", [])
+            payload["research_event_summary"] = {
+                key: research_evidence.get(key) for key in
+                ("status", "candidate_id", "candidate_title", "candidate_angle", "thread_id", "turn_id",
+                 "search_event_lines", "provenance", "limitations")}
         from creatoros.evaluation.benchmark.semantic_judge import evaluate_judge
         from creatoros.evaluation.benchmark.visual_evidence import collect_visual_evidence, load_visual_attachments, UnavailableVisualEvidence
-        supported = case.get("id") in {"B29", "B41", "B42", "B44", "B45", "B49"}
+        supported = case.get("id") in {"B04", "B29", "B41", "B42", "B44", "B45", "B49"}
         visual_manifest, visual_attachments = None, None
         if supported:
-            visual_manifest = collect_visual_evidence(world.root, case, evidence)
+            visual_manifest = ((evidence.get("rsi_evidence") or {}).get("visual_manifest")
+                               if case.get("id") == "B04" else collect_visual_evidence(world.root, case, evidence))
+            visual_manifest = visual_manifest or {"status":"needs_review", "bindings":[], "errors":["RSI evidence incomplete"]}
             payload["visual_evidence"] = visual_manifest
             try:
                 visual_attachments = load_visual_attachments(world.root, visual_manifest)
@@ -273,7 +284,8 @@ def main():
         if case["scenario"] == "image_discussion":
             images = [world.input_dir / "reference.png", world.input_dir / "alternate.png"]
         return evaluate_judge(case, payload, images, world.root, sink,
-                              visual_manifest=visual_manifest, visual_attachments=visual_attachments)
+                              visual_manifest=visual_manifest, visual_attachments=visual_attachments,
+                              research_evidence=research_evidence)
 
     def finalize(payload):
         session_id, browser = payload.get("session_id"), payload.get("browser", {})
@@ -307,6 +319,7 @@ def main():
             evidence = {"before": world.before, "after": after, "foreign_before": world.foreign_before,
                 "foreign_after": world.foreign_snapshot(after), "foreign_canaries": [world.canary],
                 "requests": [row for row in requests if row["purpose"] == "agent"], "calls": calls,
+                "rsi_requests": [row for row in requests if row["purpose"] == "rsi"],
                 "messages": messages, "final_answer": final, "variables": world.variables,
                 "browser": browser, "background": background, "background_observed_at": background_observed_at,
                 "probes": probes, "codex": codex,
@@ -319,14 +332,19 @@ def main():
                 table = control["table"]
                 grading["after"]["database"][table] = [row for row in grading["after"]["database"][table] if row.get("id") != control["id"]]
             evidence["grade"] = grade_case(case, grading)
+            if case["scenario"] == "video_delivery":
+                from creatoros.evaluation.benchmark.video_evidence import collect_video_evidence
+                evidence["video_evidence"] = collect_video_evidence(world.root, evidence)
+            if case["scenario"] == "live_research":
+                from creatoros.evaluation.benchmark.research_evidence import collect_research_evidence
+                evidence["research_evidence"] = collect_research_evidence(world.root, evidence)
             if case["scenario"] == "rsi_one_round":
-                iterations = background["iterations"]
-                # A submission flag and score do not prove which image was
-                # produced, or that the score evaluated that image.
-                round_status = rsi_round_status(iterations)
+                from creatoros.evaluation.benchmark.rsi_evidence import collect_rsi_evidence
+                evidence["rsi_evidence"] = collect_rsi_evidence(world, evidence)
+                round_status = evidence["rsi_evidence"]["status"]
                 evidence["grade"]["checks"].append({"id": "rsi_actual_round", "label": "单轮真实试产后完成评分并停止",
-                    "status": round_status, "detail": "提交和评分不证明图像及评分绑定；" + str(iterations),
-                    "evidence": ["background.json", "codex.json"]})
+                    "status": round_status, "detail": evidence["rsi_evidence"]["detail"],
+                    "evidence": ["background.json", "codex.json", "rsi_evidence.json"]})
                 if round_status == "failed":
                     evidence["grade"]["auto_status"] = "failed"
                     evidence["grade"]["dimensions"]["task_success"] = "failed"
@@ -354,6 +372,11 @@ def main():
             except Exception as failure:
                 evidence["judge"] = {"error": {"kind": type(failure).__name__, "message": str(failure)}, "items": []}
             semantic_judge = evidence["judge"]
+            if "rsi_evidence" in evidence:
+                write_json(root / "rsi_evidence.json", evidence["rsi_evidence"])
+            for name in ("video_evidence", "research_evidence"):
+                if name in evidence:
+                    write_json(root / (name + ".json"), evidence[name])
             for name in ("before", "after", "foreign_before", "foreign_after", "calls", "browser", "background", "initial_skills", "probes", "grade", "judge", "controls", "codex"):
                 write_json(root / f"{name}.json", evidence[name])
             # Keep all paid calls, including Judge/RSI. Security grading above

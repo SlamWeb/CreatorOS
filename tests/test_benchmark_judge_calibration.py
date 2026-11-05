@@ -34,6 +34,22 @@ class JudgeCalibrationTest(unittest.TestCase):
         self.assertEqual(result['temporal_evidence'], {})
         self.assertTrue(result['items'][0]['pass'])
 
+    def test_research_attestation_is_host_owned_and_requires_exact_sent_sources(self):
+        case = {'id':'B48','rubric':[{'id':'s','question':'来源支持候选？'}]}
+        source = {'id':'source-1', 'text':'host captured text'}
+        host = {'status':'complete','sources':[source], 'batch_id':'host-batch'}
+        payload = {'rubric':case['rubric'], 'temporal_evidence':{}, 'research_source_data':[source]}
+        FakeProvider.response = {'items':[{'id':'s','pass':True,'evidence':'source'}],
+                                 'research_evidence':{'status':'complete','batch_id':'model-forgery'}}
+        result = evaluate_judge(case, payload, [], REPO, lambda x: None, provider_factory=FakeProvider,
+                                research_evidence=host)
+        self.assertEqual(result['research_evidence']['batch_id'], 'host-batch')
+        self.assertEqual(result['research_evidence']['sent_source_ids'], ['source-1'])
+        payload['research_source_data'] = [{'id':'source-1', 'text':'different'}]
+        result = evaluate_judge(case, payload, [], REPO, lambda x: None, provider_factory=FakeProvider,
+                                research_evidence=host)
+        self.assertEqual(result['research_evidence']['sent_source_ids'], [])
+
     def test_scoped_oracle_excludes_foreign_runs_and_unknown_is_not_empty(self):
         state = {'database': {'series':[{'id':'s1','creator_id':'a'},{'id':'s2','creator_id':'b'}],
             'topics':[{'id':'t1','series_id':'s1'},{'id':'t2','series_id':'s2'}],

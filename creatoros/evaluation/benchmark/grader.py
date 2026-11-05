@@ -425,36 +425,74 @@ def _expectation(expectation, evidence):
         word_pairs = exp.get("word_pair_title_separators", False)
         if type(word_pairs) is not bool:
             raise MissingEvidence("Word-pair title separator option must be boolean")
+        flexible_pairs = exp.get("word_pair_title_flexible", False)
+        if type(flexible_pairs) is not bool or (flexible_pairs and not word_pairs):
+            raise MissingEvidence("Flexible word-pair matching must be explicitly enabled with word-pair matching")
         if word_pairs and (table != "topics" or not exp.get("normalize_whitespace") or
                            any(not isinstance(pattern.get("title"), str) or
                                not re.fullmatch(r"[A-Za-z]+与[A-Za-z]+", normalize(pattern["title"]))
                                for pattern in value)):
             raise MissingEvidence("Word-pair matching requires explicit word-pair titles and whitespace normalization")
 
+        requested_words = ({word.casefold() for pattern in value
+                            for word in normalize(pattern["title"]).split("与")}
+                           if flexible_pairs else set())
+        pair_prefix = re.compile(
+            r"^\s*([A-Za-z]+)\s*(?:还是|与|和|或|/|／|vs\.?|versus|and|or)\s*"
+            r"([A-Za-z]+)(?![A-Za-z])", re.IGNORECASE)
+
         def row_matches(row, pattern):
             actual, expected = normalize(row), normalize(pattern)
             if not suffixes and not word_pairs:
                 return _contains_arguments(actual, expected)
             title = expected.pop("title")
+            if not _contains_arguments(actual, expected):
+                return False
+            if flexible_pairs:
+                original_title = row.get("title")
+                if not isinstance(original_title, str) or not original_title.strip():
+                    return None
+                pair = pair_prefix.match(original_title)
+                if not pair:
+                    return None  # A title may describe the topic in other valid words.
+                left, right = (part.casefold() for part in title.split("与"))
+                actual_pair = (pair.group(1).casefold(), pair.group(2).casefold())
+                if len(set(actual_pair)) != 2 or set(actual_pair) != {left, right}:
+                    return False
+                # A different requested pair in the same title is a combined
+                # topic, not one of the separately requested topics.
+                tail_words = {word.casefold() for word in re.findall(r"[A-Za-z]+", original_title[pair.end():])}
+                if tail_words & (requested_words - {left, right}):
+                    return False
+                # Repeated pair words can be either a normal subtitle or an
+                # ambiguous second comparison; do not claim certainty.
+                if tail_words & {left, right}:
+                    return None
+                return True
             titles = {title}
             if word_pairs:
                 left, right = title.split("与")
                 titles = {left + separator + right for separator in ("与", "和", "/", "／")}
             valid_titles = titles | {item + normalize(suffix) for item in titles for suffix in suffixes}
-            return isinstance(actual.get("title"), str) and actual["title"] in valid_titles and _contains_arguments(actual, expected)
+            return isinstance(actual.get("title"), str) and actual["title"] in valid_titles
 
         # Bipartite matching avoids reusing one row for two overlapping patterns.
-        matched = {}
-        def assign(index, seen):
-            for number, row in enumerate(added):
-                if number not in seen and row_matches(row, value[index]):
-                    seen.add(number)
-                    if number not in matched or assign(matched[number], seen):
-                        matched[number] = index
-                        return True
-            return False
-        correct = len(added) == len(value) and all(assign(index, set()) for index in range(len(value)))
+        matrix = [[row_matches(row, pattern) for row in added] for pattern in value]
+        def covers(allow_unknown):
+            matched = {}
+            def assign(index, seen):
+                for number, result in enumerate(matrix[index]):
+                    if number not in seen and (result is True or (allow_unknown and result is None)):
+                        seen.add(number)
+                        if number not in matched or assign(matched[number], seen):
+                            matched[number] = index
+                            return True
+                return False
+            return len(added) == len(value) and all(assign(index, set()) for index in range(len(value)))
+        correct = covers(False)
         preserved = not exp.get("preserve_existing") or existing_unchanged()
+        if not correct and preserved and flexible_pairs and covers(True):
+            raise MissingEvidence("Topic title is an ambiguous but possible match for the requested word pair")
         return correct and preserved, f"{table}: new={len(added)}, expected={len(value)}, patterns={correct}, preserved={preserved}"
     delta_tables = {"topics_delta": "topics", "collection_count_delta": "media_collections",
                     "new_runs": "content_runs", "production_tasks": "production_tasks"}

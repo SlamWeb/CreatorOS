@@ -20,7 +20,11 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
     from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.judge_contradiction_guard import VERSION as JUDGE_CONTRADICTION_GUARD_VERSION
     from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_EVIDENCE_GUARD_VERSION
+    from creatoros.evaluation.benchmark.rsi_evidence import VERSION as RSI_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.video_evidence import VERSION as VIDEO_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.research_evidence import VERSION as RESEARCH_EVIDENCE_VERSION
     from importlib.metadata import version
     pricing = {"currency": "USD", "source": "https://api-docs.deepseek.com/quick_start/pricing/",
         "frozen_at": datetime.now(timezone.utc).isoformat(), "billing_note": "bounds span off-peak and peak; estimate, not invoice",
@@ -30,7 +34,10 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     configuration = {"provider_request_model": "deepseek-flash", "provider": "deepseek", "retries": 0,
         "agent_reasoning": "product default high", "judge_model": "deepseek-flash", "judge_reasoning": "none",
         "judge_evidence_version": JUDGE_EVIDENCE_VERSION,
+        "judge_contradiction_guard_version": JUDGE_CONTRADICTION_GUARD_VERSION,
         "program_evidence_guard_version": PROGRAM_EVIDENCE_GUARD_VERSION,
+        "benchmark_evidence_versions": {"rsi": RSI_EVIDENCE_VERSION, "video": VIDEO_EVIDENCE_VERSION,
+                                        "research": RESEARCH_EVIDENCE_VERSION},
         "codex_model": CODEX_MODEL, "codex_effort": CODEX_EFFORT, "codex_sdk_version": version("openai-codex"),
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}

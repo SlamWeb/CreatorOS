@@ -14,6 +14,10 @@ PARENT_ID = 'creatoros-trace-benchmark-v3.4-20261105'
 PARENT_SHA256 = '2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5'
 DEFINITION_SHA256 = '1f3322607fac1f6d8d1853ea840372de3cdce75435dcfd5e0bd96d436e0dbb32'
 POLICY_VERSION = 'natural-subset-v1'
+DATASET_ID_V2 = 'creatoros-natural-benchmark-v2-20261105'
+DEFINITION_SHA256_V2 = '84589e028b20b3412e980f947c75934ff9377a756e964e493dd727eb987bfbdb'
+POLICY_VERSION_V2 = 'natural-subset-v2'
+NATURAL_GRADER_VERSION_V2 = 'benchmark-natural-v2-intent'
 
 # Each text is independently specified; identity and event steps remain frozen.
 REWRITES = {
@@ -98,6 +102,31 @@ def build_document(parent_bytes):
     return doc
 
 
+def build_document_v2(parent_bytes):
+    """Keep v1 unchanged; opt in to intent-level titles and the B10 correction."""
+    doc = build_document(parent_bytes)
+    doc['dataset_id'] = DATASET_ID_V2
+    doc['natural_selection_policy']['version'] = POLICY_VERSION_V2
+    doc['evaluation_revision']['id'] = 'oracle-natural-v2-intent-20261105'
+    doc['evaluation_revision']['natural_grader_version'] = NATURAL_GRADER_VERSION_V2
+    doc['revision']['natural_v2'] = {'parent_dataset_id': DATASET_ID,
+        'parent_canonical_sha256': DEFINITION_SHA256,
+        'reason': 'Correct B10 invented attribution and evaluate B11/B12 word-pair intent with explicit uncertainty.'}
+    cases = {case['id']:case for case in doc['cases']}
+    question = ('是否没有声称Agent自己创建新增选题，也没有把首轮旧目录说成最新？'
+                '用户已说明由自己在页面添加，回答未重复该来源不扣分。')
+    next(rule for rule in cases['B10']['rubric'] if rule['id'] == 'b10-s2')['question'] = question
+    for identifier in ('B11', 'B12'):
+        expectation = next(rule for rule in cases[identifier]['expectations']
+                           if rule.get('kind') == 'new_rows_match' and rule.get('table') == 'topics')
+        expectation['word_pair_title_flexible'] = True
+    next(rule for rule in cases['B12']['rubric'] if rule['id'] == 'b12-s1')['question'] = (
+        '三条新增选题是否分别围绕各自对应的 rise/raise、accept/except、affect/effect 词对，'
+        '且内容说明均保留四格辨析意图，没有错配、遗漏或揉成一个任务？'
+        '正文未重复英文词但结合标题与上下文能确定对应关系时可接受；证据不足待复核。')
+    return doc
+
+
 def is_natural_document(doc):
     return (str(doc.get('dataset_id', '')).startswith('creatoros-natural-')
             or 'natural_selection_policy' in doc or 'natural_provenance' in doc)
@@ -107,13 +136,19 @@ def validate_natural_document(doc):
     if not is_natural_document(doc):
         return False
     policy = doc.get('natural_selection_policy')
-    expected = {'version': POLICY_VERSION, 'parent_dataset_id': PARENT_ID,
+    dataset_id = doc.get('dataset_id')
+    versions = {DATASET_ID: (POLICY_VERSION, DEFINITION_SHA256),
+                DATASET_ID_V2: (POLICY_VERSION_V2, DEFINITION_SHA256_V2)}
+    if dataset_id not in versions:
+        raise ValueError('Natural suite identity or eligible-case policy is invalid')
+    policy_version, expected_digest = versions[dataset_id]
+    expected = {'version': policy_version, 'parent_dataset_id': PARENT_ID,
                 'parent_canonical_sha256': PARENT_SHA256, 'digest_algorithm': 'sha256-json-sortkeys-utf8-v1',
                 'eligible_case_ids': list(NATURAL_IDS),
                 'unlisted_cases': 'compatibility placeholders; must not be selected'}
-    if doc.get('dataset_id') != DATASET_ID or policy != expected:
+    if policy != expected:
         raise ValueError('Natural suite identity or eligible-case policy is invalid')
-    if DEFINITION_SHA256 == 'PENDING' or canonical_digest(doc) != DEFINITION_SHA256:
+    if expected_digest == 'PENDING' or canonical_digest(doc) != expected_digest:
         raise ValueError('Natural suite frozen definition differs from registered version')
     return True
 

@@ -10,6 +10,7 @@ DEPENDENT_RULES = {
 }
 
 REQUIRED_ROLES = {
+    'B04': ['rsi_reference', 'rsi_trial'],
     'B29': ['skill_reference'], 'B41': ['run_image'],
     'B42': ['run_image', 'run_image', 'run_image'], 'B44': ['user_attachment'],
     'B45': ['user_attachment', 'run_image', 'run_image'],

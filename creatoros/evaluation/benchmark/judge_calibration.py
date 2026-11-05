@@ -13,6 +13,7 @@ import stat
 from creatoros.evaluation.benchmark.metrics import aggregate_metrics
 from creatoros.evaluation.benchmark.semantic_judge import evaluate_judge
 from creatoros.evaluation.benchmark.judge_timing import qualify_temporal_judgments
+from creatoros.evaluation.benchmark.judge_contradiction_guard import qualify_explicit_contradictions
 from creatoros.evaluation.benchmark.visual_guard import qualify_visual_judgments
 from creatoros.evaluation.benchmark.grounding_guard import qualify_grounding_judgments
 from creatoros.evaluation.benchmark.program_evidence_guard import (
@@ -26,9 +27,11 @@ PROGRAM_GUARD_DATASET = REPO / 'tests/fixtures/benchmark_judge_calibration_v5_pr
 CASE_DEFINITIONS = REPO / 'docs/agent-eval/benchmark-v2/cases.json'
 SOURCES = [Path(__file__), REPO / 'creatoros/evaluation/benchmark/server.py', REPO / 'creatoros/evaluation/benchmark/semantic_judge.py',
            REPO / 'creatoros/evaluation/benchmark/scoring.py',
+           REPO / 'creatoros/evaluation/benchmark/judge_contradiction_guard.py',
            REPO / 'creatoros/evaluation/benchmark/judge_timing.py', REPO / 'creatoros/evaluation/benchmark/visual_guard.py',
            REPO / 'creatoros/evaluation/benchmark/visual_evidence.py',
-           REPO / 'creatoros/evaluation/benchmark/grounding_guard.py',
+           REPO / 'creatoros/evaluation/benchmark/grounding_guard.py', REPO / 'creatoros/evaluation/benchmark/research_evidence.py',
+           REPO / 'creatoros/evaluation/benchmark/rsi_evidence.py', REPO / 'creatoros/evaluation/benchmark/video_evidence.py',
            REPO / 'creatoros/evaluation/benchmark/program_evidence_guard.py',
            REPO / 'creatoros/evaluation/benchmark/capture.py', REPO / 'creatoros/evaluation/benchmark/metrics.py',
            REPO / 'creatoros/ai/deepseek.py', REPO / 'creatoros/ai/context.py', CASE_DEFINITIONS]
@@ -270,7 +273,7 @@ def run(root, split, *, allow_paid=False, provider_factory=None, resume=False):
             error = {'type': type(exc).__name__, 'message': str(exc)}
         qualified = qualify_program_judgments(sample['case'], qualify_grounding_judgments(
             sample['case'], qualify_visual_judgments(sample['case'],
-                qualify_temporal_judgments(sample['case'], result))),
+                qualify_temporal_judgments(sample['case'], qualify_explicit_contradictions(sample['case'], result)))),
             sample['payload'].get('state_checks')) if result else {}
         rows = compare(sample['expected'], qualified)
         item = {'sample_id': sample['id'], 'split': split, 'checks': rows, 'judge': result,

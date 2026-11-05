@@ -50,5 +50,14 @@ class VisualGuardTests(unittest.TestCase):
         self.assertTrue(result['items'][0]['pass'])
         self.assertIsNone(result['items'][1]['pass'])
 
+    def test_rsi_trial_and_reference_must_both_be_sent(self):
+        judge = {'items':[{'id':'b04-s1','pass':True,'evidence':'试产背景简洁'}],
+                 'visual_evidence':{'version':'visual-bindings-v1','case_id':'B04','status':'complete',
+                   'bindings':[{'id':'image-1','role':'rsi_reference','sha256':'a'*64}, {'id':'image-2','role':'rsi_trial','sha256':'b'*64}],
+                   'sent_ids':['image-1','image-2']}}
+        self.assertTrue(qualify_visual_judgments({'id':'B04'}, judge)['items'][0]['pass'])
+        judge['visual_evidence']['sent_ids'].pop()
+        self.assertIsNone(qualify_visual_judgments({'id':'B04'}, judge)['items'][0]['pass'])
+
 
 if __name__ == '__main__': unittest.main()
