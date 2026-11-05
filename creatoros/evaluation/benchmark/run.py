@@ -25,6 +25,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     from creatoros.evaluation.benchmark.rsi_evidence import VERSION as RSI_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.video_evidence import VERSION as VIDEO_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.research_evidence import VERSION as RESEARCH_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.grounding_guard import VERSION as RESEARCH_GUARD_VERSION
     from creatoros.evaluation.benchmark.expansion_visual_tasks import VERSION as VISUAL_EXPANSION_VERSION
     from importlib.metadata import version
     pricing = {"currency": "USD", "source": "https://api-docs.deepseek.com/quick_start/pricing/",
@@ -38,7 +39,8 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
         "judge_contradiction_guard_version": JUDGE_CONTRADICTION_GUARD_VERSION,
         "program_evidence_guard_version": PROGRAM_EVIDENCE_GUARD_VERSION,
         "benchmark_evidence_versions": {"rsi": RSI_EVIDENCE_VERSION, "video": VIDEO_EVIDENCE_VERSION,
-                                        "research": RESEARCH_EVIDENCE_VERSION, "visual_expansion": VISUAL_EXPANSION_VERSION},
+                                        "research": RESEARCH_EVIDENCE_VERSION, "research_qualification": RESEARCH_GUARD_VERSION,
+                                        "visual_expansion": VISUAL_EXPANSION_VERSION},
         "codex_model": CODEX_MODEL, "codex_effort": CODEX_EFFORT, "codex_sdk_version": version("openai-codex"),
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}

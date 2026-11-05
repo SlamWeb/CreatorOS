@@ -67,6 +67,14 @@ try:
  else: raise AssertionError('wrong account should not receive fixture')
  receipt=host_event(w,'seed_recovery_plan',sid)
  plan=w.app.state.agent_plans.get(sid,PLAN_ID)
+ from fastapi.testclient import TestClient
+ with TestClient(w.app) as client:
+  url=f'/api/agent/sessions/{sid}/plans/{PLAN_ID}'
+  accessible=client.get(url,headers={'x-creatoros-agent-session':sid})
+  assert accessible.status_code==200, (accessible.status_code,accessible.text)
+  assert accessible.json()['id']==PLAN_ID
+  denied=client.get(url,headers={'x-creatoros-agent-session':other})
+  assert denied.status_code==403, (denied.status_code,denied.text)
  expected={'W01':('paused',['succeeded','pending']),'W02':('needs_attention',['failed','blocked']),
            'W03':('needs_attention',['succeeded','unknown']),'W04':('completed',['succeeded'])}
  assert (plan['status'],[x['status'] for x in plan['steps']])==expected[name],plan

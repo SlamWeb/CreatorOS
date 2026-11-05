@@ -149,6 +149,14 @@ class ResearchEvidenceTests(unittest.TestCase):
         qualified=qualify_grounding_judgments({"id":"B48"},base)
         self.assertIsNone(qualified["items"][0]["pass"])
         self.assertIs(qualified["items"][1]["pass"],True)
+        partial=deepcopy(base)
+        partial["items"][1]["evidence"]="该来源是词表；但仅支持等级标注这一部分主张。"
+        qualified=qualify_grounding_judgments({"id":"B48"},partial)
+        self.assertIsNone(qualified["items"][1]["pass"])
+        self.assertIs(partial["items"][1]["pass"],True)
+        full=deepcopy(base)
+        full["items"][1]["evidence"]="该来源明确支持这条主张。"
+        self.assertIs(qualify_grounding_judgments({"id":"B48"},full)["items"][1]["pass"],True)
         for mutation in ("not_sent","changed_text","wrong_url","missing_provenance"):
             bad=deepcopy(base)
             if mutation=="not_sent": bad["research_evidence"]["sent_host_source_ids"]=[]

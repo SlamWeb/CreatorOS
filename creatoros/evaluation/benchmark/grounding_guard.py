@@ -5,7 +5,7 @@ import re
 
 from .research_evidence import VERSION as EVIDENCE_VERSION, MAX_EXCERPT, MAX_SOURCES, _url, _instant, MissingResearchEvidence
 
-VERSION = "research-grounding-qualification-v4"
+VERSION = "research-grounding-qualification-v5"
 SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -112,4 +112,12 @@ def qualify_grounding_judgments(case, judge):
             item["pass"] = None
             item["qualification"] = VERSION
             item["evidence"] += "；对应事后抓取的正文未完整绑定或未发送 Judge，待复核。"
+        elif (match and item.get("pass") is True and isinstance(item.get("evidence"), str)
+              and re.search(r"(?:仅支持|只支持)[^。；;\n]{0,80}(?:一部分主张|部分主张|部分内容)", item["evidence"])):
+            # A narrow explicit self-contradiction: the per-source rubric says
+            # partial support is unknown, never silently promote it to true.
+            item["raw_pass"] = True
+            item["pass"] = None
+            item["qualification"] = VERSION
+            item["evidence"] += "；该项规则要求部分支持保留待复核。"
     return result

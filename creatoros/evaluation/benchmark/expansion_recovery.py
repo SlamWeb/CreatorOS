@@ -12,7 +12,11 @@ SCENARIOS = {
     "recovery_unknown_plan": "needs_attention",
     "recovery_complete_plan": "completed",
 }
-PLAN_ID = "bench-recovery-plan"
+# The product's scoped plan route accepts only 64 hexadecimal characters.
+# A human-readable fixture ID makes the plan visible in lists but unreadable
+# through the real Agent tool, incorrectly turning fixture failure into a
+# model failure.
+PLAN_ID = "b" * 64
 EVENT = "seed_recovery_plan"
 
 
