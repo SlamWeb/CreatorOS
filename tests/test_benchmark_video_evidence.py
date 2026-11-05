@@ -13,7 +13,7 @@ import wave
 import zipfile
 
 from PIL import Image
-from creatoros.evaluation.benchmark.video_evidence import collect_video_evidence
+from creatoros.evaluation.benchmark.video_evidence import collect_video_evidence, _video_all_frames, _video_samples
 
 FFMPEG = Path("D:/Anaconda4.7g/envs/llmpc/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v7.1.exe")
 
@@ -86,6 +86,9 @@ class VideoEvidenceTests(unittest.TestCase):
         self.assertNotIn("error",result)
         self.assertEqual(result["input_binding"]["status"],"passed")
         self.assertEqual(result["frames"]["assessment"],"sampled_consistent")
+        self.assertEqual(result["full_frames"]["assessment"],"all_decoded_frames_consistent")
+        self.assertEqual(result["full_frames"]["coverage"],"all_decoded_frames")
+        self.assertEqual(result["full_frames"]["count"],16)
         self.assertEqual(result["audio"]["assessment"],"waveform_consistent")
         self.assertEqual(result["status"],"needs_review")
 
@@ -93,7 +96,48 @@ class VideoEvidenceTests(unittest.TestCase):
         self.make_video(("second","first"),660); self.build_evidence()
         result=collect_video_evidence(self.root,self.evidence,ffmpeg=str(FFMPEG))
         self.assertEqual(result["frames"]["assessment"],"inconclusive")
+        self.assertEqual(result["full_frames"]["assessment"],"inconclusive")
         self.assertEqual(result["audio"]["assessment"],"inconclusive")
+        self.assertEqual(result["status"],"needs_review")
+
+    def test_all_frame_check_detects_single_frame_missed_by_eight_fps_samples(self):
+        root=self.root
+        cmd=[str(FFMPEG),"-v","error","-y","-loop","1","-framerate","30","-t","1","-i",str(root/"inputs/first.png"),
+             "-loop","1","-framerate","30","-t","1","-i",str(root/"inputs/second.png"),
+             "-filter_complex","[0:v][1:v]concat=n=2:v=1:a=0,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='eq(n,2)'[v]",
+             "-map","[v]","-c:v","libx264","-pix_fmt","yuv420p",str(root/"output/one-frame.mp4")]
+        done=subprocess.run(cmd,capture_output=True,timeout=30)
+        self.assertEqual(done.returncode,0,done.stderr.decode(errors="replace"))
+        references=[(root/"inputs/first.png").read_bytes(),(root/"inputs/second.png").read_bytes()]
+        sampled=_video_samples(str(FFMPEG),root/"output/one-frame.mp4",references)
+        complete=_video_all_frames(str(FFMPEG),root/"output/one-frame.mp4",references)
+        self.assertEqual(sampled["assessment"],"sampled_consistent")
+        self.assertEqual(complete["coverage"],"all_decoded_frames")
+        self.assertEqual(complete["count"],60)
+        self.assertEqual(complete["assessment"],"inconclusive")
+        self.assertIn(None,complete["frame_labels"])
+
+    def test_exceeding_frame_limit_never_claims_complete_coverage(self):
+        root=self.root
+        cmd=[str(FFMPEG),"-v","error","-y","-loop","1","-framerate","80","-t","2",
+             "-i",str(root/"inputs/first.png"),"-c:v","libx264","-pix_fmt","yuv420p",str(root/"output/many.mp4")]
+        done=subprocess.run(cmd,capture_output=True,timeout=30)
+        self.assertEqual(done.returncode,0,done.stderr.decode(errors="replace"))
+        references=[(root/"inputs/first.png").read_bytes(),(root/"inputs/second.png").read_bytes()]
+        result=_video_all_frames(str(FFMPEG),root/"output/many.mp4",references)
+        self.assertEqual(result["assessment"],"unknown")
+        self.assertEqual(result["coverage"],"limit_exceeded")
+
+    def test_audio_failure_does_not_erase_full_frame_diagnostics(self):
+        video=self.root/"output/video.mp4"
+        no_audio=self.root/"output/no-audio.mp4"
+        done=subprocess.run([str(FFMPEG),"-v","error","-y","-i",str(video),"-map","0:v:0","-c:v","copy",str(no_audio)],
+                            capture_output=True,timeout=30)
+        self.assertEqual(done.returncode,0,done.stderr.decode(errors="replace"))
+        video.write_bytes(no_audio.read_bytes()); self.build_evidence()
+        result=collect_video_evidence(self.root,self.evidence,ffmpeg=str(FFMPEG))
+        self.assertEqual(result["full_frames"]["assessment"],"all_decoded_frames_consistent")
+        self.assertEqual(result["audio"]["assessment"],"unknown")
         self.assertEqual(result["status"],"needs_review")
 
     def test_tampered_file_missing_identity_and_missing_tool_are_unknown(self):

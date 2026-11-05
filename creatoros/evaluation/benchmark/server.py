@@ -12,6 +12,27 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 
+def research_inventory_for_judge(evidence):
+    """Bound untrusted snippets; keep source identity and confidence explicit."""
+    inventory = evidence.get("source_inventory") if isinstance(evidence, dict) else None
+    if not isinstance(inventory, list):
+        return None
+    rows = []
+    for item in inventory[:12]:
+        if not isinstance(item, dict):
+            continue
+        snippets = item.get("search_snippets")
+        snippets = snippets if isinstance(snippets, list) else []
+        rows.append({"id": item.get("id"), "url": item.get("url"),
+                     "title": str(item.get("title") or "")[:500],
+                     "agent_open": item.get("agent_open"), "host_fetch": item.get("host_fetch"),
+                     "search_snippets": [{"text": str(s.get("text") or "")[:1000],
+                                          "event_line": s.get("event_line"),
+                                          "excerpt_may_be_truncated": len(str(s.get("text") or "")) > 1000}
+                                         for s in snippets[:2] if isinstance(s, dict)]})
+    return rows
+
+
 def rsi_round_status(iterations):
     """Submission/score flags do not prove image delivery or score identity."""
     if not isinstance(iterations, list) or any(not isinstance(row, dict) for row in iterations):
@@ -259,6 +280,11 @@ def main():
         if "video_evidence" in evidence:
             payload["video_evidence"] = evidence["video_evidence"]
         research_evidence = evidence.get("research_evidence")
+        inventory = research_inventory_for_judge(research_evidence)
+        if inventory is not None:
+            # Diagnostic excerpts are untrusted search-result snippets, not
+            # proof that the Agent successfully opened a complete page.
+            payload["research_source_inventory"] = inventory
         if isinstance(research_evidence, dict) and research_evidence.get("status") == "complete":
             payload["research_source_data"] = research_evidence.get("sources", [])
             payload["research_event_summary"] = {

@@ -187,14 +187,15 @@ def summarize_batch(batch_root, dataset_path) -> dict:
             raise ValueError("Frozen dataset copy changed")
         dataset_path = frozen_dataset
     dataset = json.loads(Path(dataset_path).read_text(encoding="utf-8"))
+    from .suite_schema import case_ids, validate_selection
+    case_ids(dataset)
     definitions = {case["id"]: case for case in dataset["cases"]}
-    if len(definitions) != len(dataset["cases"]):
-        raise ValueError("Duplicate dataset case IDs")
-    if set(definitions) != {f"B{n:02}" for n in range(1, 51)}:
-        raise ValueError("This batch report requires the complete B01..B50 dataset")
     planned = manifest.get("selected_case_ids", list(definitions))
-    if not planned or len(set(planned)) != len(planned) or any(case_id not in definitions for case_id in planned):
-        raise ValueError("Manifest selected_case_ids is not a valid unique dataset subset")
+    validate_selection(dataset, planned)
+    if dataset.get("natural_selection_policy"):
+        natural_eligible = dataset["natural_selection_policy"].get("eligible_case_ids", [])
+        if any(identifier not in natural_eligible for identifier in planned):
+            raise ValueError("Manifest selects an ineligible natural placeholder")
     from .nonvideo_guard import evidence as guard_evidence, COMPARABILITY
     guard_policy = manifest.get("model_configuration", {}).get("benchmark_guard")
     pricing = manifest.get("pricing")

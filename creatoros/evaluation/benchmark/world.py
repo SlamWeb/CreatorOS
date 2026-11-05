@@ -134,7 +134,9 @@ class BenchmarkWorld:
         ]:
             self.content.create_series(series_id=sid, creator_id=creator, name=name,
                 description="现有栏目", audience="", skill_name=skill)
-        long_brief = ("四格依次解释show、indicate、demonstrate、reveal。词性与中文释义都要保留。" * 8
+        long_brief = ("第一行：借入与借出\n第二行：保留 “引号”、中英标点与 emoji 📚\n第三行：不得改写原文。"
+                      if case["scenario"] == "unicode_preserve" else
+                      "四格依次解释show、indicate、demonstrate、reveal。词性与中文释义都要保留。" * 8
                       + "最终约束：右下角保留一枚小蓝点。")
         self.content.add_topic(topic_id="bench-topic-a", series_id="bench-english", title="show / indicate / demonstrate / reveal",
                                brief=long_brief, source=TopicSource.MANUAL)
@@ -143,9 +145,12 @@ class BenchmarkWorld:
         count = 136 if case["scenario"] == "paged_list" else 36 if case["scenario"] == "reuse_list" else 3
         for n in range(1, count):
             title = (REUSE_LIST_TITLES[n - 1] if case["scenario"] == "reuse_list" else
-                     f"已写词组 {n:02}" if case["scenario"] != "clarify_delete" else "同名选题")
+                     f"已写词组 {n:02}" if case["scenario"] not in {"clarify_delete", "duplicate_identity", "duplicate_ambiguous", "cross_series_duplicate"} else "同名选题")
             self.content.add_topic(topic_id=f"bench-topic-{n:02}", series_id="bench-english", title=title,
                                    brief=f"已有切入点 {n}", source=TopicSource.MANUAL)
+        if case["scenario"] == "cross_series_duplicate":
+            self.content.add_topic(topic_id="bench-spare-duplicate", series_id="bench-spare", title="同名选题",
+                                   brief="备用栏目中的对象", source=TopicSource.MANUAL)
         self.content.add_topic(topic_id="bench-removed", series_id="bench-english", title="已删除的旧选题",
                                brief="不能作为当前目录返回", source=TopicSource.MANUAL)
         with self.database.session() as db:

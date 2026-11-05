@@ -101,6 +101,61 @@ class ResearchEvidenceTests(unittest.TestCase):
         judge["research_evidence"]["sent_source_ids"] = []
         self.assertIsNone(qualify_grounding_judgments({"id":"B48"}, judge)["items"][0]["pass"])
 
+    def test_mixed_sources_keep_search_snippets_without_claiming_page_access(self):
+        second = "https://www.merriam-webster.com/dictionary/lend"
+        third = "https://dictionary.cambridge.org/dictionary/english/lend"
+        self.batch["candidates"][0]["sources"] += [{"url":second,"title":"Merriam-Webster"},
+                                                     {"url":third,"title":"Cambridge lend"}]
+        self.write("batches/batch-a.json", self.batch)
+        search = deepcopy(self.events[0])
+        search["payload"]["item"]["results"] = [{"type":"text_result", "url":second,
+            "title":"Lend definition", "snippet":"to give for temporary use"},
+            {"type":"text_result", "url":"https://example.com/unrelated", "title":"Ignore", "snippet":"untrusted"}]
+        self.write_events([search, self.events[1]])
+        result = self.collect()
+        self.assertEqual(result["status"], "needs_review")
+        self.assertEqual(len(result["sources"]), 1)
+        self.assertEqual(len(result["source_inventory"]), 3)
+        self.assertEqual(result["source_inventory"][0]["agent_open"], "verified_body")
+        self.assertEqual(result["source_inventory"][1]["agent_open"], "not_evidenced")
+        snippet = result["source_inventory"][1]["search_snippets"][0]
+        self.assertEqual(snippet["text"], "to give for temporary use")
+        self.assertEqual(snippet["sha256"], sha(snippet["text"].encode()))
+        self.assertEqual(result["source_inventory"][2]["search_snippets"], [])
+        self.fetch.assert_called_once_with(URL)
+        judge = {"items":[{"id":"b48-s1", "pass":True, "evidence":"snippet"}],
+                 "research_evidence":{**result, "sent_source_ids":["source-1"]}}
+        self.assertIsNone(qualify_grounding_judgments({"id":"B48"}, judge)["items"][0]["pass"])
+
+    def test_four_sources_do_not_exceed_the_old_three_source_limit(self):
+        urls = [URL] + [f"https://dictionary.cambridge.org/dictionary/english/word{i}" for i in range(3)]
+        self.batch["candidates"][0]["sources"] = [{"url":url,"title":"Dictionary"} for url in urls]
+        self.write("batches/batch-a.json", self.batch)
+        self.write_events([self.events[0]] + [event({"type":"openPage", "url":url},url) for url in urls])
+        self.fetch.side_effect = lambda url: {"url":url,"status":200,"text":BODY,"raw_sha256":sha(b"body"),
+                                               "fetched_at":"2026-11-05T00:01:00+00:00"}
+        result = self.collect()
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(len(result["sources"]), 4)
+        judge = {"items":[{"id":"b48-s1","pass":True,"evidence":"verified"}],
+                 "research_evidence":{**result,"sent_source_ids":["source-1","source-2","source-3","source-4"]}}
+        self.assertIs(qualify_grounding_judgments({"id":"B48"},judge)["items"][0]["pass"], True)
+        judge["research_evidence"]["source_inventory"][1]["url"] = URL
+        self.assertIsNone(qualify_grounding_judgments({"id":"B48"},judge)["items"][0]["pass"])
+
+    def test_one_host_fetch_failure_does_not_discard_other_verified_source(self):
+        second = "https://dictionary.cambridge.org/dictionary/english/lend"
+        self.batch["candidates"][0]["sources"].append({"url":second,"title":"Cambridge"})
+        self.write("batches/batch-a.json", self.batch)
+        self.write_events([self.events[0],self.events[1],event({"type":"openPage","url":second},second)])
+        good = self.fetch.return_value
+        self.fetch.side_effect = [good, MissingResearchEvidence("timeout")]
+        result = self.collect()
+        self.assertEqual(result["status"], "needs_review")
+        self.assertEqual(len(result["sources"]),1)
+        self.assertEqual([x["host_fetch"] for x in result["source_inventory"]], ["verified_body","unavailable"])
+        self.assertEqual(result["source_inventory"][1]["agent_open"], "verified_body")
+
     def test_missing_provenance_or_oversized_source_cannot_unlock_judge(self):
         evidence = self.collect()
         evidence["sent_source_ids"] = ["source-1"]

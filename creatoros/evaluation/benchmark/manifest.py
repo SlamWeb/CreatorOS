@@ -74,20 +74,22 @@ def _dataset(path: Path) -> dict:
         if (not isinstance(revision, dict) or revision.get("grader_version") != grader_version
                 or revision.get("skill_evidence_version") != evidence_version):
             raise ValueError("Dataset evaluation revision does not match the active grader/evidence collector")
-    cases = doc.get("cases")
-    if not isinstance(cases, list) or [c.get("id") for c in cases] != [f"B{n:02}" for n in range(1, 51)]:
-        raise ValueError("Freeze requires all 50 ordered cases B01..B50")
+    from .suite_schema import case_ids
+    case_ids(doc)
+    cases = doc["cases"]
     families: dict[str, str] = {}
     for case in cases:
         family, split = case.get("family"), case.get("split")
-        if not family or split not in {"dev", "acceptance"}:
+        if not isinstance(family, str) or not family.strip() or not isinstance(split, str) or split not in {"dev", "acceptance"}:
             raise ValueError("Every case requires a family and dev/acceptance split")
         if family in families and families[family] != split:
             raise ValueError(f"Case family crosses splits: {family}")
         families[family] = split
-        if case.get("origin", {}).get("type") not in {"trace", "adversarial_variant"}:
-            raise ValueError("Every case must preserve trace/adversarial_variant provenance")
-    if sum(c["split"] == "acceptance" for c in cases) != 10:
+        allowed_origins = {"trace", "adversarial_variant"} | ({"synthetic", "fault_injection"} if doc.get("suite") else set())
+        origin = case.get("origin")
+        if not isinstance(origin, dict) or not isinstance(origin.get("type"), str) or origin["type"] not in allowed_origins:
+            raise ValueError("Every case must preserve an allowed provenance type")
+    if not doc.get("suite") and sum(c["split"] == "acceptance" for c in cases) != 10:
         raise ValueError("Freeze requires 40 dev and 10 acceptance cases")
     from .scoring import validate_case_scoring
     for case in cases:
@@ -208,7 +210,7 @@ def _configuration(pricing: dict, configuration: dict) -> None:
 
 
 def freeze_manifest(path, dataset_path, *, pricing, model_configuration, case_ids=None, source_paths=None) -> dict:
-    """Freeze all 50 definitions and selected execution IDs, once, with a source ZIP.
+    """Freeze all suite definitions and selected execution IDs, once, with a source ZIP.
 
     ``source_paths`` is an explicit small input set for component tests. Production
     callers omit it to lock the complete runtime, served frontend and harness.
@@ -221,8 +223,8 @@ def freeze_manifest(path, dataset_path, *, pricing, model_configuration, case_id
     dataset_name = _relative(dataset)
     all_ids = [case["id"] for case in doc["cases"]]
     selected = list(all_ids if case_ids is None else case_ids)
-    if not selected or len(set(selected)) != len(selected) or any(x not in all_ids for x in selected):
-        raise ValueError("Selected case IDs must be a nonempty unique subset of the frozen 50")
+    from .suite_schema import validate_selection as validate_suite_selection
+    validate_suite_selection(doc, selected)
     from .natural_suite import validate_selection
     validate_selection(doc, None if case_ids is None else selected)
     paths = _default_sources() if source_paths is None else [Path(p) if Path(p).is_absolute() else PROJECT_ROOT / p for p in source_paths]
@@ -325,10 +327,12 @@ def verify_manifest(path) -> dict:
         if changed:
             raise ValueError("Frozen source changed: " + ", ".join(sorted(set(changed))))
         dataset = _dataset(PROJECT_ROOT / manifest["dataset_path"])
+        from .suite_schema import validate_selection as validate_suite_selection
+        dataset_ids = validate_suite_selection(dataset, manifest.get("selected_case_ids"))
         from .natural_suite import validate_selection
         validate_selection(dataset, manifest.get("selected_case_ids"))
         expected_groups = [{"id": c["id"], "family": c["family"], "split": c["split"], "origin_type": c["origin"]["type"]} for c in dataset["cases"]]
-        if manifest["case_groups"] != expected_groups or manifest["all_case_ids"] != [f"B{n:02}" for n in range(1, 51)]:
+        if manifest["case_groups"] != expected_groups or manifest["all_case_ids"] != dataset_ids:
             raise ValueError("Frozen case groups changed")
         info = manifest["source_snapshot"]
         if info["path"] != "source-snapshot.zip":

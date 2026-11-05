@@ -3,9 +3,9 @@ from copy import deepcopy
 import hashlib
 import re
 
-from .research_evidence import VERSION as EVIDENCE_VERSION, MAX_EXCERPT, _url, _instant, MissingResearchEvidence
+from .research_evidence import VERSION as EVIDENCE_VERSION, MAX_EXCERPT, MAX_SOURCES, _url, _instant, MissingResearchEvidence
 
-VERSION = "research-grounding-qualification-v2"
+VERSION = "research-grounding-qualification-v3"
 SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -23,7 +23,15 @@ def _supported(case, judge):
             not isinstance(provenance.get(key), str) or not SHA.fullmatch(provenance[key])
             for key in ("batch_sha256", "events_sha256", "receipt_sha256")):
         return False
-    if not isinstance(sources, list) or not 1 <= len(sources) <= 3 or not isinstance(searches, list) or not searches:
+    if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES or not isinstance(searches, list) or not searches:
+        return False
+    inventory = ev.get("source_inventory")
+    if not isinstance(inventory, list) or len(inventory) != len(sources):
+        return False
+    if any(not isinstance(row, dict) or row.get("agent_open") != "verified_body" or row.get("host_fetch") != "verified_body"
+           for row in inventory):
+        return False
+    if [(row.get("id"), row.get("url")) for row in inventory] != [(row.get("id"), row.get("url")) for row in sources]:
         return False
     if any(type(i) is not int or i <= 0 for i in searches):
         return False

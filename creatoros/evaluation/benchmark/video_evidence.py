@@ -22,7 +22,8 @@ from PIL import Image, ImageChops, ImageStat
 from .visual_evidence import _read, UnavailableVisualEvidence
 from creatoros.integrations.media_tools import media_tool
 
-VERSION = "benchmark-video-evidence-v1"
+VERSION = "benchmark-video-evidence-v2"
+MAX_DECODED_FRAMES = 150
 
 
 def _json(value):
@@ -96,6 +97,52 @@ def _video_samples(tool, video, references):
             "limitation": "Uniform samples only; unmatched samples can be transitions or transforms; absence of other frames is not proven."}
 
 
+def _video_all_frames(tool, video, references):
+    """Examine all decoded frames when the entire stream fits the fixed bound.
+
+    A 64px lossy comparison is diagnostic, even when no frames were skipped.
+    It cannot rule out small changes, transformed originals, other streams,
+    provenance substitution or differences in the content before downscaling.
+    """
+    raw = _run(tool, ["-xerror", "-i", str(video), "-map", "0:v:0", "-an",
+                      "-fps_mode", "passthrough", "-frames:v", str(MAX_DECODED_FRAMES + 1),
+                      "-vf", "scale=64:64", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"])
+    size = 64 * 64 * 3
+    if not raw or len(raw) % size:
+        raise UnavailableVisualEvidence("No complete decoded video frames")
+    count = len(raw) // size
+    if count > MAX_DECODED_FRAMES:
+        return {"assessment": "unknown", "coverage": "limit_exceeded", "count_at_least": count,
+                "frame_limit": MAX_DECODED_FRAMES,
+                "limitation": "The stream exceeded the frame limit; no whole-stream claim is possible."}
+    refs = []
+    for data in references:
+        with Image.open(BytesIO(data)) as picture:
+            if picture.width * picture.height > 16_000_000:
+                raise UnavailableVisualEvidence("Reference image dimensions exceed limit")
+            picture.load()
+            refs.append(picture.convert("RGB").resize((64, 64)))
+    if len(refs) != 2 or ImageStat.Stat(ImageChops.difference(refs[0], refs[1])).mean == [0, 0, 0]:
+        raise UnavailableVisualEvidence("Reference images indistinguishable")
+    labels, distances = [], []
+    for at in range(0, len(raw), size):
+        frame = Image.frombytes("RGB", (64, 64), raw[at:at + size])
+        errors = [sum(ImageStat.Stat(ImageChops.difference(frame, ref)).mean) / 3 for ref in refs]
+        ranked = sorted(range(2), key=errors.__getitem__)
+        label = ranked[0] if errors[ranked[0]] <= 18 and errors[ranked[1]] - errors[ranked[0]] >= 8 else None
+        labels.append(label)
+        distances.append([round(value, 2) for value in errors])
+    clean = [label for label in labels if label is not None]
+    consistent = len(clean) == count and set(clean) == {0, 1} and clean == sorted(clean)
+    return {"assessment": "all_decoded_frames_consistent" if consistent else "inconclusive",
+            "coverage": "all_decoded_frames", "count": count, "frame_limit": MAX_DECODED_FRAMES,
+            "frame_labels": [None if label is None else label + 1 for label in labels],
+            "mean_absolute_rgb_errors": distances,
+            "limitation": ("The first video stream was decoded in full and compared after resizing to 64x64; "
+                "transitions, edits and transforms can be inconclusive. Matching pixels do not prove source identity, "
+                "small details, other streams or creative intent.")}
+
+
 def _audio_samples(tool, video, reference):
     def pcm(path):
         raw = _run(tool, ["-i", str(path), "-t", "2.5", "-vn", "-ac", "1", "-ar", "8000",
@@ -135,7 +182,7 @@ def collect_video_evidence(root, evidence, *, ffmpeg=None):
     """Return defensible B47 evidence; all missing/unverifiable data stays unknown."""
     root = Path(root).resolve()
     result = {"version": VERSION, "status": "needs_review", "input_binding": {"status": "needs_review"},
-              "frames": {"assessment": "unknown"}, "audio": {"assessment": "unknown"}, "limitations": [
+              "frames": {"assessment": "unknown"}, "full_frames": {"assessment": "unknown"}, "audio": {"assessment": "unknown"}, "limitations": [
                   "Pixel samples are not a complete frame-by-frame proof.",
                   "Audio waveform similarity does not establish unique file provenance."]}
     try:
@@ -242,8 +289,13 @@ def collect_video_evidence(root, evidence, *, ffmpeg=None):
             video_copy, audio_copy = temp / "input.mp4", temp / "audio.wav"
             video_copy.write_bytes(video_bytes)
             audio_copy.write_bytes(audio_bytes)
-            result["frames"] = _video_samples(tool, video_copy, refs)
-            result["audio"] = _audio_samples(tool, video_copy, audio_copy)
+            for name, inspect, inputs in (("frames", _video_samples, refs),
+                                          ("full_frames", _video_all_frames, refs),
+                                          ("audio", _audio_samples, audio_copy)):
+                try:
+                    result[name] = inspect(tool, video_copy, inputs)
+                except (KeyError, TypeError, ValueError, OSError, subprocess.TimeoutExpired, UnavailableVisualEvidence) as error:
+                    result[name] = {"assessment": "unknown", "error": {"kind": type(error).__name__, "message": str(error)}}
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError, zipfile.BadZipFile,
             subprocess.TimeoutExpired, UnavailableVisualEvidence) as error:
         result["error"] = {"kind":type(error).__name__, "message":str(error)}

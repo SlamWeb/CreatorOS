@@ -1,4 +1,4 @@
-"""Read-only views of the current 50-case standard and immutable batch evidence."""
+"""Read-only views of suite definitions and immutable batch evidence."""
 from __future__ import annotations
 
 import json
@@ -7,16 +7,16 @@ import re
 
 from creatoros.config import PROJECT_ROOT
 from creatoros.web.observation import clean, safe_path
+from .suite_schema import CASE_ID, case_ids
 
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$")
-CASE = re.compile(r"^B(?:0[1-9]|[1-4][0-9]|50)$")
 RECORD = re.compile(r"^records/[a-f0-9]{32}/report\.json$")
 EVIDENCE_NAMES = {"report.json", "requests.json", "calls.json", "evidence.json", "before.json",
                   "after.json", "background.json", "codex.json", "browser.json", "metrics.json",
                   "answer.txt", "judge.json", "messages.json", "isolation.json", "grade.json",
                   "case.json", "probes.json", "foreign_before.json", "foreign_after.json",
-                  "variables.json", "controls.json"}
+                  "variables.json", "controls.json", "rsi_evidence.json", "video_evidence.json", "research_evidence.json"}
 
 
 class BenchmarkStoreError(Exception):
@@ -53,8 +53,15 @@ class BenchmarkStore:
     def overview(self):
         dataset = self._read(self.cases_path, root=self.cases_path.parent)
         cases = dataset.get("cases", [])
-        if {item.get("id") for item in cases} != {f"B{n:02}" for n in range(1, 51)} or len(cases) != 50:
-            raise BenchmarkStoreError(422, "benchmark_dataset_invalid", "当前题集必须完整包含 B01–B50。")
+        try:
+            case_ids(dataset)
+            if "natural_selection_policy" in dataset:
+                from .natural_suite import validate_natural_document
+                validate_natural_document(dataset)
+                eligible = set(dataset["natural_selection_policy"]["eligible_case_ids"])
+                cases = [case for case in cases if case["id"] in eligible]
+        except ValueError as error:
+            raise BenchmarkStoreError(422, "benchmark_dataset_invalid", "评测题集格式或题号无效。") from error
         batches, errors = [], []
         for directory in sorted(self.root.iterdir(), reverse=True) if self.root.is_dir() else []:
             if not directory.is_dir() or not IDENTIFIER.fullmatch(directory.name):
@@ -75,7 +82,7 @@ class BenchmarkStore:
                       "score_note": "只展示本批已保存分数；旧协议缺失分数不按现行标准重算。"})
 
     def detail(self, batch_id, case_id):
-        if not CASE.fullmatch(case_id):
+        if not isinstance(case_id, str) or not CASE_ID.fullmatch(case_id):
             raise BenchmarkStoreError(404, "benchmark_case_unavailable", "评测题目不存在。")
         summary = self._batch(batch_id)
         row = next((item for item in summary.get("cases", []) if item.get("case_id") == case_id), None)

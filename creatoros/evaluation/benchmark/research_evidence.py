@@ -16,8 +16,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-VERSION = "research-source-evidence-v2"
-ALLOWED_DOMAINS = frozenset({"dictionary.cambridge.org", "www.oxfordlearnersdictionaries.com"})
+VERSION = "research-source-evidence-v3"
+ALLOWED_DOMAINS = frozenset({"dictionary.cambridge.org", "www.oxfordlearnersdictionaries.com", "www.merriam-webster.com"})
+MAX_SOURCES = 12
 MAX_DOCUMENT = 512 * 1024
 MAX_EXCERPT = 16000
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -185,11 +186,13 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
         if not isinstance(candidate.get("id"), str) or not candidate["id"] or not isinstance(candidate.get("angle"), str) or not candidate["angle"]:
             raise MissingResearchEvidence("Candidate identity or content unavailable")
         sources = candidate.get("sources")
-        if not isinstance(sources, list) or not 1 <= len(sources) <= 3:
+        if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES:
             raise MissingResearchEvidence("Candidate sources missing or exceed bounded verification")
         urls = [_url(row.get("url") if isinstance(row, dict) else None) for row in sources]
         if len(set(urls)) != len(urls):
             raise MissingResearchEvidence("Duplicate candidate source URLs")
+        if any(not isinstance(row.get("title"), str) or not row["title"].strip() or len(row["title"]) > 500 for row in sources):
+            raise MissingResearchEvidence("Source title missing or oversized")
         workspace = f"{prefix}/work/{batch_id}/{attempt}"
         receipt = _json(root, f"{workspace}/worker_receipt.json", files)
         turns = receipt.get("turns")
@@ -202,7 +205,7 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
             events = [json.loads(line) for line in raw_events.splitlines() if line.strip()]
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise MissingResearchEvidence("Research SDK event stream malformed") from exc
-        searches, opened = [], {}
+        searches, opened, attempts, snippets = [], {}, {}, {}
         for index, event in enumerate(events, 1):
             if not isinstance(event, dict) or event.get("method") != "item/completed" or event.get("status") != "completed":
                 continue
@@ -218,11 +221,28 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
                 continue
             if action.get("type") == "search" and (action.get("query") or action.get("queries")):
                 searches.append(index)
+                results = item.get("results")
+                if isinstance(results, list):
+                    for hit in results:
+                        if not isinstance(hit, dict) or hit.get("type") != "text_result":
+                            continue
+                        try:
+                            target = _url(hit.get("url"))
+                        except MissingResearchEvidence:
+                            continue
+                        snippet = hit.get("snippet")
+                        title = hit.get("title")
+                        if (target in urls and isinstance(snippet, str) and 1 <= len(snippet) <= 2000
+                                and isinstance(title, str) and 1 <= len(title) <= 500):
+                            snippets.setdefault(target, []).append({"event_line": index, "event_at": event.get("at"),
+                                "title": title, "text": snippet, "sha256": hashlib.sha256(snippet.encode("utf-8")).hexdigest()})
             elif action.get("type") == "openPage":
                 try:
                     target = _url(action.get("url"))
                 except MissingResearchEvidence:
                     continue
+                if target in urls:
+                    attempts[target] = {"event_line": index, "event_at": event.get("at")}
                 results = item.get("results")
                 # SDK marks item/completed even when a page failed; its opaque
                 # results may be None or an error page. A URL/title alone is
@@ -237,20 +257,38 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
                            and isinstance(x.get("title"), str) and x["title"].strip()] if isinstance(results, list) else []
                 if len(matches) == 1:
                     opened[target] = {"line": index, "at": event.get("at"), "agent_text": matches[0]["body"]}
-        if not searches or any(url not in opened or opened[url]["line"] <= min(searches)
-                               or _instant(opened[url]["at"]) is None for url in urls):
-            raise MissingResearchEvidence("Completed search and explicit successful source opens are not all evidenced")
+        if not searches:
+            raise MissingResearchEvidence("Completed search event not evidenced")
         captured = []
+        inventory = []
         for number, url in enumerate(urls, 1):
-            page = fetcher(url)
+            opened_item = opened.get(url)
+            valid_open = (opened_item is not None and opened_item["line"] > min(searches)
+                          and _instant(opened_item["at"]) is not None)
+            row = {"id": f"source-{number}", "url": url, "title": sources[number-1].get("title"),
+                   "search_snippets": snippets.get(url, [])[:5],
+                   "agent_open": "verified_body" if valid_open else "attempted_no_body" if url in attempts else "not_evidenced",
+                   "open_attempt": attempts.get(url),
+                   "host_fetch": "not_attempted"}
+            inventory.append(row)
+            if not valid_open:
+                continue
+            try:
+                page = fetcher(url)
+            except (MissingResearchEvidence, OSError, TimeoutError, ValueError):
+                row["host_fetch"] = "unavailable"
+                continue
             if not isinstance(page, dict) or page.get("url") != url or page.get("status") != 200:
-                raise MissingResearchEvidence("Independent source fetch was not verified")
+                row["host_fetch"] = "unavailable"
+                continue
             text, digest, fetched_at = page.get("text"), page.get("raw_sha256"), page.get("fetched_at")
             if (not isinstance(text, str) or len(text.strip()) < 80 or len(text) > MAX_EXCERPT
                     or not isinstance(digest, str) or not HEX.fullmatch(digest)
                     or _instant(fetched_at) is None or _instant(fetched_at) < _instant(opened[url]["at"])
                     or page.get("text_truncated")):
-                raise MissingResearchEvidence("Independent source body, hash or capture time missing")
+                row["host_fetch"] = "unavailable"
+                continue
+            row["host_fetch"] = "verified_body"
             captured.append({"id": f"source-{number}", "url": url, "title": sources[number-1].get("title"),
                              "text": text, "raw_sha256": digest, "fetched_at": fetched_at,
                              "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -258,15 +296,18 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
                              "agent_text_sha256": hashlib.sha256(opened[url]["agent_text"].encode("utf-8")).hexdigest(),
                              "text_truncated": bool(page.get("text_truncated")),
                              "open_event_line": opened[url]["line"], "open_event_at": opened[url]["at"]})
-        result.update(status="complete", case_id="B48", creator_id=creator, series_id=series,
+        complete = len(captured) == len(urls)
+        result.update(status="complete" if complete else "needs_review", case_id="B48", creator_id=creator, series_id=series,
                       batch_id=batch_id, thread_id=thread, turn_id=turn_id, candidate_id=candidate["id"],
                       candidate_title=candidate.get("title"), candidate_angle=candidate["angle"],
-                      search_event_lines=searches, sources=captured,
+                      search_event_lines=searches, sources=captured, source_inventory=inventory,
                       provenance={"batch_path": record_path, "batch_sha256": files[record_path],
                           "events_path": f"{workspace}/codex_public_events.jsonl",
                           "events_sha256": files[f"{workspace}/codex_public_events.jsonl"],
                           "receipt_path": f"{workspace}/worker_receipt.json",
                           "receipt_sha256": files[f"{workspace}/worker_receipt.json"]})
+        if not complete:
+            result["errors"].append("Some cited sources lack verified agent-open bodies or independent fetch; snippets alone are partial evidence")
     except (KeyError, TypeError, ValueError, MissingResearchEvidence) as exc:
         result["errors"].append(str(exc))
     return result
