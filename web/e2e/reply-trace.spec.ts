@@ -20,7 +20,9 @@ test("reply copy and trace stay on the selected session and load one snapshot at
     if (url.pathname.endsWith("/events")) return route.abort();
     if (url.pathname.includes("/turn-trace/") && !url.pathname.includes("/requests/")) {
       return route.fulfill({ json: { turn_id: "turn-one", status: "complete", available: true, requests: [
-        { request_id: "request-one", request_kind: "main", event: "finished", status: "complete", sent: true, model: "test-model", estimated_input_tokens: 123, estimated_parts: { messages: 90 }, usage: { input_tokens: 110, output_tokens: 18 }, input_limit: 8192, finish_reason: "stop", elapsed_ms: 310, snapshot_available: true },
+        { request_id: "request-one", request_kind: "main", event: "finished", status: "complete", sent: true, model: "test-model", estimated_input_tokens: 123, estimated_parts: { messages: 90 },
+          estimated_detail: { parts: { history_reasoning: 11, tool_arguments: 15, tool_results: 24, recent_messages: 40 }, tool_results_by_tool: { list_series: 20, unknown: 4 } },
+          usage: { input_tokens: 110, output_tokens: 18 }, input_limit: 8192, finish_reason: "stop", elapsed_ms: 310, snapshot_available: true },
         { request_id: "request-two", request_kind: "compaction", event: "finished", status: "complete", sent: true, model: "test-model", estimated_input_tokens: 456, usage: { input_tokens: 400, output_tokens: 21 }, compacted: true, externalized: true, snapshot_available: true },
       ] } });
     }
@@ -80,8 +82,21 @@ test("reply copy and trace stay on the selected session and load one snapshot at
   await metadata.locator("summary").click();
   await expect(metadata).toHaveAttribute("open", "");
   await expect(metadata.getByText("估算组成")).toBeVisible();
+  await expect(metadata.getByText("以下为本次请求的估算 token，不是模型返回的实际分项。")).toBeVisible();
+  const parts = metadata.getByRole("list", { name: "上下文估算分项" });
+  await expect(parts.getByText("历史推理").locator("..")).toContainText("11");
+  await expect(parts.getByText("历史工具参数").locator("..")).toContainText("15");
+  await expect(parts.getByText("历史工具返回").locator("..")).toContainText("24");
+  const byTool = metadata.getByRole("list", { name: "各工具返回估算" });
+  await expect(byTool.getByText("list_series").locator("..")).toContainText("20");
+  await expect(byTool.getByText("未识别工具").locator("..")).toContainText("4");
   await expect(metadata.getByText("结束原因")).toBeVisible();
   await page.screenshot({ path: info.outputPath("reply-trace-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(parts.getByText("历史推理")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("reply-trace-attribution-mobile.png") });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await dialog.getByRole("tab", { name: "模型输出" }).click();
   await expect(dialog.getByRole("tabpanel").getByText("已完成")).toBeVisible();
   await dialog.getByRole("tab", { name: "工具" }).click();
@@ -100,6 +115,7 @@ test("reply copy and trace stay on the selected session and load one snapshot at
   await expect(dialog.getByText("模型默认")).toBeVisible();
   await metadata.locator("summary").click();
   await expect(dialog.getByText("已压缩 · 已外置")).toBeVisible();
+  await expect(metadata.getByText("这一步未记录细项归因；旧记录不补造。")).toBeVisible();
   await metadata.locator("summary").click();
   await expect(dialog.getByRole("button", { name: "展开全文" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });

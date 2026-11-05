@@ -13,6 +13,7 @@ type TraceRequest = {
   model?: string | null;
   estimated_input_tokens?: number | null;
   estimated_parts?: Record<string, unknown> | null;
+  estimated_detail?: { parts?: Record<string, number>; tool_results_by_tool?: Record<string, number> } | null;
   usage?: unknown;
   input_limit?: number | null;
   checkpoint_id?: string | null;
@@ -151,6 +152,7 @@ function requestSummary(step: TraceRequest) {
 function RequestMetadata({ step }: { step: TraceRequest }) {
   return <details className="chat-trace-metadata">
     <summary>{requestSummary(step)}</summary>
+    <ContextAttribution detail={step.estimated_detail} />
     <dl>
       <div><dt>状态</dt><dd>{step.status} · {step.event === "finished" ? "已结束" : "已开始"}</dd></div>
       <div><dt>模型</dt><dd>{display(step.model)}</dd></div>
@@ -167,6 +169,40 @@ function RequestMetadata({ step }: { step: TraceRequest }) {
       {step.checkpoint_id && <div><dt>检查点</dt><dd>{step.checkpoint_id}</dd></div>}
     </dl>
   </details>;
+}
+
+const attributionLabels: Record<string, string> = {
+  system: "系统指令", tools: "工具 Schema", summary: "历史摘要", recent_messages: "其他对话消息",
+  history_reasoning: "历史推理", tool_arguments: "历史工具参数", tool_results: "历史工具返回",
+  skills: "Skill 目录", summary_source: "摘要来源", account_context: "账号上下文",
+  images: "图片", serialization_overhead: "序列化与估算差额",
+};
+
+function ContextAttribution({ detail }: { detail: TraceRequest["estimated_detail"] }) {
+  if (!detail?.parts || typeof detail.parts !== "object" || Array.isArray(detail.parts)) {
+    return <p className="chat-trace-attribution-note">这一步未记录细项归因；旧记录不补造。</p>;
+  }
+  const priority = ["history_reasoning", "tool_arguments", "tool_results"];
+  const parts = Object.entries(detail.parts).filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+    .sort(([a], [b]) => (priority.indexOf(a) < 0 ? priority.length : priority.indexOf(a))
+      - (priority.indexOf(b) < 0 ? priority.length : priority.indexOf(b)));
+  const tools = Object.entries(detail.tool_results_by_tool ?? {})
+    .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+    .sort((a, b) => b[1] - a[1]);
+  return <div className="chat-trace-attribution">
+    <h4>上下文细项归因</h4>
+    <p className="chat-trace-attribution-note">以下为本次请求的估算 token，不是模型返回的实际分项。</p>
+    <ul aria-label="上下文估算分项">
+      {parts.map(([key, value]) => <li key={key}><span>{attributionLabels[key] ?? key}</span><span>{formatNumber(value)}</span></li>)}
+    </ul>
+    {!!tools.length && <div className="chat-trace-attribution-tools">
+      <h5>各工具返回</h5>
+      <p className="chat-trace-attribution-note">以下是历史工具返回的细分，不另加到总量。</p>
+      <ul aria-label="各工具返回估算">
+        {tools.map(([name, value]) => <li key={name}><span>{name === "unknown" ? "未识别工具" : name}</span><span>{formatNumber(value)}</span></li>)}
+      </ul>
+    </div>}
+  </div>;
 }
 
 function ContextView({ data, system, history, sessionId }: { data: TraceSnapshot; system: TraceMessage[]; history: TraceMessage[]; sessionId: string }) {

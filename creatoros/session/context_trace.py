@@ -1,5 +1,6 @@
 """Append-only diagnostics; account trees are explicit local business snapshots."""
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -63,6 +64,67 @@ def breakdown(context, *, kind, skill_text='', summary_text='', account_text='')
     return parts
 
 
+def detailed_breakdown(context, *, kind, parts=None):
+    """Subdivide the existing accounting without changing its total or the request.
+
+    Values use the same serialization estimate as ``breakdown``, not provider
+    tokenization. Tool result names are limited to declared schemas; unknown or
+    unmatchable calls are grouped under a fixed label instead of logging model text.
+    """
+    detail = dict(parts if parts is not None else breakdown(context, kind=kind))
+    detail['history_reasoning'] = 0
+    detail['tool_arguments'] = 0
+    result_by_tool = {}
+    if kind != 'main':
+        return {'parts': detail, 'tool_results_by_tool': result_by_tool}
+
+    declared = set()
+    for schema in context.tools:
+        if not isinstance(schema, dict):
+            continue
+        function = schema.get('function')
+        name = function.get('name') if isinstance(function, dict) else schema.get('name')
+        if isinstance(name, str):
+            declared.add(name)
+
+    call_names = {}
+    for message in context.messages:
+        role = message.get('role')
+        if role == 'assistant':
+            copy = deepcopy(message)
+            original = _units(copy) // 4
+            reasoning = copy.get('reasoning_content')
+            if isinstance(reasoning, str) and reasoning:
+                del copy['reasoning_content']
+                remaining = _units(copy) // 4
+                detail['history_reasoning'] += original - remaining
+                original = remaining
+            calls = copy.get('tool_calls')
+            batch_names = {}
+            if isinstance(calls, list):
+                for call in calls:
+                    if not isinstance(call, dict):
+                        continue
+                    function = call.get('function')
+                    target = function if isinstance(function, dict) else call
+                    name, call_id = target.get('name'), call.get('id')
+                    if isinstance(call_id, str):
+                        # Duplicate IDs in a single batch cannot be safely paired.
+                        batch_names[call_id] = (name if call_id not in batch_names else None)
+                    target.pop('arguments', None)
+                call_names.update(batch_names)
+            remaining = _units(copy) // 4
+            detail['tool_arguments'] += original - remaining
+        elif role == 'tool':
+            call_id = message.get('tool_call_id')
+            name = call_names.get(call_id) if isinstance(call_id, str) else None
+            name = name if isinstance(name, str) and name in declared and name != 'unknown' else 'unknown'
+            result_by_tool[name] = result_by_tool.get(name, 0) + _units(message) // 4
+
+    detail['recent_messages'] -= detail['history_reasoning'] + detail['tool_arguments']
+    return {'parts': detail, 'tool_results_by_tool': result_by_tool}
+
+
 class ContextTrace:
     def __init__(self, session_file, *, capture_payload=False):
         self.path = trace_path(session_file)
@@ -113,12 +175,15 @@ class TraceRequest:
         self.record['externalized'] = bool(metadata.get('externalized_count', 0))
 
     def begin(self, context, budget, *, skill_text='', summary_text='', account_text=''):
-        self.record.update(estimated_parts=breakdown(context, kind=self.record['request_kind'],
-                           skill_text=skill_text, summary_text=summary_text, account_text=account_text),
+        parts = breakdown(context, kind=self.record['request_kind'], skill_text=skill_text,
+                          summary_text=summary_text, account_text=account_text)
+        self.record.update(estimated_parts=parts,
                            estimated_input_tokens=budget.estimated_input_tokens,
                            input_limit=budget.input_limit, context_window=budget.context_window,
                            reserve_output_tokens=budget.reserve_output_tokens,
                            started_at=datetime.now(timezone.utc).isoformat())
+        if self.record['request_kind'] == 'main':
+            self.record['estimated_detail'] = detailed_breakdown(context, kind='main', parts=parts)
         self.started = monotonic()
         self.capture('begin', self.record['turn_id'], context)
         self.owner.append({**self.record, 'status': 'started', 'sent': None})

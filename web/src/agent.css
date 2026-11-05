@@ -68,6 +68,14 @@
 .chat-trace-metadata dl > div { min-width: 0; padding: 9px 11px; background: var(--canvas); }
 .chat-trace-metadata dt { margin-bottom: 3px; color: var(--muted); font-size: 10px; }
 .chat-trace-metadata dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.chat-trace-attribution { padding: 12px; border-top: 1px solid var(--line); }
+.chat-trace-attribution h4, .chat-trace-attribution h5 { margin: 0 0 6px; font-size: 12px; font-weight: 600; }
+.chat-trace-attribution-note { margin: 0; padding: 9px 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.chat-trace-attribution .chat-trace-attribution-note { padding: 0; }
+.chat-trace-attribution ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.chat-trace-attribution li { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
+.chat-trace-attribution li span:last-child { flex: none; font-variant-numeric: tabular-nums; }
+.chat-trace-attribution-tools { margin-top: 16px; }
 .chat-trace-subsection { margin-top: 14px; }
 .chat-trace-subsection h4 { margin: 0 0 8px; font-size: 12px; }
 .chat-trace-tabs { display: flex; gap: 6px; margin: 12px 0 8px; border-bottom: 1px solid var(--line); }
