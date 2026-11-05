@@ -50,6 +50,42 @@ class JudgeCalibrationTest(unittest.TestCase):
                                 research_evidence=host)
         self.assertEqual(result['research_evidence']['sent_source_ids'], [])
 
+    def test_post_task_host_sources_require_exact_sent_payload_and_cannot_be_forged(self):
+        case = {'id':'B48','rubric':[{'id':'b48-source-1-support','question':'来源正文支持主张吗？'}]}
+        source = {'id':'source-1', 'text':'independent host material'}
+        evidence = {'status':'needs_review','sources':[], 'host_sources':[source]}
+        payload = {'rubric':case['rubric'], 'temporal_evidence':{}, 'research_host_source_data':[source]}
+        FakeProvider.response = {'items':[{'id':'b48-source-1-support','pass':True,'evidence':'source'}],
+                                 'research_evidence':{'sent_host_source_ids':['forged']}}
+        result = evaluate_judge(case,payload,[],REPO,lambda x:None,provider_factory=FakeProvider,
+                                research_evidence=evidence)
+        self.assertEqual(result['research_evidence']['sent_host_source_ids'],['source-1'])
+        payload['research_host_source_data'] = [{'id':'source-1','text':'different'}]
+        result = evaluate_judge(case,payload,[],REPO,lambda x:None,provider_factory=FakeProvider,
+                                research_evidence=evidence)
+        self.assertEqual(result['research_evidence']['sent_host_source_ids'],[])
+
+    def test_host_source_judge_reports_separately_and_qualifies_only_sent_bytes(self):
+        import hashlib
+        from creatoros.evaluation.benchmark.research_evidence import VERSION
+        from creatoros.evaluation.benchmark.semantic_judge import evaluate_host_research_sources
+        text = 'A definition and usage example in independently retrieved public dictionary. ' * 2
+        source={'id':'source-1','url':'https://dictionary.cambridge.org/dictionary/english/word',
+                'text':text,'text_sha256':hashlib.sha256(text.encode()).hexdigest(),
+                'raw_sha256':'a'*64,'text_truncated':False,'fetched_at':'2026-11-05T08:00:00Z',
+                'provenance':'host_post_task_independent_fetch'}
+        evidence={'version':VERSION,'case_id':'B48','status':'needs_review','sources':[],
+                  'host_sources':[source], 'source_inventory':[{'id':'source-1','url':source['url'],'host_fetch':'verified_body'}],
+                  'provenance':{'batch_sha256':'a'*64,'events_sha256':'b'*64,'receipt_sha256':'c'*64}}
+        payload={'temporal_evidence':{},'research_host_source_data':[source]}
+        FakeProvider.response={'items':[{'id':'b48-source-1-support','pass':True,'evidence':'definition'}]}
+        result=evaluate_host_research_sources(payload,REPO,lambda x:None,evidence,provider_factory=FakeProvider)
+        self.assertTrue(result['qualified_items'][0]['pass'])
+        payload['research_host_source_data']=[{'id':'source-1','text':'different'}]
+        result=evaluate_host_research_sources(payload,REPO,lambda x:None,evidence,provider_factory=FakeProvider)
+        self.assertIsNone(result['qualified_items'][0]['pass'])
+        self.assertIsNone(evaluate_host_research_sources(payload,REPO,lambda x:None,{'host_sources':[]},provider_factory=FakeProvider))
+
     def test_scoped_oracle_excludes_foreign_runs_and_unknown_is_not_empty(self):
         state = {'database': {'series':[{'id':'s1','creator_id':'a'},{'id':'s2','creator_id':'b'}],
             'topics':[{'id':'t1','series_id':'s1'},{'id':'t2','series_id':'s2'}],

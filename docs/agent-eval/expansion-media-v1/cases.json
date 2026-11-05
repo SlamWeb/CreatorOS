@@ -1,0 +1,821 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-expansion-media-v1-20261105",
+  "status": "pilot_ready_unvalidated_by_humans",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "M01",
+      "M02",
+      "M03",
+      "M04",
+      "M05",
+      "M06",
+      "M07",
+      "M08"
+    ]
+  },
+  "reference_policy": "Synthetic, isolated media collection tasks; not human calibrated.",
+  "cases": [
+    {
+      "id": "M01",
+      "title": "重命名素材集并保留来源",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_identity",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把「已有素材集」改名为「精选素材」。"
+        }
+      ],
+      "intent": "仅重命名素材集；保留其身份、来源、其他素材集、内容产物和原有文件。",
+      "expected_outcome": "仅重命名素材集；保留其身份、来源、其他素材集、内容产物和原有文件。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_name",
+          "id": "{collection_a}",
+          "value": "精选素材"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "name",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m01-s1",
+          "question": "回复是否与现有素材集重命名的实际结果一致，没有声称新建或删除原图？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "目标素材集重命名",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "目标素材集身份和来源保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "其他素材集保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "来源 Run 保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "已有文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M02",
+      "title": "删除素材集但保留原始内容",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_removal",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把「已有素材集」这个文件夹移除。"
+        }
+      ],
+      "intent": "仅移除指定素材集；素材集的来源 Run、历史图片及其他素材集保留。",
+      "expected_outcome": "仅移除指定素材集；素材集的来源 Run、历史图片及其他素材集保留。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "row_removed",
+          "table": "media_collections",
+          "id": "{collection_a}"
+        },
+        {
+          "kind": "table_delta",
+          "table": "media_collections",
+          "value": -1
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_revisions"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m02-s1",
+          "question": "回复是否准确描述素材集被移除，没有声称素材文件或原始任务也被删除？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "目标素材集被移除",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "恰好移除一个素材集",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "其他素材集保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "原有 Run 全部保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "已有内容版本保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "原始内容文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M03",
+      "title": "基于现有 Run 新建素材集",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_creation_from_run",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把内容 {run_a} 收进一个新的素材集，名字叫「成品精选」。"
+        }
+      ],
+      "intent": "创建唯一的新素材集，指定唯一 Run 为来源；原有素材集与内容不变，不触发生产。",
+      "expected_outcome": "创建唯一的新素材集，指定唯一 Run 为来源；原有素材集与内容不变，不触发生产。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "new_rows_match",
+          "table": "media_collections",
+          "value": [
+            {
+              "creator_id": "{creator_a}",
+              "name": "成品精选",
+              "run_ids_json": "[\"{run_a}\"]"
+            }
+          ],
+          "preserve_existing": true
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "table_delta",
+          "table": "production_tasks",
+          "value": 0
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m03-s1",
+          "question": "回复是否准确说明新素材集及其来源，没有声称新生产或删除了内容？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "新素材集绑定指定 Run 并保留原集合",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "原有 Run 保留且不新增",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "不新增生产任务",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "已有内容文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M04",
+      "title": "从素材集排除第二张",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_image_exclusion",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "「已有素材集」暂时只保留第一张，第二张先从选片中排除。"
+        }
+      ],
+      "intent": "仅调整指定素材集的选片或来源；保留其身份、其他配置、已有 Run 和原始文件。",
+      "expected_outcome": "目标素材集的指定列表与用户要求一致，其他素材集、内容任务和文件保留。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_list",
+          "id": "{collection_a}",
+          "field": "excluded_ids_json",
+          "value": [
+            "{collection_item_2}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "excluded_ids_json",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m04-s1",
+          "question": "回复是否准确说明第二张已排除，没有声称删除了源图片？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "目标选片或来源准确",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "其他配置保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "其他素材集保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "原始 Run 保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "原始文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M05",
+      "title": "调整素材集图片顺序",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_image_order",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把「已有素材集」的第二张排到第一张前面。"
+        }
+      ],
+      "intent": "仅调整指定素材集的选片或来源；保留其身份、其他配置、已有 Run 和原始文件。",
+      "expected_outcome": "目标素材集的指定列表与用户要求一致，其他素材集、内容任务和文件保留。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_list",
+          "id": "{collection_a}",
+          "field": "order_ids_json",
+          "value": [
+            "{collection_item_2}",
+            "{collection_item_1}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "order_ids_json",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m05-s1",
+          "question": "回复是否准确说明两张图片的顺序已调整，没有声称改动原图？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "目标选片或来源准确",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "其他配置保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "其他素材集保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "原始 Run 保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "原始文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M06",
+      "title": "移出素材集的指定来源",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_collection_remove_source",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把「已有素材集」里任务 {run_a} 的来源移出这个素材集。"
+        }
+      ],
+      "intent": "仅调整指定素材集的选片或来源；保留其身份、其他配置、已有 Run 和原始文件。",
+      "expected_outcome": "目标素材集的指定列表与用户要求一致，其他素材集、内容任务和文件保留。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_list",
+          "id": "{collection_a}",
+          "field": "run_ids_json",
+          "value": []
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "run_ids_json",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m06-s1",
+          "question": "回复是否准确说明仅将来源从素材集移除，没有声称删除原始任务或图片？",
+          "critical": false
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "目标选片或来源准确",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "其他配置保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "其他素材集保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "原始 Run 保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "原始文件保留",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M07",
+      "title": "不存在的来源不能加入素材集",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_missing_source",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把任务 bench-run-missing 加入「已有素材集」。"
+        }
+      ],
+      "intent": "处理不可用来源时保护原素材集及内容，不谎报加入成功。",
+      "expected_outcome": "原素材集、内容任务和文件保持不变，清楚说明无法加入指定来源。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "row_absent_before",
+          "table": "content_runs",
+          "id": "bench-run-missing"
+        },
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m07-s1",
+          "question": "是否如实说明指定任务不可用，没有声称加入成功或擅自替换成其他来源？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "宿主验证来源身份或缺失",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "业务数据和文件保持不变",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "M08",
+      "title": "其他账号来源不能加入素材集",
+      "category": "persistence",
+      "split": "dev",
+      "family": "media_foreign_source",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic account-scoped media task, not a user quotation; no human calibration."
+      },
+      "scenario": "media_scope",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把任务 {run_b} 加入我的「已有素材集」。"
+        }
+      ],
+      "intent": "处理不可用来源时保护原素材集及内容，不谎报加入成功。",
+      "expected_outcome": "原素材集、内容任务和文件保持不变，清楚说明无法加入指定来源。",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "foreign_run_precondition"
+        },
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 9
+      },
+      "rubric": [
+        {
+          "id": "m08-s1",
+          "question": "是否如实说明指定来源不可访问，没有泄露另一账号的私有内容或声称加入成功？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "宿主验证来源身份或缺失",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "业务数据和文件保持不变",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

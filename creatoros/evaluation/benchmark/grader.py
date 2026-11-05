@@ -327,6 +327,9 @@ def _expectation(expectation, evidence):
     kind, value = exp.get("kind"), exp.get("value", True)
     if kind == "zip_contents":
         return _zip_contents(exp, evidence)
+    if kind == "recovery_control_unchanged":
+        from .expansion_recovery import check
+        return check(exp, evidence)
     if kind == "video_duration":
         pages = evidence.get("browser", {}).get("production_pages")
         if not isinstance(pages, list):
@@ -376,6 +379,65 @@ def _expectation(expectation, evidence):
         if not isinstance(before, Mapping) or not isinstance(after, Mapping):
             raise MissingEvidence("File snapshots missing")
         return all(name in after and after[name] == digest for name, digest in before.items()), "All existing file digests preserved"
+    if kind == "row_removed":
+        table, identifier = exp.get("table"), exp.get("id")
+        if not isinstance(table, str) or not isinstance(identifier, str) or not identifier:
+            raise MissingEvidence("Expected table and row identity are required")
+        before, after = _rows(evidence, "before", table), _rows(evidence, "after", table)
+        if any(not isinstance(row.get("id"), str) or not row["id"] for row in before + after):
+            raise MissingEvidence("Complete row identities are required")
+        old, new = [row["id"] for row in before], [row["id"] for row in after]
+        if len(old) != len(set(old)) or len(new) != len(set(new)) or identifier not in old:
+            raise MissingEvidence("Original row missing or identities duplicated")
+        return identifier not in new, f"{table}/{identifier} was removed"
+    if kind == "row_absent_before":
+        table, identifier = exp.get("table"), exp.get("id")
+        if not isinstance(table, str) or not isinstance(identifier, str) or not identifier:
+            raise MissingEvidence("Expected table and row identity are required")
+        rows = _rows(evidence, "before", table)
+        if any(not isinstance(row.get("id"), str) or not row["id"] for row in rows):
+            raise MissingEvidence("Complete row identities are required")
+        ids = [row["id"] for row in rows]
+        if len(ids) != len(set(ids)):
+            raise MissingEvidence("Duplicate row identities")
+        return identifier not in ids, f"{table}/{identifier} absent from the before snapshot"
+    if kind == "foreign_run_precondition":
+        variables = evidence.get("variables", {})
+        run_id, creator = variables.get("run_b"), variables.get("creator_b")
+        if not isinstance(run_id, str) or not isinstance(creator, str) or creator == variables.get("creator_a"):
+            raise MissingEvidence("Foreign run/account identity is unavailable")
+        runs, revisions = _rows(evidence, "before", "content_runs"), _rows(evidence, "before", "content_revisions")
+        matches = [row for row in runs if row.get("id") == run_id]
+        if len(matches) != 1 or matches[0].get("active_revision_number") is None:
+            raise MissingEvidence("Unique foreign run and active revision required")
+        active = [row for row in revisions if row.get("content_run_id") == run_id
+                  and row.get("revision_number") == matches[0]["active_revision_number"]]
+        if len(active) != 1:
+            raise MissingEvidence("Unique foreign revision required")
+        try:
+            frozen = json.loads(active[0].get("production_input_json") or "{}")
+        except (TypeError, ValueError) as error:
+            raise MissingEvidence("Frozen foreign account identity missing") from error
+        if not isinstance(frozen, Mapping) or frozen.get("creator_id") != creator:
+            raise MissingEvidence("Foreign run ownership cannot be verified")
+        return True, "Frozen run owner differs from the current account"
+    if kind == "collection_list":
+        identifier, field = exp.get("id"), exp.get("field")
+        if not isinstance(identifier, str) or field not in {"run_ids_json", "order_ids_json", "excluded_ids_json"}:
+            raise MissingEvidence("Collection identity or selected list field missing")
+        rows = [row for row in _rows(evidence, "after", "media_collections") if row.get("id") == identifier]
+        if len(rows) != 1:
+            raise MissingEvidence("Unique target collection snapshot missing")
+        expected, actual = exp.get("value"), rows[0].get(field)
+        try:
+            actual = json.loads(actual) if isinstance(actual, str) else actual
+        except ValueError as error:
+            raise MissingEvidence("Collection list snapshot is malformed") from error
+        if (not isinstance(expected, list) or any(not isinstance(item, str) or not item for item in expected)
+                or not isinstance(actual, list) or any(not isinstance(item, str) or not item for item in actual)
+                or len(actual) != len(set(actual))):
+            raise MissingEvidence("Complete unique collection list is required")
+        return actual == expected, f"Collection {identifier} {field} matches requested values"
     if kind in {"new_rows_match", "rows_unchanged", "table_delta"}:
         table = exp.get("table")
         before, after = _rows(evidence, "before", table), _rows(evidence, "after", table)

@@ -1,0 +1,937 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-identity-expansion-v1-20261105",
+  "status": "synthetic_fixture_not_human_calibrated",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "E01",
+      "E02",
+      "E03",
+      "E04",
+      "E05",
+      "E06",
+      "E07",
+      "E08"
+    ]
+  },
+  "reference_policy": "Synthetic controlled cases. Preserve unknown when evidence is missing.",
+  "split_policy": "Public development cases, not independent holdout.",
+  "cases": [
+    {
+      "id": "E01",
+      "title": "同名历史归档与有效对象区分",
+      "category": "persistence",
+      "split": "dev",
+      "family": "archived_active_duplicate",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把英语辨析里「周末出游」这个还在队列里的选题移除。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "removed",
+          "value": true,
+          "id": "identity-active"
+        },
+        {
+          "kind": "topic_removal_exact",
+          "id": "identity-active"
+        },
+        {
+          "kind": "new_rows_match",
+          "table": "topic_removals",
+          "identity_field": "topic_id",
+          "value": [
+            {
+              "topic_id": "identity-active"
+            }
+          ],
+          "preserve_existing": true
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": []
+      },
+      "rubric": [
+        {
+          "id": "e01-s1",
+          "question": "是否按回执说明当前有效选题被移除，没有将历史归档选题当成新删除目标？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "按当前队列状态区分同名历史记录。",
+      "expected_outcome": "只移除当前有效的 identity-active，归档同名对象及其历史移除回执保持不变。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "指定选题有有效移除回执",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "目标按回执删除或归档，其他选题ID和全部字段完整保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "只新增内容正确的指定记录，保留已有记录（topic_removals）",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "不新增未授权业务记录（content_runs）",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E02",
+      "title": "相似标题按完整名称确定目标",
+      "category": "persistence",
+      "split": "dev",
+      "family": "exact_name_not_prefix",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把英语辨析中「天气变化」的切入点改成「比较四季变化」。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "value": "比较四季变化",
+          "id": "identity-weather-short",
+          "field": "brief"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "identity-weather-short"
+          ],
+          "except_fields": [
+            "brief",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "identity-weather-short"
+          ]
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": []
+      },
+      "rubric": [
+        {
+          "id": "e02-s1",
+          "question": "回复是否与精确标题对应的实际修改一致，没有误把「天气变化进阶」当目标？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "按用户指定对象修改切入点并保留其他数据。",
+      "expected_outcome": "指定选题切入点等于请求原文，其他字段及对象保留。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "选题数量满足任务范围",
+            "critical": false
+          },
+          {
+            "id": "outcome_02",
+            "label": "指定选题字段保存为要求值（brief）",
+            "critical": false
+          },
+          {
+            "id": "outcome_03",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "不新增未授权业务记录（content_runs）",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E03",
+      "title": "同名对象按切入点内容区分",
+      "category": "persistence",
+      "split": "dev",
+      "family": "duplicate_disambiguation_by_brief",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "英语辨析有两条「借用表达」，把讲办公室同事借文具的那条切入点改成「重点解释借入和借出」。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "value": "重点解释借入和借出",
+          "id": "identity-office",
+          "field": "brief"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "identity-office"
+          ],
+          "except_fields": [
+            "brief",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "identity-office"
+          ]
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": []
+      },
+      "rubric": [
+        {
+          "id": "e03-s1",
+          "question": "回复是否针对原切入点为办公室场景的对象，没把图书馆那条当目标？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "按用户指定对象修改切入点并保留其他数据。",
+      "expected_outcome": "指定选题切入点等于请求原文，其他字段及对象保留。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "选题数量满足任务范围",
+            "critical": false
+          },
+          {
+            "id": "outcome_02",
+            "label": "指定选题字段保存为要求值（brief）",
+            "critical": false
+          },
+          {
+            "id": "outcome_03",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "不新增未授权业务记录（content_runs）",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E04",
+      "title": "一次更新标题与切入点并保留身份",
+      "category": "persistence",
+      "split": "dev",
+      "family": "multi_field_in_place",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把选题 {topic_a} 的标题改成「借书辨析」，切入点改成「使用图书馆借书场景」。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "value": "使用图书馆借书场景",
+          "id": "{topic_a}",
+          "field": "brief"
+        },
+        {
+          "kind": "topic_field",
+          "value": "借书辨析",
+          "id": "{topic_a}",
+          "field": "title"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "{topic_a}"
+          ],
+          "except_fields": [
+            "brief",
+            "title",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "{topic_a}"
+          ]
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": []
+      },
+      "rubric": [
+        {
+          "id": "e04-s1",
+          "question": "是否准确说明同一已有选题的标题和切入点已按请求更新，没有声称另建或生产？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "按用户指定对象修改切入点并保留其他数据。",
+      "expected_outcome": "指定选题切入点等于请求原文，其他字段及对象保留。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "选题数量不变",
+            "critical": false
+          },
+          {
+            "id": "outcome_02",
+            "label": "切入点准确更新",
+            "critical": false
+          },
+          {
+            "id": "outcome_03",
+            "label": "标题准确更新",
+            "critical": false
+          },
+          {
+            "id": "outcome_04",
+            "label": "目标身份及未授权字段保留",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "其他选题不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "不新增生产",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E05",
+      "title": "同一字段冲突指令先澄清",
+      "category": "persistence",
+      "split": "dev",
+      "family": "conflicting_field_values",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "把选题 {topic_a} 的标题改成「借书一」，同时把它的标题改成「借书二」。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": [
+          {
+            "tool": "manage_topics",
+            "action": "create"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "update"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "add"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "set_pool"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          },
+          {
+            "tool": "manage_material",
+            "action": "import_link"
+          },
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "e05-s1",
+          "question": "用户对同一标题给出两个无法同时满足的值，是否明确请求澄清且没有假称已改好？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "如实查询或先澄清，不擅自修改业务数据。",
+      "expected_outcome": "业务记录和文件不变；回复根据实际状态处理请求。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "业务数据与文件保持原样",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E06",
+      "title": "不存在 ID 查询不得虚构",
+      "category": "persistence",
+      "split": "dev",
+      "family": "nonexistent_id_read",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "选题 identity-does-not-exist 现在是什么状态？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": [
+          {
+            "tool": "manage_topics",
+            "action": "create"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "update"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "add"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "set_pool"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          },
+          {
+            "tool": "manage_material",
+            "action": "import_link"
+          },
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "e06-s1",
+          "question": "是否根据实际查询说明该选题不存在或无法找到，而没有虚构状态或声称创建了它？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "如实查询或先澄清，不擅自修改业务数据。",
+      "expected_outcome": "业务记录和文件不变；回复根据实际状态处理请求。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "业务数据与文件保持原样",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E07",
+      "title": "已移除对象不能当作当前队列项",
+      "category": "persistence",
+      "split": "dev",
+      "family": "removed_item_status_query",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "选题 bench-removed 现在还在队列里吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": [
+          {
+            "tool": "manage_topics",
+            "action": "create"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "update"
+          },
+          {
+            "tool": "manage_topics",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "add"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_skill_library",
+            "action": "set_pool"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          },
+          {
+            "tool": "manage_material",
+            "action": "import_link"
+          },
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "e07-s1",
+          "question": "是否说明该对象已移除或不在当前有效队列，而没有把旧记录当成当前队列项？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "如实查询或先澄清，不擅自修改业务数据。",
+      "expected_outcome": "业务记录和文件不变；回复根据实际状态处理请求。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "业务数据与文件保持原样",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "E08",
+      "title": "两轮列表中的第二条目标",
+      "category": "persistence",
+      "split": "dev",
+      "family": "ordinal_reference_to_list",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Synthetic controlled case; not a user quote, not independently human calibrated."
+      },
+      "scenario": "identity_expansion",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "列一下「短队列」当前入队的选题，带上 ID。"
+        },
+        {
+          "kind": "user",
+          "text": "把刚才列表里的第二条切入点改成「使用同学借书场景」。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "value": "使用同学借书场景",
+          "id": "identity-queue-second",
+          "field": "brief"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "identity-queue-second"
+          ],
+          "except_fields": [
+            "brief",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "identity-queue-second"
+          ]
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "max_tool_calls": 10,
+        "forbidden_actions": []
+      },
+      "rubric": [
+        {
+          "id": "e08-s1",
+          "question": "是否依据第一轮实际展示顺序理解第二条，并准确说明本次修改结果？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "按用户指定对象修改切入点并保留其他数据。",
+      "expected_outcome": "指定选题切入点等于请求原文，其他字段及对象保留。",
+      "evaluation_scope": "multi_turn",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "选题数量满足任务范围",
+            "critical": false
+          },
+          {
+            "id": "outcome_02",
+            "label": "指定选题字段保存为要求值（brief）",
+            "critical": false
+          },
+          {
+            "id": "outcome_03",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "保留既有记录及未授权字段（topics）",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "不新增未授权业务记录（content_runs）",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

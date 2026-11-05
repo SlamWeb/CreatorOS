@@ -16,9 +16,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-VERSION = "research-source-evidence-v3"
+VERSION = "research-source-evidence-v4"
 ALLOWED_DOMAINS = frozenset({"dictionary.cambridge.org", "www.oxfordlearnersdictionaries.com", "www.merriam-webster.com"})
 MAX_SOURCES = 12
+MAX_INDEPENDENT_FETCHES = 3
 MAX_DOCUMENT = 512 * 1024
 MAX_EXCERPT = 16000
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -144,14 +145,17 @@ def _json(root, relative, files):
     return value
 
 
-def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary):
+def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary, independent_fetch=False):
     """Bind new candidate/source URLs to a completed SDK search and open.
 
     A *separate* host fetch supplies public source text to the evaluator. No
     external request is made unless all source identities and both event types
     have been confirmed first. A model-written note is never access evidence.
     """
-    result = {"version": VERSION, "status": "needs_review", "sources": [], "errors": [],
+    result = {"version": VERSION, "status": "needs_review", "sources": [], "host_sources": [], "errors": [],
+              "fetch_policy": {"max_sources": MAX_SOURCES, "max_independent_fetches": MAX_INDEPENDENT_FETCHES,
+                               "independent_enabled": independent_fetch is True},
+              "fetch_counts": {"total": 0, "independent": 0},
               "limitations": "Host pages are fetched after the Agent run and do not prove the exact content the Agent saw."}
     try:
         variables, before, after = evidence["variables"], evidence["before"], evidence["after"]
@@ -260,6 +264,8 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
         if not searches:
             raise MissingResearchEvidence("Completed search event not evidenced")
         captured = []
+        host_sources = []
+        independent_budget = MAX_INDEPENDENT_FETCHES
         inventory = []
         for number, url in enumerate(urls, 1):
             opened_item = opened.get(url)
@@ -271,8 +277,19 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
                    "open_attempt": attempts.get(url),
                    "host_fetch": "not_attempted"}
             inventory.append(row)
-            if not valid_open:
+            # Explicitly opt in to a small number of independent host fetches
+            # for cited URLs actually present in captured search results. They
+            # can support a separate current-source claim, never Agent access.
+            matched_snippet_time = (_instant(row["search_snippets"][0].get("event_at"))
+                                    if row["search_snippets"] else None)
+            separate = (not valid_open and independent_fetch is True and matched_snippet_time is not None
+                        and independent_budget > 0)
+            if not valid_open and not separate:
                 continue
+            if separate:
+                independent_budget -= 1
+                result["fetch_counts"]["independent"] += 1
+            result["fetch_counts"]["total"] += 1
             try:
                 page = fetcher(url)
             except (MissingResearchEvidence, OSError, TimeoutError, ValueError):
@@ -284,11 +301,20 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
             text, digest, fetched_at = page.get("text"), page.get("raw_sha256"), page.get("fetched_at")
             if (not isinstance(text, str) or len(text.strip()) < 80 or len(text) > MAX_EXCERPT
                     or not isinstance(digest, str) or not HEX.fullmatch(digest)
-                    or _instant(fetched_at) is None or _instant(fetched_at) < _instant(opened[url]["at"])
+                    or _instant(fetched_at) is None
+                    or (valid_open and _instant(fetched_at) < _instant(opened[url]["at"]))
+                    or (separate and _instant(fetched_at) < matched_snippet_time)
                     or page.get("text_truncated")):
                 row["host_fetch"] = "unavailable"
                 continue
             row["host_fetch"] = "verified_body"
+            host_sources.append({"id": f"source-{number}", "url": url, "title": sources[number-1].get("title"),
+                                 "text": text, "raw_sha256": digest, "fetched_at": fetched_at,
+                                 "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                                 "text_truncated": False,
+                                 "provenance": "host_post_task_independent_fetch"})
+            if not valid_open:
+                continue
             captured.append({"id": f"source-{number}", "url": url, "title": sources[number-1].get("title"),
                              "text": text, "raw_sha256": digest, "fetched_at": fetched_at,
                              "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -300,7 +326,7 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
         result.update(status="complete" if complete else "needs_review", case_id="B48", creator_id=creator, series_id=series,
                       batch_id=batch_id, thread_id=thread, turn_id=turn_id, candidate_id=candidate["id"],
                       candidate_title=candidate.get("title"), candidate_angle=candidate["angle"],
-                      search_event_lines=searches, sources=captured, source_inventory=inventory,
+                      search_event_lines=searches, sources=captured, host_sources=host_sources, source_inventory=inventory,
                       provenance={"batch_path": record_path, "batch_sha256": files[record_path],
                           "events_path": f"{workspace}/codex_public_events.jsonl",
                           "events_sha256": files[f"{workspace}/codex_public_events.jsonl"],
@@ -310,4 +336,32 @@ def collect_research_evidence(root, evidence, *, fetcher=fetch_public_dictionary
             result["errors"].append("Some cited sources lack verified agent-open bodies or independent fetch; snippets alone are partial evidence")
     except (KeyError, TypeError, ValueError, MissingResearchEvidence) as exc:
         result["errors"].append(str(exc))
+    result["subchecks"] = research_subchecks(result)
     return result
+
+
+def research_subchecks(evidence):
+    """Grade narrow host-observable facts, never the combined claim support."""
+    search = evidence.get("search_event_lines")
+    inventory = evidence.get("source_inventory")
+    hosts = evidence.get("host_sources")
+    has_search = isinstance(search, list) and bool(search) and all(type(n) is int and n > 0 for n in search)
+    items = [{"id": "research_search_observed", "status": "passed" if has_search else "needs_review",
+              "detail": "Completed search event in the identified research turn; not proof of opened pages." if has_search else "A completed search event could not be verified."}]
+    if isinstance(inventory, list) and inventory:
+        for row in inventory:
+            if not isinstance(row, dict):
+                continue
+            ident = row.get("id")
+            open_ok = row.get("agent_open") == "verified_body"
+            host_ok = isinstance(hosts, list) and any(isinstance(h, dict) and h.get("id") == ident
+                                                      and h.get("url") == row.get("url") for h in hosts)
+            items.extend([
+                {"id": f"{ident}_agent_body", "status": "passed" if open_ok else "needs_review",
+                 "detail": "Body captured from the researcher's open event." if open_ok else "No verified body captured from the researcher's open event; absence does not prove failure."},
+                {"id": f"{ident}_posthoc_host_body", "status": "passed" if host_ok else "needs_review",
+                 "detail": "Independent later host fetch only; not what the researcher necessarily read." if host_ok else "No independently fetched body was verified."},
+                {"id": f"{ident}_claim_support", "status": "needs_review",
+                 "detail": "Source availability is not evidence that it supports each claimed meaning."},
+            ])
+    return items

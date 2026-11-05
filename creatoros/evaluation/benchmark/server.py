@@ -180,6 +180,17 @@ def main():
 
     @app.post("/__benchmark__/event")
     def event(payload: dict):
+        from creatoros.evaluation.benchmark.expansion_recovery import EVENT, SCENARIOS, host_event
+        if payload.get("name") == EVENT and case["scenario"] in SCENARIOS:
+            try:
+                result = host_event(world, payload["name"], payload.get("session_id"))
+            except (KeyError, TypeError, ValueError) as error:
+                raise HTTPException(422, "Invalid recovery control event") from error
+            controls.extend(result["controls"])
+            world.variables.update(result["variables"])
+            write_json(root / "controls.json", controls)
+            write_json(root / "variables.json", world.variables)
+            return {"variables": result["variables"], "declared_control": True}
         if payload.get("name") != "add_external_topic" or case["scenario"] != "external_change":
             raise HTTPException(422, "Unfrozen control event")
         from creatoros.storage import TopicSource
@@ -285,19 +296,30 @@ def main():
             # Diagnostic excerpts are untrusted search-result snippets, not
             # proof that the Agent successfully opened a complete page.
             payload["research_source_inventory"] = inventory
-        if isinstance(research_evidence, dict) and research_evidence.get("status") == "complete":
-            payload["research_source_data"] = research_evidence.get("sources", [])
+        if isinstance(research_evidence, dict) and isinstance(research_evidence.get("host_sources"), list):
+            # Post-task host fetches are independent observations, not the
+            # researcher's page contents. Attach the exact bounded records.
+            payload["research_host_source_data"] = deepcopy(research_evidence["host_sources"])
+        if isinstance(research_evidence, dict):
             payload["research_event_summary"] = {
                 key: research_evidence.get(key) for key in
                 ("status", "candidate_id", "candidate_title", "candidate_angle", "thread_id", "turn_id",
                  "search_event_lines", "provenance", "limitations")}
+        if isinstance(research_evidence, dict) and research_evidence.get("status") == "complete":
+            payload["research_source_data"] = research_evidence.get("sources", [])
         from creatoros.evaluation.benchmark.semantic_judge import evaluate_judge
         from creatoros.evaluation.benchmark.visual_evidence import collect_visual_evidence, load_visual_attachments, UnavailableVisualEvidence
-        supported = case.get("id") in {"B04", "B29", "B41", "B42", "B44", "B45", "B49"}
+        supported = (case.get("id") in {"B04", "B29", "B41", "B42", "B44", "B45", "B49"}
+                     or (case.get("id") == "I01" and case.get("scenario") == "visual_reference_expansion"))
         visual_manifest, visual_attachments = None, None
         if supported:
-            visual_manifest = ((evidence.get("rsi_evidence") or {}).get("visual_manifest")
-                               if case.get("id") == "B04" else collect_visual_evidence(world.root, case, evidence))
+            if case.get("id") == "B04":
+                visual_manifest = (evidence.get("rsi_evidence") or {}).get("visual_manifest")
+            elif case.get("id") == "I01" and case.get("scenario") == "visual_reference_expansion":
+                from creatoros.evaluation.benchmark.expansion_visual_tasks import collect_visual
+                visual_manifest = collect_visual(world.root, evidence)
+            else:
+                visual_manifest = collect_visual_evidence(world.root, case, evidence)
             visual_manifest = visual_manifest or {"status":"needs_review", "bindings":[], "errors":["RSI evidence incomplete"]}
             payload["visual_evidence"] = visual_manifest
             try:
@@ -309,9 +331,16 @@ def main():
         images = [world.root / path for path in evidence["background"]["images"][:4]]
         if case["scenario"] == "image_discussion":
             images = [world.input_dir / "reference.png", world.input_dir / "alternate.png"]
-        return evaluate_judge(case, payload, images, world.root, sink,
-                              visual_manifest=visual_manifest, visual_attachments=visual_attachments,
-                              research_evidence=research_evidence)
+        result = evaluate_judge(case, payload, images, world.root, sink,
+                                visual_manifest=visual_manifest, visual_attachments=visual_attachments,
+                                research_evidence=research_evidence)
+        if case.get("id") == "B48" and isinstance(research_evidence, dict) and research_evidence.get("host_sources"):
+            from creatoros.evaluation.benchmark.semantic_judge import evaluate_host_research_sources
+            try:
+                result["host_source_assessments"] = evaluate_host_research_sources(payload, world.root, sink, research_evidence)
+            except Exception as error:
+                result["host_source_assessments"] = {"error": {"kind": type(error).__name__, "message": str(error)}}
+        return result
 
     def finalize(payload):
         session_id, browser = payload.get("session_id"), payload.get("browser", {})
@@ -355,15 +384,23 @@ def main():
             # no-agent-mutation comparison. Raw SQL snapshots remain unchanged.
             grading = deepcopy(evidence)
             for control in controls:
+                if control.get("preserve_in_grading") is True:
+                    continue
                 table = control["table"]
                 grading["after"]["database"][table] = [row for row in grading["after"]["database"][table] if row.get("id") != control["id"]]
             evidence["grade"] = grade_case(case, grading)
+            if case.get("scenario") == "visual_reference_expansion" and case.get("id") in {"I02", "I03", "I04", "I05"}:
+                from creatoros.evaluation.benchmark.expansion_visual_tasks import preconditions
+                visual_check = preconditions(world.root, case, evidence)
+                evidence["grade"]["checks"].append({"id":"visual_preconditions", "label":"任务媒体身份及缺失条件",
+                    "status":visual_check["status"], "detail":visual_check.get("detail", ""),
+                    "evidence":["before.json", "browser.json"]})
             if case["scenario"] == "video_delivery":
                 from creatoros.evaluation.benchmark.video_evidence import collect_video_evidence
                 evidence["video_evidence"] = collect_video_evidence(world.root, evidence)
             if case["scenario"] == "live_research":
                 from creatoros.evaluation.benchmark.research_evidence import collect_research_evidence
-                evidence["research_evidence"] = collect_research_evidence(world.root, evidence)
+                evidence["research_evidence"] = collect_research_evidence(world.root, evidence, independent_fetch=True)
             if case["scenario"] == "rsi_one_round":
                 from creatoros.evaluation.benchmark.rsi_evidence import collect_rsi_evidence
                 evidence["rsi_evidence"] = collect_rsi_evidence(world, evidence)

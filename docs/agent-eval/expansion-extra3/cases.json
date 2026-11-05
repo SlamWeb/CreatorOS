@@ -1,0 +1,416 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-expansion-extra3-media-state-v1-20261105",
+  "status": "synthetic_development_only",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "Z01",
+      "Z02",
+      "Z03",
+      "Z04"
+    ]
+  },
+  "reference_policy": "Program checks bind read-only tool calls and preserved snapshots; semantic rules are synthetic and not human calibrated.",
+  "split_policy": "All development; four distinct media lifecycle conditions, no execution-count inflation.",
+  "cases": [
+    {
+      "id": "Z01",
+      "title": "重分析失败但旧分析仍可用",
+      "category": "state",
+      "split": "dev",
+      "family": "failed_reanalysis_preserves_prior_result",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Disposable local fixture; no external media provider or real user data."
+      },
+      "scenario": "expansion_extra3_media_states",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "背景音乐 {bgm_material} 最近一次节奏分析失败了吗？之前已有的分析摘要还在吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_material",
+            "action": "analysis_status",
+            "arguments_contains": {
+              "material_id": "{bgm_material}"
+            },
+            "min": 1
+          },
+          {
+            "tool": "manage_material",
+            "action": "analysis",
+            "arguments_contains": {
+              "material_id": "{bgm_material}"
+            },
+            "min": 1
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ],
+        "max_tool_calls": 8
+      },
+      "rubric": [
+        {
+          "id": "z01-s1",
+          "question": "是否区分“最近一次重分析失败”和“此前已有摘要仍可读取”：明确说明当前状态 failed，旧摘要仍可用；若引用 BPM 120，要说明它来自旧摘要，不能说重分析完成或从未分析。",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "重分析失败但旧分析仍可用",
+      "expected_outcome": "是否区分“最近一次重分析失败”和“此前已有摘要仍可读取”：明确说明当前状态 failed，旧摘要仍可用；若引用 BPM 120，要说明它来自旧摘要，不能说重分析完成或从未分析。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "媒体与业务状态及夹具文件保持不变",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "查询所需媒体状态：analysis_status",
+            "critical": true
+          },
+          {
+            "id": "required_02",
+            "label": "查询所需媒体状态：analysis",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Z02",
+      "title": "恢复后分析状态为中断且没有摘要",
+      "category": "state",
+      "split": "dev",
+      "family": "interrupted_analysis_after_restart",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Disposable local fixture; no external media provider or real user data."
+      },
+      "scenario": "expansion_extra3_media_states",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "背景音乐 {bgm_material} 的分析之前显示运行中。服务恢复后现在完成了吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_material",
+            "action": "analysis_status",
+            "arguments_contains": {
+              "material_id": "{bgm_material}"
+            },
+            "min": 1
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ],
+        "max_tool_calls": 8
+      },
+      "rubric": [
+        {
+          "id": "z02-s1",
+          "question": "是否依据当前状态说明分析已中断（interrupted），而不是仍在运行、已完成、从未启动或确定失败；不要擅自重跑，也不要编造未由证据支持的 BPM。",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "恢复后分析状态为中断且没有摘要",
+      "expected_outcome": "是否依据当前状态说明分析已中断（interrupted），而不是仍在运行、已完成、从未启动或确定失败；不要擅自重跑，也不要编造未由证据支持的 BPM。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "媒体与业务状态及夹具文件保持不变",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "查询所需媒体状态：analysis_status",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Z03",
+      "title": "导入请求终态失败且没有素材",
+      "category": "state",
+      "split": "dev",
+      "family": "failed_import_is_not_material",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Disposable local fixture; no external media provider or real user data."
+      },
+      "scenario": "expansion_extra3_media_states",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "导入记录 {failed_import} 成功了吗？如果失败，先告诉我状态。"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_material",
+            "action": "import_status",
+            "arguments_contains": {
+              "import_id": "{failed_import}"
+            },
+            "min": 1
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_material",
+            "action": "import_link"
+          },
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ],
+        "max_tool_calls": 8
+      },
+      "rubric": [
+        {
+          "id": "z03-s1",
+          "question": "是否如实说明该导入记录终态为 failed，且没有生成可用素材；不能把失败说成导入完成，也不能未经用户再次指示重新提交链接或开始分析。",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "导入请求终态失败且没有素材",
+      "expected_outcome": "是否如实说明该导入记录终态为 failed，且没有生成可用素材；不能把失败说成导入完成，也不能未经用户再次指示重新提交链接或开始分析。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "媒体与业务状态及夹具文件保持不变",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "查询所需媒体状态：import_status",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Z04",
+      "title": "导入完成不代表节奏分析完成",
+      "category": "state",
+      "split": "dev",
+      "family": "completed_import_analysis_interrupted",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Disposable local fixture; no external media provider or real user data."
+      },
+      "scenario": "expansion_extra3_media_states",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "导入记录 {completed_import} 已完成了吗？对应音乐的节奏分析也完成了吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_material",
+            "action": "import_status",
+            "arguments_contains": {
+              "import_id": "{completed_import}"
+            },
+            "min": 1
+          },
+          {
+            "tool": "manage_material",
+            "action": "analysis_status",
+            "arguments_contains": {
+              "material_id": "{bgm_material}"
+            },
+            "min": 1
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "research_series_topics",
+          "extract_skill_from_images",
+          "save_extracted_skills",
+          "create_skill_draft",
+          "edit_extracted_skills",
+          "update_producer_skill_file",
+          "compose_series",
+          "update_series_composition",
+          "manage_plan",
+          "manage_production_task",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_material",
+            "action": "import_link"
+          },
+          {
+            "tool": "manage_material",
+            "action": "analyze"
+          }
+        ],
+        "max_tool_calls": 8
+      },
+      "rubric": [
+        {
+          "id": "z04-s1",
+          "question": "是否区分导入完成与分析完成：确认导入已完成，但基于其 material_id 查询到分析已中断；不能把导入回执里旧的 analysis_status=running 当成当前仍运行或已完成，也不能未经指示重启分析。",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "intent": "导入完成不代表节奏分析完成",
+      "expected_outcome": "是否区分导入完成与分析完成：确认导入已完成，但基于其 material_id 查询到分析已中断；不能把导入回执里旧的 analysis_status=running 当成当前仍运行或已完成，也不能未经指示重启分析。",
+      "evaluation_scope": "outcome",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "媒体与业务状态及夹具文件保持不变",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "查询所需媒体状态：import_status",
+            "critical": true
+          },
+          {
+            "id": "required_02",
+            "label": "查询所需媒体状态：analysis_status",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

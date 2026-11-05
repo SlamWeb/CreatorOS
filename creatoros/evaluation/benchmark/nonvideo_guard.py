@@ -1,7 +1,7 @@
 """Opt-in benchmark dispatch guards; not an operating-system sandbox."""
 import json
 
-ALLOWED_CASES = ("B04", "B05", "B06", "B07", "B10", "B11", "B12", "B16", "B22", "B41", "B42", "B44", "B46", "B48", "B49", "B50", "C02", "C04", "D01", "D02", "D04")
+ALLOWED_CASES = ("B04", "B05", "B06", "B07", "B10", "B11", "B12", "B16", "B22", "B41", "B42", "B44", "B46", "B48", "B49", "B50", "C02", "C04", "D01", "D02", "D04", "E02", "E05", "M01", "M04", "S01", "S04", "P03", "W01", "I02")
 POLICY = "nonvideo-no-publication-v1"
 COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接等同。"
 
