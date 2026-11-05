@@ -10,6 +10,36 @@ class AccountArgumentRejected(ValueError):
     pass
 
 
+def _strip_redundant_property_titles(schema):
+    """Drop only generated field titles that repeat their JSON property name.
+
+    Traverse schema locations, not arbitrary JSON values: defaults, examples,
+    enum values and a real property named ``title`` must remain untouched.
+    """
+    if not isinstance(schema, dict):
+        return
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, child in properties.items():
+            if not isinstance(child, dict):
+                continue
+            if isinstance(name, str) and child.get("title") == name.replace("_", " ").title():
+                child.pop("title")
+            _strip_redundant_property_titles(child)
+    for key in ("$defs", "definitions", "patternProperties", "dependentSchemas"):
+        children = schema.get(key)
+        if isinstance(children, dict):
+            for child in children.values():
+                _strip_redundant_property_titles(child)
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        children = schema.get(key)
+        if isinstance(children, list):
+            for child in children:
+                _strip_redundant_property_titles(child)
+    for key in ("items", "additionalProperties", "contains", "not", "if", "then", "else", "propertyNames"):
+        _strip_redundant_property_titles(schema.get(key))
+
+
 def _hide_account_field(schema):
     """Hide internal ownership fields inside referenced action branches as well."""
     if isinstance(schema, dict):
@@ -48,6 +78,7 @@ def model_tool_schemas(schemas, context):
                 "get_creator_tasks": "查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。",
                 "compose_series": "用户明确要求时为当前账号创建栏目，可仅填名称，之后配置常用池/阶段默认；也兼容旧完整Skill或Mind＋Visualize组合。账号由宿主绑定。",
             }[name]
+        _strip_redundant_property_titles(function.get("parameters"))
     return result
 
 

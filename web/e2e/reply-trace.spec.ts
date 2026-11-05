@@ -22,7 +22,8 @@ test("reply copy and trace stay on the selected session and load one snapshot at
       return route.fulfill({ json: { turn_id: "turn-one", status: "complete", available: true, requests: [
         { request_id: "request-one", request_kind: "main", event: "finished", status: "complete", sent: true, model: "test-model", estimated_input_tokens: 123, estimated_parts: { messages: 90 },
           estimated_detail: { parts: { history_reasoning: 11, tool_arguments: 15, tool_results: 24, recent_messages: 40 }, tool_results_by_tool: { list_series: 20, unknown: 4 } },
-          usage: { input_tokens: 110, output_tokens: 18 }, input_limit: 8192, finish_reason: "stop", elapsed_ms: 310, snapshot_available: true },
+          prefix_comparison: { status: "available", messages_relation: "changed", same_message_count: 3, first_difference_categories: ["account_context"], tools_changed: true, same_turn: false, same_model: true },
+          usage: { input_tokens: 110, output_tokens: 18, cache_hit_tokens: 64, cache_miss_tokens: 0 }, input_limit: 8192, finish_reason: "stop", elapsed_ms: 310, snapshot_available: true },
         { request_id: "request-two", request_kind: "compaction", event: "finished", status: "complete", sent: true, model: "test-model", estimated_input_tokens: 456, usage: { input_tokens: 400, output_tokens: 21 }, compacted: true, externalized: true, snapshot_available: true },
       ] } });
     }
@@ -82,6 +83,13 @@ test("reply copy and trace stay on the selected session and load one snapshot at
   await metadata.locator("summary").click();
   await expect(metadata).toHaveAttribute("open", "");
   await expect(metadata.getByText("估算组成")).toBeVisible();
+  const cache = metadata.getByRole("region", { name: "缓存与前缀" });
+  await expect(cache.getByText("缓存命中", { exact: true }).locator("..")).toContainText("64");
+  await expect(cache.getByText("缓存未命中", { exact: true }).locator("..")).toContainText("0");
+  await expect(cache.getByText("消息变化", { exact: true }).locator("..")).toContainText("消息中途发生变化");
+  await expect(cache.getByText("首处变化类型", { exact: true }).locator("..")).toContainText("账号上下文");
+  await expect(cache.getByText("工具 Schema 有变化", { exact: true }).locator("..")).toContainText("是");
+  await expect(cache.getByText(/不包含 Provider 转换及推理档位等请求设置/)).toBeVisible();
   await expect(metadata.getByText("以下为本次请求的估算 token，不是模型返回的实际分项。")).toBeVisible();
   const parts = metadata.getByRole("list", { name: "上下文估算分项" });
   await expect(parts.getByText("历史推理").locator("..")).toContainText("11");
@@ -116,6 +124,9 @@ test("reply copy and trace stay on the selected session and load one snapshot at
   await metadata.locator("summary").click();
   await expect(dialog.getByText("已压缩 · 已外置")).toBeVisible();
   await expect(metadata.getByText("这一步未记录细项归因；旧记录不补造。")).toBeVisible();
+  const oldCache = metadata.getByRole("region", { name: "缓存与前缀" });
+  await expect(oldCache.getByText("缓存命中", { exact: true }).locator("..")).toContainText("未记录");
+  await expect(oldCache.getByText("这一步没有可用的前缀比较；旧记录不会补造。")).toBeVisible();
   await metadata.locator("summary").click();
   await expect(dialog.getByRole("button", { name: "展开全文" })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });

@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-05 · 模型视图的工具参数复用与 Schema 精简
+
+同一模型请求内，`manage_plan` 同计划、步骤、工具及长参数完全相同时，首次仍显示完整参数，后续结果可用 `arguments_ref` 指向同一请求内唯一工具调用和步骤；步骤状态、版本、依赖、错误及 unknown 等各自保留。引用源不在当前请求、调用 ID 或步骤 ID 存在歧义、参数变化或结构不符时保留全文。账本、工具执行、原回执与权限不变；结果及隔离验证见 [计划参数验证](../../docs/context-management/PLAN_ARGUMENT_DEDUP_RESULTS_2026-11-05.md)。
+
+宿主工具 Schema 仅移除与属性名机械等价的 `title` 注解，保留实际字段、工具集合与顺序、约束、默认值、描述、自定义标题和权限约束；这会使切换版本时 Schema 前缀改变一次。四类合成只读工具选择的真实模型对照及边界见 [Schema 验证](../../docs/context-management/TOOL_SCHEMA_CONTEXT_RESULTS_2026-11-05.md)。
+
 ## 2026-11-04 · BGM 导入与视频交接
 
 账号 Agent 可通过 manage_material 导入分享原文并查询导入状态，也可读取和分析账号现有素材；资源归属由宿主校验。用户只要求直接制作时仍可把分享原文通过 bgm_reference 交给 Codex，无需预先导入。对话上下文仅包含简短音乐索引和本次附件信息，不包含音频字节或完整分析正文。

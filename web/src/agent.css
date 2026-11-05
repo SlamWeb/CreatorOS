@@ -76,6 +76,13 @@
 .chat-trace-attribution li { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
 .chat-trace-attribution li span:last-child { flex: none; font-variant-numeric: tabular-nums; }
 .chat-trace-attribution-tools { margin-top: 16px; }
+.chat-trace-cache { padding: 12px; border-top: 1px solid var(--line); }
+.chat-trace-cache h4 { margin: 0 0 6px; font-size: 12px; font-weight: 600; }
+.chat-trace-cache .chat-trace-attribution-note { padding: 0; }
+.chat-trace-cache-explanation { margin-top: 12px; }
+.chat-trace-cache ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.chat-trace-cache li { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 12px; overflow-wrap: anywhere; }
+.chat-trace-cache li span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 .chat-trace-subsection { margin-top: 14px; }
 .chat-trace-subsection h4 { margin: 0 0 8px; font-size: 12px; }
 .chat-trace-tabs { display: flex; gap: 6px; margin: 12px 0 8px; border-bottom: 1px solid var(--line); }

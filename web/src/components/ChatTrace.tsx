@@ -14,6 +14,11 @@ type TraceRequest = {
   estimated_input_tokens?: number | null;
   estimated_parts?: Record<string, unknown> | null;
   estimated_detail?: { parts?: Record<string, number>; tool_results_by_tool?: Record<string, number> } | null;
+  prefix_comparison?: {
+    status?: string; messages_relation?: string; same_message_count?: number;
+    first_difference_categories?: string[]; tools_changed?: boolean;
+    same_turn?: boolean; same_model?: boolean; redacted_comparison?: boolean;
+  } | null;
   usage?: unknown;
   input_limit?: number | null;
   checkpoint_id?: string | null;
@@ -152,6 +157,7 @@ function requestSummary(step: TraceRequest) {
 function RequestMetadata({ step }: { step: TraceRequest }) {
   return <details className="chat-trace-metadata">
     <summary>{requestSummary(step)}</summary>
+    <CacheDiagnostics step={step} />
     <ContextAttribution detail={step.estimated_detail} />
     <dl>
       <div><dt>状态</dt><dd>{step.status} · {step.event === "finished" ? "已结束" : "已开始"}</dd></div>
@@ -169,6 +175,39 @@ function RequestMetadata({ step }: { step: TraceRequest }) {
       {step.checkpoint_id && <div><dt>检查点</dt><dd>{step.checkpoint_id}</dd></div>}
     </dl>
   </details>;
+}
+
+const prefixRelations: Record<string, string> = {
+  unchanged: "消息未变化", appended: "消息仅追加", removed_suffix: "消息尾部减少", changed: "消息中途发生变化",
+};
+const prefixCategories: Record<string, string> = {
+  system: "系统指令", account_context: "账号上下文", summary: "历史摘要", assistant: "Assistant 消息",
+  tool_result: "工具结果", user: "用户消息", user_multimodal_or_request_context: "图片或本问资料", other: "其他消息",
+};
+
+function CacheDiagnostics({ step }: { step: TraceRequest }) {
+  const usage = step.usage as { cache_hit_tokens?: number | null; cache_miss_tokens?: number | null } | null;
+  const comparison = step.prefix_comparison;
+  const validNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const boolLabel = (value: boolean | undefined) => value == null ? "未记录" : value ? "是" : "否";
+  return <section className="chat-trace-cache" aria-label="缓存与前缀">
+    <h4>缓存与前缀</h4>
+    <p className="chat-trace-attribution-note">缓存用量为供应商返回的实际 token。</p>
+    <ul aria-label="缓存实际用量">
+      <li><span>缓存命中</span><span>{validNumber(usage?.cache_hit_tokens) ? formatNumber(usage.cache_hit_tokens) : "未记录"}</span></li>
+      <li><span>缓存未命中</span><span>{validNumber(usage?.cache_miss_tokens) ? formatNumber(usage.cache_miss_tokens) : "未记录"}</span></li>
+    </ul>
+    {comparison?.status === "available" ? <>
+      <p className="chat-trace-attribution-note chat-trace-cache-explanation">以下比较同一会话上一条已发送主请求的脱敏快照；不包含 Provider 转换及推理档位等请求设置，不能据此判断服务端缓存边界或未命中原因。</p>
+      <ul aria-label="前缀结构比较">
+        <li><span>消息变化</span><span>{prefixRelations[comparison.messages_relation ?? ""] ?? "未记录"}</span></li>
+        <li><span>前面完全相同的消息数</span><span>{validNumber(comparison.same_message_count) ? formatNumber(comparison.same_message_count) : "未记录"}</span></li>
+        {comparison.messages_relation === "changed" && <li><span>首处变化类型</span><span>{comparison.first_difference_categories?.map(value => prefixCategories[value] ?? "其他消息").join("、") || "未记录"}</span></li>}
+        <li><span>工具 Schema 有变化</span><span>{boolLabel(comparison.tools_changed)}</span></li>
+        <li><span>同一用户轮 / 同一模型</span><span>{boolLabel(comparison.same_turn)} / {boolLabel(comparison.same_model)}</span></li>
+      </ul>
+    </> : <p className="chat-trace-attribution-note chat-trace-cache-explanation">这一步没有可用的前缀比较；旧记录不会补造。</p>}
+  </section>;
 }
 
 const attributionLabels: Record<string, string> = {

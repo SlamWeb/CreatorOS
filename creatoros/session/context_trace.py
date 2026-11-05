@@ -125,11 +125,106 @@ def detailed_breakdown(context, *, kind, parts=None):
     return {'parts': detail, 'tool_results_by_tool': result_by_tool}
 
 
+_TRACE_TAIL_LIMIT = 8 * 1024 * 1024
+
+
+def _last_sent_main(path):
+    """Find the latest sent main request in a bounded tail of this session only."""
+    if not path.exists():
+        return None
+    with path.open('rb') as stream:
+        stream.seek(0, 2)
+        size = stream.tell()
+        stream.seek(max(0, size - _TRACE_TAIL_LIMIT))
+        if size > _TRACE_TAIL_LIMIT:
+            stream.readline()  # Discard the possibly incomplete first line.
+        lines = stream.read().splitlines()
+    for line in reversed(lines):
+        try:
+            record = json.loads(line)
+        except (ValueError, UnicodeError):
+            continue
+        if (isinstance(record, dict) and record.get('event') == 'finished'
+                and record.get('request_kind') == 'main' and record.get('sent') is True):
+            return record
+    return None
+
+
+def _message_category(message):
+    if not isinstance(message, dict):
+        return 'other'
+    role, content = message.get('role'), message.get('content')
+    if role in {'system', 'developer'}:
+        return 'system'
+    if role == 'tool':
+        return 'tool_result'
+    if role == 'assistant':
+        return 'assistant'
+    if role == 'user':
+        if isinstance(content, str) and content.startswith('[宿主提供的当前账号目录；'):
+            return 'account_context'
+        if isinstance(content, str) and content.startswith('The conversation history before this point was compacted'):
+            return 'summary'
+        if isinstance(content, list):
+            return 'user_multimodal_or_request_context'
+        return 'user'
+    return 'other'
+
+
+def _compare_context(previous, current):
+    """Return only coarse structural facts; never return message content or names."""
+    old_messages, new_messages = previous['messages'], current['messages']
+    same = 0
+    for old, new in zip(old_messages, new_messages):
+        if old != new:
+            break
+        same += 1
+    if same == min(len(old_messages), len(new_messages)):
+        relation = ('unchanged' if len(old_messages) == len(new_messages) else
+                    'appended' if len(old_messages) < len(new_messages) else 'removed_suffix')
+        categories = []
+    else:
+        relation = 'changed'
+        categories = sorted({_message_category(old_messages[same]), _message_category(new_messages[same])})
+    return {'messages_relation': relation, 'same_message_count': same,
+            'first_difference_categories': categories,
+            'tools_changed': previous['tools'] != current['tools']}
+
+
 class ContextTrace:
     def __init__(self, session_file, *, capture_payload=False):
         self.path = trace_path(session_file)
         self.session_id = hashlib.sha256(str(Path(session_file).resolve()).encode()).hexdigest()[:24]
         self.snapshots = RequestSnapshots(session_file) if capture_payload else None
+        self._previous_main_loaded = False
+        self._previous_main = None
+
+    def compare_previous(self, context, model, turn_id):
+        """Best-effort local comparison; not a measurement of provider cache reuse."""
+        if self.snapshots is None:
+            return {'status': 'unavailable', 'reason': 'snapshots_disabled'}
+        try:
+            if not self._previous_main_loaded:
+                self._previous_main = _last_sent_main(self.path)
+                self._previous_main_loaded = True
+            previous = self._previous_main
+            if previous is None:
+                return {'status': 'unavailable', 'reason': 'no_previous_sent_main_in_trace_tail'}
+            if not previous.get('snapshot_available') or not isinstance(previous.get('request_id'), str):
+                return {'status': 'unavailable', 'reason': 'previous_snapshot_not_recorded'}
+            old = self.snapshots.read(previous['request_id'])
+            messages, tools = context.to_request()
+            current, current_redacted = redact({'messages': messages, 'tools': tools})
+            comparison = _compare_context(old['context'], current)
+            comparison.update(status='available', previous_request_id=previous['request_id'],
+                              same_turn=previous.get('turn_id') == turn_id,
+                              same_model=previous.get('model') == model,
+                              redacted_comparison=bool(old.get('redacted') or current_redacted),
+                              basis='redacted_model_context_before_provider_conversion')
+            return comparison
+        except Exception:
+            # Diagnostics must never prevent a model request or reveal the error payload.
+            return {'status': 'unavailable', 'reason': 'comparison_failed'}
 
     def append(self, record):
         if self.snapshots is not None:
@@ -161,6 +256,10 @@ class ContextTrace:
                 span.record['elapsed_ms'] = round((monotonic() - span.started) * 1000, 2)
                 span.record['event'] = 'finished'
                 self.append(span.record)
+                if kind == 'main' and span.record.get('sent') is True:
+                    self._previous_main = {key: span.record.get(key) for key in
+                                           ('request_id', 'turn_id', 'model', 'snapshot_available')}
+                    self._previous_main_loaded = True
 
 
 class TraceRequest:
@@ -186,6 +285,9 @@ class TraceRequest:
             self.record['estimated_detail'] = detailed_breakdown(context, kind='main', parts=parts)
         self.started = monotonic()
         self.capture('begin', self.record['turn_id'], context)
+        if self.record['request_kind'] == 'main':
+            self.record['prefix_comparison'] = self.owner.compare_previous(
+                context, self.record['model'], self.record['turn_id'])
         self.owner.append({**self.record, 'status': 'started', 'sent': None})
 
     def capture(self, operation, *args):

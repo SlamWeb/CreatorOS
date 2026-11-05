@@ -291,9 +291,10 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
     if tool_name == "manage_plan":
         fields = ("id", "title", "version", "status", "session_id", "creator_id", "error", "message", "pause_reason", "continuation_state", "tool_contract_version", "read_only")
         def step(item):
-            result = _pick(item, ("id", "title", "tool", "arguments", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
+            result = _pick(item, ("id", "title", "tool", "arguments", "arguments_ref", "depends_on", "wait_for_completion", "status", "error", "retryable", "skippable"))
             if isinstance(result, dict) and (arguments or {}).get("action") in {"create", "update"}:
                 result.pop("arguments", None)
+                result.pop("arguments_ref", None)
             if isinstance(item, dict) and isinstance(item.get("result"), dict):
                 value = item["result"]
                 result["result"] = _pick(value, ("id", "topic_id", "series_id", "creator_id", "status", "run_id", "collection_id", "url", "collection_url", "question"))
@@ -475,6 +476,7 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
     names = {}
     arguments = {}
     visible_skill_text = {}
+    visible_plan_arguments = {}
     projected = deepcopy(messages)
     call_ids = Counter(call["id"] for message in projected for call in message.get("tool_calls", [])
                        if isinstance(call, dict) and isinstance(call.get("id"), str))
@@ -500,6 +502,41 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
         call_args = arguments.get(message.get("tool_call_id"))
         message["content"] = prefix + project_model_content(
             name, body, is_error=bool(prefix), arguments=call_args if isinstance(call_args, dict) else None)
+        if name == "manage_plan" and not prefix and call_ids[message.get("tool_call_id")] == 1:
+            try:
+                view = json.loads(message["content"])
+                plan_id, steps = view.get("id"), view.get("steps")
+                if not isinstance(plan_id, str) or not plan_id or not isinstance(steps, list):
+                    continue
+                changed = False
+                step_ids = Counter(step.get("id") for step in steps
+                                   if isinstance(step, dict) and isinstance(step.get("id"), str))
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    step_id, tool, value = step.get("id"), step.get("tool"), step.get("arguments")
+                    if (not isinstance(step_id, str) or not step_id or step_ids[step_id] != 1 or not isinstance(tool, str)
+                            or not tool or not isinstance(value, dict)):
+                        continue
+                    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    # Short arguments cost less to retain than a reference and
+                    # gain nothing from changing the ordinary detail view.
+                    if len(encoded) < 512:
+                        continue
+                    key = (plan_id, step_id, tool, encoded)
+                    first = visible_plan_arguments.get(key)
+                    if first is None:
+                        visible_plan_arguments[key] = message["tool_call_id"]
+                    else:
+                        step.pop("arguments")
+                        step["arguments_ref"] = {"tool_call_id": first, "step_id": step_id,
+                                                 "field": "arguments", "same_value": True}
+                        changed = True
+                if changed:
+                    message["content"] = project_model_content(name, json.dumps(view, ensure_ascii=False),
+                                                               arguments=call_args if isinstance(call_args, dict) else None)
+            except (ValueError, TypeError, KeyError, AttributeError):
+                pass  # Keep the ordinary projected result on unexpected shapes.
         if name in {"get_producer_skill", "get_skill_extraction"} and not prefix:
             try:
                 if call_ids[message.get("tool_call_id")] != 1:

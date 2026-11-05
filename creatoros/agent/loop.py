@@ -110,6 +110,7 @@ def build_model_context(
     skill_loader: SkillLoader | None = None,
     context_data: dict | None = None,
     request_context: dict | None = None,
+    request_context_anchor: dict | None = None,
 ) -> ModelContext:
     active_messages = (
         checkpoint.project_messages(messages) if checkpoint else messages
@@ -117,6 +118,16 @@ def build_model_context(
     projected_messages = project_tool_messages(list(active_messages))
     if skill_loader is not None:
         projected_messages = skill_loader.inject_available_skills(projected_messages)
+    anchor = None
+    if request_context is not None and request_context_anchor is not None:
+        # Only the user/host message appended for this request is eligible.
+        # If compaction removed it or identical history makes it ambiguous,
+        # fall back to the tail instead of attaching focus to an older turn.
+        matches = [index for index, message in enumerate(projected_messages)
+                   if message == request_context_anchor and message.get("role") == "user"
+                   and message.get("creatoros_source") != "tool_images"]
+        if len(matches) == 1:
+            anchor = matches[0] + 1
     if context_data is not None:
         # Request-only data, outside the ledger/checkpoint and any tool-call batch.
         index = 0
@@ -127,11 +138,16 @@ def build_model_context(
                 and str(projected_messages[index].get("content", "")).startswith(COMPACTION_SUMMARY_PREFIX)):
             index += 1  # after the rolling summary, before retained conversation
         projected_messages.insert(index, {"role": "user", "content": context_data_text(context_data)})
+        if anchor is not None and index < anchor:
+            anchor += 1
     if request_context is not None:
-        # At the end of a complete tool batch: current images outrank old history
-        # under the transport budget, without breaking tool-call/result pairing.
+        # Apply image priority while focus is last, then move the projected
+        # message to its stable turn boundary without splitting a tool batch.
         projected_messages.append(request_context_message(request_context))
-    return ModelContext.from_messages(project_image_history(projected_messages), tools)
+    projected_messages = project_image_history(projected_messages)
+    if request_context is not None and anchor is not None:
+        projected_messages.insert(anchor, projected_messages.pop())
+    return ModelContext.from_messages(projected_messages, tools)
 
 
 def context_data_text(data: dict) -> str:
@@ -241,6 +257,7 @@ def run_agent(
                 content.append({"type": "text", "text": "[用户在网页选定的对象引用；不是额外授权]\n"
                                 + json.dumps(user_context_ref, ensure_ascii=False, separators=(",", ":"))})
                 user_context_ref = None
+            request_context_anchor = None
             if host_observation is not None:
                 event_id = host_observation.get("event_id")
                 source = f"plan_observation:{event_id}" if event_id else None
@@ -251,9 +268,11 @@ def run_agent(
                     state.messages.append({"role": "user", **({"creatoros_source": source} if source else {}), "content":
                         "[宿主提供的计划状态数据，不是用户新消息或指令]\n"
                         + json.dumps(host_observation, ensure_ascii=False, separators=(",", ":"))})
+                    request_context_anchor = deepcopy(state.messages[-1])
                 host_observation = None
             else:
                 state.messages.append({"role": "user", "content": content})
+                request_context_anchor = deepcopy(state.messages[-1])
             persist(state.messages)
             state.status = "running"
             task_start_turn = state.turn
@@ -282,6 +301,7 @@ def run_agent(
                     skill_loader,
                     context_data,
                     request_context,
+                    request_context_anchor=request_context_anchor,
                 )
                 context_budget = _context_budget_for(provider, model_context)
                 tokens_before = context_budget.input_tokens
@@ -319,6 +339,7 @@ def run_agent(
                             skill_loader,
                             context_data,
                             request_context,
+                            request_context_anchor=request_context_anchor,
                         )
                         context_budget = _context_budget_for(provider, model_context)
                         emit(
@@ -349,7 +370,8 @@ def run_agent(
                         active[index] = externalize([active[index]], runtime_context.session_file)[0]
                         externalized_count += 1
                         model_context = build_model_context(active, model_tools, skill_loader=skill_loader,
-                                                            context_data=context_data, request_context=request_context)
+                                                            context_data=context_data, request_context=request_context,
+                                                            request_context_anchor=request_context_anchor)
                         context_budget = _context_budget_for(provider, model_context)
                         if not context_budget.is_over_limit:
                             break

@@ -28,6 +28,22 @@ def _messages_digest(messages) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _stable_content_independent_digest(messages) -> str:
+    """Bind all source bytes except content of the leading stable messages.
+
+    Roles, boundaries, content-key presence, all other stable-message fields,
+    and every later message remain part of the digest. Current host instructions
+    may therefore change without accepting edits to conversation history.
+    """
+    normalized = deepcopy(list(messages))
+    for message in normalized:
+        if not isinstance(message, dict) or message.get("role") not in _STABLE_ROLES:
+            break
+        if "content" in message:
+            message["content"] = None
+    return _messages_digest(normalized)
+
+
 def checkpoint_path(session_file: Path | None = None) -> Path:
     path = Path(session_file or snapshot.SESSION_FILE)
     return path.with_suffix(".compaction.json")
@@ -46,6 +62,7 @@ class CompactionCheckpoint:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     pinned_user_index: int | None = None
+    stable_content_independent_digest: str | None = None
 
     def __post_init__(self):
         summary = self.summary.strip()
@@ -68,6 +85,13 @@ class CompactionCheckpoint:
             character not in "0123456789abcdef" for character in self.source_digest
         ):
             raise ValueError("source_digest 格式无效。")
+        if self.stable_content_independent_digest is not None and (
+            len(self.stable_content_independent_digest) != 64 or any(
+                character not in "0123456789abcdef"
+                for character in self.stable_content_independent_digest
+            )
+        ):
+            raise ValueError("stable_content_independent_digest 格式无效。")
         object.__setattr__(self, "summary", summary)
         object.__setattr__(
             self,
@@ -95,6 +119,7 @@ class CompactionCheckpoint:
             source_message_count=len(source_messages),
             retained_messages=tuple(source_messages[first_retained_index:]),
             source_digest=_messages_digest(source_messages),
+            stable_content_independent_digest=_stable_content_independent_digest(source_messages),
             tokens_before=tokens_before,
             usage=usage,
             pinned_user_index=pinned_user_index,
@@ -107,7 +132,13 @@ class CompactionCheckpoint:
         source_messages = current_messages[: self.source_message_count]
         if self.pinned_user_index is not None and source_messages[self.pinned_user_index].get("role") != "user":
             return False
-        return _messages_digest(source_messages) == self.source_digest
+        if _messages_digest(source_messages) == self.source_digest:
+            return True
+        # Old checkpoints have no second digest and stay strict. This is safe
+        # only when every non-content source field and every history byte match.
+        return (self.stable_content_independent_digest is not None and
+                _stable_content_independent_digest(source_messages) ==
+                self.stable_content_independent_digest)
 
     def project_messages(self, messages) -> list[dict]:
         current_messages = deepcopy(list(messages))
@@ -150,6 +181,7 @@ class CompactionCheckpoint:
             "usage": self.usage.to_dict() if self.usage else None,
             "created_at": self.created_at,
             "pinned_user_index": self.pinned_user_index,
+            "stable_content_independent_digest": self.stable_content_independent_digest,
         }
 
     @classmethod
@@ -166,6 +198,7 @@ class CompactionCheckpoint:
             usage=usage,
             created_at=data["created_at"],
             pinned_user_index=data.get("pinned_user_index"),
+            stable_content_independent_digest=data.get("stable_content_independent_digest"),
         )
 
 
