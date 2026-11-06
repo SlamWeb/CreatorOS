@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "label": "topics_and_tasks",
+      "total_estimate": 81842,
+      "extraction_result_estimate": 0,
+      "checks": {},
+      "account_authorization_verified": false
+    },
+    {
+      "label": "plan_management",
+      "total_estimate": 75983,
+      "extraction_result_estimate": 0,
+      "checks": {},
+      "account_authorization_verified": false
+    },
+    {
+      "label": "skill_extraction",
+      "total_estimate": 48616,
+      "extraction_result_estimate": 5811,
+      "checks": {
+        "references": 24,
+        "source_earlier": 24,
+        "same_arguments": 24,
+        "same_raw_result": 24,
+        "job_id_matches_response_id": 24,
+        "status_retained": 24,
+        "no_error": 24
+      },
+      "account_authorization_verified": false
+    },
+    {
+      "label": "skill_file_edit",
+      "total_estimate": 58797,
+      "extraction_result_estimate": 0,
+      "checks": {},
+      "account_authorization_verified": false
+    },
+    {
+      "label": "mixed_short",
+      "total_estimate": 30374,
+      "extraction_result_estimate": 0,
+      "checks": {},
+      "account_authorization_verified": false
+    },
+    {
+      "label": "topic_lists",
+      "total_estimate": 93181,
+      "extraction_result_estimate": 0,
+      "checks": {},
+      "account_authorization_verified": false
+    }
+  ]
+}

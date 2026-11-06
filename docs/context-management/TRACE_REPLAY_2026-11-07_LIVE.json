@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "status": "complete",
+  "sample": "mixed_short",
+  "snapshot_sha256": "2cff77dadb7b6fb989cc40733884227a9f93d85a6667b3930cf6ab9f4482e948",
+  "model": "deepseek-flash",
+  "reasoning_effort": "none",
+  "output_cap": 256,
+  "business_tool_calls_executed": 0,
+  "source_original_input_tokens": 31533,
+  "source_original_output_tokens": 136,
+  "attempts": [
+    {
+      "variant": "recorded",
+      "status": "succeeded",
+      "usage": {
+        "input_tokens": 28862,
+        "output_tokens": 74,
+        "total_tokens": 28936,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 28862
+      },
+      "proposed_tool_call_count": 0,
+      "reply_present": true,
+      "elapsed_seconds": 2.703
+    },
+    {
+      "variant": "current_projection",
+      "status": "succeeded",
+      "usage": {
+        "input_tokens": 28829,
+        "output_tokens": 36,
+        "total_tokens": 28865,
+        "cache_hit_tokens": 22144,
+        "cache_miss_tokens": 6685
+      },
+      "proposed_tool_call_count": 0,
+      "reply_present": true,
+      "elapsed_seconds": 1.141
+    }
+  ]
+}

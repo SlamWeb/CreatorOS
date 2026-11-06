@@ -477,6 +477,7 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
     arguments = {}
     visible_skill_text = {}
     visible_plan_arguments = {}
+    visible_pending_receipts = {}
     projected = deepcopy(messages)
     call_ids = Counter(call["id"] for message in projected for call in message.get("tool_calls", [])
                        if isinstance(call, dict) and isinstance(call.get("id"), str))
@@ -572,4 +573,42 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
                     message["content"] = project_model_content(name, json.dumps(view, ensure_ascii=False))
             except (ValueError, TypeError, AttributeError):
                 pass  # Unexpected shapes retain the ordinary projected result.
+        if name == "get_skill_extraction" and not prefix and call_ids[message.get("tool_call_id")] == 1:
+            try:
+                # Only a byte-identical successful pending receipt for the same
+                # validated job/arguments can reuse a visible source. Never
+                # turn a repeated result into a claim of a fresh observation.
+                raw_view = json.loads(body)
+                view = json.loads(message["content"])
+                args = arguments.get(message.get("tool_call_id"))
+                if not isinstance(raw_view, dict) or not isinstance(view, dict) or not isinstance(args, dict):
+                    continue
+                job = args.get("job_id")
+                if (not isinstance(job, str) or not job or raw_view.get("id") != job or view.get("id") != job
+                        or raw_view.get("status") not in {"queued", "running"}
+                        or view.get("status") != raw_view.get("status")
+                        or any(raw_view.get(key) or view.get(key) for key in
+                               ("error", "error_type", "outcome_unknown", "is_error", "observation_warning"))
+                        or any(isinstance(item.get(key), str) and item[key].casefold() in
+                               {"unknown", "uncertain", "needs_attention"}
+                               for item in (raw_view, view) for key in ("queue_state", "operation"))
+                        or len(message["content"]) < 512):
+                    continue
+                key = (json.dumps(args, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                       body, message["content"])
+                source = visible_pending_receipts.get(key)
+                if source is None:
+                    visible_pending_receipts[key] = message["tool_call_id"]
+                else:
+                    receipt = _pick(view, ("id", "status", "operation", "error", "queue_state", "next_action",
+                                           "digest", "revision", "cancel_requested", "observation_warning"))
+                    receipt["result_ref"] = {
+                        "tool_call_id": source, "identical": True,
+                        "meaning": "本次返回内容与该可见结果完全相同；该引用不说明本次是否实时读取。",
+                    }
+                    compact = json.dumps(receipt, ensure_ascii=False)
+                    if len(compact) < len(message["content"]):
+                        message["content"] = compact
+            except (ValueError, TypeError, KeyError, AttributeError):
+                pass  # Never lose a receipt when its identity or shape is unclear.
     return projected

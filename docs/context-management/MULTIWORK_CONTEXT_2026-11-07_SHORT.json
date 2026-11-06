@@ -1,0 +1,86 @@
+[
+  {
+    "case_id": "FIRST_VERSION",
+    "question": "日常栏目那篇《早餐观察》最初定的开头是哪一句？",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4224,
+          "cache_miss_tokens": 696,
+          "input_tokens": 4920,
+          "output_tokens": 199,
+          "total_tokens": 5119
+        }
+      }
+    ],
+    "answer": "日常栏目《早餐观察》第一版的开场文案是：“一碗热粥，陪城市慢慢醒来。”",
+    "tool_calls": [],
+    "elapsed_seconds": 3.438
+  },
+  {
+    "case_id": "LATEST_VERSION",
+    "question": "日常栏目那篇《早餐观察》后来修改后的开头是什么？",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4736,
+          "cache_miss_tokens": 184,
+          "input_tokens": 4920,
+          "output_tokens": 419,
+          "total_tokens": 5339
+        }
+      }
+    ],
+    "answer": "日常栏目《早餐观察》目前载入的最新是第二版，开头为「早餐摊升起的热气，点亮清晨。」（第一版是「一碗热粥，陪城市慢慢醒来。」）\n\n这只是本问载入的资料快照，未核实库中是否还有更晚的修改。",
+    "tool_calls": [],
+    "elapsed_seconds": 3.094
+  },
+  {
+    "case_id": "OTHER_WORK",
+    "question": "成长栏目那篇《早餐观察》当时定的开头是什么？",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4736,
+          "cache_miss_tokens": 183,
+          "input_tokens": 4919,
+          "output_tokens": 195,
+          "total_tokens": 5114
+        }
+      }
+    ],
+    "answer": "成长栏目那篇《早餐观察》当时定下的开场文案是：「赶路的人，也值得好好吃早餐。」",
+    "tool_calls": [],
+    "elapsed_seconds": 1.812
+  },
+  {
+    "case_id": "AMBIGUOUS_WORK",
+    "question": "之前那篇《早餐观察》第一版的开头是什么？",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4736,
+          "cache_miss_tokens": 183,
+          "input_tokens": 4919,
+          "output_tokens": 250,
+          "total_tokens": 5169
+        }
+      }
+    ],
+    "answer": "《早餐观察》有三个版本出现过，其中“第一版”有两个栏目：日常栏目的开头是“一碗热粥，陪城市慢慢醒来。”；成长栏目的开头是“赶路的人，也值得好好吃早餐。”；另外，日常栏目第二版的开头是“早餐摊升起的热气，点亮清晨。”。您想看哪一个？",
+    "tool_calls": [],
+    "elapsed_seconds": 2.047
+  }
+]

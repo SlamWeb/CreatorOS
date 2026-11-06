@@ -1,0 +1,42 @@
+[
+  {
+    "variant": "old",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 11743,
+          "input_tokens": 11743,
+          "output_tokens": 148,
+          "total_tokens": 11891
+        }
+      }
+    ],
+    "blocked_tool_calls": [],
+    "answer": "**状态：** 按最近一次实际读取的结果，该提取任务状态为 `running`（运行中），尚无产出，未完成，也未报错。\n\n**回执里的校对要求：** 回执说明末尾写的是「校对要求：逐段核对证据。」；除这一句外，其余说明文字均为同一句合成说明的重复，没有别的可执行要求。\n\n**能否确定是实时查询：** 不能确定。查询返回的一直是同一份状态和同一修订号（revision=1），没有任何时间戳或更新迹象，因此只能说明「每次读取都返回运行中」，无法证明最近一次读取是实时状态、而非缓存或未推进的同一份记录。",
+    "elapsed_seconds": 3.578
+  },
+  {
+    "variant": "new",
+    "status": "completed_needs_review",
+    "requests": [
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 6331,
+          "input_tokens": 6331,
+          "output_tokens": 74,
+          "total_tokens": 6405
+        }
+      }
+    ],
+    "blocked_tool_calls": [],
+    "answer": "技能提取任务当前状态是 running（后台仍在进行），尚未完成。\n\n回执中的校对要求是：**“逐段核对证据。”**（位于工作说明末尾）\n\n不能确定最近一次读取是实时查询。多次查询返回的结果一致，回执只说明该结果与此前可见结果完全相同，并明确该引用不说明本次是否实时读取。",
+    "elapsed_seconds": 1.281
+  }
+]
