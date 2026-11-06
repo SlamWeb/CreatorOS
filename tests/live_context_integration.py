@@ -50,11 +50,12 @@ def send(client, doc, text):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true', help='make paid DeepSeek requests')
+    parser.add_argument('--env-file', type=Path, default=Path.cwd() / '.env')
     args = parser.parse_args()
     if not args.live:
         print('live_context_integration=not_run pass --live to call the model')
         return
-    key = (dotenv_values(Path.cwd() / '.env').get('DEEPSEEK_API_KEY') or '').strip()
+    key = (dotenv_values(args.env_file).get('DEEPSEEK_API_KEY') or '').strip()
     if not key:
         raise RuntimeError('DEEPSEEK_API_KEY is unavailable')
     marker = 'CHECK' + uuid4().hex[:12].upper()
@@ -76,8 +77,10 @@ def main():
         root = Path(temporary)
         database, run_service, producer, _ = make_fixture(root)
         repository = ContentRepository(database)
+        # Keep the marker beyond the list preview so the detail query actually
+        # needs a get call; otherwise the earlier list may already reveal it.
         repository.add_topic(topic_id='review-check', series_id='agent-notes', title='隔离测试目标',
-                             source=TopicSource.MANUAL, brief='测试专用校验码：' + marker)
+                             source=TopicSource.MANUAL, brief='合成制作要求。' * 40 + '测试专用校验码：' + marker)
         repository.create_creator(creator_id='other-owner', display_name='隔离测试另一账号',
                                   platform=CreatorPlatform.XIAOHONGSHU)
         repository.create_series(series_id='other-series', creator_id='other-owner', name='另一栏目',
@@ -114,7 +117,8 @@ def main():
                     if not denied.is_error or 'other-secret' in denied.content:
                         raise AssertionError('cross-account read was not denied')
             if {item['action'] for item in calls} != {'list', 'get'} or any(item['error'] for item in calls):
-                raise AssertionError('required real read-only tool calls did not complete')
+                raise AssertionError('required real read-only tool calls did not complete: '
+                                     + json.dumps(calls, ensure_ascii=False))
             if producer.calls:
                 raise AssertionError('fixture producer was invoked')
             after = [(x.id, x.title, x.brief, x.status.value, x.position)

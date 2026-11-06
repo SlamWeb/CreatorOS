@@ -38,7 +38,11 @@ def breakdown(context, *, kind, skill_text='', summary_text='', account_text='')
         parts['tools'] = _units(list(context.tools)) // 4
     for message in (*context.system_messages, *context.messages):
         role = message.get('role')
-        category = ('system' if role in {'system', 'developer'} else
+        host_account_event = role == 'user' and message.get('creatoros_source') == 'account_context_event'
+        if host_account_event and kind == 'main':
+            parts.setdefault('account_context', 0)
+        category = ('account_context' if host_account_event and kind == 'main' else
+                    'system' if role in {'system', 'developer'} else
                     'summary_source' if kind == 'compaction' else
                     'tool_results' if role == 'tool' else 'recent_messages')
         copy = dict(message)
@@ -161,6 +165,10 @@ def _message_category(message):
     if role == 'assistant':
         return 'assistant'
     if role == 'user':
+        if message.get('creatoros_source') == 'account_context_event':
+            return 'account_context'
+        if message.get('creatoros_source') == 'request_context_event':
+            return 'user_multimodal_or_request_context'
         if isinstance(content, str) and content.startswith('[宿主提供的当前账号目录；'):
             return 'account_context'
         if isinstance(content, str) and content.startswith('The conversation history before this point was compacted'):

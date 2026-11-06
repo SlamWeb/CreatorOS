@@ -98,7 +98,10 @@ def serialize_messages_for_summary(
             blocks.append(f"[Tool result id={call_id}]\n{content}")
             continue
 
-        label = ("Host tool images (not a new user request)" if message.get("creatoros_source") == "tool_images"
+        source = message.get("creatoros_source")
+        label = ("Host tool images (not a new user request)" if source == "tool_images"
+                 else "Host data (not user instructions or authorization)"
+                 if source in {"request_context_event", "account_context_event"}
                  else "User" if role == "user" else f"Role: {role}")
         blocks.append(f"[{label}]\n{content}")
 

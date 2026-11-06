@@ -15,6 +15,7 @@ COMPACTION_SUMMARY_PREFIX = (
 )
 COMPACTION_SUMMARY_SUFFIX = "\n</summary>"
 _STABLE_ROLES = {"system", "developer"}
+_PINNABLE_HOST_SOURCES = {"request_context_event", "account_context_event"}
 
 
 def _messages_digest(messages) -> str:
@@ -63,6 +64,7 @@ class CompactionCheckpoint:
     )
     pinned_user_index: int | None = None
     stable_content_independent_digest: str | None = None
+    pinned_host_indices: tuple[int, ...] = ()
 
     def __post_init__(self):
         summary = self.summary.strip()
@@ -74,6 +76,14 @@ class CompactionCheckpoint:
             0 <= self.pinned_user_index < self.first_retained_index
         ):
             raise ValueError("pinned_user_index 必须位于保留后缀之前。")
+        if (not isinstance(self.pinned_host_indices, (list, tuple))
+                or any(type(index) is not int for index in self.pinned_host_indices)
+                or tuple(sorted(set(self.pinned_host_indices))) != tuple(self.pinned_host_indices)
+                or (self.pinned_host_indices and self.pinned_user_index is None)
+                or any(not self.pinned_user_index < index < self.first_retained_index
+                       for index in self.pinned_host_indices)):
+            raise ValueError("pinned_host_indices 必须唯一、有序且位于固定用户消息与保留后缀之间。")
+        object.__setattr__(self, "pinned_host_indices", tuple(self.pinned_host_indices))
         expected_retained = self.source_message_count - self.first_retained_index
         if len(self.retained_messages) != expected_retained:
             raise ValueError("retained_messages 与切分位置不一致。")
@@ -109,10 +119,15 @@ class CompactionCheckpoint:
         tokens_before: int,
         usage: ModelUsage | None = None,
         pinned_user_index: int | None = None,
+        pinned_host_indices: tuple[int, ...] = (),
     ) -> "CompactionCheckpoint":
         source_messages = deepcopy(list(messages))
         if pinned_user_index is not None and source_messages[pinned_user_index].get("role") != "user":
             raise ValueError("只能固定原始用户请求。")
+        if any(source_messages[index].get("role") != "user" or
+               source_messages[index].get("creatoros_source") not in _PINNABLE_HOST_SOURCES
+               for index in pinned_host_indices):
+            raise ValueError("只能固定宿主上下文消息。")
         return cls(
             summary=summary,
             first_retained_index=first_retained_index,
@@ -123,6 +138,7 @@ class CompactionCheckpoint:
             tokens_before=tokens_before,
             usage=usage,
             pinned_user_index=pinned_user_index,
+            pinned_host_indices=pinned_host_indices,
         )
 
     def matches_session(self, messages) -> bool:
@@ -131,6 +147,10 @@ class CompactionCheckpoint:
             return False
         source_messages = current_messages[: self.source_message_count]
         if self.pinned_user_index is not None and source_messages[self.pinned_user_index].get("role") != "user":
+            return False
+        if any(source_messages[index].get("role") != "user" or
+               source_messages[index].get("creatoros_source") not in _PINNABLE_HOST_SOURCES
+               for index in self.pinned_host_indices):
             return False
         if _messages_digest(source_messages) == self.source_digest:
             return True
@@ -166,6 +186,7 @@ class CompactionCheckpoint:
             *stable_prefix,
             summary_message,
             *([current_messages[self.pinned_user_index]] if self.pinned_user_index is not None else []),
+            *(current_messages[index] for index in self.pinned_host_indices),
             *deepcopy(list(self.retained_messages)),
             *appended_messages,
         ]
@@ -181,6 +202,7 @@ class CompactionCheckpoint:
             "usage": self.usage.to_dict() if self.usage else None,
             "created_at": self.created_at,
             "pinned_user_index": self.pinned_user_index,
+            "pinned_host_indices": list(self.pinned_host_indices),
             "stable_content_independent_digest": self.stable_content_independent_digest,
         }
 
@@ -198,6 +220,7 @@ class CompactionCheckpoint:
             usage=usage,
             created_at=data["created_at"],
             pinned_user_index=data.get("pinned_user_index"),
+            pinned_host_indices=tuple(data.get("pinned_host_indices", ())),
             stable_content_independent_digest=data.get("stable_content_independent_digest"),
         )
 

@@ -15,7 +15,7 @@ from ..session.checkpoint import (
 )
 from .compaction import CompactionPlan
 from ..session import snapshot
-from ..session.artifacts import externalize, index_note
+from ..session.artifacts import archive_selected_contexts, externalize, index_note
 from ..session.context_trace import ContextTrace, checkpoint_id
 from .compaction_summary import (
     CompactionSummaryRequest,
@@ -84,9 +84,9 @@ def compact_session(
 
     # A pin is a virtual prefix, not another entry in the append-only ledger.
     pin_index = checkpoint.pinned_user_index if checkpoint else None
-    has_pin = pin_index is not None
-    if has_pin:
-        live_messages.insert(0, deepcopy(raw_messages[pin_index]))
+    pin_indices = ([pin_index, *checkpoint.pinned_host_indices] if pin_index is not None else [])
+    if pin_indices:
+        live_messages[0:0] = [deepcopy(raw_messages[index]) for index in pin_indices]
 
     plan_context = ModelContext.from_messages(live_messages, tools=[])
     planning_limit = context_budget.input_limit - reserved_input_tokens
@@ -101,11 +101,12 @@ def compact_session(
         return None
 
     def source_index(index: int) -> int:
-        return pin_index if has_pin and index == 0 else base_index + index - int(has_pin)
+        return pin_indices[index] if index < len(pin_indices) else base_index + index - len(pin_indices)
 
     first_retained_index = source_index(plan.first_retained_index)
     pinned_user_index = (source_index(plan.pinned_user_index)
                          if plan.pinned_user_index is not None else None)
+    pinned_host_indices = tuple(source_index(index) for index in plan.pinned_host_indices)
     if pinned_user_index is not None:
         custom_instructions = (custom_instructions or "") + (
             "\nThis checkpoint ends inside an ongoing user turn. Preserve completed "
@@ -114,8 +115,10 @@ def compact_session(
             "will remain verbatim after this summary."
         )
 
+    archive_session = session_file or snapshot.SESSION_FILE
+    summary_source = archive_selected_contexts(plan.messages_to_summarize, archive_session)
     request = CompactionSummaryRequest.from_messages(
-        externalize(plan.messages_to_summarize, session_file or snapshot.SESSION_FILE),
+        externalize(summary_source, archive_session),
         previous_summary=previous_summary,
         custom_instructions=custom_instructions,
     )
@@ -124,6 +127,7 @@ def compact_session(
                        checkpoint=checkpoint, source_message_count=len(raw_messages),
                        first_retained_index=first_retained_index,
                        pinned_user_index=pinned_user_index,
+                       pinned_host_indices=pinned_host_indices,
                        compacted=False, externalized_count=sum(m.get('role') == 'tool'
                            for m in plan.messages_to_summarize)) as span:
         result = generate_compaction_summary(provider, request, trace=span, previous_summary=previous_summary)
@@ -133,6 +137,7 @@ def compact_session(
             messages=raw_messages,
             first_retained_index=first_retained_index,
             pinned_user_index=pinned_user_index,
+            pinned_host_indices=pinned_host_indices,
             tokens_before=context_budget.input_tokens,
             usage=result.usage,
         )

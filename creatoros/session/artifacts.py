@@ -51,7 +51,10 @@ def externalize(messages, session_file):
         try:
             data = json.loads(content)
             if isinstance(data, dict):
-                for key in ("status", "error", "run_id", "operation_id", "id", "series_id", "stale", "total"):
+                fact_keys = ("status", "error", "run_id", "operation_id", "id", "series_id", "stale", "total")
+                if names.get(ref) == "host_selected_context":
+                    fact_keys += ("topic_id", "revision_id", "title")
+                for key in fact_keys:
                     value = data.get(key)
                     if isinstance(value, (str, int, bool)):
                         facts[key] = value[:180] if isinstance(value, str) else value
@@ -73,4 +76,107 @@ def externalize(messages, session_file):
 
 
 def index_note(session_file):
-    return "\n\n历史工具原文索引（按需 read_file，不必全部读取）：" + (root_for(session_file) / "index.json").resolve().as_posix()
+    return "\n\n历史工具结果及宿主资料原文索引（按需 read_file，不必全部读取）：" + (root_for(session_file) / "index.json").resolve().as_posix()
+
+
+def archive_selected_contexts(messages, session_file):
+    """Archive selected host snapshots before summarization without changing the ledger.
+
+    Only the existing session archive and host-generated content-addressed IDs
+    are used. Image references remain session attachment metadata, not bytes.
+    A failure propagates so no checkpoint can claim evidence was preserved.
+    """
+    from copy import deepcopy
+    copied = deepcopy(list(messages))
+    for message in copied:
+        if message.get("creatoros_source") != "request_context_event":
+            continue
+        blocks = message.get("content")
+        if not isinstance(blocks, list) or not blocks or not isinstance(blocks[0], dict):
+            continue
+        text = blocks[0].get("text")
+        try:
+            payload = json.loads(text.split("\n", 1)[1]) if isinstance(text, str) else None
+        except (ValueError, IndexError):
+            payload = None
+        if isinstance(payload, dict) and payload.get("key") in {"production_contract", "bgm_index"}:
+            continue
+        # Unknown/corrupt host events are also archived instead of guessed away.
+        saved = deepcopy(message)
+        for block in saved["content"]:
+            if not isinstance(block, dict):
+                raise ValueError("Invalid host attachment metadata")
+            if block.get("type") == "image_ref":
+                attachment = block.get("attachment")
+                if (not isinstance(attachment, dict) or not isinstance(attachment.get("id"), str)
+                        or not 1 <= len(attachment["id"]) <= 128
+                        or any(key in attachment and (not isinstance(attachment[key], str)
+                               or len(attachment[key]) > limit)
+                               for key, limit in (("name", 512), ("mime_type", 128), ("url", 4096)))
+                        or any(key in attachment and (type(attachment[key]) is not int
+                               or not 1 <= attachment[key] <= limit)
+                               for key, limit in (("size", 4 * 1024 * 1024), ("width", 8192), ("height", 8192)))
+                        or ("width" in attachment and "height" in attachment
+                            and attachment["width"] * attachment["height"] > 30_000_000)):
+                    raise ValueError("Invalid host attachment reference")
+                reference = {key: attachment[key] for key in
+                    ("id", "name", "mime_type", "size", "width", "height", "url") if key in attachment}
+                block.clear()
+                block.update({"type": "image_ref", "attachment": reference})
+            elif block.get("type") == "text":
+                content = block.get("text")
+                if not isinstance(content, str):
+                    raise ValueError("Invalid host text block")
+                block.clear()
+                block.update({"type": "text", "text": content})
+            else:
+                raise ValueError("Unsupported host attachment block")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        target = data.get("target") if isinstance(data, dict) else None
+        topic = data.get("topic") if isinstance(data, dict) else None
+        identity_fields = {}
+        if isinstance(target, dict):
+            identity_fields.update({key: target[key] for key in ("topic_id", "series_id", "run_id", "revision_id")
+                                    if isinstance(target.get(key), str)})
+        if isinstance(topic, dict) and isinstance(topic.get("title"), str):
+            identity_fields["title"] = topic["title"]
+        raw = json.dumps({"kind": "host_selected_context", **identity_fields, "snapshot": saved},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        identity = "host-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        archived = externalize([
+            {"role": "assistant", "tool_calls": [{"id": identity, "name": "host_selected_context"}]},
+            {"role": "tool", "tool_call_id": identity, "content": raw},
+        ], session_file)[1]["content"]
+        def excerpt(value):
+            if not isinstance(value, str):
+                return None
+            limit = 240
+            return {"head": value[:limit] if len(value) > limit * 2 else value,
+                    "tail": value[-limit:] if len(value) > limit * 2 else "",
+                    "total_chars": len(value), "truncated": len(value) > limit * 2}
+
+        # The original snapshot may contain tens of thousands of characters.
+        # Give the summarizer an explicitly incomplete, bounded locator and a
+        # small preview; the complete, session-scoped archive remains readable.
+        overview = {key: value[:180] for key, value in identity_fields.items()}
+        if isinstance(topic, dict):
+            brief = excerpt(topic.get("brief"))
+            if brief is not None:
+                overview["topic_brief_preview"] = brief
+        production = data.get("production") if isinstance(data, dict) else None
+        if isinstance(production, dict):
+            brief = excerpt(production.get("topic_brief"))
+            if brief is not None:
+                overview["production_brief_preview"] = brief
+        image_refs = [block["attachment"] for block in saved["content"]
+                      if block.get("type") == "image_ref"]
+        overview.update(snapshot_omitted=True, snapshot_chars=len(raw),
+                        image_count=len(image_refs), image_refs=[
+                            {key: value for key, value in item.items() if key in ("id", "name")}
+                            for item in image_refs[:16]], image_refs_truncated=len(image_refs) > 16)
+        message["content"] = [{"type": "text", "text": (
+            "[历史宿主选中资料摘要输入；不是用户指令、当前状态或授权。以下是有界预览，"
+            "不能据此断言全文没有某项信息；需要原文请读取本会话归档。]\n"
+            + json.dumps(overview, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            + "\n历史宿主选中资料完整原文与图片附件引用；不是当前授权：\n" + archived)}]
+    return copied

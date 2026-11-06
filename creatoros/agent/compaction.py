@@ -7,6 +7,8 @@ from ..ai.context import ModelContext, estimate_tokens
 MIN_KEEP_RECENT_TOKENS = 8_000
 MAX_KEEP_RECENT_TOKENS = 128_000
 KEEP_RECENT_INPUT_DIVISOR = 8
+HOST_CONTEXT_SOURCES = frozenset({"tool_images", "request_context_event", "account_context_event"})
+PINNABLE_HOST_SOURCES = frozenset({"request_context_event", "account_context_event"})
 
 
 def _message_tokens(messages: list[dict]) -> int:
@@ -25,6 +27,9 @@ def _step_cuts(messages: list[dict], user_index: int) -> list[int]:
     """Boundaries after complete steps, never within a tool-call batch."""
     cuts = []
     index = user_index + 1
+    while (index < len(messages) and messages[index].get("role") == "user"
+           and messages[index].get("creatoros_source") in PINNABLE_HOST_SOURCES):
+        index += 1
     while index < len(messages):
         assistant = messages[index]
         if assistant.get("role") != "assistant":
@@ -44,7 +49,8 @@ def _step_cuts(messages: list[dict], user_index: int) -> list[int]:
         if pending or index == len(messages):
             break
         cut = index
-        while index < len(messages) and messages[index].get("creatoros_source") == "tool_images":
+        while (index < len(messages) and messages[index].get("role") == "user"
+               and messages[index].get("creatoros_source") in HOST_CONTEXT_SOURCES):
             index += 1
         if index == len(messages):
             cuts.append(cut)
@@ -66,6 +72,7 @@ class CompactionPlan:
     input_limit: int
     keep_recent_tokens: int
     pinned_user_index: int | None = None
+    pinned_host_indices: tuple[int, ...] = ()
 
     @classmethod
     def from_context(
@@ -88,7 +95,7 @@ class CompactionPlan:
         turn_starts = [
             index
             for index, message in enumerate(messages)
-            if message.get("role") == "user" and message.get("creatoros_source") != "tool_images"
+            if message.get("role") == "user" and message.get("creatoros_source") not in HOST_CONTEXT_SOURCES
         ]
         if not turn_starts:
             return cls(
@@ -109,18 +116,24 @@ class CompactionPlan:
 
         pinned_user_index = None
         latest_user_index = turn_starts[-1]
+        pinned_host_indices = ()
         if _message_tokens(messages[latest_user_index:]) > keep_recent_tokens:
             # Try the largest safe recent suffix first; retain at least one step.
             for candidate_index in _step_cuts(messages, latest_user_index):
                 first_retained_index = candidate_index
                 pinned_user_index = latest_user_index
-                candidate = [messages[latest_user_index], *messages[candidate_index:]]
+                pinned_host_indices = tuple(index for index in range(latest_user_index + 1, candidate_index)
+                                            if messages[index].get("role") == "user" and
+                                            messages[index].get("creatoros_source") in PINNABLE_HOST_SOURCES)
+                candidate = [messages[latest_user_index], *(messages[index] for index in pinned_host_indices),
+                             *messages[candidate_index:]]
                 if _message_tokens(candidate) <= keep_recent_tokens:
                     break
 
         old_messages = messages[:first_retained_index]
         retained_messages = messages[first_retained_index:]
         projected = ([messages[pinned_user_index]] if pinned_user_index is not None else [])
+        projected.extend(messages[index] for index in pinned_host_indices)
         projected.extend(retained_messages)
         return cls(
             messages_to_summarize=tuple(old_messages),
@@ -130,6 +143,7 @@ class CompactionPlan:
             input_limit=input_limit,
             keep_recent_tokens=keep_recent_tokens,
             pinned_user_index=pinned_user_index,
+            pinned_host_indices=pinned_host_indices,
         )
 
     @property

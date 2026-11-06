@@ -400,7 +400,7 @@ class ChatFocusTests(unittest.TestCase):
 
     @staticmethod
     def has_focus_message(messages):
-        return any(block.get("type") == "text" and block.get("text", "").startswith("[本问选定作品的资料")
+        return any(block.get("type") == "text" and '"key":"selected_materials"' in block.get("text", "")
                    for message in messages if isinstance(message.get("content"), list)
                    for block in message["content"])
 
@@ -414,7 +414,7 @@ class ChatFocusTests(unittest.TestCase):
             sleep(.02)
         raise AssertionError("Controlled protocol turn timed out")
 
-    def test_real_http_replay_binds_target_and_next_query_drops_materials(self):
+    def test_real_http_replay_retains_historical_material_without_reselecting_it(self):
         before_rows, before_files = protected_records(self.db), tree_hashes(self.runs.output_root)
         with serve(self.app) as base, httpx.Client(base_url=base, trust_env=False, timeout=10) as client:
             endpoint = f"/api/agent/sessions/{self.sid}/turns"
@@ -440,15 +440,18 @@ class ChatFocusTests(unittest.TestCase):
         first_messages, first_tools = self.captures[0]
         second_messages, second_tools = self.captures[1]
         self.assertTrue(self.has_focus_message(first_messages))
-        self.assertFalse(self.has_focus_message(second_messages))
+        self.assertTrue(self.has_focus_message(second_messages))
+        self.assertEqual(second_messages[:len(first_messages)], first_messages)
         self.assertIn("current_production_contract", json.dumps(first_messages))
         self.assertIn("current_production_contract", json.dumps(second_messages))
         ledger = json.loads((self.root / "chats" / self.sid / "messages.json").read_text(encoding="utf-8"))
-        self.assertFalse(self.has_focus_message(ledger))
-        self.assertNotIn("FROZEN_account-a", json.dumps(ledger))
-        self.assertNotIn("current_production_contract", json.dumps(ledger))
-        self.assertFalse(any(block.get("type") == "image_ref" for message in ledger
-                             if isinstance(message.get("content"), list) for block in message["content"]))
+        self.assertTrue(self.has_focus_message(ledger))
+        selected = [m for m in ledger if m.get("creatoros_source") == "request_context_event"
+                    and self.has_focus_message([m])]
+        self.assertEqual(len(selected), 1)  # historical snapshot reused, not reselected/reinjected
+        self.assertIn("FROZEN_account-a", json.dumps(selected))
+        self.assertTrue(any(block.get("type") == "image_ref" for block in selected[0]["content"]))
+        self.assertIn("不能据此推断后续仍被选中", selected[0]["content"][0]["text"])
         self.assertEqual(first_tools, second_tools)
         self.assertEqual(len(first_tools), 36)
         self.assertEqual(protected_records(self.db), before_rows)

@@ -10,6 +10,7 @@ class ReadFileArgs(BaseModel):
     offset: int = Field(default=1, ge=1, description="从第几行开始读取，第一行是 1。")
     limit: int | None = Field(default=None, ge=1, description="最多读取多少行，不填写则读取到文件结尾。")
     unit: Literal["lines", "chars"] = Field(default="lines", description="归档大文件可用 chars 按字符分页，offset 从 1 起。")
+    search: str | None = Field(default=None, min_length=1, max_length=200, description="仅当前会话归档：区分大小写的精确字符串搜索。offset 为 1 起的字符位置，limit 为最多返回匹配数（上限 5）；按 next_offset 继续，complete=true 才表示已扫描至末尾。")
 
 
 class WriteFileArgs(BaseModel):

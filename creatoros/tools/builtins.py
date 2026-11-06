@@ -1,4 +1,6 @@
 from datetime import datetime
+import json
+import os
 from pathlib import Path
 
 from ..config import PROJECT_ROOT
@@ -7,6 +9,11 @@ from ..session.snapshot import find_tool_result, load_messages
 from .results import ToolResult
 
 MAX_READ_BYTES = 128 * 1024
+MAX_ARCHIVE_SEARCH_BYTES = 16 * 1024 * 1024
+ARCHIVE_SEARCH_SCAN_CHARS = 1_000_000
+ARCHIVE_SEARCH_QUERY_CHARS = 200
+ARCHIVE_SEARCH_CONTEXT_CHARS = 80
+ARCHIVE_SEARCH_MAX_MATCHES = 5
 SENSITIVE_DIRECTORY_NAMES = {".git", "sessions"}
 
 
@@ -37,7 +44,75 @@ def get_current_date(context: RuntimeContext | None = None) -> ToolResult:
     return ToolResult(content=datetime.now().date().isoformat())
 
 
-def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None, unit="lines") -> ToolResult:
+def _archive_search(path: Path, offset: int, limit: int | None, query: str) -> ToolResult:
+    """Search literal character positions with bounded work and unambiguous continuation."""
+    if not isinstance(query, str) or not 1 <= len(query) <= ARCHIVE_SEARCH_QUERY_CHARS:
+        return ToolResult("search 必须是 1 到 200 个字符的非空字符串。", True, "invalid_arguments")
+    if offset > MAX_ARCHIVE_SEARCH_BYTES + 1:
+        return ToolResult("搜索 offset 超出归档大小上限。", True, "invalid_arguments")
+    try:
+        if path.stat().st_size > MAX_ARCHIVE_SEARCH_BYTES:
+            return ToolResult("归档超过 16 MiB 搜索上限，无法搜索。", True, "file_too_large")
+        with path.open(encoding="utf-8", newline="") as stream:
+            remaining = offset - 1
+            while remaining:
+                chunk = stream.read(min(remaining, 32768))
+                if not chunk:
+                    return ToolResult("offset 超出文件范围。", True, "offset_out_of_range")
+                remaining -= len(chunk)
+            # Read ahead for matches and context that cross the scan boundary.
+            needed = ARCHIVE_SEARCH_SCAN_CHARS + len(query) - 1 + ARCHIVE_SEARCH_CONTEXT_CHARS + 1
+            chunks = []
+            while needed:
+                chunk = stream.read(min(needed, 32768))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                needed -= len(chunk)
+            text = "".join(chunks)
+        matches = []
+        start = 0
+        cap = min(limit or ARCHIVE_SEARCH_MAX_MATCHES, ARCHIVE_SEARCH_MAX_MATCHES)
+        while len(matches) < cap:
+            index = text.find(query, start)
+            if index < 0 or index >= ARCHIVE_SEARCH_SCAN_CHARS:
+                break
+            matches.append({"offset": offset + index, "context": text[max(0, index - ARCHIVE_SEARCH_CONTEXT_CHARS):index + len(query) + ARCHIVE_SEARCH_CONTEXT_CHARS]})
+            start = index + 1  # retain overlapping matches
+        if len(matches) == cap:
+            scanned_through = matches[-1]["offset"]
+            complete = False
+            reason = "match_limit"
+        else:
+            scanned_through = offset + min(len(text), ARCHIVE_SEARCH_SCAN_CHARS) - 1
+            complete = len(text) <= ARCHIVE_SEARCH_SCAN_CHARS
+            reason = "eof" if complete else "scan_budget"
+        result = {"matches": matches, "scanned_from": offset, "scanned_through": scanned_through,
+                  "complete": complete, "stop_reason": reason,
+                  "next_offset": None if complete else scanned_through + 1,
+                  "offset_unit": "chars", "case_sensitive": True}
+        return ToolResult("归档精确搜索结果：" + json.dumps(result, ensure_ascii=False))
+    except (OSError, UnicodeError):
+        return ToolResult("无法读取当前会话归档文件。", True, "file_read_failed")
+
+
+def _archive_path_has_link(path: Path, archive: Path) -> bool:
+    # Check lexical components as well as the resolved destination, including Windows junctions.
+    path = Path(os.path.abspath(path))
+    archive = Path(os.path.abspath(archive))
+    if not path.is_relative_to(archive):
+        return True
+    while path != archive:
+        try:
+            info = path.lstat()
+            if path.is_symlink() or getattr(info, "st_file_attributes", 0) & 0x400:
+                return True
+        except FileNotFoundError:
+            pass
+        path = path.parent
+    return False
+
+def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None, unit="lines", search=None) -> ToolResult:
     if offset < 1:
         return ToolResult(
             content="错误：offset 必须从 1 开始。",
@@ -62,6 +137,10 @@ def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None,
         from ..session.artifacts import root_for
         archive = root_for(context.session_file).resolve()
         if requested_path.is_relative_to(archive):
+            if search is not None:
+                if _archive_path_has_link(project_root / path, archive):
+                    return ToolResult("不允许搜索符号链接或归档外路径。", True, "path_out_of_scope")
+                return _archive_search(requested_path, offset, limit, search)
             try:
                 if unit == "chars":
                     count = min(limit or 8000, 16000)
@@ -93,6 +172,8 @@ def read_file(path, offset=1, limit=None, context: RuntimeContext | None = None,
                 return ToolResult("无法读取当前会话归档文件。", True, "file_read_failed")
         if context.archive_only_reads:
             return ToolResult("仅允许读取当前会话的工具归档。", True, "path_out_of_scope")
+    if search is not None:
+        return ToolResult("搜索仅允许当前会话的工具归档。", True, "path_out_of_scope")
     if unit != "lines":
         return ToolResult("普通项目文件仅支持按行读取。", True, "invalid_arguments")
 

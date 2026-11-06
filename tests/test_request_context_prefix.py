@@ -35,7 +35,7 @@ class Provider:
 
 
 class RequestContextPrefixTest(unittest.TestCase):
-    def test_actual_loop_preserves_focus_prefix_and_does_not_persist_it(self):
+    def test_actual_loop_preserves_focus_prefix_and_persists_historical_snapshot(self):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             session = root / 'messages.json'
@@ -54,8 +54,10 @@ class RequestContextPrefixTest(unittest.TestCase):
             self.assertEqual([message['role'] for message in second[-3:]], ['assistant', 'tool', 'tool'])
             self.assertEqual([message['tool_call_id'] for message in second[-2:]], ['call-a', 'call-b'])
             self.assertIn('focus-data', json.dumps(first))
-            self.assertNotIn('focus-data', json.dumps(next_turn))
-            self.assertNotIn('focus-data', json.dumps(load_messages(session)))
+            self.assertIn('focus-data', json.dumps(next_turn))
+            ledger = load_messages(session)
+            self.assertEqual(sum(message.get('creatoros_source') == 'request_context_event' for message in ledger), 1)
+            self.assertEqual(ledger[1], {'role': 'user', 'content': 'first question'})
 
     def test_focus_images_keep_existing_priority_without_splitting_tool_batch(self):
         focus_image = {'id': 'focus', 'name': 'focus.png', 'size': 16 * 1024 * 1024}
@@ -148,8 +150,8 @@ class RequestContextPrefixTest(unittest.TestCase):
                           console=Console(input_fn=lambda _: next(prompts), output=StringIO()))
             first = provider.requests[0][0]
             self.assertEqual(first[:len(previous)], previous)
-            self.assertEqual(first[-1]['role'], 'user')
-            self.assertIn('fresh', json.dumps(first[-1]))
+            self.assertEqual(first, previous)
+            self.assertNotIn('fresh', json.dumps(first))
 
 
 if __name__ == '__main__':

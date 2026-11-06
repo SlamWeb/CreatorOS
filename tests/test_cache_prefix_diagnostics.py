@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from creatoros.ai.context import ContextBudget, ModelContext
 from creatoros.ai.types import ModelUsage
-from creatoros.session.context_trace import ContextTrace, read_trace
+from creatoros.session.context_trace import ContextTrace, breakdown, detailed_breakdown, read_trace
 
 
 class Provider:
@@ -26,6 +26,24 @@ def run(trace, ctx, turn='turn', provider=None, sent=True):
 
 
 class CachePrefixDiagnosticsTest(unittest.TestCase):
+    def test_account_event_counts_as_account_and_is_identified_in_prefix_change(self):
+        first = context([{'role': 'user', 'creatoros_source': 'account_context_event',
+                          'content': '[host account state] first'},
+                         {'role': 'user', 'content': 'question'}])
+        second = context([{'role': 'user', 'creatoros_source': 'account_context_event',
+                           'content': '[host account state] changed'},
+                          {'role': 'user', 'content': 'question'}])
+        parts = breakdown(first, kind='main')
+        self.assertGreater(parts['account_context'], 0)
+        self.assertEqual(sum(parts.values()), ContextBudget.from_context(first).estimated_input_tokens)
+        self.assertEqual(sum(detailed_breakdown(first, kind='main', parts=parts)['parts'].values()),
+                         sum(parts.values()))
+        with TemporaryDirectory() as directory:
+            trace = ContextTrace(Path(directory) / 'messages.json', capture_payload=True)
+            run(trace, first)
+            changed = run(trace, second)
+            self.assertEqual(changed['prefix_comparison']['first_difference_categories'], ['account_context'])
+
     def test_append_and_changed_account_schema_without_content_leak(self):
         with TemporaryDirectory() as directory:
             file = Path(directory) / 'messages.json'
