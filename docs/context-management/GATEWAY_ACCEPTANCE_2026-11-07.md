@@ -63,9 +63,9 @@ R1 原基准已冻结真实隔离业务 `gateway-refactor-20261107-baseline`（B
 D:/Anaconda4.7g/envs/deepcode/python.exe -m tests.live_gateway_acceptance --live --report tmp/<新目录>/report.json
 ```
 
-## 最终验收：真实模型合成任务 R2
+## 真实模型合成任务 R2（规范化修复前）
 
-R2 使用 `deepseek-flash`，8 个自然任务分别运行旧协议、纯发现和发现加只读快捷入口；业务工具由合成替身接管，发现网关和模型调用是真实的，因此能检查模型选择和回执使用，不能证明真实业务数据库或实际权限边界。源码开始与结束哈希一致；运行时 runner 加过一行异常文本记录，但 Python 进程启动前已载入旧代码。根据记录的 SHA-256 复原并保存了当时执行的 runner：[R2 runner 快照](gateway-acceptance-r2-runner.py.txt)，其 SHA-256 为 `9012d74dbd0b5309d92d848a290d5cbf0461481263d37947e0d81f287d69c15b`。模型回答、调用、回执、使用量与源码哈希见 [R2 原始报告](GATEWAY_ACCEPTANCE_2026-11-07_R2_RAW.json)，保守机器评分见 [R2 评分](GATEWAY_ACCEPTANCE_2026-11-07_R2_SCORE.json)；机器评分不代替语义审阅。
+R2 使用 `deepseek-flash`，8 个自然任务分别运行旧协议、纯发现和发现加只读快捷入口；业务工具由合成替身接管，发现网关和模型调用是真实的，因此能检查模型选择和回执使用，不能证明真实业务数据库或实际权限边界。源码开始与结束哈希一致；运行时 runner 加过一行异常文本记录，但文件改动前运行进程已载入旧代码。根据记录的 SHA-256 复原并保存了当时执行的 runner：[R2 runner 快照](gateway-acceptance-r2-runner.py.txt)，其 SHA-256 为 `9012d74dbd0b5309d92d848a290d5cbf0461481263d37947e0d81f287d69c15b`。模型回答、调用、回执、使用量与源码哈希见 [R2 原始报告](GATEWAY_ACCEPTANCE_2026-11-07_R2_RAW.json)，保守机器评分见 [R2 评分](GATEWAY_ACCEPTANCE_2026-11-07_R2_SCORE.json)；机器评分不代替语义审阅。
 
 | 任务 | 实际观察及边界 |
 |---|---|
@@ -82,7 +82,7 @@ G07 单独修正夹具后重新诊断，纯发现和快捷分别 4、3 次模型
 
 ## 四题隔离业务验收
 
-B05、B06、B07、B10 使用同一题集和真实模型，在隔离服务、数据库与会话中运行；结果分别保存在 `data/agent-benchmark-v2/` 下的 `gateway-refactor-20261107-baseline`、`gateway-refactor-20261107-pure-normalized`、`gateway-refactor-20261107-fast-normalized`。此前修复前的 `gateway-refactor-20261107-pure-final`、`gateway-refactor-20261107-fast-final` 也保留，但不与最终 normalized 结果混用。每批的 `experiment-config.json` 和 `observed-tool-schemas.json` 记录协议开关和实际线上的工具 schema；原 benchmark manifest 本身不包含这两个实验开关。
+B05、B06、B07、B10 使用同一题集和真实模型，在隔离服务、数据库与会话中运行；结果分别保存在 `data/agent-benchmark-v2/` 下的 `gateway-refactor-20261107-baseline`、`gateway-refactor-20261107-pure-normalized`、`gateway-refactor-20261107-fast-normalized`。此前修复前的 `gateway-refactor-20261107-pure-final`、`gateway-refactor-20261107-fast-final` 也保留，但不与最终 normalized 结果混用。两个 normalized 批次的 `experiment-config.json` 和 `observed-tool-schemas.json` 记录协议开关和实际线上的工具 schema；旧 baseline 没有这两份附加文件，可查原有 manifest 和逐请求记录。原 benchmark manifest 本身不包含这两个实验开关。
 
 | 四题合计 | 旧协议 baseline | 纯发现 normalized | 发现 + 快捷 normalized |
 |---|---:|---:|---:|
