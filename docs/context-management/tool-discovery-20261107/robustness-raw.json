@@ -1,0 +1,617 @@
+{
+  "version": 1,
+  "created_at_utc": "2026-11-06T17:21:13.661893+00:00",
+  "git_commit": "2720cfa16039745c37120047334196136d130a98",
+  "schema_sha256": "65f5735afb9856b61f0539993d58486c6603c4dd763225a4533ea49ae3f4dda0",
+  "model": "deepseek-flash",
+  "reasoning": "none",
+  "cases": [
+    {
+      "id": "MISSING_STATUS",
+      "query": "请查一下选题 topic-demo-18 现在是什么状态？"
+    },
+    {
+      "id": "MISSING_CITY",
+      "query": "选题 topic-demo-18 面向哪个城市的上班族？"
+    },
+    {
+      "id": "MULTI_TOOL",
+      "query": "看一下选题 topic-demo-18 的制作要求，再查一下计划 plan-demo-17 的状态，先不要修改。"
+    },
+    {
+      "id": "SKILL_PERMISSION",
+      "query": "我现在能编辑 knowledge-to-carousel 这个 Skill 吗？帮我确认一下，只回答，不要修改。"
+    }
+  ],
+  "results": [
+    {
+      "case_id": "MISSING_STATUS",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19206,
+            "output_tokens": 59,
+            "total_tokens": 19265,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19206
+          },
+          "seconds": 3.109,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19312,
+            "output_tokens": 31,
+            "total_tokens": 19343,
+            "cache_hit_tokens": 19072,
+            "cache_miss_tokens": 240
+          },
+          "seconds": 1.094,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        }
+      ],
+      "answer": "选题「早餐」现在是**待选（pending）**状态，尚未入队，也没有生产任务。\n\n切入点为「给上班族的早餐故事」。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 14622
+    },
+    {
+      "case_id": "MISSING_STATUS",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6046,
+            "output_tokens": 43,
+            "total_tokens": 6089,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6046
+          },
+          "seconds": 0.562,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7364,
+            "output_tokens": 74,
+            "total_tokens": 7438,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1348
+          },
+          "seconds": 1.063,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7485,
+            "output_tokens": 43,
+            "total_tokens": 7528,
+            "cache_hit_tokens": 7296,
+            "cache_miss_tokens": 189
+          },
+          "seconds": 1.031,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"manage_topics\"]}",
+          "schema_names_returned": [
+            "manage_topics"
+          ]
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_topics\", \"arguments\": {\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        }
+      ],
+      "answer": "选题「早餐」目前是**待选**状态：它属于选题列表，但尚未入队，因此还没有排入生产，也没有任何产物。\n\n它当前的切入点是「给上班族的早餐故事」。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 2426
+    },
+    {
+      "case_id": "MISSING_CITY",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6047,
+            "output_tokens": 50,
+            "total_tokens": 6097,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6047
+          },
+          "seconds": 1.234,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7372,
+            "output_tokens": 74,
+            "total_tokens": 7446,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1356
+          },
+          "seconds": 0.781,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7493,
+            "output_tokens": 25,
+            "total_tokens": 7518,
+            "cache_hit_tokens": 7296,
+            "cache_miss_tokens": 197
+          },
+          "seconds": 0.969,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"manage_topics\"]}",
+          "schema_names_returned": [
+            "manage_topics"
+          ]
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_topics\", \"arguments\": {\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        }
+      ],
+      "answer": "这个选题的正文只有“给上班族的早餐故事”，没有指定任何城市，明确不了面向哪个城市的上班族。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 2426
+    },
+    {
+      "case_id": "MISSING_CITY",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19203,
+            "output_tokens": 65,
+            "total_tokens": 19268,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19203
+          },
+          "seconds": 1.078,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19315,
+            "output_tokens": 27,
+            "total_tokens": 19342,
+            "cache_hit_tokens": 19072,
+            "cache_miss_tokens": 243
+          },
+          "seconds": 0.594,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        }
+      ],
+      "answer": "该选题没有限定城市：标题为「早餐」，切入点只写到「给上班族的早餐故事」，未提及任何具体城市。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 14622
+    },
+    {
+      "case_id": "MULTI_TOOL",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19220,
+            "output_tokens": 109,
+            "total_tokens": 19329,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19220
+          },
+          "seconds": 1.766,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19407,
+            "output_tokens": 35,
+            "total_tokens": 19442,
+            "cache_hit_tokens": 19200,
+            "cache_miss_tokens": 207
+          },
+          "seconds": 0.719,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        },
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}",
+          "resolved_name": "manage_plan",
+          "resolved_arguments": {
+            "action": "get",
+            "plan_id": "plan-demo-17"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "id": "plan-demo-17",
+            "status": "running",
+            "message": "进行中"
+          }
+        }
+      ],
+      "answer": "选题「早餐」的制作要求：给上班族的早餐故事。\n\n计划 plan-demo-17 当前状态：进行中。本次仅查询，未做任何修改。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 14622
+    },
+    {
+      "case_id": "MULTI_TOOL",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6064,
+            "output_tokens": 53,
+            "total_tokens": 6117,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6064
+          },
+          "seconds": 1.36,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 8935,
+            "output_tokens": 139,
+            "total_tokens": 9074,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 2919
+          },
+          "seconds": 1.109,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 9152,
+            "output_tokens": 60,
+            "total_tokens": 9212,
+            "cache_hit_tokens": 8960,
+            "cache_miss_tokens": 192
+          },
+          "seconds": 0.953,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"manage_topics\", \"manage_plan\"]}",
+          "schema_names_returned": [
+            "manage_topics",
+            "manage_plan"
+          ]
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_topics\", \"arguments\": {\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "action": "get",
+            "topic": {
+              "id": "topic-demo-18",
+              "title": "早餐",
+              "brief": "给上班族的早餐故事。"
+            }
+          }
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_plan\", \"arguments\": {\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}}",
+          "resolved_name": "manage_plan",
+          "resolved_arguments": {
+            "action": "get",
+            "plan_id": "plan-demo-17"
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "id": "plan-demo-17",
+            "status": "running",
+            "message": "进行中"
+          }
+        }
+      ],
+      "answer": "**选题「早餐」**（已入队）：制作要求为“给上班族的早餐故事。”该选题当前未显示其他附加要求或参考图信息。\n\n**计划 plan-demo-17**：状态为进行中（running）。\n\n本次只做了查询，未做任何修改。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 2426
+    },
+    {
+      "case_id": "SKILL_PERMISSION",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6060,
+            "output_tokens": 65,
+            "total_tokens": 6125,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6060
+          },
+          "seconds": 0.89,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7269,
+            "output_tokens": 74,
+            "total_tokens": 7343,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1253
+          },
+          "seconds": 1.0,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7411,
+            "output_tokens": 49,
+            "total_tokens": 7460,
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 243
+          },
+          "seconds": 0.922,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"get_producer_skill\", \"manage_skill_library\"]}",
+          "schema_names_returned": [
+            "get_producer_skill",
+            "manage_skill_library"
+          ]
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"get_producer_skill\", \"arguments\": {\"skill_id\": \"knowledge-to-carousel\", \"limit\": 200}}",
+          "resolved_name": "get_producer_skill",
+          "resolved_arguments": {
+            "skill_id": "knowledge-to-carousel",
+            "limit": 200
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "skill_id": "knowledge-to-carousel",
+            "name": "knowledge-to-carousel",
+            "editable": false,
+            "can_edit": false,
+            "content": "从具体场景开始，解释一个知识点。",
+            "digest": "synthetic-digest"
+          }
+        }
+      ],
+      "answer": "可以编辑，但不能直接改原件：knowledge-to-carousel 是共享的已发布版本，原件只读。如果你需要修改，我可以按你的要求另存一份本账号私有候选再编辑；这不影响共享原件和其他账号。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 2426
+    },
+    {
+      "case_id": "SKILL_PERMISSION",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19213,
+            "output_tokens": 42,
+            "total_tokens": 19255,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19213
+          },
+          "seconds": 1.36,
+          "prefix_from_previous": null
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19318,
+            "output_tokens": 78,
+            "total_tokens": 19396,
+            "cache_hit_tokens": 19072,
+            "cache_miss_tokens": 246
+          },
+          "seconds": 1.016,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          }
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "list_producer_skills",
+          "arguments": "{\"include_versions\": false}",
+          "resolved_name": "list_producer_skills",
+          "resolved_arguments": {
+            "include_versions": false
+          },
+          "validated": true,
+          "synthetic_receipt": {
+            "items": [
+              {
+                "id": "knowledge-to-carousel",
+                "name": "knowledge-to-carousel",
+                "editable": false,
+                "can_edit": false
+              }
+            ],
+            "page": {
+              "total": 1,
+              "has_more": false
+            }
+          }
+        }
+      ],
+      "answer": "可以另存为本账号私有候选，但不能直接修改原件。\n\nknowledge-to-carousel 是内置 Skill，当前 can_edit=false，无法就地编辑或覆盖。你明确要求编辑时，我可以基于它另存一份本账号私有的候选副本再改；原件与其他账号都不受影响，且保存候选不会自动切换栏目或开始生产。本轮未做任何修改。",
+      "error_type": null,
+      "business_handlers_executed": 0,
+      "tool_schema_estimate": 14622
+    }
+  ]
+}

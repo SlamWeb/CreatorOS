@@ -1,0 +1,435 @@
+{
+  "version": "schema-trim-mechanical-v1",
+  "status": "complete",
+  "counts": {
+    "null_defaults": 73,
+    "definition_titles": 27,
+    "nullable_anyof": 8
+  },
+  "schema_estimate": {
+    "original": 15123,
+    "candidate": 14622
+  },
+  "runs": [
+    {
+      "case_id": "topic_get",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"test-topic-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19816,
+        "output_tokens": 59,
+        "total_tokens": 19875,
+        "cache_hit_tokens": 0,
+        "cache_miss_tokens": 19816
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 6.422
+    },
+    {
+      "case_id": "topic_get",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"test-topic-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19184,
+        "output_tokens": 59,
+        "total_tokens": 19243,
+        "cache_hit_tokens": 4096,
+        "cache_miss_tokens": 15088
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.687
+    },
+    {
+      "case_id": "plan_get",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"test-plan-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19185,
+        "output_tokens": 58,
+        "total_tokens": 19243,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 241
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.094
+    },
+    {
+      "case_id": "plan_get",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"test-plan-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19817,
+        "output_tokens": 58,
+        "total_tokens": 19875,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 233
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.828
+    },
+    {
+      "case_id": "skill_read",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_producer_skill",
+          "arguments": "{\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19817,
+        "output_tokens": 62,
+        "total_tokens": 19879,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 233
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.953
+    },
+    {
+      "case_id": "skill_read",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_producer_skill",
+          "arguments": "{\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19185,
+        "output_tokens": 62,
+        "total_tokens": 19247,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 241
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.078
+    },
+    {
+      "case_id": "failed_tasks",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"statuses\": [\"failed\"]}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19180,
+        "output_tokens": 43,
+        "total_tokens": 19223,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 236
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.563
+    },
+    {
+      "case_id": "failed_tasks",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"statuses\": [\"failed\"]}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19812,
+        "output_tokens": 43,
+        "total_tokens": 19855,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 228
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.844
+    },
+    {
+      "case_id": "topics_list",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"list\", \"series_id\": \"test-series-01\", \"query\": {\"state\": \"all\", \"limit\": 100}}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19812,
+        "output_tokens": 84,
+        "total_tokens": 19896,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 228
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.61
+    },
+    {
+      "case_id": "topics_list",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"list\", \"series_id\": \"test-series-01\", \"query\": {\"state\": \"all\", \"limit\": 100, \"offset\": 0}}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19180,
+        "output_tokens": 90,
+        "total_tokens": 19270,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 236
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 3.157
+    },
+    {
+      "case_id": "bgm_list",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_material",
+          "arguments": "{\"action\": \"list\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19178,
+        "output_tokens": 38,
+        "total_tokens": 19216,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 234
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.984
+    },
+    {
+      "case_id": "bgm_list",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_material",
+          "arguments": "{\"action\": \"list\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19810,
+        "output_tokens": 38,
+        "total_tokens": 19848,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 226
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.328
+    },
+    {
+      "case_id": "short_greeting",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我这边能帮你处理的是账号相关的创作事务，比如看看最近发布内容的反馈、整理选题、安排生产。关于\"今天有什么值得开心的事\"，我没有查询这类信息的来源，随口讲一句也不可靠。\n\n如果你想轻松一下，我倒是可以帮你从账号数据里找个好消息，比如查查最近 7 天哪条笔记的收藏或点赞最高。需要的话说一声。",
+      "usage": {
+        "input_tokens": 19809,
+        "output_tokens": 81,
+        "total_tokens": 19890,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 225
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.953
+    },
+    {
+      "case_id": "short_greeting",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我不太好替你判断“今天有什么值得开心的事”——这属于你的个人感受，我这边能查到的是账号的选题和生产任务，不适合拿来给你编生活里的开心事。\n\n如果你愿意，我可以帮你看看当前账号有没有已完成、待验收的作品，或者今天适合推进哪些选题。",
+      "usage": {
+        "input_tokens": 19177,
+        "output_tokens": 59,
+        "total_tokens": 19236,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 233
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.485
+    },
+    {
+      "case_id": "no_research",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "三个冬天的短篇的点子：\n\n1. **《最后一场雪》**——气象站的老观测员退休前夜，预报系统算出这座城市今年不会下雪。他独自爬上楼顶，用一辈子的笔记手工推演，发现机器漏算了一场。第二天清晨，雪落下来，他已经在值班室的椅子上睡着了。\n\n2. **《借火》**——大雪封路的夜晚，便利店店员准备打烊，一个没有影子的男人进来买打火机。此后每年最冷的那个晚上，他都会来，而店员一年比一年老，他却始终是那张脸。直到某年，店员把柜台钥匙推给了他。\n\n3. **《冬眠登记处》**——小城新设了一个窗口，居民可以申请睡过整个冬天，开春自动醒来。排队的人越来越多，理由是\"想跳过难熬的部分\"。办事员在整理申请表时，发现最早登记的那个人，已经连续登记了四十一年。\n\n需要我扩写成完整的选题或梗概吗？",
+      "usage": {
+        "input_tokens": 19183,
+        "output_tokens": 209,
+        "total_tokens": 19392,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 239
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 2.89
+    },
+    {
+      "case_id": "no_research",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "以下是三个冬天短篇故事的点子：\n\n**1.《最后一班公交》**\n寒潮夜，末班车司机发现全程只有一个乘客，一个每天坐到底站却从不下车的老人。冬至那晚，老人第一次开口：他是在等一个人，而那个人二十九年前就在这条线路上不见了。司机决定陪他把车开完最后一圈。\n\n**2.《雪人替班》**\n小区门口卖烤红薯的大姐病了两天。第三天，摊子照常摆出了，烤炉是热的，钱箱里的零钱对得上，只有雪人身上多了一条她的围裙。邻居们谁也不愿先说破。\n\n**3.《供暖前夜》**\n独居的老太太在停暖最后一晚冻醒，发现墙缝渗进来的风有温度，是从隔壁传来的。她敲开邻居的门，才知道那户人家整个冬天都没开过暖气。两个人就着一床被子坐了一夜，各自讲了一件从没讲出口的事。\n\n三个都可以按栏目风格往温情或悬念方向再调整。",
+      "usage": {
+        "input_tokens": 19815,
+        "output_tokens": 214,
+        "total_tokens": 20029,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 231
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 2.781
+    },
+    {
+      "case_id": "skill_permission",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我需要先确认你指的是哪个 Skill，才能查看它的实际权限。目前对话里还没有指定具体 Skill 名称或版本。\n\n请告诉我要查询的 Skill 名称；如果同名的有多个版本，也请说明具体版本或所在栏目。",
+      "usage": {
+        "input_tokens": 19816,
+        "output_tokens": 51,
+        "total_tokens": 19867,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 232
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.375
+    },
+    {
+      "case_id": "skill_permission",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我需要先确认你问的是哪一个 Skill，才能查权限。当前这条消息没有指定 Skill 名称，也没有附带选中的 Skill 对象。\n\n请告诉我要看哪个 Skill，例如它在栏目里的名字，或从 Skill 库点选后发给我；我只做只读核实并解释权限，不会执行修改。",
+      "usage": {
+        "input_tokens": 19184,
+        "output_tokens": 67,
+        "total_tokens": 19251,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 240
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.125
+    },
+    {
+      "case_id": "delete_ambiguous",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我需要先确认你指的是哪一个。当前对话里还没有标注具体对象，请说明要删除的是哪个栏目、选题或任务。",
+      "usage": {
+        "input_tokens": 19175,
+        "output_tokens": 27,
+        "total_tokens": 19202,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 231
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.079
+    },
+    {
+      "case_id": "delete_ambiguous",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [],
+      "answer": "我需要先确认是哪一个。刚才本轮对话里我们还没有处理过任何对象，请说明要删哪一项，例如某个选题的名称或某个素材集，我核对后再操作。",
+      "usage": {
+        "input_tokens": 19807,
+        "output_tokens": 38,
+        "total_tokens": 19845,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 223
+      },
+      "structural_check": true,
+      "valid_arguments": null,
+      "expected_fields": null,
+      "elapsed_seconds": 1.046
+    }
+  ]
+}

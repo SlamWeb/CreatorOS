@@ -1,0 +1,2860 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_production_task",
+      "description": "管理当前账号指定选题的制作任务：list 查看任务，stop 停止单项排队或运行任务，remove 从列表移除终态任务并保留产物与历史。先用真实 task_id；只在用户明确要求时停止或移除。运行中收到停止请求不代表已退出，等待状态更新；无须反复轮询。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "stop",
+              "remove"
+            ],
+            "type": "string"
+          },
+          "topic_id": {
+            "description": "真实选题 ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "stop/remove 的真实制作任务 ID。"
+          }
+        },
+        "required": [
+          "action",
+          "topic_id"
+        ],
+        "title": "ManageProductionTaskArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_media_collection",
+      "description": "管理当前账号素材集：list可按name筛选文件夹，可include_sources取任务索引；get读取选片/版本或已导出ZIP；create关联选题及额外Run；update用所见expected_version改名/来源/顺序/排除项；remove只删集合不删原图；export把当前保留图片按序保存为ZIP，返回准确下载入口和export_id，供后续剪辑取用，不调用Codex、不生产、不改Skill、不发布。仅导出时，定位collection_id后可直接export，无需先get全部图片；可省略version与snapshot由宿主读取当前选片，指定旧快照会拒绝。未知结果先查询，不换集合或另起生产。",
+      "parameters": {
+        "$defs": {
+          "CollectionChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "anyOf": [
+                  {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "run_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 500,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "完整额外来源Run列表，不含自动收集的Run；移出集合不删除原图。"
+              },
+              "order_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10000,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "excluded_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 10000,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "remove",
+              "export"
+            ],
+            "type": "string"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "create时为新名称；list时为名称筛选，不直接猜ID或自动挑选同名集合。"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅create：自动收集同选题全部Run与版本，不生产。"
+          },
+          "run_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CollectionChanges"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_version": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "export_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅get：读取已导出的准确ZIP回执，不重新打包。"
+          },
+          "include_sources": {
+            "default": false,
+            "description": "仅list：附加可加入的任务索引，不读取所有图片。",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ManageMediaCollectionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_plan",
+      "description": "管理当前账号对话的通用执行计划。明确要求生产完成后核验、继续处理或汇报结果时，即使只有一项生产也创建计划，start_content_run步骤设wait_for_completion=true；宿主观察原任务并在计划完成或失败后唤醒本会话。create 提交步骤和依赖，由宿主执行；仅需等待完成并汇报（包括先核验结果）时，不要添加request_review；计划终态会唤醒本会话。只有需要根据结果决定、调整或追加后续动作时才添加request_review，参数 question 说明要判断的问题，后台暂停并唤醒本会话。get 当前计划后 update 只传需修改或新增的完整步骤：修改用原步骤 ID，新 ID 只追加；其他步骤保留。删除未开始或阻塞的步骤须明确填写 remove_step_ids，并同时调整引用它的依赖；已开始步骤不可删除。paused 计划调整后 resume，needs_attention 计划调整后自动继续。失败时先 get 最新版本，只可 skip 标记可安全跳过的无副作用步骤，再修改后续依赖。已提交或结果未知的生产必须先核对，不可更名重提。引用依赖结果用 {$ref:'步骤ID.字段'}。不要轮询或把受理说成完成。",
+      "parameters": {
+        "type": "object",
+        "$defs": {
+          "CreatePlanArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "create",
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "steps": {
+                "items": {
+                  "$ref": "#/$defs/PlanStepArgs"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "title",
+              "steps"
+            ],
+            "type": "object"
+          },
+          "GetPlanArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "get",
+                "type": "string"
+              },
+              "plan_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "plan_id"
+            ],
+            "type": "object"
+          },
+          "ListPlansArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          "PlanStepActionArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": [
+                  "retry",
+                  "skip"
+                ],
+                "type": "string"
+              },
+              "plan_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "step_id": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "plan_id",
+              "expected_version",
+              "step_id"
+            ],
+            "type": "object"
+          },
+          "PlanStepArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "description": "本计划内唯一的简短步骤标识。",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[a-zA-Z0-9_-]+$",
+                "type": "string"
+              },
+              "title": {
+                "description": "用户能理解的步骤目标。",
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "request_review",
+                  "start_content_run",
+                  "manage_topics",
+                  "manage_material",
+                  "manage_media_collection",
+                  "manage_skill_library",
+                  "get_content_run",
+                  "get_creator_tasks",
+                  "get_producer_skill"
+                ],
+                "type": "string"
+              },
+              "arguments": {
+                "additionalProperties": true,
+                "description": "对应工具当前契约的参数；生产必须明确action与任务kind，仅用skill_ids。依赖结果可用 {$ref: '步骤ID.字段'}，保存前检查固定字段、执行前完整校验。",
+                "type": "object"
+              },
+              "depends_on": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              "wait_for_completion": {
+                "default": false,
+                "description": "仅用于start_content_run；等待原生产真实终态，再解锁依赖步骤。计划完成或失败后宿主唤醒原会话。",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "tool",
+              "arguments"
+            ],
+            "type": "object"
+          },
+          "PlanVersionActionArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "enum": [
+                  "pause",
+                  "resume"
+                ],
+                "type": "string"
+              },
+              "plan_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "action",
+              "plan_id",
+              "expected_version"
+            ],
+            "type": "object"
+          },
+          "UpdatePlanArgs": {
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "properties": {
+                  "steps": {
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "steps"
+                ]
+              },
+              {
+                "properties": {
+                  "remove_step_ids": {
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "remove_step_ids"
+                ]
+              }
+            ],
+            "properties": {
+              "action": {
+                "const": "update",
+                "type": "string"
+              },
+              "plan_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "steps": {
+                "description": "要修改或新增的完整步骤；修改现有步骤时保留其 ID，新 ID 只追加，未提及步骤保留。",
+                "items": {
+                  "$ref": "#/$defs/PlanStepArgs"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              "remove_step_ids": {
+                "description": "明确删除的未开始或阻塞步骤 ID；已执行步骤不可删除，不能依靠更换 ID 删除原步骤。",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "plan_id",
+              "expected_version"
+            ],
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "create": "#/$defs/CreatePlanArgs",
+            "get": "#/$defs/GetPlanArgs",
+            "list": "#/$defs/ListPlansArgs",
+            "pause": "#/$defs/PlanVersionActionArgs",
+            "resume": "#/$defs/PlanVersionActionArgs",
+            "retry": "#/$defs/PlanStepActionArgs",
+            "skip": "#/$defs/PlanStepActionArgs",
+            "update": "#/$defs/UpdatePlanArgs"
+          },
+          "propertyName": "action"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CreatePlanArgs"
+          },
+          {
+            "$ref": "#/$defs/ListPlansArgs"
+          },
+          {
+            "$ref": "#/$defs/GetPlanArgs"
+          },
+          {
+            "$ref": "#/$defs/UpdatePlanArgs"
+          },
+          {
+            "$ref": "#/$defs/PlanVersionActionArgs"
+          },
+          {
+            "$ref": "#/$defs/PlanStepActionArgs"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "query_feedback",
+      "description": "只读当前账号最近 7 天已发布笔记的本地反馈，按指标比较、分页，返回栏目与采样时间；不刷新平台。账号由宿主绑定。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "metric": {
+            "default": "favorites",
+            "description": "按哪个累计指标降序比较；默认收藏。缺失指标不是 0。",
+            "enum": [
+              "favorites",
+              "likes",
+              "comments",
+              "views",
+              "shares"
+            ],
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "title": "QueryFeedbackArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_publication",
+      "description": "准备已有图文的发布预览，不发布。返回内容页供用户确认；重复请求复用发布单。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "已有内容的 Run ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选发布标题；不改原产物。"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选发布正文；不改原产物。"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "default": "公开可见",
+            "enum": [
+              "公开可见",
+              "仅自己可见",
+              "仅互关好友可见"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "PreparePublicationArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_publication",
+      "description": "查询发布单，或按用户要求核对平台结果/刷新互动数据。不重新发送，不把未知当失败。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "publication_id": {
+            "description": "准备发布工具返回的发布单 ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "reconcile": {
+            "default": false,
+            "description": "是否从平台核对结果；不会再次发布。",
+            "type": "boolean"
+          },
+          "refresh_metrics": {
+            "default": false,
+            "description": "已核实发布后，按用户要求刷新真实互动数据。",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "publication_id"
+        ],
+        "title": "GetPublicationArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_file",
+      "description": "读取当前会话的工具结果归档文本；查找未知片段先传 search 精确搜索，按返回 offset 再读取上下文；complete=false 时按 next_offset 继续。不能读取项目文件、Skill 文件或其他会话。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "当前会话归档结果中提供的路径。",
+            "type": "string"
+          },
+          "offset": {
+            "default": 1,
+            "description": "从第几行开始读取，第一行是 1。",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "最多读取多少行，不填写则读取到文件结尾。"
+          },
+          "unit": {
+            "default": "lines",
+            "description": "归档大文件可用 chars 按字符分页，offset 从 1 起。",
+            "enum": [
+              "lines",
+              "chars"
+            ],
+            "type": "string"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅当前会话归档：区分大小写的精确字符串搜索。offset 为 1 起的字符位置，limit 为最多返回匹配数（上限 5）；按 next_offset 继续，complete=true 才表示已扫描至末尾。"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ReadFileArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_tool_result",
+      "description": "按 result_ref 分段读取 Session 中未截断的历史工具结果文本。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "result_ref": {
+            "description": "被截断工具结果标记中的 result_ref。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "offset": {
+            "default": 1,
+            "description": "从第几个字符开始读取，第一个字符是 1。",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 8000,
+            "description": "最多读取多少个字符，最大 16000。",
+            "maximum": 16000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "result_ref"
+        ],
+        "title": "ReadToolResultArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_creators",
+      "description": "分页查询 Studio 运营账号（不是 PersonClone 作者）。先查真实目录，不编造 ID。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "default": 0,
+            "description": "分页起点；还有数据时继续翻页。",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "description": "每页数量，最多 100。",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "title": "PageArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "research_series_topics",
+      "description": "仅在明确需要联网、最新趋势或外部来源核实时委托Codex研究。普通拟题、常识词汇辨析、创意故事和参考图改编默认由你直接完成，不调用本工具。确需联网时可用attachment_ids携带用户参考图与完整instructions。默认只借鉴内容，明确要借鉴呈现才设reference_presentation。只产生候选，不入队或生产；已明确要按参考制作时直接start_content_run。Web宿主展示进度并等待同批次结果；requested_count是请求上限，returned_count是实际候选数，以status判定完成。unknown不等于失败或远端已停止，不自动重提。入队保留reference_id，链接原样使用返回的 url。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "series_id": {
+            "description": "真实栏目 ID。使用当前栏目定位、受众和绑定 Skill。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "count": {
+            "default": 10,
+            "description": "最多候选数；允许调研不足，不凑数。",
+            "maximum": 30,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "instructions": {
+            "default": "",
+            "description": "本次选题偏好、排除方向等用户要求。",
+            "maxLength": 3000,
+            "type": "string"
+          },
+          "attachment_ids": {
+            "description": "用户提供的当前会话参考图片ID；原图与要求一起交给Codex，不用图片路径或凭空猜ID。",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "reference_presentation": {
+            "default": false,
+            "description": "默认只借鉴图片内容；用户明确要求借鉴画面风格/版式时才设为true。",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "series_id"
+        ],
+        "title": "ResearchTopicsArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_topic_research",
+      "description": "用户询问进展或要求选择时读取同一调研批次；ready 且非 stale 才可选，queued=true 的候选不可重复入队。requested_count 是请求上限，returned_count 是本次实际返回的候选数，不代表任务完成；以 status 判定。unknown 不等于失败或远端已停止，不自动重提。链接原样使用返回的 url，不拼接协议、域名或路径。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "description": "调研返回的真实批次 ID。",
+            "pattern": "^[a-f0-9]{32}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id"
+        ],
+        "title": "ResearchBatchArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepare_topic_selection",
+      "description": "把用户选择的候选及标题/切入点修改、顺序生成待确认 Preview，保留来源；不执行入队、不调用生产。歧义先询问。返回链接交用户人工确认。",
+      "parameters": {
+        "$defs": {
+          "CandidateSelection": {
+            "additionalProperties": false,
+            "properties": {
+              "candidate_id": {
+                "pattern": "^c[1-9][0-9]*$",
+                "type": "string"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "angle": {
+                "anyOf": [
+                  {
+                    "maxLength": 3000,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "candidate_id"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "description": "调研返回的真实批次 ID。",
+            "pattern": "^[a-f0-9]{32}$",
+            "type": "string"
+          },
+          "selections": {
+            "description": "按用户要求的入队顺序列出候选 ID；可改 title/angle，省略则保留原文。只生成 Preview，不确认。",
+            "items": {
+              "$ref": "#/$defs/CandidateSelection"
+            },
+            "maxItems": 30,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "batch_id",
+          "selections"
+        ],
+        "title": "SelectResearchArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_topics",
+      "description": "管理选题，不生产。list按栏目/状态分页：已入队仅返回身份、标题、状态和brief_preview；同栏目同筛选的完整列表已在上下文且没有已知增删改时复用，未读完继续翻页；要求最新或状态已变化再查。需要完整场景、来源或编辑摘要时get原topic_id；用户明确要全文时逐字呈现，包括重复段落和结尾，不用次数概括替代。制作结果未知时get原topic_id及返回的production_request_id只读核对，回执unknown不等于未提交，勿换ID重做。create仅用户明确新增时入队；update用原topic_id、changes和刚读取的edit_digest直接修改标题或完整切入点，不新建替代；remove按用户要求移除，保留旧产物，运行中拒绝。待选remove带真实candidate来源；待选入队用create保留reference_id。management_actions是管理权限，available_actions是生产操作。冲突重读，未知结果不另建；修改选题不等于更新图片。",
+      "parameters": {
+        "$defs": {
+          "QueueTopicItem": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "description": "选题标题。",
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "brief": {
+                "anyOf": [
+                  {
+                    "maxLength": 4000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "切入点/简介；保留候选来源信息。"
+              },
+              "source": {
+                "default": "manual",
+                "description": "调研候选为 research，手动添加为 manual。",
+                "enum": [
+                  "research",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              "reference_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "候选返回的reference_id原样保留，使生产继续读取原图和要求；没有就省略，不能猜测。"
+              }
+            },
+            "required": [
+              "title"
+            ],
+            "type": "object"
+          },
+          "ResearchCandidate": {
+            "additionalProperties": false,
+            "properties": {
+              "batch_id": {
+                "pattern": "^[a-f0-9]{32}$",
+                "type": "string"
+              },
+              "candidate_id": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "batch_id",
+              "candidate_id"
+            ],
+            "type": "object"
+          },
+          "TopicChanges": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "anyOf": [
+                  {
+                    "maxLength": 240,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "brief": {
+                "anyOf": [
+                  {
+                    "maxLength": 10000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "完整切入点/场景；空字符串清空，不修改则省略。"
+              }
+            },
+            "type": "object"
+          },
+          "TopicQuery": {
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "default": "all",
+                "enum": [
+                  "all",
+                  "pending",
+                  "queued"
+                ],
+                "type": "string"
+              },
+              "offset": {
+                "default": 0,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "limit": {
+                "default": 20,
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "get",
+              "create",
+              "update",
+              "remove"
+            ],
+            "type": "string"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "list/create的真实栏目ID；账号由宿主会话约束。"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "get/update/remove操作的原选题ID，不新建替代。"
+          },
+          "production_request_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅 get：使用未知制作结果中返回的原 request_id 只读核对该次回执。"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TopicQuery"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅list：筛选与分页。"
+          },
+          "topics": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/QueueTopicItem"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅create：用户明确要求新建的选题，保留reference_id。"
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TopicChanges"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅update：只提供需要修改的标题或完整场景。"
+          },
+          "expected_digest": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅update：先get取得当前edit_digest，不能猜或沿用旧摘要。"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ResearchCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅remove待选建议时提供列表中实际的批次和候选ID；已入队选题不提供。"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ManageTopicsArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "compose_series",
+      "description": "用户明确要求时为当前账号创建栏目，可仅填名称，之后配置常用池/阶段默认；也兼容旧完整Skill或Mind＋Visualize组合。账号由宿主绑定。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "栏目名称。",
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "栏目定位。",
+            "maxLength": 10000,
+            "type": "string"
+          },
+          "audience": {
+            "default": "",
+            "description": "目标受众。",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "skill_name": {
+            "description": "Skill 目录返回的完整制作 Skill ID；与双 Skill 组合二选一。",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mind_skill_id": {
+            "description": "直接引用的原始 Mind Skill ID；与 production_skill_id 同时提供，无需先融合。",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "production_skill_id": {
+            "description": "直接参考的原始 Visualize Skill ID；与 mind_skill_id 同时提供，由同一生产会话使用。",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ComposeSeriesArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_series_composition",
+      "description": "编辑当前栏目：改名仅传name、series_id、expected_revision，不传Skill字段；保留栏目ID、选题与产物，不新建栏目。更换原始Mind＋Visualize时传完整两个Skill ID，不同时改名，无需融合。必须用当前revision，过期重读不能强制覆盖。旧单Skill不可转换组合，但可以改名。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "series_id": {
+            "description": "目标栏目 ID。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "仅改栏目名称时填写新名称，省略Skill字段；不改ID、选题或产物。"
+          },
+          "mind_skill_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "更换组合时填写内容 Skill ID，与production_skill_id同时提供。"
+          },
+          "production_skill_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "更换组合时填写呈现 Skill ID，与mind_skill_id同时提供。"
+          },
+          "expected_revision": {
+            "description": "当前栏目的 revision；先从 list_creator_series 查询取得，过期会被拒绝。",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "series_id",
+          "expected_revision"
+        ],
+        "title": "UpdateCompositionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_skill_library",
+      "description": "管理当前账号 Skill 库和栏目池，账号由宿主绑定。get可带series_id读取栏目池；已有覆盖所需范围的目录且未变化时复用。add只传skill_id引用可用Skill；remove传skill_id和所见expected_version；set_pool只传series_id、expected_version、skill_ids保存栏目池。宿主保留仍有效的旧默认，不传defaults或主辅。共享引用不授予修改原件权限。",
+      "parameters": {
+        "type": "object",
+        "$defs": {
+          "AddSkillLibraryArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "add",
+                "type": "string"
+              },
+              "skill_id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "skill_id"
+            ],
+            "type": "object"
+          },
+          "GetSkillLibraryArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "get",
+                "type": "string"
+              },
+              "series_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "省略读取账号库；指定时读取此栏目池。"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          "RemoveSkillLibraryArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "remove",
+                "type": "string"
+              },
+              "skill_id": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "action",
+              "skill_id",
+              "expected_version"
+            ],
+            "type": "object"
+          },
+          "SetSkillPoolArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "set_pool",
+                "type": "string"
+              },
+              "series_id": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "skill_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "series_id",
+              "expected_version",
+              "skill_ids"
+            ],
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "add": "#/$defs/AddSkillLibraryArgs",
+            "get": "#/$defs/GetSkillLibraryArgs",
+            "remove": "#/$defs/RemoveSkillLibraryArgs",
+            "set_pool": "#/$defs/SetSkillPoolArgs"
+          },
+          "propertyName": "action"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/GetSkillLibraryArgs"
+          },
+          {
+            "$ref": "#/$defs/AddSkillLibraryArgs"
+          },
+          {
+            "$ref": "#/$defs/RemoveSkillLibraryArgs"
+          },
+          {
+            "$ref": "#/$defs/SetSkillPoolArgs"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_material",
+      "description": "管理当前账号 BGM：list/get 查询；import_link 后台导入分享原文并分析，import_status 查看；analyze 后台分析已有音频，analysis_status 查询状态，analysis 获取摘要。后台任务运行时不要反复查询。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "list",
+              "get",
+              "import_link",
+              "import_status",
+              "analyze",
+              "analysis",
+              "analysis_status"
+            ],
+            "type": "string"
+          },
+          "material_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "用户提供的音乐/视频分享原文。"
+          },
+          "import_id": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start": {
+            "default": 0,
+            "description": "音乐分析片段起点，秒。",
+            "minimum": 0,
+            "type": "number"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 300,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "音乐分析片段时长，秒；不填使用默认。"
+          },
+          "force": {
+            "default": false,
+            "description": "明确要求重新分析时设为 true。",
+            "type": "boolean"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ManageMaterialArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_producer_skills",
+      "description": "列出已安装发布版；账号库和栏目池用manage_skill_library。include_versions=true查当前账号可访问家族全部版本/候选，可用family_skill_id限定。正文按需读取，不生产。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "include_versions": {
+            "default": false,
+            "description": "包含当前可访问Skill的历史版本和候选。",
+            "type": "boolean"
+          },
+          "family_skill_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9-]+--[a-f0-9]{16}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "只查看这个真实Skill所属家族，可找到刚创建的候选。"
+          }
+        },
+        "title": "ListProducerSkillsArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_producer_skill",
+      "description": "读取指定Skill。编辑正文和参考图时一次传path=SKILL.md、list_files=true，取得全文、文件树和同一版本的真实digest；只读已知文件可直接path，无需先列目录。默认分页正文无写入digest。include_versions=true仅在需要定位历史版/候选时查家族，不与文件读取混用；已有准确ID不必再列家族。看图片用read_image。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "skill_id": {
+            "description": "从 list_producer_skills 或栏目组合元数据取得的 Skill ID。",
+            "pattern": "^(?:knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "description": "正文字符分页起点；有更多内容时按 page.has_more 继续。",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 2000,
+            "description": "本页最多字符数，最大 4000。",
+            "maximum": 4000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "只读取指定 Markdown/UTF-8 文本；已知根 SKILL.md 可直接读取，无需先列文件。可与 list_files=true 一次返回文件树和该正文。图片路径仍不返回图像字节。"
+          },
+          "list_files": {
+            "default": false,
+            "description": "true 时列出受管工作副本文件；与 path 同传可同时读取指定正文。",
+            "type": "boolean"
+          },
+          "include_versions": {
+            "default": false,
+            "description": "true 时只读取该 Skill 家族历史版本、候选和 digest；与 path/list_files 互斥。",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "skill_id"
+        ],
+        "title": "ProducerSkillArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_producer_skill_file",
+      "description": "编辑已有Skill，先读取真实digest。单项write_text改完整文本，add_image/replace_image/delete_image管理assets；多项修改用operation=batch和changes一次提交，按添加图片→改正文引用→删旧图排序，新图用当前会话attachment_id。宿主逐项跟随实际候选ID/digest，失败停止并返回已完成项，不是原子事务；outcome_unknown不能整批重发。发布版另存完整候选，后续用回执新skill_id/digest。账号对话中可用的非内置发布版即使原件can_edit=false，用户明确要求时也可另存当前账号私有候选；不覆盖共享原件，不访问其他账号私有候选。只问权限或明确不写入时不调用本工具。只保存候选，不改栏目、旧Run或自动生产；试产用start_content_run指定版本，循环用manage_skill_iteration。",
+      "parameters": {
+        "$defs": {
+          "SkillEditChangeArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "operation": {
+                "enum": [
+                  "write_text",
+                  "add_image",
+                  "replace_image",
+                  "delete_image"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              "content": {
+                "anyOf": [
+                  {
+                    "maxLength": 524288,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "attachment_id": {
+                "anyOf": [
+                  {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "path"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "skill_id": {
+            "description": "从 list_producer_skills 取得的已安装 Skill ID。",
+            "pattern": "^[a-z0-9-]+--[a-f0-9]{16}$",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "单项文字/图片操作的相对路径；批量编辑时每个 changes 项各自提供 path。"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 524288,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "write_text 时提供完整的新 UTF-8 文本；图片操作不传此字段。"
+          },
+          "operation": {
+            "default": "write_text",
+            "description": "默认单项改文字；图片使用 add_image/replace_image/delete_image；多项使用 batch。",
+            "enum": [
+              "write_text",
+              "add_image",
+              "replace_image",
+              "delete_image",
+              "batch"
+            ],
+            "type": "string"
+          },
+          "attachment_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "新增或替换图片时提供当前会话真实附件ID，不传任意图片路径或base64。"
+          },
+          "expected_digest": {
+            "description": "get_producer_skill(list_files=true) 或 path 读取返回的当前工作副本 digest。分页正文不提供该值；禁止猜测或使用 source_digest。",
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "changes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/SkillEditChangeArgs"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "operation=batch 时按顺序执行 1–20 项；使用每项真实回执更新候选 ID 与 digest，失败即停，不回滚。"
+          }
+        },
+        "required": [
+          "skill_id",
+          "expected_digest"
+        ],
+        "title": "UpdateProducerSkillFileArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "manage_skill_iteration",
+      "description": "管理RSI：明确要求循环迭代或本轮开启RSI时start，指定真实栏目、Skill版本与原选题；默认3轮含基线。start/get不传expected_revision；pause、resume、continue必须传最近get返回的任务expected_revision。后台自己提交Codex试产、DS看图评审并改候选，不需另开生产。运行中next_action=wait_background，给任务入口后结束本轮，不连续get；用户后续问进度才get一次。get返回阶段和active_round真实生产状态。失败评审或未成功提交时resume沿原图/原输入续接，不加轮数。耗尽后用户明确授权才continue。只交付候选，不发布不切栏目，不混入后来修改的Skill。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "start 创建时传 series_id、skill_id、topic_id，不传 iteration_id 和 expected_revision；get 查询传 iteration_id，不传 expected_revision；pause、resume、continue 必传 iteration_id 和 expected_revision。",
+            "enum": [
+              "start",
+              "get",
+              "pause",
+              "resume",
+              "continue"
+            ],
+            "type": "string"
+          },
+          "iteration_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skill_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "attachment_ids": {
+            "description": "本会话已上传、用户指定为优秀参考的真实图片ID；不接受本地路径。",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "type": "array"
+          },
+          "reference_paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "从目标Skill文件列表取得的参考图相对路径；省略用其图片，最多20张，不接受任意本地路径。"
+          },
+          "max_rounds": {
+            "default": 3,
+            "description": "默认3轮含基线；到上限停止，继续需要用户明确要求。",
+            "maximum": 3,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "expected_revision：start 和 get 不传；pause、resume、continue 必填最近 get 返回的任务 revision，不是栏目或 Skill 版本。"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "ManageSkillIterationArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "list_creator_series",
+      "description": "查询当前绑定账号的栏目；已有当前账号目录且栏目未变化时复用，不为查一个已知栏目重列。账号由宿主确定。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "CreatorArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "start_content_run",
+      "description": "用户明确要求生产且仅需提交时调用；明确要求完成后核验、继续处理或汇报结果时，通过manage_plan的生产步骤设置wait_for_completion=true。选择action：start用topic_ids列表按栏目默认生产，单条也填列表；tasks用topic_id和tasks拆分制作，每项显式kind和具体brief、可选skill_ids；fresh用source_run_id和所见expected_version清空旧上下文重做，可指定skill_ids；reference用series_id、title、当前会话attachment_ids及完整要求直接制作，可用skill_ids选择本次一份或多份精确版本，不改栏目绑定；省略时沿用默认。同一参考请求改选Skill会冲突，先核对原记录。25张独立理由图填25项，各自一个Codex会话，共用同题素材集。先图后视频用manage_plan等待上游，视频inputs携带collection_id与bgm_material_id或bgm_reference，分享原文直接交Codex，不先解析。受理不等于完成，不自动重提或发布。",
+      "parameters": {
+        "type": "object",
+        "$defs": {
+          "FreshProductionRunArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "fresh",
+                "type": "string"
+              },
+              "source_run_id": {
+                "description": "先读取的原 Run ID；从同一选题清空旧上下文重做。",
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "expected_version": {
+                "description": "读取来源 Run 时取得的当前 version。",
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              "skill_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "pattern": "^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+                      "type": "string"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "本次重做使用的精确版本 ID；省略使用现有重做规则，不改栏目默认。"
+              }
+            },
+            "required": [
+              "action",
+              "source_run_id",
+              "expected_version"
+            ],
+            "type": "object"
+          },
+          "ImageProductionTask": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "description": "该独立制作任务的简短名称。",
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "brief": {
+                "description": "本项独立画面或视频的完整要求；独立理由图一图一项，25张填25项。",
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "skill_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "pattern": "^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+                      "type": "string"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "本次使用的精确 Skill 版本 ID，可选择一项或多项；省略使用栏目对应阶段默认。"
+              },
+              "kind": {
+                "const": "image",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "brief",
+              "kind"
+            ],
+            "type": "object"
+          },
+          "MaterialBgmInputs": {
+            "additionalProperties": false,
+            "properties": {
+              "collection_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "export_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bgm_material_id": {
+                "description": "已有音频或视频的素材 ID。",
+                "pattern": "^[a-f0-9]{64}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "collection_id",
+              "bgm_material_id"
+            ],
+            "type": "object"
+          },
+          "ReferenceBgmInputs": {
+            "additionalProperties": false,
+            "properties": {
+              "collection_id": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "export_id": {
+                "anyOf": [
+                  {
+                    "pattern": "^[a-f0-9]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bgm_reference": {
+                "description": "用户给的 BGM 分享原文或链接，直接交给 Codex；无需预解析或先导入。",
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "collection_id",
+              "bgm_reference"
+            ],
+            "type": "object"
+          },
+          "ReferenceProductionRunArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "reference",
+                "type": "string"
+              },
+              "series_id": {
+                "description": "按用户给的参考作品直接制作的目标栏目。",
+                "minLength": 1,
+                "type": "string"
+              },
+              "title": {
+                "description": "仅用于展示的简短选题名称。",
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "attachment_ids": {
+                "description": "当前会话中已有参考图片的附件 ID。",
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "minItems": 1,
+                "type": "array"
+              },
+              "instructions": {
+                "default": "",
+                "description": "参考制作的完整要求。",
+                "maxLength": 3000,
+                "type": "string"
+              },
+              "reference_presentation": {
+                "default": false,
+                "description": "默认只借鉴内容；用户明确要求参考画面风格或版式时才设 true。",
+                "type": "boolean"
+              },
+              "skill_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "pattern": "^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+                      "type": "string"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "本次参考制作使用的一份或多份精确 Skill 版本 ID；省略沿用栏目默认，不改栏目绑定。"
+              }
+            },
+            "required": [
+              "action",
+              "series_id",
+              "title",
+              "attachment_ids"
+            ],
+            "type": "object"
+          },
+          "StartDefaultRunArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "start",
+                "type": "string"
+              },
+              "topic_ids": {
+                "description": "使用栏目默认 Skill 的真实选题 ID 列表；单个选题也填列表。",
+                "items": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "action",
+              "topic_ids"
+            ],
+            "type": "object"
+          },
+          "StartProductionTasksArgs": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "const": "tasks",
+                "type": "string"
+              },
+              "topic_id": {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              "tasks": {
+                "description": "同一选题的独立制作单位，每项一个 Codex thread；kind 必须显式选择。",
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "image": "#/$defs/ImageProductionTask",
+                      "video": "#/$defs/VideoProductionTask"
+                    },
+                    "propertyName": "kind"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/ImageProductionTask"
+                    },
+                    {
+                      "$ref": "#/$defs/VideoProductionTask"
+                    }
+                  ]
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              "instructions": {
+                "default": "",
+                "description": "本批每项制作共同遵守的要求。",
+                "maxLength": 3000,
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "topic_id",
+              "tasks"
+            ],
+            "type": "object"
+          },
+          "VideoProductionTask": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "description": "该独立制作任务的简短名称。",
+                "maxLength": 240,
+                "minLength": 1,
+                "type": "string"
+              },
+              "brief": {
+                "description": "本项独立画面或视频的完整要求；独立理由图一图一项，25张填25项。",
+                "maxLength": 10000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "skill_ids": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "maxLength": 120,
+                      "minLength": 1,
+                      "pattern": "^(knowledge-to-carousel|[a-z0-9-]+--[a-f0-9]{16})$",
+                      "type": "string"
+                    },
+                    "maxItems": 12,
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "本次使用的精确 Skill 版本 ID，可选择一项或多项；省略使用栏目对应阶段默认。"
+              },
+              "kind": {
+                "const": "video",
+                "type": "string"
+              },
+              "inputs": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MaterialBgmInputs"
+                  },
+                  {
+                    "$ref": "#/$defs/ReferenceBgmInputs"
+                  }
+                ],
+                "description": "素材集及 BGM 素材ID或分享原文，两种 BGM 输入二选一。"
+              },
+              "depends_on": {
+                "description": "用户明确选择的本选题生图任务 ID；后台等待完成，不轮询。",
+                "items": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              }
+            },
+            "required": [
+              "title",
+              "brief",
+              "kind",
+              "inputs"
+            ],
+            "type": "object"
+          }
+        },
+        "discriminator": {
+          "mapping": {
+            "fresh": "#/$defs/FreshProductionRunArgs",
+            "reference": "#/$defs/ReferenceProductionRunArgs",
+            "start": "#/$defs/StartDefaultRunArgs",
+            "tasks": "#/$defs/StartProductionTasksArgs"
+          },
+          "propertyName": "action"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/StartDefaultRunArgs"
+          },
+          {
+            "$ref": "#/$defs/StartProductionTasksArgs"
+          },
+          {
+            "$ref": "#/$defs/FreshProductionRunArgs"
+          },
+          {
+            "$ref": "#/$defs/ReferenceProductionRunArgs"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_content_run",
+      "description": "用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "生产工具或目录返回的 Run ID。",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "GetRunArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "discuss_content_run",
+      "description": "用户希望讨论已验收作品时，针对指定 revision 和 artifact_digest 创建只读讨论任务。讨论不修改图片、内容、Skill、审批状态或生产 Run；不自动返工。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "从已有生产任务取得的 Run ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "request_id": {
+            "description": "本条讨论请求的幂等 ID；结果未知时复用。",
+            "maxLength": 64,
+            "minLength": 8,
+            "type": "string"
+          },
+          "revision_id": {
+            "description": "要讨论的已验收版本 ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "artifact_digest": {
+            "description": "该版本验收详情中的产物摘要。",
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "message": {
+            "description": "用户明确提出的讨论问题或观察。",
+            "maxLength": 8000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "request_id",
+          "revision_id",
+          "artifact_digest",
+          "message"
+        ],
+        "title": "DiscussContentRunArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_content_discussion",
+      "description": "读取同一 Run 的讨论历史与任务状态，不调用模型或重复提交。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "已有讨论任务对应的 Run ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "GetContentDiscussionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "request_content_revision",
+      "description": "仅在用户明确要求返工时调用；按当前 Run version 创建待执行 revision，不会执行生产、批准或发布。先查最新 Run 取得 expected_version。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "从已有生产任务取得的 Run ID。",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "instruction": {
+            "description": "用户明确要求的返工内容。",
+            "maxLength": 10000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_version": {
+            "description": "当前 Run 版本；先查询后提交，过期会被拒绝。",
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "instruction",
+          "expected_version"
+        ],
+        "title": "RequestContentRevisionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_creator_tasks",
+      "description": "查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "series_id": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "可选真实栏目 ID，用于缩小任务范围。"
+          },
+          "statuses": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "queued",
+                    "researching",
+                    "running",
+                    "producing",
+                    "validating",
+                    "ready",
+                    "completed",
+                    "awaiting_approval",
+                    "approved",
+                    "interrupted",
+                    "failed",
+                    "cancelled",
+                    "unknown",
+                    "stale",
+                    "waiting_production",
+                    "paused",
+                    "exhausted",
+                    "waiting",
+                    "needs_attention"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 22,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。"
+          }
+        },
+        "required": [],
+        "title": "CreatorTasksArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_image",
+      "description": "实际查看当前会话附件、当前账号 Skill 的参考图或指定产物版本的图片。按返回的附件看图，不猜测图片内容；不接受任意本地路径。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skill_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image_index": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ReadImageArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "extract_skill_from_images",
+      "description": "按用户要求从当前聊天图片提炼Skill草稿。宿主短时等待并展示进度；ready展示草稿，wait_background给任务入口并结束本轮，不连续查询。不会自动入库、组栏目或生产。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "attachment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "type": "array"
+          },
+          "mode": {
+            "default": "single",
+            "enum": [
+              "single",
+              "mind",
+              "visual",
+              "pair"
+            ],
+            "type": "string"
+          },
+          "instruction": {
+            "default": "",
+            "maxLength": 4000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_ids"
+        ],
+        "title": "ExtractSkillImagesArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "create_skill_draft",
+      "description": "用户已经给出现成提示词或完整Skill，要求保存为可复用Skill时使用。原样保存文字及指定会话参考图，不调用Codex重新提炼；只生成待检查草稿，不入库、不创建栏目、不生产。需要从作品总结方法而没有现成提示词时用extract_skill_from_images。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 64,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "content": {
+            "description": "用户已提供的提示词或完整SKILL.md，保留原文，不重新提炼或改写核心要求。",
+            "maxLength": 20000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "role": {
+            "default": "legacy_end_to_end",
+            "enum": [
+              "legacy_end_to_end",
+              "mind",
+              "production"
+            ],
+            "type": "string"
+          },
+          "attachment_ids": {
+            "description": "当前会话中用户明确指定作为Skill参考的图片ID；没有参考图可为空。",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "type": "array"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "content"
+        ],
+        "title": "CreateSkillDraftArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "import_content_images",
+      "description": "用户明确表示图片已是成品时，按顺序导入指定栏目成为待人工验收内容。不是生图队列，不调用 Codex、不批准、不发布。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "series_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "attachment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "type": "array"
+          },
+          "title": {
+            "maxLength": 240,
+            "minLength": 1,
+            "type": "string"
+          },
+          "body": {
+            "default": "",
+            "maxLength": 20000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "series_id",
+          "attachment_ids",
+          "title"
+        ],
+        "title": "ImportContentImagesArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_skill_extraction",
+      "description": "用户主动询问时查询提炼任务一次，或列出历史任务。运行中给进度和任务入口后结束本轮，禁止连续查询等完成。ready只表示草稿可预览，展示并等待用户确认，不能当作已入库。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "提炼任务 ID；省略时列出任务，用于找回刷新前的任务。"
+          }
+        },
+        "title": "GetSkillExtractionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "save_extracted_skills",
+      "description": "仅在用户查看草稿后明确确认加入 Skill 库时调用；把查询结果中的 digest 原样作为 expected_digest 传入。此操作只登记 Skill，不绑定栏目、不生产、不发布。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "description": "待保存提炼任务 ID。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_digest": {
+            "description": "预览任务返回的 digest；用于确认保存的是已查看的草稿。",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "expected_digest"
+        ],
+        "title": "SaveExtractedSkillsArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "cancel_skill_extraction",
+      "description": "按用户要求取消指定提炼任务；不会影响其他提炼或生产任务。",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "description": "要取消的提炼任务 ID。",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "CancelSkillExtractionArgs",
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "edit_extracted_skills",
+      "description": "只编辑尚未入库的ready草稿，使用当前expected_digest。已saved的任务不再编辑草稿：用saved_skills中的准确ID读取已安装Skill，随后用update_producer_skill_file另存候选；不必再查全库或整个家族。不入库、不切栏目。",
+      "parameters": {
+        "$defs": {
+          "DraftSkill": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "maxLength": 64,
+                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "role": {
+                "enum": [
+                  "mind",
+                  "production",
+                  "legacy_end_to_end"
+                ],
+                "type": "string"
+              },
+              "skill_md": {
+                "maxLength": 24000,
+                "minLength": 40,
+                "type": "string"
+              },
+              "output_kind": {
+                "default": "image-carousel",
+                "enum": [
+                  "image-carousel",
+                  "text"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "role",
+              "skill_md"
+            ],
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "description": "待保存提炼任务 ID。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "expected_digest": {
+            "description": "预览任务返回的 digest；用于确认保存的是已查看的草稿。",
+            "minLength": 1,
+            "type": "string"
+          },
+          "skills": {
+            "items": {
+              "$ref": "#/$defs/DraftSkill"
+            },
+            "maxItems": 2,
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "expected_digest",
+          "skills"
+        ],
+        "title": "EditExtractedSkillsArgs",
+        "type": "object"
+      }
+    }
+  }
+]

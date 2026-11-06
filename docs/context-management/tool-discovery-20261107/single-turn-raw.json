@@ -1,0 +1,823 @@
+{
+  "version": 1,
+  "created_at_utc": "2026-11-06T17:08:46.795020+00:00",
+  "git_commit": "2720cfa16039745c37120047334196136d130a98",
+  "model": "deepseek-flash",
+  "reasoning": "none",
+  "cases": [
+    {
+      "id": "TOPIC_READ",
+      "query": "请看一下选题 topic-demo-18 的制作要求是什么？",
+      "expected": "manage_topics",
+      "required": {
+        "action": "get",
+        "topic_id": "topic-demo-18"
+      },
+      "answer_hint": "上班族"
+    },
+    {
+      "id": "PLAN_READ",
+      "query": "计划 plan-demo-17 现在是什么状态？",
+      "expected": "manage_plan",
+      "required": {
+        "action": "get",
+        "plan_id": "plan-demo-17"
+      },
+      "answer_hint": "进行中"
+    },
+    {
+      "id": "SKILL_READ",
+      "query": "knowledge-to-carousel 的 Skill 正文里写了什么？",
+      "expected": "get_producer_skill",
+      "required": {
+        "skill_id": "knowledge-to-carousel"
+      },
+      "answer_hint": "具体场景"
+    },
+    {
+      "id": "FAILED_TASKS",
+      "query": "请看看当前账号有哪些失败的制作任务。",
+      "expected": "get_creator_tasks",
+      "required": {
+        "statuses": [
+          "failed"
+        ]
+      },
+      "answer_hint": "制作测试"
+    },
+    {
+      "id": "NO_TOOL",
+      "query": "你好，接下来一起整理创作思路吧。",
+      "expected": null,
+      "required": {},
+      "answer_hint": null
+    },
+    {
+      "id": "AMBIGUOUS_WRITE",
+      "query": "把这个栏目改个名字，改成小城日常。",
+      "expected": null,
+      "required": {},
+      "answer_hint": null
+    }
+  ],
+  "results": [
+    {
+      "case_id": "TOPIC_READ",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19838,
+            "output_tokens": 59,
+            "total_tokens": 19897,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19838
+          },
+          "seconds": 3.109,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19944,
+            "output_tokens": 33,
+            "total_tokens": 19977,
+            "cache_hit_tokens": 19712,
+            "cache_miss_tokens": 232
+          },
+          "seconds": 1.297,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "manage_topics"
+      ],
+      "answer": "选题「早餐」的制作要求如下：标题为「早餐」，切入点是「给上班族的早餐故事。」除此之外，该选题没有其他附加场景或要求。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "TOPIC_READ",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6049,
+            "output_tokens": 43,
+            "total_tokens": 6092,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6049
+          },
+          "seconds": 0.985,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7455,
+            "output_tokens": 74,
+            "total_tokens": 7529,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1439
+          },
+          "seconds": 1.156,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7576,
+            "output_tokens": 29,
+            "total_tokens": 7605,
+            "cache_hit_tokens": 7424,
+            "cache_miss_tokens": 152
+          },
+          "seconds": 1.172,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"manage_topics\"]}"
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_topics\", \"arguments\": {\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}}",
+          "resolved_name": "manage_topics",
+          "resolved_arguments": {
+            "action": "get",
+            "topic_id": "topic-demo-18"
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "manage_topics"
+      ],
+      "answer": "选题「早餐」目前的制作要求就是一条简介：为上班族写一个早餐故事。没有更细的场景、画面或格式约束。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "PLAN_READ",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6043,
+            "output_tokens": 43,
+            "total_tokens": 6086,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6043
+          },
+          "seconds": 0.969,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7721,
+            "output_tokens": 74,
+            "total_tokens": 7795,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1705
+          },
+          "seconds": 0.594,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7830,
+            "output_tokens": 17,
+            "total_tokens": 7847,
+            "cache_hit_tokens": 7680,
+            "cache_miss_tokens": 150
+          },
+          "seconds": 0.859,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"manage_plan\"]}"
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"manage_plan\", \"arguments\": {\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}}",
+          "resolved_name": "manage_plan",
+          "resolved_arguments": {
+            "action": "get",
+            "plan_id": "plan-demo-17"
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "manage_plan"
+      ],
+      "answer": "计划 plan-demo-17 当前状态是运行中，即进行中。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "PLAN_READ",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19832,
+            "output_tokens": 59,
+            "total_tokens": 19891,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19832
+          },
+          "seconds": 1.203,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19926,
+            "output_tokens": 13,
+            "total_tokens": 19939,
+            "cache_hit_tokens": 19712,
+            "cache_miss_tokens": 214
+          },
+          "seconds": 0.782,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}",
+          "resolved_name": "manage_plan",
+          "resolved_arguments": {
+            "action": "get",
+            "plan_id": "plan-demo-17"
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "manage_plan"
+      ],
+      "answer": "计划 plan-demo-17 目前状态为进行中。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "SKILL_READ",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19838,
+            "output_tokens": 79,
+            "total_tokens": 19917,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19838
+          },
+          "seconds": 1.312,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19971,
+            "output_tokens": 21,
+            "total_tokens": 19992,
+            "cache_hit_tokens": 19712,
+            "cache_miss_tokens": 259
+          },
+          "seconds": 0.734,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "get_producer_skill",
+          "arguments": "{\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\", \"limit\": 4000}",
+          "resolved_name": "get_producer_skill",
+          "resolved_arguments": {
+            "skill_id": "knowledge-to-carousel",
+            "path": "SKILL.md",
+            "limit": 4000
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "get_producer_skill"
+      ],
+      "answer": "knowledge-to-carousel 的 Skill 正文只有一句：「从具体场景开始，解释一个知识点。」",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "SKILL_READ",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6048,
+            "output_tokens": 69,
+            "total_tokens": 6117,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6048
+          },
+          "seconds": 0.625,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 7510,
+            "output_tokens": 83,
+            "total_tokens": 7593,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 1494
+          },
+          "seconds": 1.031,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 7647,
+            "output_tokens": 32,
+            "total_tokens": 7679,
+            "cache_hit_tokens": 7424,
+            "cache_miss_tokens": 223
+          },
+          "seconds": 0.656,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"list_producer_skills\", \"get_producer_skill\", \"manage_skill_library\"]}"
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"get_producer_skill\", \"arguments\": {\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\", \"limit\": 4000}}",
+          "resolved_name": "get_producer_skill",
+          "resolved_arguments": {
+            "skill_id": "knowledge-to-carousel",
+            "path": "SKILL.md",
+            "limit": 4000
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "get_producer_skill"
+      ],
+      "answer": "knowledge-to-carousel 的 Skill 正文只有一句话：\n\n> 从具体场景开始，解释一个知识点。\n\n这是只读查看，未做修改。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "FAILED_TASKS",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6042,
+            "output_tokens": 51,
+            "total_tokens": 6093,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6042
+          },
+          "seconds": 1.11,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 6708,
+            "output_tokens": 66,
+            "total_tokens": 6774,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 692
+          },
+          "seconds": 0.765,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 6829,
+            "output_tokens": 25,
+            "total_tokens": 6854,
+            "cache_hit_tokens": 6656,
+            "cache_miss_tokens": 173
+          },
+          "seconds": 0.782,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"get_creator_tasks\", \"manage_production_task\"]}"
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"get_creator_tasks\", \"arguments\": {\"statuses\": [\"failed\"]}}",
+          "resolved_name": "get_creator_tasks",
+          "resolved_arguments": {
+            "statuses": [
+              "failed"
+            ]
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "get_creator_tasks"
+      ],
+      "answer": "当前账号有 1 个失败的制作任务：「制作测试」。\n\n该任务名为「制作测试」，状态为失败。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "FAILED_TASKS",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19831,
+            "output_tokens": 43,
+            "total_tokens": 19874,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19831
+          },
+          "seconds": 0.609,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19929,
+            "output_tokens": 14,
+            "total_tokens": 19943,
+            "cache_hit_tokens": 19712,
+            "cache_miss_tokens": 217
+          },
+          "seconds": 0.891,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"statuses\": [\"failed\"]}",
+          "resolved_name": "get_creator_tasks",
+          "resolved_arguments": {
+            "statuses": [
+              "failed"
+            ]
+          },
+          "validated": true
+        }
+      ],
+      "fixture_calls": [
+        "get_creator_tasks"
+      ],
+      "answer": "当前账号有 1 个失败的制作任务：「制作测试」。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": true,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "NO_TOOL",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19830,
+            "output_tokens": 33,
+            "total_tokens": 19863,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19830
+          },
+          "seconds": 1.094,
+          "prefix_from_previous": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [],
+      "fixture_calls": [],
+      "answer": "你好，想先聊哪一块？告诉我方向就行：选题构思、栏目内容规划、已有作品的画面与文案打磨，还是 Skill 的调整思路。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": null,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "NO_TOOL",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6044,
+            "output_tokens": 20,
+            "total_tokens": 6064,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6044
+          },
+          "seconds": 0.938,
+          "prefix_from_previous": null,
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [],
+      "fixture_calls": [],
+      "answer": "你好，想从哪方面开始？可以说栏目名称，或直接说想聊的选题。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": true,
+        "fixture_answer_hint_present": null,
+        "unexpected_or_invalid_call": false,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "AMBIGUOUS_WRITE",
+      "variant": "discovery",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 6047,
+            "output_tokens": 59,
+            "total_tokens": 6106,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 6047
+          },
+          "seconds": 1.062,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 6615,
+            "output_tokens": 59,
+            "total_tokens": 6674,
+            "cache_hit_tokens": 6016,
+            "cache_miss_tokens": 599
+          },
+          "seconds": 0.797,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 3,
+          "usage": {
+            "input_tokens": 6702,
+            "output_tokens": 38,
+            "total_tokens": 6740,
+            "cache_hit_tokens": 6528,
+            "cache_miss_tokens": 174
+          },
+          "seconds": 1.219,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "discover_tools",
+          "arguments": "{\"names\": [\"list_creator_series\", \"update_series_composition\"]}"
+        },
+        {
+          "name": "call_discovered_tool",
+          "arguments": "{\"name\": \"list_creator_series\", \"arguments\": {}}",
+          "resolved_name": "list_creator_series",
+          "resolved_arguments": {},
+          "validated": true,
+          "fixture_blocked": true
+        }
+      ],
+      "fixture_calls": [],
+      "answer": "栏目目录在隔离环境中读不出来，因此我拿不到当前 revision，这轮没法安全改名。请等目录可读后再试，或直接告诉我目标栏目的准确名称。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 2426,
+      "structural_checks": {
+        "expected_action_found": false,
+        "fixture_answer_hint_present": null,
+        "unexpected_or_invalid_call": true,
+        "no_business_handlers_executed": true
+      }
+    },
+    {
+      "case_id": "AMBIGUOUS_WRITE",
+      "variant": "baseline",
+      "status": "completed_needs_review",
+      "requests": [
+        {
+          "index": 1,
+          "usage": {
+            "input_tokens": 19837,
+            "output_tokens": 31,
+            "total_tokens": 19868,
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 19837
+          },
+          "seconds": 1.329,
+          "prefix_from_previous": null,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "index": 2,
+          "usage": {
+            "input_tokens": 19896,
+            "output_tokens": 42,
+            "total_tokens": 19938,
+            "cache_hit_tokens": 19712,
+            "cache_miss_tokens": 184
+          },
+          "seconds": 1.218,
+          "prefix_from_previous": {
+            "same_tools": true,
+            "messages_append_only": true
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "list_creator_series",
+          "arguments": "{}",
+          "resolved_name": "list_creator_series",
+          "resolved_arguments": {},
+          "validated": true,
+          "fixture_blocked": true
+        }
+      ],
+      "fixture_calls": [],
+      "answer": "这个对话环境的栏目目录当前不可用，我无法读取栏目的当前 revision，因此不能安全提交改名。请稍后在 CreatorOS 栏目页重试，或提供目标栏目的当前 revision。",
+      "error_type": null,
+      "estimated_tool_schema_tokens": 15123,
+      "structural_checks": {
+        "expected_action_found": false,
+        "fixture_answer_hint_present": null,
+        "unexpected_or_invalid_call": true,
+        "no_business_handlers_executed": true
+      }
+    }
+  ]
+}

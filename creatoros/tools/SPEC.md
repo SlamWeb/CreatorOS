@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-07 · 账号工具 Schema 注解精简
+
+Web 账号会话（绑定 `creator_id` 且只读会话归档）仅在复制的模型可见 Schema 中删除 null 默认注解、与 `$defs` 名称相同的 title 注解，将两支仅含 `type` 且一支是 null 的 `anyOf` 改为等价 `type` 数组。工具名和顺序、业务描述、参数约束、非空默认、权限和原注册表保持；默认值仍由服务端解析器决定。删除注解会改变模型提示，切换版本可能使工具前缀缓存失效一次，不承诺其他服务商或 strict 模式兼容；详见 [模型与业务回归](../../docs/context-management/schema-trim-mechanical-20261107.md)。
+
 ## 2026-11-07 · 相同后台提取回执引用
 
 模型视图中，`get_skill_extraction` 成功且为 queued/running 的回执，仅当同一 job 的参数、原始结果和现有投影内容完全一致、来源调用 ID 唯一且本次请求中可见时，后续足够长的重复回执可保留状态等必要字段并以 `result_ref` 指向此前完整结果；错误、未知、非空观察警告、状态变更或缺源均保留原投影。引用不声称发生实时读取，也不取消真实查询；原始账本、调用及权限不变。离线真实 Trace、隔离模型对照和限制见 [验证记录](../../docs/context-management/PENDING_RECEIPT_2026-11-07.md)。

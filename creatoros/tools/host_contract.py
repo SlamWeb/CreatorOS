@@ -53,6 +53,44 @@ def _hide_account_field(schema):
             _hide_account_field(value)
 
 
+def _simplify_schema_annotations(node):
+    """Compact equivalent schema annotations without traversing user data.
+
+    This changes only the model-facing copy. Runtime argument validation keeps
+    using the original tool models and defaults.
+    """
+    if not isinstance(node, dict):
+        return
+    if node.get("default", object()) is None:
+        del node["default"]
+    branches = node.get("anyOf")
+    if (isinstance(branches, list) and len(branches) == 2 and "type" not in node
+            and all(isinstance(branch, dict) and set(branch) == {"type"}
+                    and isinstance(branch["type"], str) for branch in branches)
+            and len({branch["type"] for branch in branches}) == 2
+            and "null" in {branch["type"] for branch in branches}):
+        node["type"] = [branch["type"] for branch in branches]
+        del node["anyOf"]
+    for key in ("$defs", "definitions"):
+        definitions = node.get(key)
+        if isinstance(definitions, dict):
+            for name, definition in definitions.items():
+                if isinstance(definition, dict) and definition.get("title") == name:
+                    del definition["title"]
+    for key in ("$defs", "definitions", "properties", "patternProperties", "dependentSchemas"):
+        children = node.get(key)
+        if isinstance(children, dict):
+            for child in children.values():
+                _simplify_schema_annotations(child)
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
+        children = node.get(key)
+        if isinstance(children, list):
+            for child in children:
+                _simplify_schema_annotations(child)
+    for key in ("items", "additionalProperties", "contains", "not", "if", "then", "else", "propertyNames"):
+        _simplify_schema_annotations(node.get(key))
+
+
 def model_tool_schemas(schemas, context):
     allowed = context.allowed_tools
     result = deepcopy([schema for schema in schemas
@@ -79,6 +117,8 @@ def model_tool_schemas(schemas, context):
                 "compose_series": "用户明确要求时为当前账号创建栏目，可仅填名称，之后配置常用池/阶段默认；也兼容旧完整Skill或Mind＋Visualize组合。账号由宿主绑定。",
             }[name]
         _strip_redundant_property_titles(function.get("parameters"))
+        if context.creator_id and context.archive_only_reads:
+            _simplify_schema_annotations(function.get("parameters"))
     return result
 
 

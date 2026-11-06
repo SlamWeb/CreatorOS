@@ -1,0 +1,205 @@
+{
+  "version": "schema-trim-mechanical-v1",
+  "status": "complete",
+  "counts": {
+    "null_defaults": 73,
+    "definition_titles": 27,
+    "nullable_anyof": 8
+  },
+  "model": "deepseek-flash",
+  "thinking": "low",
+  "schema_sha256": {
+    "original": "9505351e4706bc39fcdc76fef4a16e282a1ffb62aeb6ff203a11bca70656eae4",
+    "candidate": "65f5735afb9856b61f0539993d58486c6603c4dd763225a4533ea49ae3f4dda0"
+  },
+  "schema_estimate": {
+    "original": 15123,
+    "candidate": 14622
+  },
+  "runs": [
+    {
+      "case_id": "topic_get",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"test-topic-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19841,
+        "output_tokens": 158,
+        "total_tokens": 19999,
+        "cache_hit_tokens": 3840,
+        "cache_miss_tokens": 16001
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 3.922
+    },
+    {
+      "case_id": "topic_get",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"test-topic-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19209,
+        "output_tokens": 106,
+        "total_tokens": 19315,
+        "cache_hit_tokens": 4096,
+        "cache_miss_tokens": 15113
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.235
+    },
+    {
+      "case_id": "plan_get",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"test-plan-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19210,
+        "output_tokens": 80,
+        "total_tokens": 19290,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 266
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.14
+    },
+    {
+      "case_id": "plan_get",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"test-plan-01\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19842,
+        "output_tokens": 77,
+        "total_tokens": 19919,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 258
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.86
+    },
+    {
+      "case_id": "skill_read",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_producer_skill",
+          "arguments": "{\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\", \"list_files\": true}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19842,
+        "output_tokens": 113,
+        "total_tokens": 19955,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 258
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.172
+    },
+    {
+      "case_id": "skill_read",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_producer_skill",
+          "arguments": "{\"skill_id\": \"knowledge-to-carousel\", \"path\": \"SKILL.md\"}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19210,
+        "output_tokens": 119,
+        "total_tokens": 19329,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 266
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.391
+    },
+    {
+      "case_id": "failed_tasks",
+      "variant": "candidate",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"statuses\": [\"failed\"]}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19205,
+        "output_tokens": 66,
+        "total_tokens": 19271,
+        "cache_hit_tokens": 18944,
+        "cache_miss_tokens": 261
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 1.25
+    },
+    {
+      "case_id": "failed_tasks",
+      "variant": "original",
+      "status": "succeeded",
+      "calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"statuses\": [\"failed\"]}"
+        }
+      ],
+      "answer": "",
+      "usage": {
+        "input_tokens": 19837,
+        "output_tokens": 61,
+        "total_tokens": 19898,
+        "cache_hit_tokens": 19584,
+        "cache_miss_tokens": 253
+      },
+      "structural_check": true,
+      "valid_arguments": true,
+      "expected_fields": true,
+      "elapsed_seconds": 0.859
+    }
+  ]
+}
