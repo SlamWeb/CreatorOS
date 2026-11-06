@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -108,6 +109,12 @@ def main():
     os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'world/world.db').as_posix()}"
     from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
     manifest = verify_manifest(args.manifest)["manifest"]
+    batch_root = root.parent.parent
+    if (root.parent.name != "records" or args.manifest.resolve() != (batch_root / "manifest.json").resolve()
+            or manifest.get("model_configuration", {}).get("benchmark_run_id", batch_root.name) != batch_root.name):
+        parser.error("Trial and manifest must belong to the same batch")
+    trial_binding = {"benchmark_batch_id": batch_root.name,
+                     "benchmark_manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest()}
     from creatoros.evaluation.benchmark.judge_timing import verify_judge_evidence_version
     verify_judge_evidence_version(manifest)
     from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
@@ -473,6 +480,7 @@ def main():
                    "all_deepseek": aggregate_metrics(requests, manifest["pricing"])}
         write_json(root / "metrics.json", metrics)
         report = {"schema_version": 1, "dataset_id": dataset["dataset_id"], "case_id": case["id"],
+            **trial_binding,
             "run_id": root.name, "git_sha": manifest["git"]["sha"], "fixture_version": "benchmark-world-v2-2",
             "started_at": started, "finished_at": now(), "elapsed_seconds": monotonic() - clock,
             "execution_status": "failed" if error else "completed", "execution_mode": "live", "review": None,

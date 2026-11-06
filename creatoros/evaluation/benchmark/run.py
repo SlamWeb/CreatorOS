@@ -2,6 +2,7 @@
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,7 +34,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
         "aliases": {"deepseek-v4-flash": "deepseek-flash"}, "models": {"deepseek-flash": {
             "cache_hit_per_million": [0.003, 0.006], "cache_miss_per_million": [0.15, 0.30],
             "output_per_million": [0.6, 1.2]}}}
-    configuration = {"provider_request_model": "deepseek-flash", "provider": "deepseek", "retries": 0,
+    configuration = {"benchmark_run_id": root.name, "provider_request_model": "deepseek-flash", "provider": "deepseek", "retries": 0,
         "agent_reasoning": "product default high", "judge_model": "deepseek-flash", "judge_reasoning": "none",
         "judge_evidence_version": JUDGE_EVIDENCE_VERSION,
         "judge_contradiction_guard_version": JUDGE_CONTRADICTION_GUARD_VERSION,
@@ -52,7 +53,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
     return manifest
 
 
-def fallback_report(root, case, manifest, error, stage):
+def fallback_report(root, case, manifest, error, stage, *, trial_binding=None):
     from creatoros.evaluation.benchmark.io import now, write_json
     from creatoros.evaluation.benchmark.metrics import aggregate_metrics
     from creatoros.evaluation.benchmark.scoring import score_case
@@ -73,6 +74,8 @@ def fallback_report(root, case, manifest, error, stage):
         "dimensions": {"task_success": "failed", "boundary_enforced": "needs_review", "state_consistent": "needs_review", "protocol_valid": "failed"},
         "checks": [{"id": "launcher", "label": "真实前端执行完成", "status": "failed", "detail": str(error), "evidence": ["metrics.json"]}],
         "evidence_files": [{"name": "metrics.json", "label": "已观测用量；缺失不记0"}]}
+    if trial_binding is not None:
+        report.update(trial_binding)
     from creatoros.evaluation.benchmark.nonvideo_guard import evidence as guard_evidence
     guard_check = guard_evidence(manifest, case["id"], root)
     if guard_check is not None:
@@ -113,11 +116,15 @@ def execute_case(batch, case, index, manifest, dataset_path):
     verify_guard_version(manifest)
     verified_manifest = verify_manifest(batch / "manifest.json")["manifest"]
     verify_guard_version(verified_manifest)
+    if verified_manifest.get("model_configuration", {}).get("benchmark_run_id", batch.name) != batch.name:
+        raise ValueError("Frozen manifest belongs to a different batch")
+    trial_binding = {"benchmark_batch_id": batch.name,
+                     "benchmark_manifest_sha256": hashlib.sha256((batch / "manifest.json").read_bytes()).hexdigest()}
     root = batch / "records" / uuid4().hex
     root.mkdir(parents=True, exist_ok=False)
     (batch / "claims").mkdir(exist_ok=True)
     with (batch / "claims" / (case["id"] + ".json")).open("x", encoding="utf-8") as out:
-        json.dump({"case_id": case["id"], "run_id": root.name, "first_attempt": True}, out)
+        json.dump({"case_id": case["id"], "run_id": root.name, "first_attempt": True, **trial_binding}, out)
     env = {**os.environ, "PYTHONUTF8": "1", "DATABASE_URL": f"sqlite:///{(root / 'bootstrap.db').as_posix()}"}
     log = (root / "server.log").open("wb")
     server = subprocess.Popen([sys.executable, "-m", "creatoros.evaluation.benchmark.server", "--case", case["id"],
@@ -134,7 +141,7 @@ def execute_case(batch, case, index, manifest, dataset_path):
         if not (root / "report.json").exists():
             raise RuntimeError(f"Browser exited {driver.returncode} before a report was saved")
     except Exception as error:
-        fallback_report(root, case, manifest, error, stage)
+        fallback_report(root, case, manifest, error, stage, trial_binding=trial_binding)
     finally:
         if server.poll() is None:
             server.terminate()

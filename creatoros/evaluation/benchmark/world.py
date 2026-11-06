@@ -166,7 +166,7 @@ class BenchmarkWorld:
             skill_install_service=self.installs, skill_extraction_service=self.extractions,
             topic_research_service=self.research, chat_root=self.root / "sessions",
             chat_provider_factory=provider_factory, eval_root=eval_root, eval_cases_path=dataset_path,
-            publication_client=publication_client)
+            eval_registry_path=self.root / "eval-registry.sqlite3", publication_client=publication_client)
         self._seed_imported_artifacts()
         self._seed_audio()
         library = self.app.state.skill_library

@@ -21,6 +21,10 @@ def isolated_worker(directory):
     root = Path(directory).resolve()
     world_root = root / "world"
     os.environ["DATABASE_URL"] = "sqlite:///" + (world_root / "world.db").as_posix()
+    os.environ["CREATOROS_EVAL_REGISTRY"] = str(root / "foreign-registry.sqlite3")
+    from creatoros.evaluation.registry import EvalRegistry
+    external_registry = EvalRegistry()
+    external_registry.register_round({"id": "private-round", "title": "private", "code_version": "private"})
     from creatoros.evaluation.benchmark.world import BenchmarkWorld
     from creatoros.integrations.producer_skills import declared_skill_outputs
     from tests.agent_studio_support import serve
@@ -33,6 +37,9 @@ def isolated_worker(directory):
     world = BenchmarkWorld(world_root, case, None, dataset_path=dataset, eval_root=root / "eval")
     try:
         assert world.root == world_root
+        assert world.app.state.eval_registry.path == world_root / "eval-registry.sqlite3"
+        assert world.app.state.eval_registry.rounds() == {"items": []}
+        assert external_registry.rounds()["items"][0]["id"] == "private-round"
         assert Path(world.database.engine.url.database).resolve() == world_root / "world.db"
         default_app = importlib.import_module("creatoros.web.app").app
         assert Path(default_app.state.database.engine.url.database).resolve().is_relative_to(world_root)
