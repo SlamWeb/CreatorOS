@@ -1,0 +1,206 @@
+[
+  {
+    "case": "开场文案",
+    "status": "failed",
+    "phase": "complete",
+    "tools": [
+      {
+        "name": "read_file",
+        "path_kind": "target",
+        "search_used": true,
+        "query_is_label": false,
+        "offset": null,
+        "limit": null,
+        "is_error": false,
+        "answer_in_result": true
+      },
+      {
+        "name": "read_file",
+        "path_kind": "target",
+        "search_used": false,
+        "query_is_label": false,
+        "offset": null,
+        "limit": 120,
+        "is_error": false,
+        "answer_in_result": true
+      }
+    ],
+    "requests": [
+      {
+        "kind": "compaction",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 887,
+          "input_tokens": 887,
+          "output_tokens": 566,
+          "total_tokens": 1453
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 5080,
+          "input_tokens": 5080,
+          "output_tokens": 592,
+          "total_tokens": 5672
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 5632,
+          "cache_miss_tokens": 5958,
+          "input_tokens": 11590,
+          "output_tokens": 493,
+          "total_tokens": 12083
+        }
+      }
+    ],
+    "answer_correct": false,
+    "answer_in_summary": false,
+    "answer_in_retained": false,
+    "recall_seconds": 7.766,
+    "answer_contains_publishing_refusal": false,
+    "answer_excerpt_redacted": "开场文案在选题资料中记录为「旧桥与风的距离」。该字段末尾还附有一段标识后缀（b09b9b66ef）；按正文看，实际开场句就是这七个字。\n\n不能只凭当时的讨论直接发布：当时只进入讨论，并没有取得发布授权。真要发布，需要先准备发布单，并在网页预览中由你确认账号、图片、文案与可见范围，才能提交。"
+  },
+  {
+    "case": "内容框架",
+    "status": "failed",
+    "phase": "complete",
+    "tools": [
+      {
+        "name": "read_file",
+        "path_kind": "target",
+        "search_used": true,
+        "query_is_label": false,
+        "offset": null,
+        "limit": null,
+        "is_error": false,
+        "answer_in_result": true
+      },
+      {
+        "name": "read_file",
+        "path_kind": "target",
+        "search_used": true,
+        "query_is_label": false,
+        "offset": null,
+        "limit": null,
+        "is_error": false,
+        "answer_in_result": true
+      }
+    ],
+    "requests": [
+      {
+        "kind": "compaction",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 128,
+          "cache_miss_tokens": 771,
+          "input_tokens": 899,
+          "output_tokens": 529,
+          "total_tokens": 1428
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4224,
+          "cache_miss_tokens": 795,
+          "input_tokens": 5019,
+          "output_tokens": 428,
+          "total_tokens": 5447
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 5376,
+          "cache_miss_tokens": 409,
+          "input_tokens": 5785,
+          "output_tokens": 24,
+          "total_tokens": 5809
+        }
+      }
+    ],
+    "answer_correct": false,
+    "answer_in_summary": false,
+    "answer_in_retained": false,
+    "recall_seconds": 3.047,
+    "answer_contains_publishing_refusal": null,
+    "answer_excerpt_redacted": "《[标题]》内容框架第二节的小标题是「旧桥与风的距离」。"
+  },
+  {
+    "case": "创作约束",
+    "status": "passed",
+    "phase": "complete",
+    "tools": [
+      {
+        "name": "read_file",
+        "path_kind": "target",
+        "search_used": true,
+        "query_is_label": false,
+        "offset": null,
+        "limit": null,
+        "is_error": false,
+        "answer_in_result": true
+      },
+      {
+        "name": "read_file",
+        "path_kind": "index",
+        "search_used": false,
+        "query_is_label": false,
+        "offset": null,
+        "limit": null,
+        "is_error": false,
+        "answer_in_result": false
+      }
+    ],
+    "requests": [
+      {
+        "kind": "compaction",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 128,
+          "cache_miss_tokens": 761,
+          "input_tokens": 889,
+          "output_tokens": 754,
+          "total_tokens": 1643
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 4224,
+          "cache_miss_tokens": 808,
+          "input_tokens": 5032,
+          "output_tokens": 317,
+          "total_tokens": 5349
+        }
+      },
+      {
+        "kind": "main",
+        "status": "succeeded",
+        "usage": {
+          "cache_hit_tokens": 5248,
+          "cache_miss_tokens": 620,
+          "input_tokens": 5868,
+          "output_tokens": 107,
+          "total_tokens": 5975
+        }
+      }
+    ],
+    "answer_correct": true,
+    "answer_in_summary": false,
+    "answer_in_retained": false,
+    "recall_seconds": 3.594,
+    "answer_contains_publishing_refusal": null,
+    "answer_excerpt_redacted": "资料里“避免使用的表达”一项写的是：**「[目标答案]」**。"
+  }
+]

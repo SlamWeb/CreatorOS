@@ -1,0 +1,801 @@
+{
+  "status": "complete",
+  "baseline_commit": "1bc0e65",
+  "model": "deepseek-flash",
+  "progress": [
+    {
+      "case": "selected",
+      "variant": "old",
+      "turn": 1,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3349,
+          "output_tokens": 81,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3349
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 3.172
+    },
+    {
+      "case": "selected",
+      "variant": "old",
+      "turn": 2,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3392,
+          "output_tokens": 15,
+          "cache_hit_tokens": 3072,
+          "cache_miss_tokens": 320
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 0.875
+    },
+    {
+      "case": "selected",
+      "variant": "old",
+      "turn": 3,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3416,
+          "output_tokens": 10,
+          "cache_hit_tokens": 3200,
+          "cache_miss_tokens": 216
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 0.609
+    },
+    {
+      "case": "selected",
+      "variant": "new",
+      "turn": 1,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3466,
+          "output_tokens": 95,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3466
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.672
+    },
+    {
+      "case": "selected",
+      "variant": "new",
+      "turn": 2,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3573,
+          "output_tokens": 36,
+          "cache_hit_tokens": 3328,
+          "cache_miss_tokens": 245
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.125
+    },
+    {
+      "case": "selected",
+      "variant": "new",
+      "turn": 3,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3618,
+          "output_tokens": 28,
+          "cache_hit_tokens": 3456,
+          "cache_miss_tokens": 162
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.078
+    },
+    {
+      "case": "account",
+      "variant": "new",
+      "turn": 1,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3369,
+          "output_tokens": 107,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3369
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.281
+    },
+    {
+      "case": "account",
+      "variant": "new",
+      "turn": 2,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3776,
+          "output_tokens": 145,
+          "cache_hit_tokens": 3456,
+          "cache_miss_tokens": 320
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.516
+    },
+    {
+      "case": "account",
+      "variant": "new",
+      "turn": 3,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3930,
+          "output_tokens": 124,
+          "cache_hit_tokens": 3712,
+          "cache_miss_tokens": 218
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.312
+    },
+    {
+      "case": "account",
+      "variant": "old",
+      "turn": 1,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3295,
+          "output_tokens": 47,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3295
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 0.734
+    },
+    {
+      "case": "account",
+      "variant": "old",
+      "turn": 2,
+      "passed": false,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3359,
+          "output_tokens": 88,
+          "cache_hit_tokens": 2944,
+          "cache_miss_tokens": 415
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 1.281
+    },
+    {
+      "case": "account",
+      "variant": "old",
+      "turn": 3,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3456,
+          "output_tokens": 119,
+          "cache_hit_tokens": 3200,
+          "cache_miss_tokens": 256
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 2.14
+    },
+    {
+      "case": "topics",
+      "variant": "old",
+      "turn": 1,
+      "passed": true,
+      "requests": 2,
+      "usage": [
+        {
+          "input_tokens": 3291,
+          "output_tokens": 95,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3291
+        },
+        {
+          "input_tokens": 3448,
+          "output_tokens": 91,
+          "cache_hit_tokens": 3200,
+          "cache_miss_tokens": 248
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "action": "list",
+          "allowed": true
+        }
+      ],
+      "elapsed_seconds": 2.734
+    },
+    {
+      "case": "topics",
+      "variant": "old",
+      "turn": 2,
+      "passed": true,
+      "requests": 2,
+      "usage": [
+        {
+          "input_tokens": 3555,
+          "output_tokens": 66,
+          "cache_hit_tokens": 3328,
+          "cache_miss_tokens": 227
+        },
+        {
+          "input_tokens": 3669,
+          "output_tokens": 96,
+          "cache_hit_tokens": 3456,
+          "cache_miss_tokens": 213
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "action": "get",
+          "allowed": true
+        }
+      ],
+      "elapsed_seconds": 2.266
+    },
+    {
+      "case": "topics",
+      "variant": "old",
+      "turn": 3,
+      "passed": true,
+      "requests": 2,
+      "usage": [
+        {
+          "input_tokens": 3775,
+          "output_tokens": 57,
+          "cache_hit_tokens": 3584,
+          "cache_miss_tokens": 191
+        },
+        {
+          "input_tokens": 3877,
+          "output_tokens": 25,
+          "cache_hit_tokens": 3712,
+          "cache_miss_tokens": 165
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "action": "get",
+          "allowed": true
+        }
+      ],
+      "elapsed_seconds": 2.031
+    },
+    {
+      "case": "topics",
+      "variant": "new",
+      "turn": 1,
+      "passed": true,
+      "requests": 2,
+      "usage": [
+        {
+          "input_tokens": 3370,
+          "output_tokens": 88,
+          "cache_hit_tokens": 0,
+          "cache_miss_tokens": 3370
+        },
+        {
+          "input_tokens": 3520,
+          "output_tokens": 86,
+          "cache_hit_tokens": 3328,
+          "cache_miss_tokens": 192
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "action": "list",
+          "allowed": true
+        }
+      ],
+      "elapsed_seconds": 2.531
+    },
+    {
+      "case": "topics",
+      "variant": "new",
+      "turn": 2,
+      "passed": true,
+      "requests": 2,
+      "usage": [
+        {
+          "input_tokens": 3622,
+          "output_tokens": 57,
+          "cache_hit_tokens": 3456,
+          "cache_miss_tokens": 166
+        },
+        {
+          "input_tokens": 3727,
+          "output_tokens": 49,
+          "cache_hit_tokens": 3584,
+          "cache_miss_tokens": 143
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "manage_topics",
+          "action": "get",
+          "allowed": true
+        }
+      ],
+      "elapsed_seconds": 1.469
+    },
+    {
+      "case": "topics",
+      "variant": "new",
+      "turn": 3,
+      "passed": true,
+      "requests": 1,
+      "usage": [
+        {
+          "input_tokens": 3786,
+          "output_tokens": 15,
+          "cache_hit_tokens": 3584,
+          "cache_miss_tokens": 202
+        }
+      ],
+      "tool_calls": [],
+      "elapsed_seconds": 0.828
+    }
+  ],
+  "results": [
+    {
+      "case": "selected",
+      "variant": "old",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3349,
+              "output_tokens": 81,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3349
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 3.172
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3392,
+              "output_tokens": 15,
+              "cache_hit_tokens": 3072,
+              "cache_miss_tokens": 320
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 0.875
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3416,
+              "output_tokens": 10,
+              "cache_hit_tokens": 3200,
+              "cache_miss_tokens": 216
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 0.609
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": false,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    },
+    {
+      "case": "selected",
+      "variant": "new",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3466,
+              "output_tokens": 95,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3466
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.672
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3573,
+              "output_tokens": 36,
+              "cache_hit_tokens": 3328,
+              "cache_miss_tokens": 245
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.125
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3618,
+              "output_tokens": 28,
+              "cache_hit_tokens": 3456,
+              "cache_miss_tokens": 162
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.078
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    },
+    {
+      "case": "account",
+      "variant": "new",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3369,
+              "output_tokens": 107,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3369
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.281
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3776,
+              "output_tokens": 145,
+              "cache_hit_tokens": 3456,
+              "cache_miss_tokens": 320
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.516
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3930,
+              "output_tokens": 124,
+              "cache_hit_tokens": 3712,
+              "cache_miss_tokens": 218
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.312
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    },
+    {
+      "case": "account",
+      "variant": "old",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3295,
+              "output_tokens": 47,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3295
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 0.734
+        },
+        {
+          "turn": 2,
+          "passed": false,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3359,
+              "output_tokens": 88,
+              "cache_hit_tokens": 2944,
+              "cache_miss_tokens": 415
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 1.281
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3456,
+              "output_tokens": 119,
+              "cache_hit_tokens": 3200,
+              "cache_miss_tokens": 256
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 2.14
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": false,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    },
+    {
+      "case": "topics",
+      "variant": "old",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 2,
+          "usage": [
+            {
+              "input_tokens": 3291,
+              "output_tokens": 95,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3291
+            },
+            {
+              "input_tokens": 3448,
+              "output_tokens": 91,
+              "cache_hit_tokens": 3200,
+              "cache_miss_tokens": 248
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "manage_topics",
+              "action": "list",
+              "allowed": true
+            }
+          ],
+          "elapsed_seconds": 2.734
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "requests": 2,
+          "usage": [
+            {
+              "input_tokens": 3555,
+              "output_tokens": 66,
+              "cache_hit_tokens": 3328,
+              "cache_miss_tokens": 227
+            },
+            {
+              "input_tokens": 3669,
+              "output_tokens": 96,
+              "cache_hit_tokens": 3456,
+              "cache_miss_tokens": 213
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "manage_topics",
+              "action": "get",
+              "allowed": true
+            }
+          ],
+          "elapsed_seconds": 2.266
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 2,
+          "usage": [
+            {
+              "input_tokens": 3775,
+              "output_tokens": 57,
+              "cache_hit_tokens": 3584,
+              "cache_miss_tokens": 191
+            },
+            {
+              "input_tokens": 3877,
+              "output_tokens": 25,
+              "cache_hit_tokens": 3712,
+              "cache_miss_tokens": 165
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "manage_topics",
+              "action": "get",
+              "allowed": true
+            }
+          ],
+          "elapsed_seconds": 2.031
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    },
+    {
+      "case": "topics",
+      "variant": "new",
+      "turns": [
+        {
+          "turn": 1,
+          "passed": true,
+          "requests": 2,
+          "usage": [
+            {
+              "input_tokens": 3370,
+              "output_tokens": 88,
+              "cache_hit_tokens": 0,
+              "cache_miss_tokens": 3370
+            },
+            {
+              "input_tokens": 3520,
+              "output_tokens": 86,
+              "cache_hit_tokens": 3328,
+              "cache_miss_tokens": 192
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "manage_topics",
+              "action": "list",
+              "allowed": true
+            }
+          ],
+          "elapsed_seconds": 2.531
+        },
+        {
+          "turn": 2,
+          "passed": true,
+          "requests": 2,
+          "usage": [
+            {
+              "input_tokens": 3622,
+              "output_tokens": 57,
+              "cache_hit_tokens": 3456,
+              "cache_miss_tokens": 166
+            },
+            {
+              "input_tokens": 3727,
+              "output_tokens": 49,
+              "cache_hit_tokens": 3584,
+              "cache_miss_tokens": 143
+            }
+          ],
+          "tool_calls": [
+            {
+              "name": "manage_topics",
+              "action": "get",
+              "allowed": true
+            }
+          ],
+          "elapsed_seconds": 1.469
+        },
+        {
+          "turn": 3,
+          "passed": true,
+          "requests": 1,
+          "usage": [
+            {
+              "input_tokens": 3786,
+              "output_tokens": 15,
+              "cache_hit_tokens": 3584,
+              "cache_miss_tokens": 202
+            }
+          ],
+          "tool_calls": [],
+          "elapsed_seconds": 0.828
+        }
+      ],
+      "client_prefix_comparisons": [
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        },
+        {
+          "messages_append_only": true,
+          "same_schema": true
+        }
+      ]
+    }
+  ]
+}
