@@ -1,0 +1,506 @@
+{
+  "version": 1,
+  "source": "original calls.json + host messages.json + requests.json; no regrade, no tool execution; host marker action suffix only checked, scope hash not independently verified",
+  "cases": [
+    {
+      "batch": "gateway-refactor-20261107-pure-final",
+      "case_id": "B06",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-final\\records\\9ab42a3423a4499f93c9f5c4ecceac92",
+      "execution_status": "completed",
+      "auto_status_original": "passed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_72BQTEqqEtjKfxDNdvey9672",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.get",
+          "turn": 1,
+          "arguments": {
+            "action": "get",
+            "topic_id": "bench-topic-a"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "df370a4d1a54454086923578e320930b",
+              "characters": 1032,
+              "action": "get",
+              "page": null
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-final",
+      "case_id": "B10",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-final\\records\\bceb72fbb2074684be38350cca7be8f5",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_73XsYTpCH3urWVOW6n6X4384",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "f2f75596cb7f4f028e5303f6c4ce1adf",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "d2959090da8149c580ec067b179114fa",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "943033267e274b1091422a06fc9bb981",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        },
+        {
+          "tool_call_id": "call_00_KsZKJfumaSX60W0scaaO6724",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 2,
+          "arguments": {
+            "action": "list",
+            "query": {
+              "limit": 100,
+              "state": "all"
+            },
+            "series_id": "bench-english"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "943033267e274b1091422a06fc9bb981",
+              "characters": 2694,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 5
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-final",
+      "case_id": "B05",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-final\\records\\dbc6764bdbd04bb1924cd4545306b898",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_ZHBVk9kl4DejpSQkBwS78150",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "9d2b7c8fc36b4a40b17becb56c31f6dc",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            },
+            {
+              "request_id": "21dc162702f140f79dfc49af2f5b9f97",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-final",
+      "case_id": "B07",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-final\\records\\f43482988e0e4c38a734af89b59e1d90",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "failed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_dt1KMWGoIGCINMAqq06E2552",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "2105dd232a5a4a958470970d9cc5ba9b",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            },
+            {
+              "request_id": "790531b82d5940f781bd2f1b3d6b9e1d",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        },
+        {
+          "tool_call_id": "call_00_RlvAIZjIbCZR9POs6AHH2451",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "query": {
+              "limit": 100,
+              "offset": 100,
+              "state": "queued"
+            },
+            "series_id": "bench-english"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "790531b82d5940f781bd2f1b3d6b9e1d",
+              "characters": 17131,
+              "action": "list",
+              "page": {
+                "offset": 100,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-final",
+      "case_id": "B06",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-final\\records\\0f8dd380b6634bac99d17f11f0138640",
+      "execution_status": "completed",
+      "auto_status_original": "passed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_UHYJvNRN3VoBu9m5jpmX4892",
+          "model_tool": "read_topic",
+          "canonical_action": "manage_topics.get",
+          "turn": 1,
+          "arguments": {
+            "topic_id": "bench-topic-a",
+            "production_request_id": null,
+            "action": "get"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "318f4e140d674876b80a04a54d940c6c",
+              "characters": 1032,
+              "action": "get",
+              "page": null
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-final",
+      "case_id": "B05",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-final\\records\\49f045fa5dc44082930a786dcf32aa54",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_0zP9m6qGkHlFXYOOw4iU6271",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "36e9bfe54d5f44f8bfe62e1d29ba15b6",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            },
+            {
+              "request_id": "6b54cc33395a44d49138b1a8597ad825",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-final",
+      "case_id": "B07",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-final\\records\\7d34891d950e49cbbf6250abbd2a05b1",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "failed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_XWsE5nXFSmfNzocLKw0g7377",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "8c137376032b4e4da064e30c2ba765da",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            },
+            {
+              "request_id": "b40c7189535147f2bb68d1fc93a94852",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        },
+        {
+          "tool_call_id": "call_00_ObxHp4DTcXQcpVHjV0rW3323",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "query": {
+              "limit": 100,
+              "offset": 100,
+              "state": "queued"
+            },
+            "series_id": "bench-english",
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "b40c7189535147f2bb68d1fc93a94852",
+              "characters": 17131,
+              "action": "list",
+              "page": {
+                "offset": 100,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-final",
+      "case_id": "B10",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-final\\records\\cb022d4757654cb3b1a60b9c7e330134",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_JvvfUxmFhahViKaip0xB7516",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "8e8d83b7f8774a9b823bdd45ef05abbb",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "5bd30aedd82545628fb1b320c2f474d8",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "49e2ebf39cd04f5db40fff7ebdd855ca",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        },
+        {
+          "tool_call_id": "call_00_63zYhraCV1IZltCCT8cw7855",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 2,
+          "arguments": {
+            "query": {
+              "limit": 100,
+              "offset": 0,
+              "state": "all"
+            },
+            "series_id": "bench-english",
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "observed_model_requests": [
+            {
+              "request_id": "49e2ebf39cd04f5db40fff7ebdd855ca",
+              "characters": 2694,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 5
+              }
+            }
+          ],
+          "host_marker_action_suffix_matches": true
+        }
+      ]
+    }
+  ]
+}

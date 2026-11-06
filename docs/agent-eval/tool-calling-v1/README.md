@@ -35,6 +35,18 @@ python -m creatoros.evaluation.benchmark.run report --batch tool-v1-example-2026
 
 每次选择新的唯一 `--batch`；冻结和首次尝试均使用独占创建，不覆盖已保存批次，也不因失败自动择优重跑。`--nonvideo-guard` 仅允许现有白名单中的 B05/B06/B07/B10，限制视频和发布客户端，**不是网络或进程沙箱**。其他题不在当前守卫白名单；没有同等隔离与外部副作用保障前不要把上述命令扩大到那些题。安全探针由 runner 在隔离数据上执行，真实模型行为和宿主探针要分开看。
 
+### 工具发现协议对照
+
+使用同一题集和守卫分别创建新批次（按本机环境调整 Python、环境文件和 ffmpeg 路径）：
+
+```powershell
+python -m tests.run_gateway_business_eval --live --batch tool-v1-legacy-example --mode legacy
+python -m tests.run_gateway_business_eval --live --batch tool-v1-discovery-example --mode discovery
+python -m tests.run_gateway_business_eval --live --batch tool-v1-fast-example --mode discovery-fast
+```
+
+结果仍保存在 `data/agent-benchmark-v2/<batch>/`，附加 `experiment-config.json` 和 `observed-tool-schemas.json`，记录协议配置与实际模型请求的工具 Schema 核对。现有评分器按旧业务工具名识别调用：新协议的入口和动作可能被误标为非法或缺失，不能直接比较工具合法性与必要动作分数；须另查原始调用、业务回执和实际参数，并保留原评分。运行证据及人工核对限制见 [工具网关验收](../../context-management/GATEWAY_ACCEPTANCE_2026-11-07.md)。
+
 ## 输出与可追溯性
 
 结果保存在 `data/agent-benchmark-v2/<batch>/`：

@@ -13,9 +13,11 @@ import httpx
 
 from creatoros.ai.types import ModelUsage, StreamEnd, TextDelta, ToolCall
 from creatoros.context import RuntimeContext
+from creatoros.plan_capabilities import CONTINUATION_TOOLS
 from creatoros.tools.execution import execute_tool_call
 from creatoros.storage.models import AgentPlan, ContentRun, ProductionTask
 from creatoros.web.app import create_app
+from creatoros.web.chat import ACCOUNT_TOOLS
 from tests.agent_studio_support import serve
 from tests.studio_review_fixtures import make_fixture
 
@@ -197,17 +199,15 @@ class PlanContinuationTests(unittest.TestCase):
                         self.assertEqual(len(tool_lists), 2)
                         visible = tool_lists[-1]
                     self.assertTrue(visible)
-                    self.assertIn('manage_plan', visible)
-                    self.assertTrue(visible <= {'get_content_run', 'get_producer_skill', 'get_creator_tasks',
-                                               'list_creators', 'list_creator_series', 'list_producer_skills',
-                                               'read_image', 'read_tool_result', 'manage_plan', 'manage_topics',
-                                               'manage_material', 'manage_media_collection', 'manage_skill_library'}, visible)
+                    self.assertEqual(visible, {'discover_tools', 'call_discovered_tool',
+                                               'read_topic', 'list_topics', 'get_creator_tasks'})
                     self.assertNotIn('start_content_run', visible)
                     self.assertTrue(any(e.get('kind') == 'assistant' and '已收到结果' in e.get('text', '')
                                         for e in doc['entries']))
                     self.assertEqual(len(client.get(path).json()['items']), 1)
                     context = RuntimeContext(project_root=root, studio_url=url, creator_id='review-lab',
-                        agent_session_id=sid, plan_continuation_id=pid, allowed_tools=frozenset(visible))
+                        agent_session_id=sid, plan_continuation_id=pid,
+                        allowed_tools=ACCOUNT_TOOLS & CONTINUATION_TOOLS)
                     def execute(name, arguments):
                         return execute_tool_call(ToolCall(str(uuid4()), name, json.dumps(arguments)),
                                                  context=context, model_requested=True)

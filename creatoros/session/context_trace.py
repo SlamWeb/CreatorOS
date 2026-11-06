@@ -72,8 +72,8 @@ def detailed_breakdown(context, *, kind, parts=None):
     """Subdivide the existing accounting without changing its total or the request.
 
     Values use the same serialization estimate as ``breakdown``, not provider
-    tokenization. Tool result names are limited to declared schemas; unknown or
-    unmatchable calls are grouped under a fixed label instead of logging model text.
+    tokenization. Names come from declared schemas or host-marked, verified
+    gateway results; unknown calls are grouped under a fixed label.
     """
     detail = dict(parts if parts is not None else breakdown(context, kind=kind))
     detail['history_reasoning'] = 0
@@ -92,6 +92,7 @@ def detailed_breakdown(context, *, kind, parts=None):
             declared.add(name)
 
     call_names = {}
+    call_entries = {}
     for message in context.messages:
         role = message.get('role')
         if role == 'assistant':
@@ -115,6 +116,7 @@ def detailed_breakdown(context, *, kind, parts=None):
                     if isinstance(call_id, str):
                         # Duplicate IDs in a single batch cannot be safely paired.
                         batch_names[call_id] = (name if call_id not in batch_names else None)
+                        call_entries[call_id] = deepcopy(call)
                     target.pop('arguments', None)
                 call_names.update(batch_names)
             remaining = _units(copy) // 4
@@ -122,7 +124,12 @@ def detailed_breakdown(context, *, kind, parts=None):
         elif role == 'tool':
             call_id = message.get('tool_call_id')
             name = call_names.get(call_id) if isinstance(call_id, str) else None
-            name = name if isinstance(name, str) and name in declared and name != 'unknown' else 'unknown'
+            if isinstance(name, str) and name in declared and str(message.get('creatoros_source', '')).startswith('gateway_result:'):
+                from ..tools.discovery_gateway import resolved_canonical
+                resolved = resolved_canonical(call_entries.get(call_id) or {}, message)
+                name = resolved[0] if resolved is not None else 'unknown'
+            else:
+                name = name if isinstance(name, str) and name in declared and name != 'unknown' else 'unknown'
             result_by_tool[name] = result_by_tool.get(name, 0) + _units(message) // 4
 
     detail['recent_messages'] -= detail['history_reasoning'] + detail['tool_arguments']

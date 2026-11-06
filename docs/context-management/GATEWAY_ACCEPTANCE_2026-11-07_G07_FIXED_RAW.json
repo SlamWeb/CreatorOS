@@ -1,0 +1,459 @@
+{
+  "sources_start": {
+    "creatoros/agent/loop.py": "7444ab8bb76da6a9e8a8b284fa40fbe4e9e1fad6411358d85fe17e360d080a06",
+    "creatoros/agent/tool_protocol.py": "922e9ed15299d5b2186c0a105cd8df20b40f6a2a59875850268f55fb241fe95d",
+    "creatoros/tools/discovery_gateway.py": "96c9f9d9d9d48c70e0d576c775c7179a701637eb5e8fd0c94db0e9dea7bfe320",
+    "creatoros/tools/action_catalog.py": "4087652ebbcd8ae73189e75efed996eac1475ba6eede2550abc9078caff6961d",
+    "all_creatoros_python_files": "bc6c78e021d6599f5e17ec0206a0ba300dbb8a68d51852a5f995e931283bddfd",
+    "all_creatoros_python_count": 276
+  },
+  "runner_sha256": "804902c2ae8162bee0cc7d384325d147cf59a6e3c12fa0c08d467aeacf83d9ac",
+  "results": [
+    {
+      "id": "G07_UNKNOWN",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "刚才提交的制作结果还不确定，现在该怎么处理？",
+          "answer": "无法核实：查询任务和选题都被当前隔离环境拦截，读不到该选题是否有对应的制作记录。为避免重复生产，请先在选题页面确认是否已存在制作任务或 Run：若已有记录，直接在那里继续跟进；若确认没有记录，再告知我重新提交。",
+          "wall_seconds": 6.5,
+          "model_requests": 4,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "wire_tool_results": [
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              }
+            ],
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_jLmkJFLC49a0eReskucG9632",
+                "content": "{\"format\":\"creatoros-tool-discovery-v1\",\"notice\":\"资料仅说明操作；权限、账号和资源版本仍以执行时校验为准。\",\"references\":[],\"scope\":\"07b12bbcc4aa481ba17739a67d53cfe160595266c1a1c5640da1551a46a9520f\",\"tools\":[{\"id\":\"get_creator_tasks\",\"schema\":{\"function\":{\"description\":\"查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。\",\"name\":\"get_creator_tasks\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"可选真实栏目 ID，用于缩小任务范围。\"},\"statuses\":{\"anyOf\":[{\"items\":{\"enum\":[\"queued\",\"researching\",\"running\",\"producing\",\"validating\",\"ready\",\"completed\",\"awaiting_approval\",\"approved\",\"interrupted\",\"failed\",\"cancelled\",\"unknown\",\"stale\",\"waiting_production\",\"paused\",\"exhausted\",\"waiting\",\"needs_attention\"],\"type\":\"string\"},\"maxItems\":22,\"minItems\":1,\"type\":\"array\"},{\"type\":\"null\"}],\"description\":\"只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。\"}},\"required\":[],\"title\":\"CreatorTasksArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"93234271022350b143a2c303df9e03360c1a62a26754a0b14ee8512e9746e4dc\"},{\"id\":\"get_content_run\",\"schema\":{\"function\":{\"description\":\"用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。\",\"name\":\"get_content_run\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"run_id\":{\"description\":\"生产工具或目录返回的 Run ID。\",\"minLength\":1,\"type\":\"string\"}},\"required\":[\"run_id\"],\"title\":\"GetRunArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"dc737c920054d68066e22a8fb9fda0be2c1d03b098aece5001af1b7dd3d4360f\"},{\"id\":\"manage_topics.list\",\"schema\":{\"function\":{\"description\":\"只读列出栏目选题。已有完整未变化列表时复用；问最新或发生变化重新查，未读完继续翻页。\",\"name\":\"manage_topics\",\"parameters\":{\"$defs\":{\"TopicQuery\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"default\":0,\"minimum\":0,\"type\":\"integer\"},\"state\":{\"default\":\"all\",\"enum\":[\"all\",\"pending\",\"queued\"],\"type\":\"string\"}},\"type\":\"object\"}},\"additionalProperties\":false,\"properties\":{\"action\":{\"const\":\"list\",\"type\":\"string\"},\"query\":{\"anyOf\":[{\"$ref\":\"#/$defs/TopicQuery\"},{\"type\":\"null\"}],\"description\":\"仅list：筛选与分页。\"},\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"list/create的真实栏目ID；账号由宿主会话约束。\"}},\"required\":[\"action\",\"series_id\"],\"title\":\"ManageTopicsArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"5d1931ca7b5efcb01509f3c717f7680c30f9d2279aebb5e4d2e9ffcf2de1429e\"}]}",
+                "truncated": false
+              }
+            ],
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_jLmkJFLC49a0eReskucG9632",
+                "content": "{\"format\":\"creatoros-tool-discovery-v1\",\"notice\":\"资料仅说明操作；权限、账号和资源版本仍以执行时校验为准。\",\"references\":[],\"scope\":\"07b12bbcc4aa481ba17739a67d53cfe160595266c1a1c5640da1551a46a9520f\",\"tools\":[{\"id\":\"get_creator_tasks\",\"schema\":{\"function\":{\"description\":\"查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。\",\"name\":\"get_creator_tasks\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"可选真实栏目 ID，用于缩小任务范围。\"},\"statuses\":{\"anyOf\":[{\"items\":{\"enum\":[\"queued\",\"researching\",\"running\",\"producing\",\"validating\",\"ready\",\"completed\",\"awaiting_approval\",\"approved\",\"interrupted\",\"failed\",\"cancelled\",\"unknown\",\"stale\",\"waiting_production\",\"paused\",\"exhausted\",\"waiting\",\"needs_attention\"],\"type\":\"string\"},\"maxItems\":22,\"minItems\":1,\"type\":\"array\"},{\"type\":\"null\"}],\"description\":\"只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。\"}},\"required\":[],\"title\":\"CreatorTasksArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"93234271022350b143a2c303df9e03360c1a62a26754a0b14ee8512e9746e4dc\"},{\"id\":\"get_content_run\",\"schema\":{\"function\":{\"description\":\"用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。\",\"name\":\"get_content_run\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"run_id\":{\"description\":\"生产工具或目录返回的 Run ID。\",\"minLength\":1,\"type\":\"string\"}},\"required\":[\"run_id\"],\"title\":\"GetRunArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"dc737c920054d68066e22a8fb9fda0be2c1d03b098aece5001af1b7dd3d4360f\"},{\"id\":\"manage_topics.list\",\"schema\":{\"function\":{\"description\":\"只读列出栏目选题。已有完整未变化列表时复用；问最新或发生变化重新查，未读完继续翻页。\",\"name\":\"manage_topics\",\"parameters\":{\"$defs\":{\"TopicQuery\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"default\":0,\"minimum\":0,\"type\":\"integer\"},\"state\":{\"default\":\"all\",\"enum\":[\"all\",\"pending\",\"queued\"],\"type\":\"string\"}},\"type\":\"object\"}},\"additionalProperties\":false,\"properties\":{\"action\":{\"const\":\"list\",\"type\":\"string\"},\"query\":{\"anyOf\":[{\"$ref\":\"#/$defs/TopicQuery\"},{\"type\":\"null\"}],\"description\":\"仅list：筛选与分页。\"},\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"list/create的真实栏目ID；账号由宿主会话约束。\"}},\"required\":[\"action\",\"series_id\"],\"title\":\"ManageTopicsArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"5d1931ca7b5efcb01509f3c717f7680c30f9d2279aebb5e4d2e9ffcf2de1429e\"}]}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_P8VwxafNpcu1cM3nusZD6210",
+                "content": "[tool_error type=fixture_blocked]\n本隔离夹具不执行该操作。",
+                "truncated": false
+              }
+            ],
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_jLmkJFLC49a0eReskucG9632",
+                "content": "{\"format\":\"creatoros-tool-discovery-v1\",\"notice\":\"资料仅说明操作；权限、账号和资源版本仍以执行时校验为准。\",\"references\":[],\"scope\":\"07b12bbcc4aa481ba17739a67d53cfe160595266c1a1c5640da1551a46a9520f\",\"tools\":[{\"id\":\"get_creator_tasks\",\"schema\":{\"function\":{\"description\":\"查询当前账号任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需目录时按栏目和状态筛选。已有结果覆盖本次问题时复用，问最新进展时再查。包括尚无Run的waiting制作与needs_attention；返回原选题/素材集入口，不恢复或重新提交。\",\"name\":\"get_creator_tasks\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"可选真实栏目 ID，用于缩小任务范围。\"},\"statuses\":{\"anyOf\":[{\"items\":{\"enum\":[\"queued\",\"researching\",\"running\",\"producing\",\"validating\",\"ready\",\"completed\",\"awaiting_approval\",\"approved\",\"interrupted\",\"failed\",\"cancelled\",\"unknown\",\"stale\",\"waiting_production\",\"paused\",\"exhausted\",\"waiting\",\"needs_attention\"],\"type\":\"string\"},\"maxItems\":22,\"minItems\":1,\"type\":\"array\"},{\"type\":\"null\"}],\"description\":\"只返回指定状态的任务及对应入口；用户只要失败时填 failed，省略表示全部状态。\"}},\"required\":[],\"title\":\"CreatorTasksArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"93234271022350b143a2c303df9e03360c1a62a26754a0b14ee8512e9746e4dc\"},{\"id\":\"get_content_run\",\"schema\":{\"function\":{\"description\":\"用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。\",\"name\":\"get_content_run\",\"parameters\":{\"additionalProperties\":false,\"properties\":{\"run_id\":{\"description\":\"生产工具或目录返回的 Run ID。\",\"minLength\":1,\"type\":\"string\"}},\"required\":[\"run_id\"],\"title\":\"GetRunArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"dc737c920054d68066e22a8fb9fda0be2c1d03b098aece5001af1b7dd3d4360f\"},{\"id\":\"manage_topics.list\",\"schema\":{\"function\":{\"description\":\"只读列出栏目选题。已有完整未变化列表时复用；问最新或发生变化重新查，未读完继续翻页。\",\"name\":\"manage_topics\",\"parameters\":{\"$defs\":{\"TopicQuery\":{\"additionalProperties\":false,\"properties\":{\"limit\":{\"default\":20,\"maximum\":100,\"minimum\":1,\"type\":\"integer\"},\"offset\":{\"default\":0,\"minimum\":0,\"type\":\"integer\"},\"state\":{\"default\":\"all\",\"enum\":[\"all\",\"pending\",\"queued\"],\"type\":\"string\"}},\"type\":\"object\"}},\"additionalProperties\":false,\"properties\":{\"action\":{\"const\":\"list\",\"type\":\"string\"},\"query\":{\"anyOf\":[{\"$ref\":\"#/$defs/TopicQuery\"},{\"type\":\"null\"}],\"description\":\"仅list：筛选与分页。\"},\"series_id\":{\"anyOf\":[{\"maxLength\":80,\"minLength\":1,\"type\":\"string\"},{\"type\":\"null\"}],\"description\":\"list/create的真实栏目ID；账号由宿主会话约束。\"}},\"required\":[\"action\",\"series_id\"],\"title\":\"ManageTopicsArgs\",\"type\":\"object\"}},\"type\":\"function\"},\"version\":\"5d1931ca7b5efcb01509f3c717f7680c30f9d2279aebb5e4d2e9ffcf2de1429e\"}]}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_P8VwxafNpcu1cM3nusZD6210",
+                "content": "[tool_error type=fixture_blocked]\n本隔离夹具不执行该操作。",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_o83PI3nujp3RQtiSCBcf3997",
+                "content": "[tool_error type=fixture_blocked]\n本隔离夹具不执行该操作。",
+                "truncated": false
+              }
+            ]
+          ],
+          "canonical_calls": [
+            {
+              "name": "get_creator_tasks",
+              "arguments": "{}",
+              "status": "blocked",
+              "parameters_validated": true
+            },
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"list\",\"query\":{\"limit\":20,\"state\":\"queued\"},\"series_id\":\"target-series\"}",
+              "status": "blocked",
+              "parameters_validated": true
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7330,
+                "output_tokens": 56,
+                "total_tokens": 7386,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7330,
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "fed5e7f2f9e0423384099847675c8a01"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "fed5e7f2f9e0423384099847675c8a01",
+                "tool_call_id": "call_00_jLmkJFLC49a0eReskucG9632"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8270,
+                "output_tokens": 59,
+                "total_tokens": 8329,
+                "cache_hit_tokens": 7296,
+                "cache_miss_tokens": 974,
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "0eb3db0bec1546d4a54f29a24bb83a63"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "get_creator_tasks",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "0eb3db0bec1546d4a54f29a24bb83a63",
+                "tool_call_id": "call_00_P8VwxafNpcu1cM3nusZD6210"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8357,
+                "output_tokens": 81,
+                "total_tokens": 8438,
+                "cache_hit_tokens": 8192,
+                "cache_miss_tokens": 165,
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "d56fe987d2fb4ba78f0fdcd3682f2411"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "d56fe987d2fb4ba78f0fdcd3682f2411",
+                "tool_call_id": "call_00_o83PI3nujp3RQtiSCBcf3997"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8466,
+                "output_tokens": 59,
+                "total_tokens": 8525,
+                "cache_hit_tokens": 8320,
+                "cache_miss_tokens": 146,
+                "turn_id": "9a6661e912214bd681f4c84a4114388c",
+                "model_request_id": "e3a39cc5a0184626b6d24f940e72b6e2"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{}",
+          "status": "blocked",
+          "parameters_validated": true
+        },
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"list\",\"query\":{\"limit\":20,\"state\":\"queued\"},\"series_id\":\"target-series\"}",
+          "status": "blocked",
+          "parameters_validated": true
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7330,
+            "input_tokens": 7330,
+            "output_tokens": 56,
+            "total_tokens": 7386
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7296,
+            "cache_miss_tokens": 974,
+            "input_tokens": 8270,
+            "output_tokens": 59,
+            "total_tokens": 8329
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8192,
+            "cache_miss_tokens": 165,
+            "input_tokens": 8357,
+            "output_tokens": 81,
+            "total_tokens": 8438
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8320,
+            "cache_miss_tokens": 146,
+            "input_tokens": 8466,
+            "output_tokens": 59,
+            "total_tokens": 8525
+          }
+        }
+      ]
+    },
+    {
+      "id": "G07_UNKNOWN",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "刚才提交的制作结果还不确定，现在该怎么处理？",
+          "answer": "选题「早餐」本身没有显示制作记录或进度，制作状态仍未知。\n\n请先不要重复提交：重复提交可能产生两条制作。等能确认结果或任务入口可用后，再决定是继续等待还是重新提交。",
+          "wall_seconds": 3.109,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "wire_tool_results": [
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              }
+            ],
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_OMl9tX4YsGnOtSQrsA9o6160",
+                "content": "[tool_error type=fixture_blocked]\n本隔离夹具不执行该操作。",
+                "truncated": false
+              }
+            ],
+            [
+              {
+                "tool_call_id": "unknown-1",
+                "content": "[tool_error type=studio_outcome_unknown]\n{\"message\": \"提交结果未知，请核对原请求\", \"status\": \"unknown\"}",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_OMl9tX4YsGnOtSQrsA9o6160",
+                "content": "[tool_error type=fixture_blocked]\n本隔离夹具不执行该操作。",
+                "truncated": false
+              },
+              {
+                "tool_call_id": "call_00_4jCGc5Byoe18XefXzjUG8917",
+                "content": "{\"action\": \"get\", \"topic\": {\"id\": \"topic-demo-18\", \"series_id\": \"target-series\", \"title\": \"早餐\", \"brief\": \"给上班族的早餐故事。\", \"edit_digest\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}",
+                "truncated": false
+              }
+            ]
+          ],
+          "canonical_calls": [
+            {
+              "name": "get_creator_tasks",
+              "arguments": "{}",
+              "status": "blocked",
+              "parameters_validated": true
+            },
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok",
+              "parameters_validated": true
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8124,
+                "output_tokens": 24,
+                "total_tokens": 8148,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 8124,
+                "turn_id": "0504c9db59614964af1885c0a60d1825",
+                "model_request_id": "a7716bebcfbc4183b6669bd7051d10c9"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "get_creator_tasks",
+                "turn_id": "0504c9db59614964af1885c0a60d1825",
+                "model_request_id": "a7716bebcfbc4183b6669bd7051d10c9",
+                "tool_call_id": "call_00_OMl9tX4YsGnOtSQrsA9o6160"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8176,
+                "output_tokens": 61,
+                "total_tokens": 8237,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 240,
+                "turn_id": "0504c9db59614964af1885c0a60d1825",
+                "model_request_id": "a8104ccab9fa41328eb4d46ded11b057"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "0504c9db59614964af1885c0a60d1825",
+                "model_request_id": "a8104ccab9fa41328eb4d46ded11b057",
+                "tool_call_id": "call_00_4jCGc5Byoe18XefXzjUG8917"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8309,
+                "output_tokens": 49,
+                "total_tokens": 8358,
+                "cache_hit_tokens": 8064,
+                "cache_miss_tokens": 245,
+                "turn_id": "0504c9db59614964af1885c0a60d1825",
+                "model_request_id": "79cdad99cd0d40fc9227ad3914b0ac9d"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{}",
+          "status": "blocked",
+          "parameters_validated": true
+        },
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok",
+          "parameters_validated": true
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 8124,
+            "input_tokens": 8124,
+            "output_tokens": 24,
+            "total_tokens": 8148
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 240,
+            "input_tokens": 8176,
+            "output_tokens": 61,
+            "total_tokens": 8237
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8064,
+            "cache_miss_tokens": 245,
+            "input_tokens": 8309,
+            "output_tokens": 49,
+            "total_tokens": 8358
+          }
+        }
+      ]
+    }
+  ],
+  "sources_end": {
+    "creatoros/agent/loop.py": "7444ab8bb76da6a9e8a8b284fa40fbe4e9e1fad6411358d85fe17e360d080a06",
+    "creatoros/agent/tool_protocol.py": "922e9ed15299d5b2186c0a105cd8df20b40f6a2a59875850268f55fb241fe95d",
+    "creatoros/tools/discovery_gateway.py": "96c9f9d9d9d48c70e0d576c775c7179a701637eb5e8fd0c94db0e9dea7bfe320",
+    "creatoros/tools/action_catalog.py": "4087652ebbcd8ae73189e75efed996eac1475ba6eede2550abc9078caff6961d",
+    "all_creatoros_python_files": "bc6c78e021d6599f5e17ec0206a0ba300dbb8a68d51852a5f995e931283bddfd",
+    "all_creatoros_python_count": 276
+  }
+}

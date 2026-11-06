@@ -475,6 +475,7 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
     """Keep the ledger/archive original; project only the outbound model view."""
     names = {}
     arguments = {}
+    calls_by_id = {}
     visible_skill_text = {}
     visible_plan_arguments = {}
     visible_pending_receipts = {}
@@ -484,6 +485,7 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
     for message in projected:
         for call in message.get("tool_calls", []):
             if isinstance(call, dict) and "id" in call:
+                calls_by_id[call["id"]] = call
                 names[call["id"]] = (call.get("function") or {}).get("name", call.get("name"))
                 raw = (call.get("function") or {}).get("arguments", call.get("arguments", {}))
                 try:
@@ -494,6 +496,11 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
             continue
         name = names.get(message.get("tool_call_id"))
         content = message.get("content")
+        if str(message.get("creatoros_source", "")).startswith("gateway_result:"):
+            from .discovery_gateway import resolved_canonical
+            resolved = resolved_canonical(calls_by_id.get(message.get("tool_call_id")) or {}, message)
+            if resolved is not None:
+                name, arguments[message.get("tool_call_id")] = resolved
         if not isinstance(content, str) or name not in PROJECTED_TOOLS:
             continue
         prefix, body = "", content

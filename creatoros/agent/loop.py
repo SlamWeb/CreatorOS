@@ -40,6 +40,11 @@ from .state import AgentState
 from .pending_tasks import PendingTaskReads
 from .streaming import stream_llm
 from .account_context_history import build_account_context_event
+from .tool_protocol import DISCOVERY, select_tool_protocol
+from .unknown_write_guard import UnknownWriteGuard
+from ..tools.discovery_gateway import ToolGateway, DISCOVER, EXECUTE, DISCOVERY_SOURCE, scoped_gateway_source
+from ..tools.action_catalog import DIRECT_READ_ACTIONS
+from .topic_occ import prepare_topic_update
 
 
 class ContinuationWriteOutcomeUnknown(RuntimeError):
@@ -320,6 +325,12 @@ def run_agent(
     persist = save_messages if session_file is None else lambda messages: save_messages(messages, session_file)
     messages = (load_messages(session_file, require_existing=True) if require_existing_session
                 else load_messages() if session_file is None else load_messages(session_file))
+    protocol = select_tool_protocol(messages, runtime_context)
+    gateway = (ToolGateway(runtime_context, model_tools, enable_direct=protocol == DISCOVERY)
+               if protocol != "legacy" else None)
+    if gateway is not None:
+        model_tools = gateway.model_schemas()
+    exposed_names = {schema["function"]["name"] for schema in model_tools}
     state = AgentState(messages=messages)
     checkpoint = (load_compaction_checkpoint(state.messages) if session_file is None
                   else load_compaction_checkpoint(state.messages, session_file))
@@ -400,6 +411,7 @@ def run_agent(
             task_start_turn = state.turn
             turn_id = user_request_id or uuid4().hex
             runtime_context = replace(runtime_context, user_request_id=turn_id)
+            unknown_guard = UnknownWriteGuard(runtime_context) if gateway is not None else None
             context_data = deepcopy(context_factory()) if context_factory else None
             context_dirty = False
             scoped_account = _scoped_account_snapshot(runtime_context, context_data) if context_factory is not None else False
@@ -590,25 +602,74 @@ def run_agent(
                 pending_read_deferred = False
                 unknown_write = False
                 for tool_call in response.tool_calls:
-                    identity = {"name": tool_call.name, "turn_id": turn_id,
+                    canonical_call = tool_call
+                    gateway_source = None
+                    prepared_result = None
+                    version_origin = {}
+                    if gateway is not None:
+                        # Authorize discovery only from the actual model view
+                        # used for this response. Hard-budget externalization
+                        # may have removed a source from the projected ledger.
+                        visible, _ = model_context.to_request()
+                        if tool_call.name == DISCOVER:
+                            canonical_call = None
+                            prepared_result = gateway.discover(tool_call, visible)
+                            if not prepared_result.is_error:
+                                gateway_source = DISCOVERY_SOURCE
+                        elif tool_call.name == EXECUTE:
+                            def prepare_version(context, call, messages):
+                                prepared, error, origin = prepare_topic_update(context, call, messages)
+                                if isinstance(origin, dict):
+                                    version_origin.update(origin)
+                                return prepared, error, origin
+                            canonical_call, prepared_result = gateway.resolve(tool_call, visible, prepare=prepare_version)
+                            if canonical_call is not None:
+                                gateway_source = scoped_gateway_source(runtime_context, json.loads(tool_call.arguments)["name"])
+                        elif tool_call.name in DIRECT_READ_ACTIONS and tool_call.name in exposed_names:
+                            canonical_call, prepared_result = gateway.resolve_direct(tool_call)
+                            if canonical_call is not None:
+                                gateway_source = scoped_gateway_source(runtime_context, DIRECT_READ_ACTIONS[tool_call.name])
+                        elif tool_call.name not in exposed_names:
+                            canonical_call = None
+                            prepared_result = ToolResult("该工具未在本会话入口开放。", True, "tool_not_exposed")
+                    identity = {"name": canonical_call.name if canonical_call is not None else tool_call.name,
+                                **({"model_tool_name": tool_call.name} if canonical_call is not None
+                                   and canonical_call.name != tool_call.name else {}), "turn_id": turn_id,
                                 "model_request_id": span.record['request_id'], "tool_call_id": tool_call.id}
                     emit(AgentEvent("tool_call", identity))
                     if unknown_write:
                         tool_result = ToolResult(content="上一项计划写入结果未知，本工具未执行。",
                                                  is_error=True, error_type="continuation_not_dispatched",
                                                  details={"pre_dispatch": True})
+                        gateway_source = None
+                    elif prepared_result is not None:
+                        tool_result = prepared_result
                     else:
-                        tool_result = pending_reads.before(tool_call.name, tool_call.arguments, runtime_context)
-                        if tool_result is None:
-                            tool_result = execute_tool_call(tool_call, context=runtime_context, model_requested=True)
-                            pending_reads.observe(tool_call.name, tool_call.arguments, tool_result, runtime_context)
-                    current_unknown = _unknown_continuation_write(tool_call, tool_result, runtime_context)
+                        reservation, blocked = (unknown_guard.prepare(canonical_call) if unknown_guard is not None
+                                                else (None, None))
+                        if blocked is not None:
+                            tool_result = blocked
+                        else:
+                            tool_result = pending_reads.before(canonical_call.name, canonical_call.arguments, runtime_context)
+                            if tool_result is None:
+                                if reservation is not None:
+                                    unknown_guard.mark_dispatched(reservation)
+                                tool_result = execute_tool_call(canonical_call, context=runtime_context, model_requested=True)
+                                pending_reads.observe(canonical_call.name, canonical_call.arguments, tool_result, runtime_context)
+                                if reservation is not None:
+                                    tool_result = unknown_guard.finish(reservation, tool_result) or tool_result
+                                elif unknown_guard is not None:
+                                    unknown_guard.observe_read(canonical_call, tool_result)
+                    effective_call = canonical_call or tool_call
+                    if version_origin and canonical_call is not None:
+                        tool_result.details["_host_version_origin"] = version_origin
+                    current_unknown = _unknown_continuation_write(effective_call, tool_result, runtime_context)
                     unknown_write |= current_unknown
                     pending_read_deferred |= bool(tool_result.details.get("pending_read_deferred"))
-                    span.capture('tool_result', tool_call, tool_result)
+                    span.capture('tool_result', effective_call, tool_result)
                     if not tool_result.is_error:
                         images_read.extend(tool_result.details.get("image_attachments", []))
-                    if not tool_result.is_error and tool_call.name in {
+                    if not tool_result.is_error and effective_call.name in {
                         "compose_series", "update_series_composition", "queue_topics",
                         "start_content_run", "research_series_topics",
                         "manage_topics",
@@ -622,8 +683,9 @@ def run_agent(
                                 "content": tool_result.content,
                                 "is_error": tool_result.is_error,
                                 "error_type": tool_result.error_type,
-                                "outcome_unknown": (current_unknown or bool(tool_result.details.get("plan_write_outcome_unknown"))
-                                    or (tool_call.name == "start_content_run" and tool_result.is_error
+                                "outcome_unknown": (current_unknown or bool(tool_result.details.get("outcome_unknown"))
+                                    or bool(tool_result.details.get("plan_write_outcome_unknown"))
+                                    or (effective_call.name == "start_content_run" and tool_result.is_error
                                         and tool_result.error_type == "studio_outcome_unknown")),
                                 "not_dispatched": tool_result.error_type == "continuation_not_dispatched",
                                 "pending_task": tool_result.details.get("pending_task"),
@@ -634,7 +696,7 @@ def run_agent(
 
                     task_id = tool_result.details.get("task_id")
                     if (
-                        tool_call.name in {"add_author", "get_author_job", "wait_author_job"}
+                        effective_call.name in {"add_author", "get_author_job", "wait_author_job"}
                         and isinstance(task_id, str)
                         and task_id
                     ):
@@ -665,10 +727,11 @@ def run_agent(
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "content": tool_result.to_raw_content(),
+                            **({"creatoros_source": gateway_source} if gateway_source else {}),
                         }
                     )
                     persist(state.messages)
-                    externalize([{"role": "assistant", "tool_calls": [{"id": tool_call.id, "name": tool_call.name}]},
+                    externalize([{"role": "assistant", "tool_calls": [{"id": tool_call.id, "name": effective_call.name}]},
                                  state.messages[-1]], runtime_context.session_file)
                 if images_read:
                     # Chat Completions accepts images in user messages, not tool messages.

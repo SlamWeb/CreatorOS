@@ -110,6 +110,9 @@ class RequestSnapshots:
     def tool_result(self, request_id, call, result):
         doc = self.read(request_id)
         doc["tool_results"].append({"tool_call_id": call.id, "name": call.name,
+            "arguments": call.arguments,
             "content": result.to_model_content(), "is_error": result.is_error,
-            "error_type": result.error_type, "raw_content": result.content})
+            "error_type": result.error_type, "raw_content": result.content,
+            **({"version_origin": result.details["_host_version_origin"]}
+               if "_host_version_origin" in result.details else {})})
         self.write(request_id, doc)

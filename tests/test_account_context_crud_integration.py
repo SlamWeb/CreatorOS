@@ -2,6 +2,7 @@ import json
 from io import StringIO
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from creatoros.agent.account_context_history import EVENT_SOURCE, replay_account_context
 from creatoros.agent.loop import run_agent
@@ -47,12 +48,15 @@ class AccountCrudIntegration(unittest.TestCase):
         path = self.root / 'account-ledger.json'
         if not path.exists():
             save_messages([{'role': 'system', 'content': 'system'}], path)
-        run_agent(provider, session_file=path, require_existing_session=True,
-                  runtime_context=RuntimeContext(self.root, studio_url=self.url,
-                      creator_id='review-lab', agent_session_id=self.account,
-                      allowed_tools=ACCOUNT_TOOLS, archive_only_reads=True),
-                  context_factory=self.snapshot,
-                  console=Console(input_fn=lambda _: next(prompts), output=StringIO()))
+        # This fixture scripts the pre-existing canonical tool protocol; the
+        # gateway's canonical dispatch is exercised in its own integration test.
+        with patch.dict('os.environ', {'CREATOROS_TOOL_PROTOCOL': 'legacy'}):
+            run_agent(provider, session_file=path, require_existing_session=True,
+                      runtime_context=RuntimeContext(self.root, studio_url=self.url,
+                          creator_id='review-lab', agent_session_id=self.account,
+                          allowed_tools=ACCOUNT_TOOLS, archive_only_reads=True),
+                      context_factory=self.snapshot,
+                      console=Console(input_fn=lambda _: next(prompts), output=StringIO()))
         return provider.contexts, load_messages(path)
 
     def snapshot(self):

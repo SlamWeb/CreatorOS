@@ -1,0 +1,529 @@
+{
+  "version": 1,
+  "source": "original calls.json + host messages.json + requests.json + answer.txt + before.json; scoped marker only suffix checked; no regrade or tool execution",
+  "cases": [
+    {
+      "batch": "gateway-refactor-20261107-pure-normalized",
+      "case_id": "B10",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-normalized\\records\\1868fe669b614ddc98d0397964bf57dd",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_e812hLgi1ebRk2fcOHhg1981",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "945fce9ae6794144a594b14050b3bf53",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "fd862b286d7a4eb9b6c82b46f5f56469",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "266722dbf58a48a68233df02747fb37d",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            }
+          ]
+        },
+        {
+          "tool_call_id": "call_00_rn6HoGOMloYVvy9WjSk22225",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 2,
+          "arguments": {
+            "action": "list",
+            "query": {
+              "limit": 100,
+              "state": "all"
+            },
+            "series_id": "bench-english"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "266722dbf58a48a68233df02747fb37d",
+              "characters": 2694,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 5
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-normalized",
+      "case_id": "B05",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-normalized\\records\\7b36182201fd46288a3b2ebddc601174",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_I28D0iA92jDBvaVZIg0G8422",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "38a705e9d3c44542a423b7bd913a248b",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            },
+            {
+              "request_id": "11e81ed4b64c47a298e9623fa737c4ed",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-normalized",
+      "case_id": "B07",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-normalized\\records\\b7175ea13e614fc9821974c4abf83a9e",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": {
+        "unique_titles_in_receipts": 137,
+        "missing_exact_in_final_answer": 0
+      },
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_WdxJUWFWGkGmVweaRuQc9595",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            }
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "64a9d83190d944ffb317f8db933cbac8",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            },
+            {
+              "request_id": "58c32910d5ba493fbf6c62153b8ed07d",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ]
+        },
+        {
+          "tool_call_id": "call_00_HtMcmwX9hkKT8gAVjrVl4473",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "action": "list",
+            "query": {
+              "limit": 100,
+              "offset": 100,
+              "state": "queued"
+            },
+            "series_id": "bench-english"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "58c32910d5ba493fbf6c62153b8ed07d",
+              "characters": 17131,
+              "action": "list",
+              "page": {
+                "offset": 100,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-pure-normalized",
+      "case_id": "B06",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-pure-normalized\\records\\c1c81b5b55b64da9b5909e9b7a9458e7",
+      "execution_status": "completed",
+      "auto_status_original": "passed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": true,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_ET_1D1cvgpNz2ba83eRionZ1492",
+          "model_tool": "call_discovered_tool",
+          "canonical_action": "manage_topics.get",
+          "turn": 1,
+          "arguments": {
+            "action": "get",
+            "topic_id": "bench-topic-a"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "fd48fa1258d44e9898cb8625b440808e",
+              "characters": 1032,
+              "action": "get",
+              "page": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-normalized",
+      "case_id": "B06",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-normalized\\records\\077009af6ca645f7b2bde491e11ef3fa",
+      "execution_status": "completed",
+      "auto_status_original": "passed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": true,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_GZqme0Rtwejeec4JiKQd9686",
+          "model_tool": "read_topic",
+          "canonical_action": "manage_topics.get",
+          "turn": 1,
+          "arguments": {
+            "topic_id": "bench-topic-a",
+            "production_request_id": null,
+            "action": "get"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "36d39f840d824eabbc4e2253a6e3c242",
+              "characters": 1032,
+              "action": "get",
+              "page": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-normalized",
+      "case_id": "B05",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-normalized\\records\\1f790c5c6cb142919e3b782d9862fe78",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_HoyhFLM6cWkrTcs0TDOQ1263",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "d891126888cc40b4954f651c3eb2ff9a",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            },
+            {
+              "request_id": "dc27a924a84b48fe8fc3a24671b970b2",
+              "characters": 17351,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 37
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-normalized",
+      "case_id": "B07",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-normalized\\records\\3e6075d0d4714aa5a2caab1f3029c6c8",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": {
+        "unique_titles_in_receipts": 137,
+        "missing_exact_in_final_answer": 0
+      },
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_vSHwIgZ13e2VlqDVZf9h2696",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "c553ba0d238e49e790dbf574c56c7b9d",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            },
+            {
+              "request_id": "09f961d4890a4f5bb7be59d57ac87031",
+              "characters": 45632,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ]
+        },
+        {
+          "tool_call_id": "call_00_0SKvSV7sEP5LraaTdTZV7937",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "query": {
+              "limit": 100,
+              "offset": 100,
+              "state": "queued"
+            },
+            "series_id": "bench-english",
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "09f961d4890a4f5bb7be59d57ac87031",
+              "characters": 17131,
+              "action": "list",
+              "page": {
+                "offset": 100,
+                "limit": 100,
+                "total": 137
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "batch": "gateway-refactor-20261107-fast-normalized",
+      "case_id": "B10",
+      "record": "data\\agent-benchmark-v2\\gateway-refactor-20261107-fast-normalized\\records\\672408ef5d584ea79c53c372ed125e98",
+      "execution_status": "completed",
+      "auto_status_original": "failed",
+      "semantic_status_original": "passed",
+      "literal_brief_in_answer": null,
+      "returned_title_coverage": null,
+      "canonical_calls": [
+        {
+          "tool_call_id": "call_00_u3S3G3LAi1T58X9CT4IQ4502",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 1,
+          "arguments": {
+            "series_id": "bench-english",
+            "query": {
+              "state": "queued",
+              "limit": 100,
+              "offset": 0
+            },
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "794c4f9aa3e84f0b8836541b0428ee0a",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "9a79193270bd42329c07ef779d1714bd",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            },
+            {
+              "request_id": "581946463cc54c1c8a3bd0262e439cef",
+              "characters": 2234,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 4
+              }
+            }
+          ]
+        },
+        {
+          "tool_call_id": "call_00_n1iJap1B2Fgt9yYz6MjP6087",
+          "model_tool": "list_topics",
+          "canonical_action": "manage_topics.list",
+          "turn": 2,
+          "arguments": {
+            "query": {
+              "state": "all",
+              "limit": 100,
+              "offset": 0
+            },
+            "series_id": "bench-english",
+            "action": "list"
+          },
+          "original_parser_valid": true,
+          "tool_return_error": false,
+          "host_marker_action_suffix_matches": true,
+          "observed_model_requests": [
+            {
+              "request_id": "581946463cc54c1c8a3bd0262e439cef",
+              "characters": 2694,
+              "action": "list",
+              "page": {
+                "offset": 0,
+                "limit": 100,
+                "total": 5
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

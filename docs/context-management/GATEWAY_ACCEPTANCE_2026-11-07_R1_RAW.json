@@ -1,0 +1,2752 @@
+{
+  "version": "gateway-natural-v1",
+  "status": "complete",
+  "model": "deepseek-flash",
+  "reasoning": "none",
+  "source_hashes_start": {
+    "creatoros/agent/loop.py": "afc002f9e5d762ff6cf66519edb036aa1e8a0035b07799a970cc6ac28dc36872",
+    "creatoros/agent/tool_protocol.py": "740cb94b41eba0c3c5f4583e6e9bdef8cec2615dd0ccef141a58081cd1c2ad6e",
+    "creatoros/tools/discovery_gateway.py": "1a140255c926b82c72d900c96c61bae779381f5fc87497a350bbd6763335d5cb",
+    "creatoros/tools/action_catalog.py": "69b3f1e67ba1ce4878545c35ec323130c046b54d3165bfa4bef3fb25e4c391f7"
+  },
+  "results": [
+    {
+      "id": "G01_HELLO",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "你好，我们一起整理创作思路吧。",
+          "answer": "好，我们从哪儿开始？\n\n可以先告诉我你想整理的方向，例如：\n\n- 新开一个选题栏目，明确栏目定位、目标受众和常用 Skill\n- 针对“目标栏目”的现有内容做选题规划\n- 从你手上的参考图或成稿提炼一套可复用的创作方法\n- 复盘最近发布的笔记表现，找出可延续的写法\n\n你也可以直接说出正在卡住的具体问题，我按实际情况给建议。",
+          "wall_seconds": 3.546,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            null
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20972,
+                "output_tokens": 93,
+                "total_tokens": 21065,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20972,
+                "turn_id": "58ce4a11efb5459aac869ecf9490458a",
+                "model_request_id": "5ce0253711764e0baf47b894bf20de16"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20972,
+            "input_tokens": 20972,
+            "output_tokens": 93,
+            "total_tokens": 21065
+          }
+        }
+      ]
+    },
+    {
+      "id": "G01_HELLO",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "你好，我们一起整理创作思路吧。",
+          "answer": "两个只读查询都被这个隔离测试环境拦下了，我读不到「目标栏目」现有的选题和 BGM 素材。\n\n目前的确定信息：「目标栏目」已绑定 Skill「synthetic-skill-v1」，账号库中该 Skill 可用。接下来的思路整理，我可以完全不依赖库内数据来做，比如：\n\n- 以「目标栏目」为方向，我们来定内容主线（选题切口、系列节奏、单篇结构）\n- 结合这个 Skill 的定位，讨论它适合承担哪类选题、哪里需要补\n- 你已有素材方向或选题想法，直接发我，我帮你理成可入队的选题\n\n你想从哪一块开始？",
+          "wall_seconds": 4.5,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"list\",\"query\":{\"limit\":50,\"offset\":0,\"state\":\"all\"},\"series_id\":\"target-series\"}",
+              "status": "blocked"
+            },
+            {
+              "name": "manage_material",
+              "arguments": "{\"action\":\"list\",\"limit\":20,\"offset\":0}",
+              "status": "blocked"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7178,
+                "output_tokens": 66,
+                "total_tokens": 7244,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7178,
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "77867c20531b40329791aa4adbb9df47"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "77867c20531b40329791aa4adbb9df47",
+                "tool_call_id": "call_00_I7GqdFIaB7bw9weZbgJw8596"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7969,
+                "output_tokens": 158,
+                "total_tokens": 8127,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 801,
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "36bf32be81c94ea58def07b694b2202b"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "36bf32be81c94ea58def07b694b2202b",
+                "tool_call_id": "call_00_N5NNrQeSAVnOfghmWHS97454"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_material",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "36bf32be81c94ea58def07b694b2202b",
+                "tool_call_id": "call_01_S0uXxWlQCsNVhAf46k6K5373"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8179,
+                "output_tokens": 142,
+                "total_tokens": 8321,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 243,
+                "turn_id": "99ba812ef35f474eaf76d9aef555d5a2",
+                "model_request_id": "b1cb8dda930849e7b43f61beecc839db"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"list\",\"query\":{\"limit\":50,\"offset\":0,\"state\":\"all\"},\"series_id\":\"target-series\"}",
+          "status": "blocked"
+        },
+        {
+          "name": "manage_material",
+          "arguments": "{\"action\":\"list\",\"limit\":20,\"offset\":0}",
+          "status": "blocked"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7178,
+            "input_tokens": 7178,
+            "output_tokens": 66,
+            "total_tokens": 7244
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 801,
+            "input_tokens": 7969,
+            "output_tokens": 158,
+            "total_tokens": 8127
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 243,
+            "input_tokens": 8179,
+            "output_tokens": 142,
+            "total_tokens": 8321
+          }
+        }
+      ]
+    },
+    {
+      "id": "G01_HELLO",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "你好，我们一起整理创作思路吧。",
+          "answer": "你好！账号里目前有「目标栏目」和一个测试 Skill，其余栏目都还是空的基础占位。\n\n想先从哪儿开始？比如：\n\n- 定「目标栏目」的内容方向和选题思路\n- 看现有选题、归类整理\n- 聊某个具体作品的改进方向\n\n你说个大概方向，我按实际状态帮你梳理。",
+          "wall_seconds": 1.734,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            null
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7971,
+                "output_tokens": 72,
+                "total_tokens": 8043,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7971,
+                "turn_id": "dec51fdba099407a91e19f9d885fbaaf",
+                "model_request_id": "974b0f989de6409099b04e7c37ff6fec"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7971,
+            "input_tokens": 7971,
+            "output_tokens": 72,
+            "total_tokens": 8043
+          }
+        }
+      ]
+    },
+    {
+      "id": "G02_TOPIC",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的完整切入点。",
+          "answer": "选题「早餐」（目标栏目）的完整切入点：\n\n- 标题：早餐\n- 场景：给上班族的早餐故事。\n\n目前只有这两项内容；没有更细的角度、人物或情节设定。",
+          "wall_seconds": 1.844,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7979,
+                "output_tokens": 61,
+                "total_tokens": 8040,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7979,
+                "turn_id": "1f5299f0f0244f248e56bcf0bdfd87d4",
+                "model_request_id": "ebfc659cd7fc4b378573e81c415b650c"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "1f5299f0f0244f248e56bcf0bdfd87d4",
+                "model_request_id": "ebfc659cd7fc4b378573e81c415b650c",
+                "tool_call_id": "call_00_AZrdHzDPzhcs6gEkXScj6403"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8112,
+                "output_tokens": 43,
+                "total_tokens": 8155,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 176,
+                "turn_id": "1f5299f0f0244f248e56bcf0bdfd87d4",
+                "model_request_id": "5705813839e54621924883eac084caf2"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7979,
+            "input_tokens": 7979,
+            "output_tokens": 61,
+            "total_tokens": 8040
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 176,
+            "input_tokens": 8112,
+            "output_tokens": 43,
+            "total_tokens": 8155
+          }
+        }
+      ]
+    },
+    {
+      "id": "G02_TOPIC",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的完整切入点。",
+          "answer": "选题「早餐」（栏目「目标栏目」）的完整切入点如下：\n\n- 标题：早餐\n- 切入角度：给上班族的早餐故事\n\n目前记录里就是这几项信息，没有更细的正文或分镜内容。",
+          "wall_seconds": 2.656,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7182,
+                "output_tokens": 44,
+                "total_tokens": 7226,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7182,
+                "turn_id": "44fc13ee3d08481e8a4b49dead895453",
+                "model_request_id": "16bff106c04c46bbac84fcb54e75ffc5"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "44fc13ee3d08481e8a4b49dead895453",
+                "model_request_id": "16bff106c04c46bbac84fcb54e75ffc5",
+                "tool_call_id": "call_00_slTw97o3iF0wTCK91izk8528"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7550,
+                "output_tokens": 75,
+                "total_tokens": 7625,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 382,
+                "turn_id": "44fc13ee3d08481e8a4b49dead895453",
+                "model_request_id": "8f175e393d7b4404b0f3668922c7cda8"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "44fc13ee3d08481e8a4b49dead895453",
+                "model_request_id": "8f175e393d7b4404b0f3668922c7cda8",
+                "tool_call_id": "call_00_eb2K2YkqmntODpxbpnOz0353"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7697,
+                "output_tokens": 50,
+                "total_tokens": 7747,
+                "cache_hit_tokens": 7552,
+                "cache_miss_tokens": 145,
+                "turn_id": "44fc13ee3d08481e8a4b49dead895453",
+                "model_request_id": "ba60ffb086784398935b920aab665edd"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7182,
+            "input_tokens": 7182,
+            "output_tokens": 44,
+            "total_tokens": 7226
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 382,
+            "input_tokens": 7550,
+            "output_tokens": 75,
+            "total_tokens": 7625
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7552,
+            "cache_miss_tokens": 145,
+            "input_tokens": 7697,
+            "output_tokens": 50,
+            "total_tokens": 7747
+          }
+        }
+      ]
+    },
+    {
+      "id": "G02_TOPIC",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的完整切入点。",
+          "answer": "选题「早餐」的完整切入点如下：\n\n给上班族的早餐故事。",
+          "wall_seconds": 2.641,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20975,
+                "output_tokens": 59,
+                "total_tokens": 21034,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20975,
+                "turn_id": "016b75433b9e41fea6148851a1618cbb",
+                "model_request_id": "6562b683ef8546ecae317c040b44959c"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "turn_id": "016b75433b9e41fea6148851a1618cbb",
+                "model_request_id": "6562b683ef8546ecae317c040b44959c",
+                "tool_call_id": "call_00_WhVHhnFOby6DOQ1BQPdd7288"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21106,
+                "output_tokens": 15,
+                "total_tokens": 21121,
+                "cache_hit_tokens": 20864,
+                "cache_miss_tokens": 242,
+                "turn_id": "016b75433b9e41fea6148851a1618cbb",
+                "model_request_id": "111eaf6ba5a94504a636e8af0b3d2ab0"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20975,
+            "input_tokens": 20975,
+            "output_tokens": 59,
+            "total_tokens": 21034
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20864,
+            "cache_miss_tokens": 242,
+            "input_tokens": 21106,
+            "output_tokens": 15,
+            "total_tokens": 21121
+          }
+        }
+      ]
+    },
+    {
+      "id": "G03_MULTI",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "看看选题 topic-demo-18 的切入点，再看看计划 plan-demo-17 的状态。",
+          "answer": "选题 topic-demo-18「早餐」：切入点（brief）：给上班族的早餐故事。\n\n计划 plan-demo-17：状态为进行中。",
+          "wall_seconds": 2.906,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+              "status": "fixture_ok"
+            },
+            {
+              "name": "manage_plan",
+              "arguments": "{\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20987,
+                "output_tokens": 109,
+                "total_tokens": 21096,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20987,
+                "turn_id": "efbc4ebf0af44140a558c1919cf1b317",
+                "model_request_id": "e9e9dd1ece8e4375b5ad4cfef5aff33e"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "turn_id": "efbc4ebf0af44140a558c1919cf1b317",
+                "model_request_id": "e9e9dd1ece8e4375b5ad4cfef5aff33e",
+                "tool_call_id": "call_00_e1nGt5by6uO79IFDU4sm2011"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_plan",
+                "turn_id": "efbc4ebf0af44140a558c1919cf1b317",
+                "model_request_id": "e9e9dd1ece8e4375b5ad4cfef5aff33e",
+                "tool_call_id": "call_01_gWJY5AXzIRak5SIwk9VS8227"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21199,
+                "output_tokens": 32,
+                "total_tokens": 21231,
+                "cache_hit_tokens": 20992,
+                "cache_miss_tokens": 207,
+                "turn_id": "efbc4ebf0af44140a558c1919cf1b317",
+                "model_request_id": "7563ee99800648d3a44145ff660293b2"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "status": "fixture_ok"
+        },
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\": \"get\", \"plan_id\": \"plan-demo-17\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20987,
+            "input_tokens": 20987,
+            "output_tokens": 109,
+            "total_tokens": 21096
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20992,
+            "cache_miss_tokens": 207,
+            "input_tokens": 21199,
+            "output_tokens": 32,
+            "total_tokens": 21231
+          }
+        }
+      ]
+    },
+    {
+      "id": "G03_MULTI",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "看看选题 topic-demo-18 的切入点，再看看计划 plan-demo-17 的状态。",
+          "answer": "**选题 topic-demo-18**\n- 标题：早餐\n- 所属栏目：目标栏目\n- 切入点：主题是为上班族准备的早餐故事；全文只有一句话提纲「给上班族的早餐故事。」，没有更细的场景、人物或冲突设定。\n\n**计划 plan-demo-17**\n- 状态：进行中（已读取，本轮不会改变它）。",
+          "wall_seconds": 3.625,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            },
+            {
+              "name": "manage_plan",
+              "arguments": "{\"action\":\"get\",\"plan_id\":\"plan-demo-17\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7189,
+                "output_tokens": 50,
+                "total_tokens": 7239,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7189,
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "3352298a4f8646a6a298d9f18c7ebcb0"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "3352298a4f8646a6a298d9f18c7ebcb0",
+                "tool_call_id": "call_00_bSXDuw02NyYFUppB5w5O6066"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7694,
+                "output_tokens": 147,
+                "total_tokens": 7841,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 526,
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "29a2596993c44a2291d7de850cf592f5"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "29a2596993c44a2291d7de850cf592f5",
+                "tool_call_id": "call_00_Hgad53n650bOT4PhZwdq3077"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_plan",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "29a2596993c44a2291d7de850cf592f5",
+                "tool_call_id": "call_01_XWI7OkCXFkHw2vwcuSxv0023"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7944,
+                "output_tokens": 79,
+                "total_tokens": 8023,
+                "cache_hit_tokens": 7808,
+                "cache_miss_tokens": 136,
+                "turn_id": "36f2197d13f049f0950a1ed172ce11c3",
+                "model_request_id": "5684d55ecbc64afc8abf3e1623c6f9f2"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        },
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\":\"get\",\"plan_id\":\"plan-demo-17\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7189,
+            "input_tokens": 7189,
+            "output_tokens": 50,
+            "total_tokens": 7239
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 526,
+            "input_tokens": 7694,
+            "output_tokens": 147,
+            "total_tokens": 7841
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7808,
+            "cache_miss_tokens": 136,
+            "input_tokens": 7944,
+            "output_tokens": 79,
+            "total_tokens": 8023
+          }
+        }
+      ]
+    },
+    {
+      "id": "G03_MULTI",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "看看选题 topic-demo-18 的切入点，再看看计划 plan-demo-17 的状态。",
+          "answer": "选题「早餐」的切入点是：给上班族的早餐故事，正文只写到这一句，属于目标栏目，尚未入队生产。\n\n计划 plan-demo-17 状态为「进行中」，后台仍在执行，目前没有更多步骤细节可交付。",
+          "wall_seconds": 3.078,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            },
+            {
+              "name": "manage_plan",
+              "arguments": "{\"action\":\"get\",\"plan_id\":\"plan-demo-17\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7988,
+                "output_tokens": 102,
+                "total_tokens": 8090,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7988,
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "8e05fefc82c042028631b12b40847a68"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "8e05fefc82c042028631b12b40847a68",
+                "tool_call_id": "call_00_gDO0IdW5C884JSlfU8ma3805"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "8e05fefc82c042028631b12b40847a68",
+                "tool_call_id": "call_01_JUuKPGJVdWvg9EmzBybj7199"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8380,
+                "output_tokens": 75,
+                "total_tokens": 8455,
+                "cache_hit_tokens": 8064,
+                "cache_miss_tokens": 316,
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "93581485924a4183b34c7e5fa27371bc"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_plan",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "93581485924a4183b34c7e5fa27371bc",
+                "tool_call_id": "call_00_Lgo0m6AGLoMoFpiy9uhw7671"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8490,
+                "output_tokens": 54,
+                "total_tokens": 8544,
+                "cache_hit_tokens": 8320,
+                "cache_miss_tokens": 170,
+                "turn_id": "ed625cf3cded4d52b0e028a63377f57c",
+                "model_request_id": "644d1d8fa20e43b2bf379d9b6b61b32d"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        },
+        {
+          "name": "manage_plan",
+          "arguments": "{\"action\":\"get\",\"plan_id\":\"plan-demo-17\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7988,
+            "input_tokens": 7988,
+            "output_tokens": 102,
+            "total_tokens": 8090
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8064,
+            "cache_miss_tokens": 316,
+            "input_tokens": 8380,
+            "output_tokens": 75,
+            "total_tokens": 8455
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8320,
+            "cache_miss_tokens": 170,
+            "input_tokens": 8490,
+            "output_tokens": 54,
+            "total_tokens": 8544
+          }
+        }
+      ]
+    },
+    {
+      "id": "G04_MISSING",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "选题 topic-demo-18 现在是什么状态？",
+          "answer": "选题「早餐」目前是待选状态，尚未入队，也没有进行中的制作任务。",
+          "wall_seconds": 1.547,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7980,
+                "output_tokens": 61,
+                "total_tokens": 8041,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7980,
+                "turn_id": "60c9f3f9d91341538101a06c3f144edb",
+                "model_request_id": "51d60ccf9238451d8fef2e5f30a5e9bf"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "60c9f3f9d91341538101a06c3f144edb",
+                "model_request_id": "51d60ccf9238451d8fef2e5f30a5e9bf",
+                "tool_call_id": "call_00_D2eAjQvubKP088pI415r3342"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8113,
+                "output_tokens": 20,
+                "total_tokens": 8133,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 177,
+                "turn_id": "60c9f3f9d91341538101a06c3f144edb",
+                "model_request_id": "42d25cec68b449aebfb413b0d57fc456"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7980,
+            "input_tokens": 7980,
+            "output_tokens": 61,
+            "total_tokens": 8041
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 177,
+            "input_tokens": 8113,
+            "output_tokens": 20,
+            "total_tokens": 8133
+          }
+        }
+      ]
+    },
+    {
+      "id": "G04_MISSING",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "选题 topic-demo-18 现在是什么状态？",
+          "answer": "选题「早餐」（主题为上班族的早餐故事）属于「目标栏目」，当前是待选状态（pending），还没有入队，也没有开始生产。",
+          "wall_seconds": 3.531,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7183,
+                "output_tokens": 44,
+                "total_tokens": 7227,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7183,
+                "turn_id": "ad9f475ee6a341f6905a6900fb0b4a98",
+                "model_request_id": "28f6c097853942c3ae9d57a2a64b9492"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "ad9f475ee6a341f6905a6900fb0b4a98",
+                "model_request_id": "28f6c097853942c3ae9d57a2a64b9492",
+                "tool_call_id": "call_00_hk8yl9qygjoLvbXcAZUj3894"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7554,
+                "output_tokens": 75,
+                "total_tokens": 7629,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 386,
+                "turn_id": "ad9f475ee6a341f6905a6900fb0b4a98",
+                "model_request_id": "dbe2fd2034064136a4c7d46386e02979"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "ad9f475ee6a341f6905a6900fb0b4a98",
+                "model_request_id": "dbe2fd2034064136a4c7d46386e02979",
+                "tool_call_id": "call_00_hMZQlUvGbBEFWWp9IVBA1713"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7701,
+                "output_tokens": 32,
+                "total_tokens": 7733,
+                "cache_hit_tokens": 7552,
+                "cache_miss_tokens": 149,
+                "turn_id": "ad9f475ee6a341f6905a6900fb0b4a98",
+                "model_request_id": "1e14ad4a8e65444e8617d03fae97974b"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7183,
+            "input_tokens": 7183,
+            "output_tokens": 44,
+            "total_tokens": 7227
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 386,
+            "input_tokens": 7554,
+            "output_tokens": 75,
+            "total_tokens": 7629
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7552,
+            "cache_miss_tokens": 149,
+            "input_tokens": 7701,
+            "output_tokens": 32,
+            "total_tokens": 7733
+          }
+        }
+      ]
+    },
+    {
+      "id": "G04_MISSING",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "选题 topic-demo-18 现在是什么状态？",
+          "answer": "选题「早餐」属于「目标栏目」，目前处于待选状态，尚未确认入队，也未开始生产。",
+          "wall_seconds": 2.687,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20973,
+                "output_tokens": 59,
+                "total_tokens": 21032,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20973,
+                "turn_id": "fd2ac1a3240d483aa8e93667a333dcf5",
+                "model_request_id": "e187f9b4f14f44eea629ab292f89ddc7"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "turn_id": "fd2ac1a3240d483aa8e93667a333dcf5",
+                "model_request_id": "e187f9b4f14f44eea629ab292f89ddc7",
+                "tool_call_id": "call_00_Y1mNgecKTPdvXUJoFMw75420"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21104,
+                "output_tokens": 24,
+                "total_tokens": 21128,
+                "cache_hit_tokens": 20864,
+                "cache_miss_tokens": 240,
+                "turn_id": "fd2ac1a3240d483aa8e93667a333dcf5",
+                "model_request_id": "088761f2f0a24af39bb6a9b1b4d809b6"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20973,
+            "input_tokens": 20973,
+            "output_tokens": 59,
+            "total_tokens": 21032
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20864,
+            "cache_miss_tokens": 240,
+            "input_tokens": 21104,
+            "output_tokens": 24,
+            "total_tokens": 21128
+          }
+        }
+      ]
+    },
+    {
+      "id": "G05_SCOPE",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "查一下另一个账号的选题 topic-other-18 的内容。",
+          "answer": "这个对话只处理当前账号，请切换到目标账号后查询。",
+          "wall_seconds": 1.14,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            null
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20973,
+                "output_tokens": 14,
+                "total_tokens": 20987,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20973,
+                "turn_id": "76677e83ee1f45f0a1b21f70bd77bb55",
+                "model_request_id": "da2f73921e2349e4bb8b040c7bac7122"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20973,
+            "input_tokens": 20973,
+            "output_tokens": 14,
+            "total_tokens": 20987
+          }
+        }
+      ]
+    },
+    {
+      "id": "G05_SCOPE",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "查一下另一个账号的选题 topic-other-18 的内容。",
+          "answer": "这个对话只处理当前账号，请切换到目标账号后查询。",
+          "wall_seconds": 0.828,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            null
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7185,
+                "output_tokens": 14,
+                "total_tokens": 7199,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7185,
+                "turn_id": "5165cc857e8f489ca039bf128a6459f5",
+                "model_request_id": "6abc11ac18104c85bcdf7163ba1bfb07"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7185,
+            "input_tokens": 7185,
+            "output_tokens": 14,
+            "total_tokens": 7199
+          }
+        }
+      ]
+    },
+    {
+      "id": "G05_SCOPE",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "查一下另一个账号的选题 topic-other-18 的内容。",
+          "answer": "这个对话只处理当前账号，请切换到目标账号后查询。",
+          "wall_seconds": 1.359,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            null
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7976,
+                "output_tokens": 14,
+                "total_tokens": 7990,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7976,
+                "turn_id": "4a3428f4c6f7479fa75733200493f0dc",
+                "model_request_id": "34ec43cbcce648d385a333743ae9540a"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7976,
+            "input_tokens": 7976,
+            "output_tokens": 14,
+            "total_tokens": 7990
+          }
+        }
+      ]
+    },
+    {
+      "id": "G06_HISTORY",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的切入点。",
+          "answer": "topic-demo-18「早餐」的切入点：为上班族写一个关于早餐的故事，正文仅此一句场景说明，未限定具体角度。",
+          "wall_seconds": 3.609,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7976,
+                "output_tokens": 61,
+                "total_tokens": 8037,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7976,
+                "turn_id": "9fb9afcf51ef4ea29ab3d280c8287d72",
+                "model_request_id": "8c242e1e96504184ab114df3fd0a5712"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "9fb9afcf51ef4ea29ab3d280c8287d72",
+                "model_request_id": "8c242e1e96504184ab114df3fd0a5712",
+                "tool_call_id": "call_00_5UyhExlj6dUoyXGsJMfD7710"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8109,
+                "output_tokens": 32,
+                "total_tokens": 8141,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 173,
+                "turn_id": "9fb9afcf51ef4ea29ab3d280c8287d72",
+                "model_request_id": "f83019f674ff4595bf0acb7ffa180fdc"
+              }
+            }
+          ]
+        },
+        {
+          "question": "刚才那份选题是写给谁的？",
+          "answer": "「目标栏目」的选题「早餐」，正文仅写明“给上班族的早餐故事”，定向人群就是上班族；没有更细的受众描述。",
+          "wall_seconds": 1.469,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8152,
+                "output_tokens": 32,
+                "total_tokens": 8184,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 216,
+                "turn_id": "caf99acc2b44420b95874284b5d03b18",
+                "model_request_id": "dd7212468fa4436a9e994c74c83fb03a"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":null,\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7976,
+            "input_tokens": 7976,
+            "output_tokens": 61,
+            "total_tokens": 8037
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 173,
+            "input_tokens": 8109,
+            "output_tokens": 32,
+            "total_tokens": 8141
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 216,
+            "input_tokens": 8152,
+            "output_tokens": 32,
+            "total_tokens": 8184
+          }
+        }
+      ]
+    },
+    {
+      "id": "G06_HISTORY",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的切入点。",
+          "answer": "「早餐」（目标栏目）目前的切入点只有一句：「给上班族的早餐故事。」这是面向人群的方向，还没有落到具体场景或冲突，直接生产容易写不出可用内容。\n\n具体缺口：\n- 没有主角和处境，比如赶时间的通勤、只能带走的早饭、独自吃或和家人一起。\n- 没有冲突或情绪核心，读者难以代入到这个选题。\n- 没有故事落点，缺少可以想象的那一个画面。\n\n如果要推进，建议先把切入点收紧成“一个上班族 + 一份早餐 + 一个具体的早晨事件”，例如围绕固定几元的预算、便利店的选择或前晚的准备来写。需要我按某个方向把它改成可生产的场景，还是你先定方向？",
+          "wall_seconds": 5.125,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7180,
+                "output_tokens": 51,
+                "total_tokens": 7231,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7180,
+                "turn_id": "1fe6d1fceebb42fbaafe948e6483899e",
+                "model_request_id": "07a0d61e94374464bc5b1b3e4723917a"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "1fe6d1fceebb42fbaafe948e6483899e",
+                "model_request_id": "07a0d61e94374464bc5b1b3e4723917a",
+                "tool_call_id": "call_00_fvDvOy0qA0gJHhiiT77e3092"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7560,
+                "output_tokens": 75,
+                "total_tokens": 7635,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 392,
+                "turn_id": "1fe6d1fceebb42fbaafe948e6483899e",
+                "model_request_id": "bce0e9d65ec44143b4d831d5fc213712"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "1fe6d1fceebb42fbaafe948e6483899e",
+                "model_request_id": "bce0e9d65ec44143b4d831d5fc213712",
+                "tool_call_id": "call_00_r4k3bgNFtqFzMT3ootIr7580"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7707,
+                "output_tokens": 147,
+                "total_tokens": 7854,
+                "cache_hit_tokens": 7552,
+                "cache_miss_tokens": 155,
+                "turn_id": "1fe6d1fceebb42fbaafe948e6483899e",
+                "model_request_id": "201fcc6e91e548318e7a96bd5442ddff"
+              }
+            }
+          ]
+        },
+        {
+          "question": "刚才那份选题是写给谁的？",
+          "answer": "这份选题的正文里只写了「给上班族的早餐故事」，没有更具体的读者描述，栏目本身也没有额外限定受众。\n\n唯一明确的指向是上班族；再往后就没有更细的人群了，例如通勤族、独自租房的人、需要给孩子做早饭的人，都没有写。",
+          "wall_seconds": 1.875,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7865,
+                "output_tokens": 60,
+                "total_tokens": 7925,
+                "cache_hit_tokens": 7680,
+                "cache_miss_tokens": 185,
+                "turn_id": "e20071a7906b4805844bfdaa95f46728",
+                "model_request_id": "be4c2ae14f1f420291a80261b4ace45b"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7180,
+            "input_tokens": 7180,
+            "output_tokens": 51,
+            "total_tokens": 7231
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 392,
+            "input_tokens": 7560,
+            "output_tokens": 75,
+            "total_tokens": 7635
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7552,
+            "cache_miss_tokens": 155,
+            "input_tokens": 7707,
+            "output_tokens": 147,
+            "total_tokens": 7854
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7680,
+            "cache_miss_tokens": 185,
+            "input_tokens": 7865,
+            "output_tokens": 60,
+            "total_tokens": 7925
+          }
+        }
+      ]
+    },
+    {
+      "id": "G06_HISTORY",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "请看一下选题 topic-demo-18 的切入点。",
+          "answer": "选题 topic-demo-18（标题「早餐」，属于目标栏目）的切入点是：给上班族的早餐故事。",
+          "wall_seconds": 3.312,
+          "model_requests": 2,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 20976,
+                "output_tokens": 59,
+                "total_tokens": 21035,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 20976,
+                "turn_id": "4b3758ae4af947a0975af0c6613030e2",
+                "model_request_id": "f29fe105614c4de1af47a73a9fd87084"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "turn_id": "4b3758ae4af947a0975af0c6613030e2",
+                "model_request_id": "f29fe105614c4de1af47a73a9fd87084",
+                "tool_call_id": "call_00_XsFM6Z5jhIfKsb9p1IgQ1843"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21107,
+                "output_tokens": 25,
+                "total_tokens": 21132,
+                "cache_hit_tokens": 20864,
+                "cache_miss_tokens": 243,
+                "turn_id": "4b3758ae4af947a0975af0c6613030e2",
+                "model_request_id": "83123b4b139e443d82311aa7ccdf51bf"
+              }
+            }
+          ]
+        },
+        {
+          "question": "刚才那份选题是写给谁的？",
+          "answer": "这份选题本身没有写目标受众，只记录了标题「早餐」和切入点「给上班族的早餐故事」，其中的受众只体现为“上班族”。所属栏目「目标栏目」在名称和当前绑定信息里也没有配置受众定位，因此无法进一步确认它面向的具体人群。",
+          "wall_seconds": 1.719,
+          "model_requests": 1,
+          "prefix_from_previous": [
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21143,
+                "output_tokens": 59,
+                "total_tokens": 21202,
+                "cache_hit_tokens": 20992,
+                "cache_miss_tokens": 151,
+                "turn_id": "873a95104a7044d99484af9511eae2f2",
+                "model_request_id": "880c43357a0940e39b1507396b8bb511"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 20976,
+            "input_tokens": 20976,
+            "output_tokens": 59,
+            "total_tokens": 21035
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20864,
+            "cache_miss_tokens": 243,
+            "input_tokens": 21107,
+            "output_tokens": 25,
+            "total_tokens": 21132
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20992,
+            "cache_miss_tokens": 151,
+            "input_tokens": 21143,
+            "output_tokens": 59,
+            "total_tokens": 21202
+          }
+        }
+      ]
+    },
+    {
+      "id": "G07_UNKNOWN",
+      "protocol": "legacy",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "刚才提交的制作结果还不确定，现在该怎么处理？",
+          "answer": "这个选题（「早餐」，目标栏目）的制作提交状态仍未确认：选题本身查得到，但制作任务列表和提交回执的只读核对在当前环境被拦下，无法确认是否已受理。请不要重复提交；等能查到该选题的制作任务或回执后再决定是否补交。",
+          "wall_seconds": 5.015,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "manage_production_task",
+            "manage_media_collection",
+            "manage_plan",
+            "query_feedback",
+            "prepare_publication",
+            "get_publication",
+            "read_file",
+            "read_tool_result",
+            "list_creators",
+            "research_series_topics",
+            "get_topic_research",
+            "prepare_topic_selection",
+            "manage_topics",
+            "compose_series",
+            "update_series_composition",
+            "manage_skill_library",
+            "manage_material",
+            "list_producer_skills",
+            "get_producer_skill",
+            "update_producer_skill_file",
+            "manage_skill_iteration",
+            "list_creator_series",
+            "start_content_run",
+            "get_content_run",
+            "discuss_content_run",
+            "get_content_discussion",
+            "request_content_revision",
+            "get_creator_tasks",
+            "read_image",
+            "extract_skill_from_images",
+            "create_skill_draft",
+            "import_content_images",
+            "get_skill_extraction",
+            "save_extracted_skills",
+            "cancel_skill_extraction",
+            "edit_extracted_skills"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_production_task",
+              "arguments": "{\"action\": \"list\", \"topic_id\": \"topic-demo-18\"}",
+              "status": "blocked"
+            },
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\", \"production_request_id\": \"studio_outcome_unknown\"}",
+              "status": "fixture_ok"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21099,
+                "output_tokens": 60,
+                "total_tokens": 21159,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 21099,
+                "turn_id": "51c34283f9a84a46a85c554119549c8c",
+                "model_request_id": "a75d562b0fca457f9dcf6f9c5dc042f2"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_production_task",
+                "turn_id": "51c34283f9a84a46a85c554119549c8c",
+                "model_request_id": "a75d562b0fca457f9dcf6f9c5dc042f2",
+                "tool_call_id": "call_00_kvjMj2rv272QQx8uqQKd0339"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21187,
+                "output_tokens": 81,
+                "total_tokens": 21268,
+                "cache_hit_tokens": 20992,
+                "cache_miss_tokens": 195,
+                "turn_id": "51c34283f9a84a46a85c554119549c8c",
+                "model_request_id": "ffead481e2d74c6a94567b2b9264c1c6"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "turn_id": "51c34283f9a84a46a85c554119549c8c",
+                "model_request_id": "ffead481e2d74c6a94567b2b9264c1c6",
+                "tool_call_id": "call_00_PUaeVn9WjFPLPmZP7Uz04019"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 21340,
+                "output_tokens": 64,
+                "total_tokens": 21404,
+                "cache_hit_tokens": 21120,
+                "cache_miss_tokens": 220,
+                "turn_id": "51c34283f9a84a46a85c554119549c8c",
+                "model_request_id": "044a818a0a74497591daf34a15f878e5"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_production_task",
+          "arguments": "{\"action\": \"list\", \"topic_id\": \"topic-demo-18\"}",
+          "status": "blocked"
+        },
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\": \"get\", \"topic_id\": \"topic-demo-18\", \"production_request_id\": \"studio_outcome_unknown\"}",
+          "status": "fixture_ok"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 21099,
+            "input_tokens": 21099,
+            "output_tokens": 60,
+            "total_tokens": 21159
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 20992,
+            "cache_miss_tokens": 195,
+            "input_tokens": 21187,
+            "output_tokens": 81,
+            "total_tokens": 21268
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 21120,
+            "cache_miss_tokens": 220,
+            "input_tokens": 21340,
+            "output_tokens": 64,
+            "total_tokens": 21404
+          }
+        }
+      ]
+    },
+    {
+      "id": "G07_UNKNOWN",
+      "protocol": "discovery",
+      "fastpath": false,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "刚才提交的制作结果还不确定，现在该怎么处理？",
+          "answer": "制作提交状态仍无法确认：系统只返回“提交结果未知”，任务核查接口在当前环境不可用，也没有回执可以证明已受理或已创建制作任务。为免重复生成，我不会再提交一次；请先在原选题的制作任务记录里查看是否出现新任务，确认没有受理后再提交。",
+          "wall_seconds": 5.266,
+          "model_requests": 4,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_production_task",
+              "arguments": "{\"action\":\"list\",\"topic_id\":\"topic-demo-18\"}",
+              "status": "blocked"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7301,
+                "output_tokens": 70,
+                "total_tokens": 7371,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 7301,
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "c59a3130f80541ceb2f53151f50fdb8a"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "call_discovered_tool",
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "c59a3130f80541ceb2f53151f50fdb8a",
+                "tool_call_id": "call_00_hUkfcxHTUgcqWa3oIbXV4584"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 7409,
+                "output_tokens": 52,
+                "total_tokens": 7461,
+                "cache_hit_tokens": 7168,
+                "cache_miss_tokens": 241,
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "4b4b9888a2104652af11ef49af64f63f"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "discover_tools",
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "4b4b9888a2104652af11ef49af64f63f",
+                "tool_call_id": "call_00_WX7aHSje6lTV2yf9sHUi5742"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8033,
+                "output_tokens": 76,
+                "total_tokens": 8109,
+                "cache_hit_tokens": 7424,
+                "cache_miss_tokens": 609,
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "54eebab8b8034717a9f6c035d6d47adf"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_production_task",
+                "model_tool_name": "call_discovered_tool",
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "54eebab8b8034717a9f6c035d6d47adf",
+                "tool_call_id": "call_00_W4J7xHFD0kdJUve39P5v8532"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8137,
+                "output_tokens": 66,
+                "total_tokens": 8203,
+                "cache_hit_tokens": 7936,
+                "cache_miss_tokens": 201,
+                "turn_id": "b4c0a52403dd4f198dbc20075097f741",
+                "model_request_id": "60da590d5bf94dfb9de5c8e1d66b3c80"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_production_task",
+          "arguments": "{\"action\":\"list\",\"topic_id\":\"topic-demo-18\"}",
+          "status": "blocked"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 7301,
+            "input_tokens": 7301,
+            "output_tokens": 70,
+            "total_tokens": 7371
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7168,
+            "cache_miss_tokens": 241,
+            "input_tokens": 7409,
+            "output_tokens": 52,
+            "total_tokens": 7461
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7424,
+            "cache_miss_tokens": 609,
+            "input_tokens": 8033,
+            "output_tokens": 76,
+            "total_tokens": 8109
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 7936,
+            "cache_miss_tokens": 201,
+            "input_tokens": 8137,
+            "output_tokens": 66,
+            "total_tokens": 8203
+          }
+        }
+      ]
+    },
+    {
+      "id": "G07_UNKNOWN",
+      "protocol": "discovery",
+      "fastpath": true,
+      "status": "completed_needs_review",
+      "turns": [
+        {
+          "question": "刚才提交的制作结果还不确定，现在该怎么处理？",
+          "answer": "本次提交的结果仍无法确认，选题「早餐」目前只读到正文，没有查到对应的制作任务或 Run 记录；这既不能说明制作已受理，也不能说明已经失败。\n\n处理方式：先不要重复提交，避免同一选题出现两份并行产物。等任务状态可以核对后，如果确认没有生成任务，再提交一次；如果已有任务，就直接跟进那次制作。",
+          "wall_seconds": 4.125,
+          "model_requests": 3,
+          "prefix_from_previous": [
+            null,
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            },
+            {
+              "same_schema": true,
+              "messages_append_only": true
+            }
+          ],
+          "wire_schema_names": [
+            "discover_tools",
+            "call_discovered_tool",
+            "read_topic",
+            "list_topics",
+            "get_creator_tasks"
+          ],
+          "canonical_calls": [
+            {
+              "name": "manage_topics",
+              "arguments": "{\"action\":\"get\",\"production_request_id\":\"topic-demo-18\",\"topic_id\":\"topic-demo-18\"}",
+              "status": "fixture_ok"
+            },
+            {
+              "name": "get_creator_tasks",
+              "arguments": "{\"series_id\": \"target-series\"}",
+              "status": "blocked"
+            }
+          ],
+          "events": [
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8100,
+                "output_tokens": 65,
+                "total_tokens": 8165,
+                "cache_hit_tokens": 0,
+                "cache_miss_tokens": 8100,
+                "turn_id": "9e4fe8ce019a46cab331816840f4aaf7",
+                "model_request_id": "c95f08b3669b40c295ad42ada592f59e"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "manage_topics",
+                "model_tool_name": "read_topic",
+                "turn_id": "9e4fe8ce019a46cab331816840f4aaf7",
+                "model_request_id": "c95f08b3669b40c295ad42ada592f59e",
+                "tool_call_id": "call_00_csRYOtVhBMFnNtzP8jJY1487"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8237,
+                "output_tokens": 42,
+                "total_tokens": 8279,
+                "cache_hit_tokens": 8064,
+                "cache_miss_tokens": 173,
+                "turn_id": "9e4fe8ce019a46cab331816840f4aaf7",
+                "model_request_id": "6d05de6b7a7d4e1386ec5bd2c2c9efd9"
+              }
+            },
+            {
+              "kind": "tool_call",
+              "data": {
+                "name": "get_creator_tasks",
+                "turn_id": "9e4fe8ce019a46cab331816840f4aaf7",
+                "model_request_id": "6d05de6b7a7d4e1386ec5bd2c2c9efd9",
+                "tool_call_id": "call_00_BG8Nz14L7e9gXwgobOEQ6194"
+              }
+            },
+            {
+              "kind": "model_usage",
+              "data": {
+                "input_tokens": 8307,
+                "output_tokens": 81,
+                "total_tokens": 8388,
+                "cache_hit_tokens": 8064,
+                "cache_miss_tokens": 243,
+                "turn_id": "9e4fe8ce019a46cab331816840f4aaf7",
+                "model_request_id": "7867cae25d014a63ba3562f78f06f567"
+              }
+            }
+          ]
+        }
+      ],
+      "canonical_calls": [
+        {
+          "name": "manage_topics",
+          "arguments": "{\"action\":\"get\",\"production_request_id\":\"topic-demo-18\",\"topic_id\":\"topic-demo-18\"}",
+          "status": "fixture_ok"
+        },
+        {
+          "name": "get_creator_tasks",
+          "arguments": "{\"series_id\": \"target-series\"}",
+          "status": "blocked"
+        }
+      ],
+      "fixture_only": true,
+      "requests": [
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 0,
+            "cache_miss_tokens": 8100,
+            "input_tokens": 8100,
+            "output_tokens": 65,
+            "total_tokens": 8165
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8064,
+            "cache_miss_tokens": 173,
+            "input_tokens": 8237,
+            "output_tokens": 42,
+            "total_tokens": 8279
+          }
+        },
+        {
+          "kind": "main",
+          "status": "succeeded",
+          "usage": {
+            "cache_hit_tokens": 8064,
+            "cache_miss_tokens": 243,
+            "input_tokens": 8307,
+            "output_tokens": 81,
+            "total_tokens": 8388
+          }
+        }
+      ]
+    }
+  ],
+  "source_hashes_end": {
+    "creatoros/agent/loop.py": "afc002f9e5d762ff6cf66519edb036aa1e8a0035b07799a970cc6ac28dc36872",
+    "creatoros/agent/tool_protocol.py": "740cb94b41eba0c3c5f4583e6e9bdef8cec2615dd0ccef141a58081cd1c2ad6e",
+    "creatoros/tools/discovery_gateway.py": "53960f1fadb135cae5fdf9205f6cd7e55ba67ebb9cbcc888beb0d7db927214d8",
+    "creatoros/tools/action_catalog.py": "69b3f1e67ba1ce4878545c35ec323130c046b54d3165bfa4bef3fb25e4c391f7"
+  },
+  "sources_unchanged_during_run": false
+}
