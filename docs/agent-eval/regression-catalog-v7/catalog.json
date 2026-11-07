@@ -1,0 +1,520 @@
+{
+  "schema_version": "regression-catalog-v1",
+  "catalog_id": "creatoros-regression-v7",
+  "version": "7",
+  "sources": [
+    {
+      "namespace": "base",
+      "dataset_id": "creatoros-trace-benchmark-v3.4-20261105",
+      "path": "docs/agent-eval/benchmark-v2/cases.json",
+      "canonical_sha256": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
+      "selection": "all"
+    },
+    {
+      "namespace": "natural",
+      "dataset_id": "creatoros-natural-benchmark-v2-20261105",
+      "path": "docs/agent-eval/natural-v2/cases.json",
+      "canonical_sha256": "84589e028b20b3412e980f947c75934ff9377a756e964e493dd727eb987bfbdb",
+      "selection": "natural_eligible",
+      "parent_namespace": "base"
+    },
+    {
+      "namespace": "expansion",
+      "dataset_id": "creatoros-expansion-50-v1-20261105",
+      "path": "docs/agent-eval/expansion-50-v1/cases.json",
+      "canonical_sha256": "830efbbda78bc0f1b9a534f1f8a0d72fc1311d8e58518726de090393bbecb608",
+      "selection": "suite_eligible",
+      "exclude_case_ids": [
+        "E06"
+      ]
+    },
+    {
+      "namespace": "e06-scope",
+      "dataset_id": "creatoros-e06-scope-v2-20261107",
+      "path": "docs/agent-eval/e06-scope-v2/cases.json",
+      "canonical_sha256": "d23426b33b0d4ee98bb098024db217d9dcd29a672fb86640c21847b89325549c",
+      "selection": "suite_eligible"
+    }
+  ],
+  "classifications": {
+    "base:B01": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "已纳入本地受限分派策略并通过受控安全检查；不代表本题已真实模型试跑。"
+    },
+    "base:B02": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "已纳入本地受限分派策略并通过受控安全检查；不代表本题已真实模型试跑。"
+    },
+    "base:B03": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "已纳入本地受限分派策略并通过受控安全检查；不代表本题已真实模型试跑。"
+    },
+    "base:B05": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "使用本地受限分派策略；与旧 nonvideo 策略的运行条件不同。"
+    },
+    "base:B06": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "使用本地受限分派策略；与旧 nonvideo 策略的运行条件不同。"
+    },
+    "base:B07": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "使用本地受限分派策略；与旧 nonvideo 策略的运行条件不同。"
+    },
+    "base:B10": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "使用本地受限分派策略；与旧 nonvideo 策略的运行条件不同。"
+    },
+    "base:B31": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "同账号读取与跨账号拒绝经过隔离真实 HTTP 正反验证；未代表本题真实模型已运行。"
+    },
+    "base:B32": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "跨账号更新拒绝与私有记录不变经过隔离真实 HTTP 验证；未代表本题真实模型已运行。"
+    },
+    "base:B38": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "本地分派允许读取隔离 Skill、拦截外部生产及调研；未代表本题真实模型已运行。"
+    },
+    "base:B40": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "同账号读取正例经隔离真实 HTTP 验证；未代表本题真实模型已运行。"
+    },
+    "base:B04": {
+      "resource_class": "heavy",
+      "reason": "题目包含试产及真实 Codex 执行。"
+    },
+    "base:B41": {
+      "resource_class": "heavy",
+      "reason": "题目要求真实 Codex 生图交付。"
+    },
+    "base:B42": {
+      "resource_class": "heavy",
+      "reason": "题目要求真实并行图片生产。"
+    },
+    "base:B44": {
+      "resource_class": "heavy",
+      "reason": "题目要求使用真实 Codex 从图片提炼草稿。"
+    },
+    "base:B46": {
+      "resource_class": "heavy",
+      "reason": "题目要求真实 Codex 试产。"
+    },
+    "base:B47": {
+      "resource_class": "heavy",
+      "reason": "题目要求真实短视频交付。"
+    },
+    "base:B48": {
+      "resource_class": "heavy",
+      "reason": "题目要求真实联网调研与来源核实。"
+    },
+    "base:B49": {
+      "resource_class": "heavy",
+      "reason": "题目要求两张真实图片生产与打包交付。"
+    },
+    "base:B50": {
+      "resource_class": "heavy",
+      "reason": "题目涉及真实 Codex 交付与恢复。"
+    },
+    "natural:B41": {
+      "resource_class": "heavy",
+      "reason": "自然表达变体要求真实 Codex 生图交付。"
+    },
+    "natural:B44": {
+      "resource_class": "heavy",
+      "reason": "自然表达变体要求真实 Codex 从图片提炼草稿。"
+    },
+    "natural:B48": {
+      "resource_class": "heavy",
+      "reason": "自然表达变体要求真实联网调研与来源核实。"
+    },
+    "base:B08": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B09": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B11": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B12": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B13": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B14": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B15": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B16": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B17": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B20": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B25": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "base:B30": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "逐题隔离执行准入；真实模型结果以独立运行记录为准。"
+    },
+    "natural:B06": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "自然表达版本独立完成隔离和副作用受控验证；真实模型结果以运行记录为准。"
+    },
+    "natural:B07": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "自然表达版本独立完成隔离和副作用受控验证；真实模型结果以运行记录为准。"
+    },
+    "base:B19": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "base:B18": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "expansion:C02": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "expansion:Y04": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "base:B37": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "base:B35": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "expansion:E07": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "expansion:E05": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "base:B39": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "base:B33": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v5",
+      "reason": "独立隔离环境中完成工具、权限、副作用和评分探针的受控验证；模型结果以运行记录为准。"
+    },
+    "e06-scope:E06": {
+      "resource_class": "routine",
+      "adapter": "local-dispatch-v6",
+      "reason": "权限拒绝评分修订版，已使用独立题源和回执资格验证；真实模型及人工校准以实际记录为准。"
+    }
+  },
+  "classification_groups": [
+    {
+      "id": "base-series-skill",
+      "resource_class": "routine",
+      "reason": "题面和工具路径是隔离工作区的栏目或 Skill 读取/编辑，不要求生成成品；有本地写入，实际隔离和权限尚需验证。",
+      "evidence_paths": [
+        "creatoros/tools/studio.py",
+        "creatoros/tools/staged_production.py",
+        "creatoros/evaluation/benchmark/world.py"
+      ],
+      "instances": [
+        "base:B21",
+        "base:B22",
+        "base:B23",
+        "base:B24",
+        "base:B26",
+        "base:B27",
+        "base:B28"
+      ]
+    },
+    {
+      "id": "base-security",
+      "resource_class": "routine",
+      "reason": "题目预期是隔离账号权限拒绝或只读校验；必须保留真实权限路径，错误调用的副作用和隔离守卫仍待验证。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/probes.py",
+        "creatoros/evaluation/benchmark/world.py"
+      ],
+      "instances": [
+        "base:B36"
+      ]
+    },
+    {
+      "id": "base-foreign-production",
+      "resource_class": "routine",
+      "reason": "预期跨账号生产请求被拒且不启动生产；若权限或守卫失效可能触发付费生产，必须先核验授权边界和前置拦截。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/probes.py",
+        "creatoros/tools/studio.py"
+      ],
+      "instances": [
+        "base:B34"
+      ],
+      "side_effects": [
+        "请求涉及生产，错误授权或拦截失效可能产生外部付费动作"
+      ]
+    },
+    {
+      "id": "existing-image-read",
+      "resource_class": "routine",
+      "reason": "题目读取隔离世界已有图片，不要求生图；Agent 和 Judge 可能发送图片给视觉模型，模型能力、费用和证据链仍待核实。",
+      "evidence_paths": [
+        "creatoros/tools/chat_images.py",
+        "creatoros/evaluation/benchmark/visual_evidence.py",
+        "creatoros/evaluation/benchmark/server.py"
+      ],
+      "instances": [
+        "base:B29",
+        "base:B45",
+        "expansion:I01"
+      ],
+      "dependencies": [
+        "已有合成图片及多模态输入/视觉评审，模型能力和费用待核实"
+      ],
+      "side_effects": [
+        "可能产生多模态模型调用和费用"
+      ]
+    },
+    {
+      "id": "base-existing-zip",
+      "resource_class": "routine",
+      "reason": "题面要求将已有隔离素材打包 ZIP，不启动生产；涉及本地导出文件，路径和副作用仍需执行验证。",
+      "evidence_paths": [
+        "creatoros/tools/media_collections.py",
+        "creatoros/evaluation/benchmark/world.py"
+      ],
+      "instances": [
+        "base:B43"
+      ]
+    },
+    {
+      "id": "natural-local",
+      "resource_class": "routine",
+      "reason": "自然表达沿用父题的隔离数据查询或修改意图，不要求新生产或联网调研；改写题的模型行为及权限仍待单独验证。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/natural_suite.py",
+        "creatoros/tools/topics.py",
+        "creatoros/tools/studio.py"
+      ],
+      "instances": [
+        "natural:B05",
+        "natural:B10",
+        "natural:B11",
+        "natural:B12",
+        "natural:B13",
+        "natural:B14",
+        "natural:B15",
+        "natural:B16",
+        "natural:B17",
+        "natural:B20",
+        "natural:B21",
+        "natural:B22",
+        "natural:B25",
+        "natural:B38",
+        "natural:B40"
+      ]
+    },
+    {
+      "id": "expansion-topic-local",
+      "resource_class": "routine",
+      "reason": "合成夹具中的选题身份、修改和多轮上下文任务，通过隔离 SQLite/本地路由验证，不要求真实生产；具体执行与异常路径仍待核实。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/expansion_identity.py",
+        "creatoros/evaluation/benchmark/expansion_extra.py",
+        "creatoros/evaluation/benchmark/expansion_extra2.py",
+        "creatoros/tools/topics.py"
+      ],
+      "instances": [
+        "expansion:C04",
+        "expansion:D01",
+        "expansion:D02",
+        "expansion:D04",
+        "expansion:E01",
+        "expansion:E02",
+        "expansion:E03",
+        "expansion:E04",
+        "expansion:E08",
+        "expansion:X01",
+        "expansion:X02",
+        "expansion:X03",
+        "expansion:X04",
+        "expansion:Y01"
+      ]
+    },
+    {
+      "id": "expansion-injection",
+      "resource_class": "routine",
+      "reason": "题目使用隔离合成数据测试注入与账号边界，预期不做外部动作；恶意内容可能诱导越权或付费调用，必须先核验真实权限路径和前置守卫。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/expansion_safety.py",
+        "creatoros/evaluation/benchmark/world.py"
+      ],
+      "instances": [
+        "expansion:S01",
+        "expansion:S02",
+        "expansion:S03",
+        "expansion:S04",
+        "expansion:S05"
+      ],
+      "side_effects": [
+        "对抗内容可能诱导未授权外部动作，执行前必须核验守卫"
+      ]
+    },
+    {
+      "id": "expansion-material-status",
+      "resource_class": "routine",
+      "reason": "查询隔离环境中的已有素材或合成分析/导入状态，不要求实际执行导入或节奏分析；若模型选错 action 可能产生副作用，仍须核验分派守卫。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/expansion_materials.py",
+        "creatoros/evaluation/benchmark/expansion_extra3.py",
+        "creatoros/tools/staged_production.py"
+      ],
+      "instances": [
+        "expansion:P01",
+        "expansion:P02",
+        "expansion:P03",
+        "expansion:Z01",
+        "expansion:Z02",
+        "expansion:Z03",
+        "expansion:Z04"
+      ]
+    },
+    {
+      "id": "expansion-existing-collections",
+      "resource_class": "routine",
+      "reason": "对隔离世界已有素材集或图片引用进行增删改和排序，不要求生成新图片；文件及账号边界仍须验证。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/world.py",
+        "creatoros/evaluation/benchmark/expansion_extra2.py",
+        "creatoros/tools/media_collections.py"
+      ],
+      "instances": [
+        "expansion:M01",
+        "expansion:M02",
+        "expansion:M03",
+        "expansion:M04",
+        "expansion:M05",
+        "expansion:M06",
+        "expansion:M07",
+        "expansion:M08",
+        "expansion:Y02",
+        "expansion:Y03"
+      ]
+    },
+    {
+      "id": "expansion-plan-status",
+      "resource_class": "routine",
+      "reason": "宿主注入合成计划状态供只读查询，不代表真实计划步骤执行；恢复/重发和后台隔离仍需核实。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/expansion_recovery.py",
+        "creatoros/agent/plans.py"
+      ],
+      "instances": [
+        "expansion:W01",
+        "expansion:W02",
+        "expansion:W03",
+        "expansion:W04"
+      ]
+    },
+    {
+      "id": "expansion-image-negative",
+      "resource_class": "routine",
+      "reason": "题目验证缺图、缺失路径、版本不匹配或序号越界；使用隔离图像元数据，实际错误路径和多模态调用风险仍待核实。",
+      "evidence_paths": [
+        "creatoros/evaluation/benchmark/expansion_visual_tasks.py",
+        "creatoros/tools/chat_images.py"
+      ],
+      "instances": [
+        "expansion:I02",
+        "expansion:I03",
+        "expansion:I04",
+        "expansion:I05"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "regular-v7",
+      "version": "7",
+      "title": "常规全量回归",
+      "description": "按任务资源分类的 108 个常规请求；执行准入与真实模型结果以目录和运行记录为准。",
+      "include_resource_classes": [
+        "routine"
+      ],
+      "show_unclassified": true
+    },
+    {
+      "id": "full-v7",
+      "version": "7",
+      "title": "完整回归",
+      "description": "覆盖现有 120 个请求实例；执行资格和外部副作用逐题核实。",
+      "include_all": true
+    }
+  ],
+  "sources_frozen": true,
+  "adapter_source_sha256_by_namespace": {
+    "base": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
+    "natural": "84589e028b20b3412e980f947c75934ff9377a756e964e493dd727eb987bfbdb",
+    "expansion": "830efbbda78bc0f1b9a534f1f8a0d72fc1311d8e58518726de090393bbecb608",
+    "e06-scope": "d23426b33b0d4ee98bb098024db217d9dcd29a672fb86640c21847b89325549c"
+  }
+}

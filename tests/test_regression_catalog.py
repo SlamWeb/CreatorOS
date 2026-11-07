@@ -189,7 +189,7 @@ class RegressionCatalogTests(unittest.TestCase):
 
     def test_v6_withdraws_only_old_e06_without_changing_v5(self):
         old = catalog(ROOT / "docs/agent-eval/regression-catalog-v5/catalog.json")
-        new = catalog()
+        new = catalog(ROOT / "docs/agent-eval/regression-catalog-v6/catalog.json")
         self.assertEqual(new["catalog_id"], "creatoros-regression-v6")
         for previous, current in zip(old["suites"], new["suites"]):
             before = {case["instance_id"]: case for case in previous["cases"]}

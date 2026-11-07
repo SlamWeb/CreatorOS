@@ -41,9 +41,9 @@ def validate(manifest, case_id=None):
     if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch,
                         source_namespace=config.get("source_namespace")):
         raise ValueError("Frozen nonvideo guard policy or case selection differs")
-    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5"}:
+    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"}:
         from creatoros.evaluation.regression_runner import selection_namespace
-        from creatoros.evaluation.tool_calling import EXPANSION_SUITE_ID, NATURAL_SUITE_ID, REGRESSION_SUITE_ID
+        from creatoros.evaluation.tool_calling import E06_SCOPE_SUITE_ID, EXPANSION_SUITE_ID, NATURAL_SUITE_ID, REGRESSION_SUITE_ID
         binding = manifest["model_configuration"].get("catalog_binding")
         if not isinstance(binding, dict):
             raise ValueError("v4 requires a frozen catalog binding")
@@ -51,7 +51,7 @@ def validate(manifest, case_id=None):
         namespace = selection_namespace(selected)
         if (namespace != config["source_namespace"]
                 or [item.split(":", 1)[1] for item in selected] != manifest["selected_case_ids"]
-                or manifest.get("dataset_id") != {"base": REGRESSION_SUITE_ID, "natural": NATURAL_SUITE_ID, "expansion": EXPANSION_SUITE_ID}[namespace]):
+                or manifest.get("dataset_id") != {"base": REGRESSION_SUITE_ID, "natural": NATURAL_SUITE_ID, "expansion": EXPANSION_SUITE_ID, "e06-scope": E06_SCOPE_SUITE_ID}[namespace]):
             raise ValueError("Frozen source namespace and dataset differ")
     if case_id is not None and case_id not in config["case_ids"]:
         raise ValueError("Case is outside frozen nonvideo guard selection")

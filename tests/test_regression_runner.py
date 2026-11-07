@@ -173,8 +173,9 @@ class RegressionRunnerTests(unittest.TestCase):
         suite["cases"][0]["adapter"] = "local-dispatch-v1"
         suite["membership_sha256"] = regression_runner._digest(regression_runner._membership(suite))
         with patch.object(regression_runner, "catalog", return_value=data):
+            self.assertTrue(regression_runner.prepare("regular-v1")["requires_separate_runs"])
             with self.assertRaises(ValueError):
-                regression_runner.prepare("regular-v1")
+                regression_runner.prepare("regular-v1", ["base:B05", "base:B06"])
             v1 = regression_runner.prepare("regular-v1", ["base:B05"])
             self.assertEqual(v1["requires_local_dispatch"], "local-dispatch-v1")
             binding = v1["catalog_binding"]
