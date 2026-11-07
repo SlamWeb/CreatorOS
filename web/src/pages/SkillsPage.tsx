@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { BookOpen, Image as ImageIcon, Package, CircleHelp } from "lucide-react";
+import { Image as ImageIcon, Package, Clapperboard, SlidersHorizontal, ShieldCheck, Layers } from "lucide-react";
 import { studioApi, request } from "../api/client";
 import { useCreatorDirectory } from "../api/useCreatorDirectory";
 import type { ProducerSkillItem } from "../api/types";
@@ -58,11 +58,13 @@ function directBinding(ids: string[], skills: ProducerSkillItem[]) {
   return mind && visual ? { mind_skill_id: mind.id, production_skill_id: visual.id } : null;
 }
 
-function skillIcon(role: ProducerSkillItem["role"]) {
-  if (role === "mind") return <BookOpen size={15} strokeWidth={1.8} />;
-  if (role === "production") return <ImageIcon size={15} strokeWidth={1.8} />;
-  if (role === "legacy_end_to_end") return <Package size={15} strokeWidth={1.8} />;
-  return <CircleHelp size={15} strokeWidth={1.8} />;
+function categoryIcon(categories: SkillCategory[]) {
+  if (categories.length > 1) return <Layers size={17} strokeWidth={1.7} />;
+  if (categories[0] === "content") return <Clapperboard size={17} strokeWidth={1.7} />;
+  if (categories[0] === "visual") return <ImageIcon size={17} strokeWidth={1.7} />;
+  if (categories[0] === "processing") return <SlidersHorizontal size={17} strokeWidth={1.7} />;
+  if (categories[0] === "rules") return <ShieldCheck size={17} strokeWidth={1.7} />;
+  return <Package size={17} strokeWidth={1.7} />;
 }
 
 function skillLabel(skill: ProducerSkillItem) { return skill.display_name ?? skill.name; }
@@ -374,21 +376,24 @@ export function SkillsPage() {
 
   const skillCard = (skill: ProducerSkillItem) => {
     const isSelected = selectedIds.includes(skill.id);
+    const categories = categoriesAvailable ? categoryFor(skill).categories : [];
+    const categoryNames = categories.map(value => categoryOptions.find(option => option.value === value)?.label ?? value);
+    const categoryLabel = !categoriesAvailable ? "分类" : categoryNames.length ? `${categoryNames[0]}${categoryNames.length > 1 ? ` +${categoryNames.length - 1}` : ""}` : "待分类";
     return <div key={skill.id} className={`skill-card-wrap ${draggingSkill?.id === skill.id ? "drag-source" : ""}`}>
       <button type="button" className={`skill-card${busy ? " view-only" : ""}`} aria-label={skillLabel(skill)}
         onPointerDown={event => { suppressClick.current = false; if (!busy) onDragStart({ kind: "skill", skill })(event); }}
         onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } inspectSkill(skill); }}
         aria-haspopup="dialog">
-        <span className="skill-icon" aria-hidden="true">{skillIcon(skill.role)}</span>
+        <span className="skill-icon" aria-hidden="true">{categoryIcon(categories)}</span>
         <span className="skill-copy"><strong>{skillLabel(skill)}</strong>{skill.description && <span className="skill-description">{skill.description}</span>}</span>
         {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
-      <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`}
+      <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`} aria-description={categoryNames.join("、") || categoryLabel} title={categoryNames.join("、") || categoryLabel}
         disabled={!categoriesAvailable} onClick={() => {
           categorySave.reset();
           const current = categoryFor(skill);
           setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
-        }}>分类</Button>
+        }}>{categoryLabel}</Button>
       <Button type="button" variant="ghost" size="sm" className="skill-select" aria-label={`${isSelected ? "取消选择" : "加入"} ${skillLabel(skill)}`}
         aria-pressed={isSelected} disabled={busy} onClick={() => isSelected ? setSelectedIds(ids => ids.filter(id => id !== skill.id)) : addSkill(skill)}>
         {isSelected ? "已选" : "加入"}
@@ -452,7 +457,7 @@ export function SkillsPage() {
             {!selectedIds.length && <p>把任意 Skill 拖到这里，或在详情中加入</p>}
             {selectedSkills.map(skill => <div className="basket-item" key={skill.id}>
               <button type="button" className="basket-remove" disabled={busy} onClick={() => setSelectedIds(ids => ids.filter(id => id !== skill.id))} aria-label={`移除 ${skillLabel(skill)}`}>
-                {skillIcon(skill.role)}<strong>{skillLabel(skill)}</strong><span aria-hidden="true">×</span>
+                {categoryIcon(categoriesAvailable ? categoryFor(skill).categories : [])}<strong>{skillLabel(skill)}</strong><span aria-hidden="true">×</span>
               </button>
               <button type="button" className="skill-slot-view" onClick={() => inspectSkill(skill)} aria-label={`查看 ${skillLabel(skill)}`}>查看</button>
             </div>)}

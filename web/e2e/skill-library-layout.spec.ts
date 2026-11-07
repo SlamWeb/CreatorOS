@@ -103,6 +103,9 @@ test("category edits persist and support multiple filters", async ({ page }) => 
   await editor.getByRole("button", { name: "保存分类" }).click();
   await expect(editor).toBeHidden();
   await page.reload();
+  const categoryButton = page.getByRole("button", { name: "设置 inspector-mind 分类" });
+  await expect(categoryButton).toHaveText("内容创作 +1");
+  await expect(categoryButton).toHaveAttribute("aria-description", "内容创作、规则约束");
   const filters = page.getByRole("group", { name: "Skill 分类" });
   await filters.getByRole("button", { name: "规则约束" }).click();
   await expect(page.getByRole("button", { name: "inspector-mind", exact: true })).toBeVisible();
