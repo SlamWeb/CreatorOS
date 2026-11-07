@@ -143,7 +143,7 @@ export function WorkspacePage() {
       ? <ErrorState message={workspaceError.message} onRetry={workspaceError.retry} /> : <>
     <button type="button" className="workspace-tree-toggle" aria-expanded={treeOpen} onClick={() => setTreeOpen(!treeOpen)}>账号与栏目 · {series?.name ?? account?.display_name ?? "选择账号"}</button>
     <aside className={`workspace-rail${treeOpen ? " is-open" : ""}`} aria-label="账号与栏目">
-      {series && <div className="column-side-navigation">
+      {(account || series) && <div className="column-side-navigation">
         <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
         <PrimaryNavigation />
       </div>}
