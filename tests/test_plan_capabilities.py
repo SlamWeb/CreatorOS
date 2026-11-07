@@ -20,6 +20,7 @@ class PlanCapabilityTests(unittest.TestCase):
             ("manage_skill_iteration", ("parameters", "properties", "expected_revision", "description"), "wrong guidance"),
             ("manage_plan", ("description",), "unapproved"),
             ("get_content_run", ("description",), "unapproved"),
+            ("read_file", ("parameters", "properties", "search", "description"), "unapproved"),
         ]
         for name, path, replacement in mutations:
             with self.subTest(tool=name, path=path):
@@ -137,6 +138,16 @@ class PlanCapabilityTests(unittest.TestCase):
         # The current contract deliberately adds read-only production receipt
         # lookup and clarifies that a shared release may be forked privately.
         original = copy.deepcopy(tools)
+        # Archive search was added after the original registry snapshot. Check
+        # its full approved contract before normalizing only this copy.
+        read_file = next(tool["function"] for tool in original if tool["function"]["name"] == "read_file")
+        self.assertNotIn("search", read_file["parameters"]["required"])
+        self.assertEqual(read_file["parameters"]["properties"].pop("search"), {
+            "anyOf": [{"maxLength": 200, "minLength": 1, "type": "string"}, {"type": "null"}],
+            "default": None,
+            "description": "仅当前会话归档：区分大小写的精确字符串搜索。offset 为 1 起的字符位置，limit 为最多返回匹配数（上限 5）；按 next_offset 继续，complete=true 才表示已扫描至末尾。",
+            "title": "Search",
+        })
         # BGM import now runs asynchronously; verify the approved additions
         # before reverting them for comparison with the old registry snapshot.
         material = next(tool["function"] for tool in original if tool["function"]["name"] == "manage_material")

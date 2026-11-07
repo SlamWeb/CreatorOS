@@ -215,6 +215,16 @@ class UnknownWriteGuard:
             if tmp is not None and tmp.exists():
                 tmp.unlink()
 
+    def has_pending_production(self):
+        """Read the existing protection record without changing its state."""
+        with self.lock:
+            state = self._load()
+            return any(record.get("creator_id") == self.context.creator_id
+                       and isinstance(record.get("kind"), str)
+                       and record["kind"].startswith("production_")
+                       and record["phase"] in {"prepared", "dispatched", "unknown"}
+                       for record in state["records"])
+
     def prepare(self, call):
         """Return (reservation_id, blocked_result), or (None, None) for a read."""
         operation = _target(call)

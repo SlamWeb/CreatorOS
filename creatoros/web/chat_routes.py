@@ -84,9 +84,10 @@ def chat_routes(service):
 
     @router.post("/{session_id}/turns", status_code=202)
     def submit(session_id: UUID, payload: ChatTurnRequest, request: Request):
-        text = payload.text.strip()
-        if (not text and not payload.attachment_ids and not payload.material_ids) or text.startswith("/"):
+        normalized_text = payload.text.strip()
+        if (not normalized_text and not payload.attachment_ids and not payload.material_ids) or normalized_text.startswith("/"):
             raise HTTPException(422, "请输入自然语言；网页不执行 CLI 斜杠命令。")
+        text = payload.text if normalized_text else ""
         # Use the actual listener, never a Host header or shared process env mutation.
         host, port = request.scope.get("server") or (None, None)
         if host not in {"127.0.0.1", "localhost", "::1"} or not port:

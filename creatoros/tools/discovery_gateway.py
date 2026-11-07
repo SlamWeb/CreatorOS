@@ -14,6 +14,7 @@ from creatoros.ai.types import ToolCall
 from creatoros.tools.definitions import tool_registry
 from creatoros.tools.host_contract import AccountArgumentRejected, bind_account_arguments
 from creatoros.tools.results import ToolResult
+from creatoros.tools.entry_experiment import HYBRID_ACTIONS, direct_alias
 
 
 DISCOVER = "discover_tools"
@@ -103,6 +104,29 @@ def _validated_canonical(name, raw, context):
     return _encoded(normalized)
 
 
+def _iteration_start_reference_args(arguments):
+    """Translate the v2 model choice to the original start contract."""
+    result = deepcopy(arguments)
+    mode = result.pop("reference_mode", None)
+    if not isinstance(mode, str) or mode not in {"skill_defaults", "attachments_only", "selected_skill_images"}:
+        raise ValueError("请选择 reference_mode：skill_defaults、attachments_only 或 selected_skill_images。")
+    has_paths = "reference_paths" in result
+    paths = result.get("reference_paths")
+    if mode == "skill_defaults":
+        if has_paths and paths is not None:
+            raise ValueError("reference_mode=skill_defaults 时 reference_paths 须省略或为 null。")
+    elif mode == "attachments_only":
+        if has_paths and (not isinstance(paths, list) or paths):
+            raise ValueError("reference_mode=attachments_only 时 reference_paths 须省略或为空列表。")
+        attachments = result.get("attachment_ids")
+        if not isinstance(attachments, list) or not attachments:
+            raise ValueError("reference_mode=attachments_only 需要至少一个附件 ID。")
+        result["reference_paths"] = []
+    elif not isinstance(paths, list) or not paths:
+        raise ValueError("reference_mode=selected_skill_images 需要非空 reference_paths。")
+    return result
+
+
 def _calls(message):
     for call in message.get("tool_calls") or []:
         if not isinstance(call, dict):
@@ -137,16 +161,23 @@ def resolved_canonical(call, tool_message):
         if key is None:
             return None
         args = _parse(function.get("arguments"))
+        name, separator, action = key.partition(".")
         if function.get("name") == EXECUTE:
             if set(args) != {"name", "arguments"} or args["name"] != key or not isinstance(args["arguments"], dict):
                 return None
             result = deepcopy(args["arguments"])
-        else:
-            from creatoros.tools.action_catalog import DIRECT_READ_ACTIONS
-            if DIRECT_READ_ACTIONS.get(function.get("name")) != key or "action" in args:
+        elif separator and function.get("name") == name:
+            # Canonical-v2 keeps the original tool name and explicit action.
+            # Trust the result only when the host marker and model call agree.
+            if args.get("action") != action:
                 return None
             result = deepcopy(args)
-        name, separator, action = key.partition(".")
+        else:
+            from creatoros.tools.action_catalog import DIRECT_READ_ACTIONS
+            alias = function.get("name")
+            if (DIRECT_READ_ACTIONS.get(alias) != key and alias != direct_alias(key)) or "action" in args:
+                return None
+            result = deepcopy(args)
         if name not in tool_registry or separator and not action:
             return None
         if separator:
@@ -159,15 +190,21 @@ def resolved_canonical(call, tool_message):
 
 
 class ToolGateway:
-    def __init__(self, context, schemas, catalog=None, *, enable_direct=False):
+    def __init__(self, context, schemas, catalog=None, *, enable_direct=False, model_view_version="v1", entry_mode="discovery"):
         self.context = context
         self.enable_direct = enable_direct
+        if entry_mode not in {"discovery", "direct", "hybrid", "canonical"} or (entry_mode != "discovery" and model_view_version != "v2"):
+            raise ValueError("invalid experimental tool entry mode")
+        self.entry_mode = entry_mode
         self.scope = scope_token(context)
         allowed_schemas = {s["function"]["name"]: s for s in schemas}
+        self._scoped_schemas = deepcopy(allowed_schemas)
         if catalog is None:
             from creatoros.tools.action_catalog import build_action_catalog
             catalog = build_action_catalog(schemas)
-        self.catalog = deepcopy(catalog)
+        from creatoros.tools.model_action_views import apply_model_action_views
+        self.catalog = apply_model_action_views(catalog, model_view_version)
+        self.model_view_version = model_view_version
         for key, item in self.catalog.items():
             name = item.get("name")
             tool = tool_registry.get(name)
@@ -177,9 +214,19 @@ class ToolGateway:
                     or not isinstance(item.get("schema"), dict)):
                 raise ValueError("工具目录与宿主授权不一致。")
         self.versions = {key: _digest(item["schema"]) for key, item in self.catalog.items()}
+        direct_keys = (set(self.catalog) if entry_mode == "direct" else
+                       set(HYBRID_ACTIONS) & set(self.catalog) if entry_mode == "hybrid" else set())
+        self.direct_aliases = {direct_alias(key): key for key in self.catalog if key in direct_keys}
+        if len(self.direct_aliases) != len(direct_keys) or set(self.direct_aliases) & {DISCOVER, EXECUTE}:
+            raise ValueError("experimental direct tool names collide")
+        self.discoverable = set(self.catalog) - direct_keys
 
     def model_schemas(self):
-        directory = "\n".join(f"{key}: {item['label']}" for key, item in self.catalog.items())
+        if self.entry_mode == "canonical":
+            from creatoros.tools.canonical_model_views import canonical_v2_schemas
+            # The scoped registry order is the stable provider-facing order.
+            return canonical_v2_schemas(list(self._scoped_schemas.values()), self.catalog)
+        directory = "\n".join(f"{key}: {item['label']}" for key, item in self.catalog.items() if key in self.discoverable)
         root = [
             {"type": "function", "function": {"name": DISCOVER,
              "description": "需要使用未说明的业务操作时，从目录选择操作，获取完整参数和适用规则。目录：\n" + directory,
@@ -192,12 +239,57 @@ class ToolGateway:
                             "arguments": {"type": "object"}}, "required": ["name", "arguments"],
                             "additionalProperties": False}}},
         ]
-        if self.enable_direct:
+        if self.entry_mode == "direct":
+            root = []
+        elif self.enable_direct and self.entry_mode == "discovery":
             from creatoros.tools.action_catalog import build_direct_read_schemas
             root.extend(build_direct_read_schemas(self.catalog))
+        for alias, key in self.direct_aliases.items():
+            schema = deepcopy(self.catalog[key]["schema"])
+            schema["function"]["name"] = alias
+            parameters = schema["function"]["parameters"]
+            parameters.get("properties", {}).pop("action", None)
+            if "required" in parameters:
+                parameters["required"] = [name for name in parameters["required"] if name != "action"]
+            root.append(schema)
         return root
 
-    def resolve_direct(self, call):
+    def canonical_key(self, call):
+        """Identify an exposed canonical call by name and its explicit action."""
+        if self.entry_mode != "canonical" or call.name not in self._scoped_schemas:
+            raise ValueError("tool is not exposed through the canonical entry")
+        arguments = _parse(call.arguments)
+        entry = self.catalog.get(call.name)
+        if entry is not None and entry.get("action") is None:
+            return call.name
+        action = arguments.get("action")
+        key = f"{call.name}.{action}" if isinstance(action, str) else ""
+        entry = self.catalog.get(key)
+        if not entry or entry.get("name") != call.name or entry.get("action") != action:
+            raise ValueError("invalid or unavailable canonical action")
+        return key
+
+    def resolve_canonical(self, call, visible_messages, *, prepare=None):
+        """Resolve a canonical model call through the same scoped v2 chain."""
+        try:
+            key = self.canonical_key(call)
+            return self._resolve_scoped_action(call, key, _parse(call.arguments), visible_messages, prepare=prepare)
+        except (ValidationError, ValueError, TypeError, KeyError) as error:
+            return None, _invalid_parameters(error)
+
+    def resolve_direct(self, call, visible_messages=None, *, prepare=None):
+        if self.entry_mode != "discovery":
+            key = self.direct_aliases.get(call.name)
+            if key is None:
+                return None, ToolResult("操作不在当前账号允许的直接入口中。", True, "tool_not_exposed",
+                                        details={"pre_dispatch": True})
+            try:
+                arguments = _parse(call.arguments)
+                if "action" in arguments:
+                    raise ValueError("直接入口不接受 action。")
+                return self._resolve_scoped_action(call, key, arguments, visible_messages or [], prepare=prepare)
+            except (ValidationError, ValueError, TypeError, KeyError) as error:
+                return None, _invalid_parameters(error)
         if not self.enable_direct:
             return None, ToolResult("此会话没有开放该只读快捷操作。", True, "tool_not_exposed")
         try:
@@ -261,7 +353,7 @@ class ToolGateway:
             names = args.get("names")
             if set(args) != {"names"} or not isinstance(names, list) or not 1 <= len(names) <= 4:
                 raise ValueError("names 必须为 1 到 4 个操作名。")
-            if any(not isinstance(name, str) or name not in self.catalog for name in names) or len(set(names)) != len(names):
+            if any(not isinstance(name, str) or name not in self.discoverable for name in names) or len(set(names)) != len(names):
                 raise ValueError("操作名不存在、不在当前账号范围内或重复。")
             found = self._visible(visible_messages, call.id)
             new = [{"id": key, "version": self.versions[key], "schema": self.catalog[key]["schema"]}
@@ -280,9 +372,26 @@ class ToolGateway:
             if set(args) != {"name", "arguments"} or not isinstance(key, str) or not isinstance(arguments, dict):
                 raise ValueError("调用必须给出操作名称和参数对象。")
             if key not in self.catalog:
-                return None, ToolResult("操作不在当前账号允许的目录中。", True, "tool_not_exposed")
+                message = ("操作名无效或当前不可用；请核对已发现的完整动作 ID（工具名.动作名）。"
+                           "这条错误不能确定账号权限状态。" if self.model_view_version == "v2"
+                           else "操作不在当前账号允许的目录中。")
+                return None, ToolResult(message, True, "tool_not_exposed")
+            if key not in self.discoverable:
+                return None, ToolResult("此操作使用直接入口；请调用对应工具。", True, "tool_not_exposed",
+                                        details={"pre_dispatch": True})
             if key not in self._visible(visible_messages, call.id):
                 return None, ToolResult("此操作尚未在当前可见会话中发现，或说明已变化；请先重新发现。", True, "tool_not_discovered")
+            return self._resolve_scoped_action(call, key, arguments, visible_messages, prepare=prepare)
+        except AccountArgumentRejected as error:
+            return None, ToolResult(str(error), True, "agent_scope_rejected")
+        except (ValidationError, ValueError, TypeError, KeyError) as error:
+            return None, _invalid_parameters(error)
+        except Exception as error:
+            return None, ToolResult("操作验证异常，未执行，请核查。", True, "tool_exception",
+                                    details={"exception_type": type(error).__name__, "pre_dispatch": True})
+
+    def _resolve_scoped_action(self, call, key, arguments, visible_messages, *, prepare=None):
+        try:
             item = self.catalog[key]
             canonical_args = deepcopy(arguments)
             action = item.get("action")
@@ -290,6 +399,12 @@ class ToolGateway:
                 if "action" in canonical_args and canonical_args["action"] != action:
                     return None, ToolResult("操作名和 action 不一致。", True, "invalid_arguments")
                 canonical_args["action"] = action
+            if self.model_view_version == "v2" and key == "manage_skill_iteration.start":
+                try:
+                    canonical_args = _iteration_start_reference_args(canonical_args)
+                except ValueError as error:
+                    return None, ToolResult(str(error), True, "invalid_arguments", retryable=True,
+                                            details={"pre_dispatch": True})
             raw = _encoded(canonical_args)
             canonical = ToolCall(id=call.id, name=item["name"], arguments=raw)
             if prepare is not None:
@@ -303,10 +418,16 @@ class ToolGateway:
                 if action is not None and prepared_args.get("action") != action:
                     return None, ToolResult("操作预处理改变了 action，未执行。", True, "invalid_arguments")
                 if prepared_args != canonical_args:
-                    allowed = (item["name"] == "manage_topics" and action == "update"
-                               and "expected_digest" not in canonical_args
-                               and isinstance(prepared_args.get("expected_digest"), str))
-                    remainder = {key: value for key, value in prepared_args.items() if key != "expected_digest"}
+                    topic_version = (item["name"] == "manage_topics" and action == "update"
+                                     and "expected_digest" not in canonical_args
+                                     and isinstance(prepared_args.get("expected_digest"), str))
+                    plan_version = (self.model_view_version == "v2" and item["name"] == "manage_plan"
+                                    and action in {"update", "pause", "resume", "skip", "retry"} and "expected_version" not in canonical_args
+                                    and type(prepared_args.get("expected_version")) is int
+                                    and prepared_args["expected_version"] >= 0)
+                    allowed = topic_version or plan_version
+                    field = "expected_digest" if topic_version else "expected_version"
+                    remainder = {key: value for key, value in prepared_args.items() if key != field}
                     if not allowed or remainder != canonical_args:
                         return None, ToolResult("操作预处理改变了请求内容，未执行。", True, "invalid_arguments")
                 canonical = prepared

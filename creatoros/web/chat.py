@@ -958,13 +958,6 @@ class AgentChatService:
             session_file = self._path(doc["id"]).with_name("messages.json")
             messages = load_messages(session_file, require_existing=True)
             instructions = new_messages()[0]["content"] + "\n\n" + self._instructions(doc)
-            if iteration_mode:
-                instructions += ("\n宿主确认：本条用户请求开启RSI，仅授权对其明确目标进行最多3轮候选试产；"
-                                 "不继承到后续请求，不授权发布或栏目切版。目标不明确仍应先澄清。"
-                                 "目标明确时通过manage_skill_iteration启动持久任务，不以仅编辑Skill代替迭代。"
-                                 "任务自己提交试产并等待结果；以active_round.production_submitted和production_status核对，"
-                                 "不可因普通Run列表为空而另开生产。评审失败只恢复同阶段，不重新生图。"
-                                 "未收到实际创建回执时不能声称已启动或会自动继续。")
             if messages[0].get("content") != instructions:
                 # Host instructions are current configuration, not frozen conversation history.
                 # Existing checkpoints fail their digest check and safely fall back to full history.
@@ -1006,6 +999,7 @@ class AgentChatService:
             run_agent(provider, console=WebConsole(text or "（用户发送了附件，请根据上下文判断用途；用途不明时先询问。）"),
                       user_attachments=attachments,
                       host_observation=host_observation,
+                      **({"rsi_turn_authorized": True} if iteration_mode and not host_observation else {}),
                       **({"request_context": focus, "user_context_ref": context_target} if focus else {}),
                       session_file=session_file, require_existing_session=True,
                       user_request_id=request_id, capture_request_trace=True,

@@ -12,7 +12,8 @@ from ..integrations.studio import StudioClient, StudioClientError
 from .results import ToolResult
 from ..integrations.topic_research import CandidateSelection
 from .research_wait import observe_research
-from .skill_edit_batch import SkillEditChangeArgs, apply_skill_edit_batch
+from .skill_edit_batch import (SkillEditChangeArgs, apply_skill_edit_batch,
+                               SKILL_UNKNOWN_CHECK_NOTE, SKILL_UNKNOWN_RELEASE_NOTE)
 from .production_arguments import ProductionTaskArgs, StartRunArgs, TaskInputsArgs, production_tasks_payload
 from ..integrations.production_identity import task_request_id, fresh_request_id, reference_request_id, reference_topic_id
 
@@ -364,9 +365,9 @@ def update_producer_skill_file(skill_id, path=None, content=None, expected_diges
         except (ValueError, TypeError):
             data = {}
         data.update(error="studio_outcome_unknown", outcome_unknown=True, retryable=False,
-                    message="Skill 写入结果待核对，请先查看版本和目标文件，不要自动重试。")
-        return ToolResult(content=json.dumps(data, ensure_ascii=False), is_error=True,
-                          error_type="studio_outcome_unknown", details=result.details)
+                    message="Skill 写入结果待核对，不要自动重试。")
+        result = ToolResult(content=json.dumps(data, ensure_ascii=False), is_error=True,
+                            error_type="studio_outcome_unknown", details=result.details)
     if not result.is_error:
         try:
             data = json.loads(result.content)
@@ -379,9 +380,19 @@ def update_producer_skill_file(skill_id, path=None, content=None, expected_diges
         except (ValueError, TypeError, KeyError, AttributeError):
             valid = False
         if not valid:
-            return ToolResult(content=json.dumps({"error": "studio_outcome_unknown", "outcome_unknown": True,
-                "message": "Skill 写入回执不完整，请先核对版本列表和目标文件，不要自动重试。"}, ensure_ascii=False),
+            result = ToolResult(content=json.dumps({"error": "studio_outcome_unknown", "outcome_unknown": True,
+                "message": "Skill 写入回执不完整，不要自动重试。"}, ensure_ascii=False),
                 is_error=True, error_type="studio_outcome_unknown")
+    if result.is_error and result.error_type == "studio_outcome_unknown":
+        try:
+            data = json.loads(result.content)
+            if not isinstance(data, dict):
+                raise ValueError("expected object")
+            data["message"] = (str(data.get("message") or "Skill 写入结果待核对。")
+                               + SKILL_UNKNOWN_CHECK_NOTE + SKILL_UNKNOWN_RELEASE_NOTE)
+            result.content = json.dumps(data, ensure_ascii=False)
+        except (ValueError, TypeError):
+            result.content += SKILL_UNKNOWN_CHECK_NOTE + SKILL_UNKNOWN_RELEASE_NOTE
     return result
 
 

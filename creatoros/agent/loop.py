@@ -26,7 +26,8 @@ from ..session.snapshot import load_messages, new_messages, save_messages
 from ..tools import execute_tool_call, tools
 from ..tools.results import ToolResult
 from ..tools.host_contract import model_tool_schemas
-from ..tools.model_projection import project_tool_messages
+from ..tools.model_projection import (DUPLICATE_PLAN_TITLES, EMPTY_TASKS_PENDING_PRODUCTION, RSI_START_SNAPSHOT,
+                                      has_duplicate_plan_titles, project_tool_messages, rsi_start_receipt_snapshot)
 from ..context import RuntimeContext
 from ..terminal import Console
 from ..events import AgentEvent
@@ -40,15 +41,43 @@ from .state import AgentState
 from .pending_tasks import PendingTaskReads
 from .streaming import stream_llm
 from .account_context_history import build_account_context_event
-from .tool_protocol import DISCOVERY, select_tool_protocol
+from .tool_protocol import (DISCOVERY, DISCOVERY_V2, DISCOVERY_PURE_V2,
+                            EXPERIMENT_DIRECT, EXPERIMENT_HYBRID, CANONICAL_V2, select_tool_protocol)
 from .unknown_write_guard import UnknownWriteGuard
 from ..tools.discovery_gateway import ToolGateway, DISCOVER, EXECUTE, DISCOVERY_SOURCE, scoped_gateway_source
 from ..tools.action_catalog import DIRECT_READ_ACTIONS
 from .topic_occ import prepare_topic_update
+from .plan_occ import prepare_plan_change
+
+
+RSI_TURN_AUTHORIZATION = (
+    "宿主确认：紧邻的这条用户请求开启RSI，仅授权对其明确目标进行最多3轮候选试产；"
+    "不继承到后续请求，不授权发布或栏目切版。目标不明确仍应先澄清。"
+    "目标明确时通过manage_skill_iteration启动持久任务，不以仅编辑Skill代替迭代。"
+    "任务自己提交试产并等待结果；以active_round.production_submitted和production_status核对，"
+    "不可因普通Run列表为空而另开生产。评审失败只恢复同阶段，不重新生图。"
+    "未收到实际创建回执时不能声称已启动或会自动继续。"
+)
 
 
 class ContinuationWriteOutcomeUnknown(RuntimeError):
     """A continuation write may have committed without a usable receipt."""
+
+
+def _skill_write_outcome_unknown(tool_call, result):
+    """Recognize an executed Skill write with an uncertain result."""
+    if tool_call.name != "update_producer_skill_file" or not result.is_error:
+        return False
+    if result.details.get("pre_dispatch") is True:
+        return False
+    try:
+        arguments = json.loads(tool_call.arguments or "{}")
+        if arguments.get("operation", "write_text") == "batch":
+            receipt = json.loads(result.content)
+            return isinstance(receipt, dict) and receipt.get("outcome_unknown") is True
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return result.error_type == "studio_outcome_unknown"
 
 
 def _unknown_continuation_write(tool_call, result, context):
@@ -306,6 +335,7 @@ def run_agent(
     user_context_ref: dict | None = None,
     host_observation: dict | None = None,
     require_existing_session: bool = False,
+    rsi_turn_authorized: bool = False,
 ):
     console = console or Console()
 
@@ -326,7 +356,11 @@ def run_agent(
     messages = (load_messages(session_file, require_existing=True) if require_existing_session
                 else load_messages() if session_file is None else load_messages(session_file))
     protocol = select_tool_protocol(messages, runtime_context)
-    gateway = (ToolGateway(runtime_context, model_tools, enable_direct=protocol == DISCOVERY)
+    gateway = (ToolGateway(runtime_context, model_tools, enable_direct=protocol in {DISCOVERY, DISCOVERY_V2},
+                           model_view_version="v2" if protocol in {DISCOVERY_V2, DISCOVERY_PURE_V2, EXPERIMENT_DIRECT, EXPERIMENT_HYBRID, CANONICAL_V2} else "v1",
+                           entry_mode="direct" if protocol == EXPERIMENT_DIRECT else
+                                      "hybrid" if protocol == EXPERIMENT_HYBRID else
+                                      "canonical" if protocol == CANONICAL_V2 else "discovery")
                if protocol != "legacy" else None)
     if gateway is not None:
         model_tools = gateway.model_schemas()
@@ -375,6 +409,7 @@ def run_agent(
                 emit(AgentEvent("session_reset", {}))
                 continue
 
+            turn_id = user_request_id or uuid4().hex
             content = user_input
             if user_attachments:
                 content = [{"type": "text", "text": user_input},
@@ -402,6 +437,10 @@ def run_agent(
             else:
                 state.messages.append({"role": "user", "content": content})
                 request_context_anchor = deepcopy(state.messages[-1])
+                if rsi_turn_authorized:
+                    state.messages.append({"role": "system", "creatoros_source": f"rsi_turn_authorization:{turn_id}",
+                                           "content": RSI_TURN_AUTHORIZATION})
+            rsi_turn_authorized = False  # host authorization belongs to this user turn only
             if request_context is not None and request_context_anchor is not None:
                 visible = checkpoint.project_messages(state.messages) if checkpoint else state.messages
                 state.messages.extend(request_context_events(request_context, visible))
@@ -409,7 +448,6 @@ def run_agent(
             persist(state.messages)
             state.status = "running"
             task_start_turn = state.turn
-            turn_id = user_request_id or uuid4().hex
             runtime_context = replace(runtime_context, user_request_id=turn_id)
             unknown_guard = UnknownWriteGuard(runtime_context) if gateway is not None else None
             context_data = deepcopy(context_factory()) if context_factory else None
@@ -417,6 +455,7 @@ def run_agent(
             scoped_account = _scoped_account_snapshot(runtime_context, context_data) if context_factory is not None else False
             first_model_step = True
             pending_reads = PendingTaskReads()
+            skill_write_unknown = False
 
             while True:
                 turns_used = state.turn - task_start_turn
@@ -606,25 +645,38 @@ def run_agent(
                     gateway_source = None
                     prepared_result = None
                     version_origin = {}
+                    executed = False
                     if gateway is not None:
                         # Authorize discovery only from the actual model view
                         # used for this response. Hard-budget externalization
                         # may have removed a source from the projected ledger.
                         visible, _ = model_context.to_request()
-                        if tool_call.name == DISCOVER:
+                        def prepare_version(context, call, messages):
+                            prepared, error, origin = prepare_topic_update(context, call, messages)
+                            if isinstance(origin, dict):
+                                version_origin.update(origin)
+                            if error is None and gateway.model_view_version == "v2":
+                                prepared, error, origin = prepare_plan_change(context, prepared, messages)
+                                if isinstance(origin, dict):
+                                    version_origin.update(origin)
+                            return prepared, error, origin
+                        if tool_call.name == DISCOVER and tool_call.name in exposed_names:
                             canonical_call = None
                             prepared_result = gateway.discover(tool_call, visible)
                             if not prepared_result.is_error:
                                 gateway_source = DISCOVERY_SOURCE
-                        elif tool_call.name == EXECUTE:
-                            def prepare_version(context, call, messages):
-                                prepared, error, origin = prepare_topic_update(context, call, messages)
-                                if isinstance(origin, dict):
-                                    version_origin.update(origin)
-                                return prepared, error, origin
+                        elif tool_call.name == EXECUTE and tool_call.name in exposed_names:
                             canonical_call, prepared_result = gateway.resolve(tool_call, visible, prepare=prepare_version)
                             if canonical_call is not None:
                                 gateway_source = scoped_gateway_source(runtime_context, json.loads(tool_call.arguments)["name"])
+                        elif gateway.entry_mode == "canonical" and tool_call.name in exposed_names:
+                            canonical_call, prepared_result = gateway.resolve_canonical(tool_call, visible, prepare=prepare_version)
+                            if canonical_call is not None:
+                                gateway_source = scoped_gateway_source(runtime_context, gateway.canonical_key(canonical_call))
+                        elif tool_call.name in gateway.direct_aliases and tool_call.name in exposed_names:
+                            canonical_call, prepared_result = gateway.resolve_direct(tool_call, visible, prepare=prepare_version)
+                            if canonical_call is not None:
+                                gateway_source = scoped_gateway_source(runtime_context, gateway.direct_aliases[tool_call.name])
                         elif tool_call.name in DIRECT_READ_ACTIONS and tool_call.name in exposed_names:
                             canonical_call, prepared_result = gateway.resolve_direct(tool_call)
                             if canonical_call is not None:
@@ -644,6 +696,11 @@ def run_agent(
                         gateway_source = None
                     elif prepared_result is not None:
                         tool_result = prepared_result
+                    elif skill_write_unknown and canonical_call.name == "update_producer_skill_file":
+                        tool_result = ToolResult(content="本轮此前的 Skill 写入结果未知，本次编辑未执行；请先核对并报告。",
+                                                 is_error=True, error_type="skill_edit_not_dispatched",
+                                                 details={"pre_dispatch": True})
+                        gateway_source = None
                     else:
                         reservation, blocked = (unknown_guard.prepare(canonical_call) if unknown_guard is not None
                                                 else (None, None))
@@ -654,6 +711,7 @@ def run_agent(
                             if tool_result is None:
                                 if reservation is not None:
                                     unknown_guard.mark_dispatched(reservation)
+                                executed = True
                                 tool_result = execute_tool_call(canonical_call, context=runtime_context, model_requested=True)
                                 pending_reads.observe(canonical_call.name, canonical_call.arguments, tool_result, runtime_context)
                                 if reservation is not None:
@@ -665,6 +723,8 @@ def run_agent(
                         tool_result.details["_host_version_origin"] = version_origin
                     current_unknown = _unknown_continuation_write(effective_call, tool_result, runtime_context)
                     unknown_write |= current_unknown
+                    if executed and _skill_write_outcome_unknown(effective_call, tool_result):
+                        skill_write_unknown = True
                     pending_read_deferred |= bool(tool_result.details.get("pending_read_deferred"))
                     span.capture('tool_result', effective_call, tool_result)
                     if not tool_result.is_error:
@@ -687,7 +747,7 @@ def run_agent(
                                     or bool(tool_result.details.get("plan_write_outcome_unknown"))
                                     or (effective_call.name == "start_content_run" and tool_result.is_error
                                         and tool_result.error_type == "studio_outcome_unknown")),
-                                "not_dispatched": tool_result.error_type == "continuation_not_dispatched",
+                                "not_dispatched": tool_result.error_type in {"continuation_not_dispatched", "skill_edit_not_dispatched"},
                                 "pending_task": tool_result.details.get("pending_task"),
                                 "pending_read_deferred": tool_result.details.get("pending_read_deferred", False),
                             },
@@ -722,12 +782,44 @@ def run_agent(
                             )
                         )
 
+                    empty_tasks_pending = False
+                    if (gateway is not None and gateway.model_view_version == "v2"
+                            and unknown_guard is not None and effective_call.name == "get_creator_tasks"
+                            and not tool_result.is_error):
+                        try:
+                            result_data = json.loads(tool_result.content)
+                            empty_tasks_pending = (isinstance(result_data, dict) and result_data.get("items") == []
+                                                   and unknown_guard.has_pending_production())
+                        except (ValueError, TypeError, RuntimeError, OSError):
+                            pass  # A missing observation never changes the original tool result.
+                    duplicate_plan_titles = False
+                    if (gateway is not None and gateway.model_view_version == "v2"
+                            and effective_call.name == "manage_plan" and not tool_result.is_error):
+                        try:
+                            call_arguments = json.loads(effective_call.arguments)
+                            duplicate_plan_titles = (isinstance(call_arguments, dict)
+                                                     and call_arguments.get("action") == "list"
+                                                     and has_duplicate_plan_titles(json.loads(tool_result.content)))
+                        except (ValueError, TypeError):
+                            pass  # Keep the original result on malformed data.
+                    rsi_snapshot = None
+                    if (gateway is not None and gateway.model_view_version == "v2" and executed
+                            and effective_call.name == "manage_skill_iteration" and not tool_result.is_error):
+                        try:
+                            call_arguments = json.loads(effective_call.arguments)
+                            if isinstance(call_arguments, dict) and call_arguments.get("action") == "start":
+                                rsi_snapshot = rsi_start_receipt_snapshot(tool_result.content)
+                        except (ValueError, TypeError):
+                            pass  # Do not invent facts from an unreadable result.
                     state.messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "content": tool_result.to_raw_content(),
                             **({"creatoros_source": gateway_source} if gateway_source else {}),
+                            **({EMPTY_TASKS_PENDING_PRODUCTION: True} if empty_tasks_pending else {}),
+                            **({DUPLICATE_PLAN_TITLES: True} if duplicate_plan_titles else {}),
+                            **({RSI_START_SNAPSHOT: rsi_snapshot} if rsi_snapshot is not None else {}),
                         }
                     )
                     persist(state.messages)

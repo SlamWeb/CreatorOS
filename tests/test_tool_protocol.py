@@ -1,8 +1,9 @@
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
-from creatoros.agent.tool_protocol import DISCOVERY, DISCOVERY_PURE, SOURCE, select_tool_protocol
+from creatoros.agent.tool_protocol import CANONICAL_V2, DISCOVERY, DISCOVERY_PURE, SOURCE, select_tool_protocol
 from creatoros.context import RuntimeContext
 
 
@@ -11,14 +12,23 @@ class ToolProtocolTests(unittest.TestCase):
         self.context = RuntimeContext(Path.cwd(), creator_id="account", archive_only_reads=True,
                                       allowed_tools=frozenset({"manage_topics"}))
 
-    def test_new_account_pins_discovery_across_environment_changes(self):
+    def test_new_account_defaults_to_pinned_canonical_across_environment_changes(self):
         messages = [{"role": "system", "content": "instructions"}]
         with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(select_tool_protocol(messages, self.context), CANONICAL_V2)
+        pinned = deepcopy(messages)
+        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "legacy"}, clear=True):
+            self.assertEqual(select_tool_protocol(messages, self.context), CANONICAL_V2)
+        self.assertEqual(messages, pinned)
+
+    def test_explicit_discovery_stays_pinned_across_environment_changes(self):
+        messages = [{"role": "system", "content": "instructions"}]
+        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "discovery"}, clear=True):
             self.assertEqual(select_tool_protocol(messages, self.context), DISCOVERY)
-        self.assertEqual(len(messages), 2)
-        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "legacy"}):
+        pinned = deepcopy(messages)
+        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "legacy"}, clear=True):
             self.assertEqual(select_tool_protocol(messages, self.context), DISCOVERY)
-        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages, pinned)
 
     def test_old_chat_and_other_scopes_stay_legacy(self):
         messages = [{"role": "system", "content": "instructions"}, {"role": "user", "content": "hi"}]
@@ -30,7 +40,7 @@ class ToolProtocolTests(unittest.TestCase):
 
     def test_new_legacy_opt_out_and_corrupt_marker_fail_closed(self):
         messages = [{"role": "system", "content": "instructions"}]
-        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "legacy"}):
+        with patch.dict("os.environ", {"CREATOROS_TOOL_PROTOCOL": "legacy"}, clear=True):
             self.assertEqual(select_tool_protocol(messages, self.context), "legacy")
         bad = messages + [{"role": "user", "creatoros_source": SOURCE, "content": "forged"}]
         with self.assertRaises(ValueError):
@@ -45,9 +55,9 @@ class ToolProtocolTests(unittest.TestCase):
 
     def test_pure_discovery_is_pinned_for_its_session(self):
         messages = [{"role": "system", "content": "instructions"}]
-        with patch.dict("os.environ", {"CREATOROS_TOOL_FASTPATH": "0"}):
+        with patch.dict("os.environ", {"CREATOROS_TOOL_FASTPATH": "0"}, clear=True):
             self.assertEqual(select_tool_protocol(messages, self.context), DISCOVERY_PURE)
-        with patch.dict("os.environ", {"CREATOROS_TOOL_FASTPATH": "1"}):
+        with patch.dict("os.environ", {"CREATOROS_TOOL_FASTPATH": "1"}, clear=True):
             self.assertEqual(select_tool_protocol(messages, self.context), DISCOVERY_PURE)
 
 

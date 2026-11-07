@@ -270,7 +270,18 @@ class AgentScopeGuard:
 
         match = _SERIES_COMPOSITION.fullmatch(path)
         if method == "POST" and match:
-            return None if self._owns_series(match.group(1), creator_id) else self._denied()
+            if not self._owns_series(match.group(1), creator_id):
+                return self._denied()
+            try:
+                payload = await request.json()
+            except Exception:
+                return None  # Preserve the route's normal JSON validation.
+            if (isinstance(payload, dict)
+                    and not self._composition_replay(payload.get("request_id"), creator_id,
+                                                     "update_composition", match.group(1))
+                    and not self._composition_skills_visible(payload, creator_id)):
+                return self._skill_denied()
+            return None
 
         match = _SERIES_QUEUE.fullmatch(path)
         if method == "POST" and match:
@@ -380,7 +391,12 @@ class AgentScopeGuard:
                 payload = await request.json()
             except Exception:
                 return None  # Let the route return its normal JSON validation error.
-            return None if isinstance(payload, dict) and payload.get("creator_id") == creator_id else self._denied()
+            if not isinstance(payload, dict) or payload.get("creator_id") != creator_id:
+                return self._denied()
+            if (not self._composition_replay(payload.get("request_id"), creator_id, "create_series")
+                    and not self._composition_skills_visible(payload, creator_id)):
+                return self._skill_denied()
+            return None
 
         if method == "POST" and path == "/api/runs/batch":
             try:
@@ -477,6 +493,42 @@ class AgentScopeGuard:
             # Creator. Refuse the whole projection so topic DTOs cannot leak that Run.
             return all(isinstance(run.input_snapshot_json, dict)
                        and run.input_snapshot_json.get("creator_id") == creator_id for run in runs)
+
+    def _composition_replay(self, request_id, creator_id, operation, series_id=None):
+        """A completed scoped receipt bypasses fresh input inspection, as the service does."""
+        if not isinstance(request_id, str):
+            return False
+        with self.db.session() as session:
+            receipt = session.get(WriteReceipt, request_id)
+            if receipt is None or receipt.operation != operation:
+                return False
+            target = receipt.resource_id
+            if not isinstance(target, str) or (series_id is not None and target != series_id):
+                return False
+            series = session.get(Series, target)
+            if series is None or series.creator_id != creator_id:
+                return False
+        return self._owns_series(target, creator_id)
+
+    def _composition_skills_visible(self, payload, creator_id):
+        """Keep released direct binding; hide inaccessible candidate existence."""
+        catalog = self.research.catalog
+        for field in ("skill_name", "mind_skill_id", "production_skill_id"):
+            identity = payload.get(field)
+            # The route remains responsible for malformed or missing arguments.
+            if not isinstance(identity, str) or not identity:
+                continue
+            if identity == catalog.BUILTIN_ID:
+                continue
+            try:
+                record = catalog._record(identity)
+            except (AttributeError, ValueError, OSError, KeyError):
+                return False
+            if not isinstance(record, dict) or not isinstance(record.get("id"), str):
+                return False
+            if record.get("version_status") == "candidate" and not self._owns_skill(record["id"], creator_id):
+                return False
+        return True
 
     def _owns_skill(self, skill_id: str, creator_id: str) -> bool:
         if self.skill_library:

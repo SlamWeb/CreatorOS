@@ -23,6 +23,16 @@ def _unavailable(message, reason):
     return None, ToolResult(message, True, reason, details={"pre_dispatch": True}), None
 
 
+def _normalize_topic_id(value):
+    """Use the registered Topic field's own validation without doing a read."""
+    from creatoros.tools.topics import ManageTopicsArgs
+
+    try:
+        return ManageTopicsArgs.model_validate({"action": "get", "topic_id": value}).topic_id
+    except (ValueError, TypeError):
+        return None
+
+
 def prepare_topic_update(context, call, visible_messages):
     """Return (canonical call, pre-dispatch error, provenance).
 
@@ -39,7 +49,7 @@ def prepare_topic_update(context, call, visible_messages):
         return call, None, None
     if "expected_digest" in args:
         return call, None, {"source": "explicit"}
-    topic_id = args.get("topic_id")
+    topic_id = _normalize_topic_id(args.get("topic_id"))
     if (context is None or not context.creator_id or context.session_file is None
             or not isinstance(topic_id, str) or not topic_id):
         return _unavailable("缺少当前会话内可信的选题读取依据，请先读取目标选题。", "topic_base_unavailable")
@@ -69,7 +79,7 @@ def prepare_topic_update(context, call, visible_messages):
         prior_call = calls.get(call_id)
         resolved = resolved_canonical(prior_call or {}, message)
         if (resolved is None or resolved[0] != "manage_topics" or resolved[1].get("action") != "get"
-                or resolved[1].get("topic_id") != topic_id):
+                or _normalize_topic_id(resolved[1].get("topic_id")) != topic_id):
             continue
         try:
             result = json.loads(message.get("content", ""))

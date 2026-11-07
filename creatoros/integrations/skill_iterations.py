@@ -180,10 +180,14 @@ class SkillIterationService:
                     companion=self.catalog.describe(companion_id) if companion_id else None,
                     judge_policy_version=2, evaluation_scope=evaluation_scope(item["role"]))
             directory = self._path(identity)
-            directory.mkdir(parents=True, exist_ok=True)
             manifest = directory / "identity.json"
             if manifest.exists() and json.loads(manifest.read_text(encoding="utf-8")).get("signature") != signature:
                 raise ExtractionError("同一准备请求的输入已变化，原文件保留。", 409)
+            if reference_paths is not None:
+                # Reject a definite path selection error before reserving this
+                # request identity or writing its immutable Skill snapshot.
+                self._skill_reference_paths(skill_id, reference_paths)
+            directory.mkdir(parents=True, exist_ok=True)
             _write(directory / "identity.json", {"id": identity, "signature": signature})
             freeze_skill(self.catalog.locate(skill_id), directory / "base", item["digest"])
             pool = self._freeze_references(identity, skill_id, attachment_ids or [], reference_paths, origin_session_id)
@@ -204,13 +208,19 @@ class SkillIterationService:
         self.wake.set()
         return self.get(identity)
 
-    def _freeze_references(self, identifier, skill_id, attachments, selected, sid):
+    def _skill_reference_paths(self, skill_id, selected):
         listing = self.catalog.list_skill_files(skill_id)
         paths = [f["path"] for f in listing["files"] if f["kind"] == "image"]
         if selected is not None:
             if len(set(selected)) != len(selected) or any(path not in paths for path in selected):
                 raise ExtractionError("请从这份Skill的文件列表选择参考图片。", 422)
             paths = selected
+        return paths
+
+    def _freeze_references(self, identifier, skill_id, attachments, selected, sid):
+        # Recheck under the existing lock when materializing the snapshot;
+        # the preflight check does not make filesystem changes atomic.
+        paths = self._skill_reference_paths(skill_id, selected)
         sources = [(path, self.catalog.locate(skill_id) / path) for path in paths]
         if attachments:
             if not sid:

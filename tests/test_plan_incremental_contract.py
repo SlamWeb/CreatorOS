@@ -354,6 +354,7 @@ class PlanIncrementalHttpTests(unittest.TestCase):
         self.assertEqual(after['steps'][:3], before['steps'])
         self.assertEqual(after['steps'][3]['id'], 'new')
 
+    @patch.dict('os.environ', {'CREATOROS_TOOL_PROTOCOL': 'legacy'})
     def test_ordinary_chat_loop_updates_through_real_http(self):
         changed = {**self.steps[1], 'title': '聊天中修改'}
         provider = ScriptedProvider([[{'action': 'update', 'plan_id': self.pid,
@@ -374,6 +375,7 @@ class PlanIncrementalHttpTests(unittest.TestCase):
         self.assertEqual(plan['steps'][1]['title'], changed['title'])
         self.assertEqual(plan['steps'][0]['result'], {'value': 'must survive'})
 
+    @patch.dict('os.environ', {'CREATOROS_TOOL_PROTOCOL': 'legacy'})
     def test_continuation_loop_can_correct_a_proven_rejection_without_replay(self):
         invalid = {**self.steps[1], 'depends_on': ['missing']}
         changed = {**self.steps[1], 'title': '修正后继续'}

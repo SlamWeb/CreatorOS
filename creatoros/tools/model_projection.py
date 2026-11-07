@@ -12,6 +12,44 @@ import json
 from typing import Any
 
 
+EMPTY_TASKS_PENDING_PRODUCTION = "creatoros_empty_tasks_pending_production"
+_EMPTY_TASKS_WARNING = "查询时当前会话的写入保护记录有生产请求待核对；空列表不能证明该请求是否提交。"
+DUPLICATE_PLAN_TITLES = "creatoros_duplicate_plan_titles"
+_DUPLICATE_PLAN_WARNING = "同名计划难以区分；需要选择时先按需读取各自步骤，用实际差异请用户确认，未确定前不要修改。"
+RSI_START_SNAPSHOT = "creatoros_rsi_start_snapshot"
+_RSI_QUEUED_NOTE = "该回执时任务处于排队状态，不能据此认定已开始试产或完成。"
+
+
+def rsi_start_receipt_snapshot(content):
+    """Freeze only facts returned by this successful start receipt."""
+    try:
+        data = json.loads(content)
+    except (ValueError, TypeError):
+        return None
+    if (not isinstance(data, dict) or not isinstance(data.get("id"), str) or not data["id"]
+            or data.get("error") or data.get("outcome_unknown") is True):
+        return None
+    snapshot = {"version": 1}
+    references = data.get("references")
+    if (isinstance(references, list)
+            and all(isinstance(item, dict) and isinstance(item.get("name"), str)
+                    and isinstance(item.get("key"), str) for item in references)):
+        items = [{"name": item["name"], "key": item["key"]} for item in references]
+        snapshot["reference_summary"] = {"count": len(items), "items": items}
+    if data.get("status") == "queued":
+        snapshot["status_note"] = _RSI_QUEUED_NOTE
+    return snapshot if len(snapshot) > 1 else None
+
+
+def has_duplicate_plan_titles(data):
+    """Detect exact, nonempty title duplicates in the returned list only."""
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        return False
+    titles = [item.get("title") for item in data["items"] if isinstance(item, dict)
+              and isinstance(item.get("title"), str) and item["title"]]
+    return len(set(titles)) != len(titles)
+
+
 _CREATOR = (
     "id", "display_name", "platform", "account_handle", "timezone",
     "daily_content_limit", "is_active",
@@ -483,6 +521,9 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
     call_ids = Counter(call["id"] for message in projected for call in message.get("tool_calls", [])
                        if isinstance(call, dict) and isinstance(call.get("id"), str))
     for message in projected:
+        pending_production = message.pop(EMPTY_TASKS_PENDING_PRODUCTION, None) is True
+        duplicate_plans = message.pop(DUPLICATE_PLAN_TITLES, None) is True
+        rsi_start_snapshot = message.pop(RSI_START_SNAPSHOT, None)
         for call in message.get("tool_calls", []):
             if isinstance(call, dict) and "id" in call:
                 calls_by_id[call["id"]] = call
@@ -510,6 +551,36 @@ def project_tool_messages(messages: list[dict]) -> list[dict]:
         call_args = arguments.get(message.get("tool_call_id"))
         message["content"] = prefix + project_model_content(
             name, body, is_error=bool(prefix), arguments=call_args if isinstance(call_args, dict) else None)
+        if (name == "manage_skill_iteration" and not prefix and isinstance(call_args, dict)
+                and call_args.get("action") == "start" and isinstance(rsi_start_snapshot, dict)
+                and rsi_start_snapshot.get("version") == 1 and call_ids[message.get("tool_call_id")] == 1):
+            try:
+                view = json.loads(message["content"])
+                if isinstance(view, dict):
+                    for key in ("reference_summary", "status_note"):
+                        if key in rsi_start_snapshot:
+                            view[key] = deepcopy(rsi_start_snapshot[key])
+                    message["content"] = json.dumps(view, ensure_ascii=False)
+            except (ValueError, TypeError):
+                pass  # Preserve ordinary projection when the result is unreadable.
+        if name == "get_creator_tasks" and not prefix and pending_production:
+            try:
+                raw_view, view = json.loads(body), json.loads(message["content"])
+                if (isinstance(raw_view, dict) and raw_view.get("items") == []
+                        and isinstance(view, dict) and view.get("items") == []):
+                    view["observation_warning"] = _EMPTY_TASKS_WARNING
+                    message["content"] = json.dumps(view, ensure_ascii=False)
+            except (ValueError, TypeError):
+                pass  # Unexpected results retain their ordinary projection.
+        if (name == "manage_plan" and not prefix and duplicate_plans
+                and isinstance(call_args, dict) and call_args.get("action") == "list"):
+            try:
+                raw_view, view = json.loads(body), json.loads(message["content"])
+                if has_duplicate_plan_titles(raw_view) and isinstance(view, dict):
+                    view["observation_warning"] = _DUPLICATE_PLAN_WARNING
+                    message["content"] = json.dumps(view, ensure_ascii=False)
+            except (ValueError, TypeError):
+                pass  # Keep the ordinary projection if the result is not readable.
         if name == "manage_plan" and not prefix and call_ids[message.get("tool_call_id")] == 1:
             try:
                 view = json.loads(message["content"])

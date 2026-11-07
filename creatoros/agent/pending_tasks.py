@@ -63,7 +63,10 @@ class PendingTaskReads:
         if result.details.get("pending_read_deferred"):
             return
         mutation = self._mutation(name, args)
-        if mutation is not None and not result.is_error:
+        rsi_conflict = (name == "manage_skill_iteration" and mutation is not None and result.is_error
+                        and result.error_type == "conflict" and result.details.get("http_status") == 409
+                        and result.details.get("pre_dispatch") is not True)
+        if mutation is not None and (not result.is_error or rsi_conflict):
             self._receipts.pop(mutation, None)
             self._read.discard(mutation)
         key = self._query(name, args)

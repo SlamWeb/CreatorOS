@@ -357,7 +357,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     },
     onSuccess: (next, variables) => {
       cache.setQueryData<Session>(["agent-session", variables.submittedScopeKey, next.id], old => newestSession(old, next));
-      if (readSessionValue(draftStorageKey(variables.submittedScopeKey)).trim() === variables.text) updateDraft(variables.submittedScopeKey, "");
+      if (readSessionValue(draftStorageKey(variables.submittedScopeKey)) === variables.text) updateDraft(variables.submittedScopeKey, "");
       saveAttachments(next.id, readAttachmentDraft(next.id).filter(image => !variables.imageIds.includes(image.id)));
       saveAudio(next.id, currentAudio(next.id).filter(item => !variables.materialIds.includes(item.id)));
       savePendingTurn(next.id, null);
@@ -392,7 +392,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         clearSubmittedFocus(submittedScopeKey, original.context_target);
         writeSessionValue(iterationDraftKey(submittedScopeKey), "");
         setIterationDrafts(previous => ({ ...previous, [submittedScopeKey]: false }));
-        if (readSessionValue(draftStorageKey(submittedScopeKey)).trim() === original.text) updateDraft(submittedScopeKey, "");
+        if (readSessionValue(draftStorageKey(submittedScopeKey)) === original.text) updateDraft(submittedScopeKey, "");
         saveAttachments(original.sessionId, readAttachmentDraft(original.sessionId).filter(image => !original.attachment_ids.includes(image.id)));
         saveAudio(original.sessionId, currentAudio(original.sessionId).filter(item => !(original.material_ids ?? []).includes(item.id)));
       } else if (latest.status === "running") {
@@ -410,7 +410,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const submit = () => {
     if ((!draft.trim() && !attachments.length && !audioAttachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
-    updateError(scopeKey, ""); send.mutate({ text: draft.trim(), current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey,
+    updateError(scopeKey, ""); send.mutate({ text: draft, current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey,
       sourceView: viewRef.current, imageIds: attachments.map(image => image.id), materialIds: audioAttachments.map(item => item.id), effort: reasoningEffort, iterationMode,
       ...(contextFocus ? { contextTarget: { ...contextFocus.target } } : {}) });
   };
