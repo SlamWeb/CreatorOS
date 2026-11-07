@@ -8,11 +8,30 @@ import type { ProducerSkillItem } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
 import { SkillInspector } from "../components/SkillInspector";
+import { Button } from "../components/ui/button";
+import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SkillIterationHistory, SkillIterationPanel } from "../components/SkillIterationPanel";
 import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./studio-space.css";
 
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
+type SkillCategory = "content" | "visual" | "processing" | "rules";
+type CategoryRecord = { family_id: string; categories: SkillCategory[]; revision: number };
+type CategoryEditor = { skill: ProducerSkillItem; categories: SkillCategory[]; revision: number; needsCheck: boolean; latest?: CategoryRecord };
+const categoryOptions: { value: SkillCategory; label: string }[] = [
+  { value: "content", label: "内容创作" }, { value: "visual", label: "视觉表现" },
+  { value: "processing", label: "素材处理" }, { value: "rules", label: "规则约束" },
+];
+function validCategoryRecord(value: unknown): value is CategoryRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.family_id === "string" && !!record.family_id && Number.isInteger(record.revision)
+    && (record.revision as number) >= 0 && Array.isArray(record.categories)
+    && record.categories.every(item => categoryOptions.some(option => option.value === item))
+    && new Set(record.categories).size === record.categories.length;
+}
+function emptyCategory(familyId: string): CategoryRecord { return { family_id: familyId, categories: [], revision: 0 }; }
+
 
 const composerKey = "creatoros:skill-composer:v1";
 type ComposePending = { signature: string; id: string };
@@ -55,7 +74,38 @@ export function SkillsPage() {
   const [initial] = useState(restoreComposer);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const creators = useCreatorDirectory();
+  const categoryQuery = useQuery({ queryKey: ["skill-display-categories"], retry: false,
+    queryFn: async () => {
+      const value = await request<{ items: unknown[] }>("/api/skill-display-categories");
+      if (!value || !Array.isArray(value.items) || !value.items.every(validCategoryRecord)
+          || new Set(value.items.map(item => (item as CategoryRecord).family_id)).size !== value.items.length) {
+        throw new Error("分类数据格式不正确，请重试读取。");
+      }
+      return { items: value.items as CategoryRecord[] };
+    } });
+  const [categoryEditor, setCategoryEditor] = useState<CategoryEditor | null>(null);
+  const categorySave = useMutation({ retry: false,
+    mutationFn: async (input: CategoryEditor) => {
+      const result = await request<unknown>(`/api/skill-display-categories/${encodeURIComponent(input.skill.id)}`, {
+        method: "PUT", body: JSON.stringify({ categories: input.categories, expected_revision: input.revision }),
+      });
+      const familyId = input.skill.family_id ?? input.skill.id;
+      if (!validCategoryRecord(result) || result.family_id !== familyId || result.revision !== input.revision + 1
+          || result.categories.length !== input.categories.length || !input.categories.every(category => result.categories.includes(category))) {
+        throw new Error("保存结果无法确认，请先核对最新分类。");
+      }
+      return result;
+    },
+    onSuccess: result => {
+      client.setQueryData<{ items: CategoryRecord[] }>(["skill-display-categories"], current => ({ items: [
+        ...(current?.items ?? []).filter(item => item.family_id !== result.family_id), result,
+      ] }));
+      setCategoryEditor(null);
+    },
+    onError: () => setCategoryEditor(current => current ? { ...current, needsCheck: true, latest: undefined } : null),
+  });
   const [selectedIds, setSelectedIds] = useState<string[]>(initial.ids);
+  const [composerOpen, setComposerOpen] = useState(initial.ids.length > 0);
   const [name, setName] = useState(initial.name);
   const [creatorId, setCreatorId] = useState(initial.creatorId);
   const [mergeInstruction, setMergeInstruction] = useState(initial.instruction);
@@ -113,6 +163,7 @@ export function SkillsPage() {
   useEffect(storeComposer, [selectedIds, name, creatorId, mergeInstruction, mode]);
   const addSkill = (skill: ProducerSkillItem) => {
     setNotice(null);
+    if (compose.isPending || merge.isPending) return;
     if (selectedIds.includes(skill.id)) return;
     if (selectedIds.length >= 8) { setNotice({ kind: "error", text: "一次最多选择 8 个 Skill。" }); return; }
     setSelectedIds(current => [...current, skill.id]);
@@ -286,9 +337,28 @@ export function SkillsPage() {
   if (requestedIteration) return <div className="space-page"><SkillIterationPanel key={requestedIteration} id={requestedIteration} /></div>;
 
   const allSkills = skills.data?.items ?? [];
-  const minds = allSkills.filter(s => s.role === "mind");
-  const visuals = allSkills.filter(s => s.role === "production");
-  const others = allSkills.filter(s => s.role === "legacy_end_to_end" || s.role === null);
+  const queryText = searchParams.get("q") ?? "";
+  const categoryParam = searchParams.get("category") ?? "all";
+  const selectedCategory = ["all", "content", "visual", "processing", "rules", "uncategorized"].includes(categoryParam) ? categoryParam : "all";
+  const categoriesAvailable = categoryQuery.isSuccess && !categoryQuery.isError;
+  const categoryMap = new Map((categoryQuery.data?.items ?? []).map(item => [item.family_id, item]));
+  const categoryFor = (skill: ProducerSkillItem) => categoryMap.get(skill.family_id ?? skill.id) ?? emptyCategory(skill.family_id ?? skill.id);
+  const roleParam = searchParams.get("role") ?? "all";
+  const selectedRole = ["all", "mind", "production", "other"].includes(roleParam) ? roleParam : "all";
+  const visibleSkills = allSkills.filter(skill => {
+    const roleMatch = selectedRole === "all" || (selectedRole === "other"
+      ? skill.role === "legacy_end_to_end" || skill.role === null : skill.role === selectedRole);
+    const term = queryText.trim().toLocaleLowerCase();
+    const tags = categoryFor(skill).categories;
+    const categoryMatch = selectedCategory === "all" || !categoriesAvailable || (selectedCategory === "uncategorized"
+      ? tags.length === 0 : tags.includes(selectedCategory as SkillCategory));
+    return roleMatch && categoryMatch && (!term || `${skillLabel(skill)} ${skill.name} ${skill.description ?? ""}`.toLocaleLowerCase().includes(term));
+  });
+  const setBrowseParam = (key: string, value: string) => setSearchParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (!value || (["role", "category"].includes(key) && value === "all")) next.delete(key); else next.set(key, value);
+    return next;
+  }, { replace: true });
   const accounts = creators.items;
   const accountsLoading = creators.isPending || creators.isFetching;
   const accountsIncomplete = creators.isError;
@@ -302,20 +372,31 @@ export function SkillsPage() {
   const canCreate = !!binding && !!name.trim() && !busy && !missingSkills && !selectedAccountMissing && !accountSelectionUnavailable;
   const draggingSkill = drag?.payload.skill ?? null;
 
-  const skillCard = (skill: ProducerSkillItem, enabled: boolean) => {
+  const skillCard = (skill: ProducerSkillItem) => {
+    const isSelected = selectedIds.includes(skill.id);
     return <div key={skill.id} className={`skill-card-wrap ${draggingSkill?.id === skill.id ? "drag-source" : ""}`}>
-      <button type="button" className={`skill-card ${enabled ? "" : "view-only"}`}
-        onPointerDown={event => { suppressClick.current = false; if (enabled) onDragStart({ kind: "skill", skill })(event); }}
+      <button type="button" className={`skill-card${busy ? " view-only" : ""}`} aria-label={skillLabel(skill)}
+        onPointerDown={event => { suppressClick.current = false; if (!busy) onDragStart({ kind: "skill", skill })(event); }}
         onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } inspectSkill(skill); }}
         aria-haspopup="dialog">
-        <span className="skill-icon">{skillIcon(skill.role)}</span>
-        <span className="skill-copy"><strong>{skillLabel(skill)}</strong></span>
+        <span className="skill-icon" aria-hidden="true">{skillIcon(skill.role)}</span>
+        <span className="skill-copy"><strong>{skillLabel(skill)}</strong>{skill.description && <span className="skill-description">{skill.description}</span>}</span>
         {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
+      <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`}
+        disabled={!categoriesAvailable} onClick={() => {
+          categorySave.reset();
+          const current = categoryFor(skill);
+          setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
+        }}>分类</Button>
+      <Button type="button" variant="ghost" size="sm" className="skill-select" aria-label={`${isSelected ? "取消选择" : "加入"} ${skillLabel(skill)}`}
+        aria-pressed={isSelected} disabled={busy} onClick={() => isSelected ? setSelectedIds(ids => ids.filter(id => id !== skill.id)) : addSkill(skill)}>
+        {isSelected ? "已选" : "加入"}
+      </Button>
     </div>;
   };
 
-  return <div className="space-page">
+  return <div className="space-page skill-page">
     {targetProgress}
     {targetError}
     {skills.isPending ? <LoadingState label="正在读取 Skill 库…" />
@@ -323,17 +404,9 @@ export function SkillsPage() {
     <header className="space-head"><h1>Skill 库</h1></header>
     <SkillIterationHistory />
     <ArtifactSkillExtraction onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
-      setSelectedIds([skill.id]); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
+      setSelectedIds([skill.id]); setComposerOpen(true); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
     }} />
-    <div className="space-columns">
-      <section className="space-col" aria-label="Mind">
-        <div className="space-col-head"><h2>Mind</h2><span>{minds.length || ""}</span></div>
-        {minds.map(skill => skillCard(skill, true))}
-        {!minds.length && <div className="space-empty"><b>暂无</b></div>}
-        {!!others.length && <div className="skill-group">
-          <h3>其他</h3>
-          {others.map(skill => skillCard(skill, true))}
-        </div>}
+    <details className="skill-install-disclosure"><summary>从 GitHub 安装</summary>
         <form className="skill-install" onSubmit={event => { event.preventDefault(); if (installUrl.trim()) install.mutate(); }}>
           <input aria-label="GitHub Skill 链接" type="url" required placeholder="https://github.com/…"
             value={installUrl} onChange={event => setInstallUrl(event.target.value)} />
@@ -348,17 +421,32 @@ export function SkillsPage() {
           {install.isError && <p className="form-error" role="alert">{install.error.message}</p>}
           {job.data && <p className="space-note" role="status">{job.data.status} · {job.data.message}</p>}
         </form>
+    </details>
+    <div className="space-columns">
+      <section className="skill-catalog" aria-label="Skill 列表">
+        <div className="skill-catalog-controls">
+          <input type="search" aria-label="搜索 Skill" placeholder="搜索 Skill…" value={queryText}
+            onChange={event => setBrowseParam("q", event.target.value)} />
+          <div className="skill-category-filters" role="group" aria-label="Skill 分类">
+            {[{ value: "all", label: "全部" }, ...categoryOptions, { value: "uncategorized", label: "待分类" }].map(option =>
+              <button type="button" key={option.value} className={selectedCategory === option.value ? "is-current" : ""}
+                aria-pressed={selectedCategory === option.value} disabled={option.value !== "all" && !categoriesAvailable}
+                onClick={() => setBrowseParam("category", option.value)}>{option.label}</button>)}
+          </div>
+        </div>
+        {categoryQuery.isPending && <p className="skill-category-status" role="status">正在读取分类…</p>}
+        {categoryQuery.isError && <p className="skill-category-status" role="alert">分类读取失败，当前显示全部 Skill。 <button type="button" onClick={() => void categoryQuery.refetch()}>重试读取</button></p>}
+        {selectedRole !== "all" && <button type="button" className="skill-legacy-filter" onClick={() => setBrowseParam("role", "all")}>
+          旧版筛选：{selectedRole === "mind" ? "Mind" : selectedRole === "production" ? "Visualize" : "其他"} · 清除
+        </button>}
+        <p className="skill-catalog-count" aria-live="polite">{visibleSkills.length} 项</p>
+        <div className="skill-catalog-list">{visibleSkills.map(skill => skillCard(skill))}</div>
+        {!visibleSkills.length && <p className="skill-catalog-empty">{allSkills.length ? "没有匹配的 Skill。" : "还没有 Skill。"}</p>}
       </section>
 
-      <section className="space-col" aria-label="Visualize">
-        <div className="space-col-head"><h2>Visualize</h2><span>{visuals.length || ""}</span></div>
-        {visuals.map(skill => skillCard(skill, true))}
-        {!visuals.length && <div className="space-empty"><b>暂无</b></div>}
-      </section>
-
-      <section className="space-col" aria-label="组合栏目">
-        <div className="space-col-head"><h2>组合栏目</h2></div>
-        <div className="composer">
+      <section className={`space-col skill-compose${composerOpen ? "" : " is-collapsed"}`} aria-label="组合栏目">
+        <div className="space-col-head"><h2>组合栏目</h2><button type="button" className="skill-compose-toggle" aria-expanded={composerOpen} aria-controls="skill-composer-content" onClick={() => setComposerOpen(value => !value)}>{composerOpen ? "收起" : "展开"}</button></div>
+        <div className="composer" id="skill-composer-content">
           <div data-drop="skill-basket" aria-label="Skill 组合框"
             className={`skill-basket ${draggingSkill ? (drag?.target === "skill-basket" ? "drop-ok" : "can-drop") : ""}`}>
             {!selectedIds.length && <p>把任意 Skill 拖到这里，或在详情中加入</p>}
@@ -404,6 +492,37 @@ export function SkillsPage() {
       {skillLabel(drag.payload.skill)}
     </div>}
     </>}
+    {categoryEditor && <WorkspaceDialog title="设置 Skill 分类" busy={categorySave.isPending} onClose={() => setCategoryEditor(null)}>
+      <form className="skill-category-editor" onSubmit={event => { event.preventDefault(); if (!categoryEditor.needsCheck && !categorySave.isPending) categorySave.mutate(categoryEditor); }}>
+        <p>{skillLabel(categoryEditor.skill)}</p>
+        <fieldset disabled={categorySave.isPending}><legend>可多选；不选择则为待分类</legend>
+          {categoryOptions.map((option, index) => <label key={option.value}>
+            <input type="checkbox" data-initial-focus={index === 0 ? true : undefined} checked={categoryEditor.categories.includes(option.value)}
+              onChange={event => setCategoryEditor(current => current ? { ...current,
+                categories: event.target.checked ? [...current.categories, option.value] : current.categories.filter(item => item !== option.value) } : null)} />
+            {option.label}
+          </label>)}
+        </fieldset>
+        {categorySave.isError && <p className="form-error" role="alert">{categorySave.error.message} 当前选择已保留，请核对后再保存。</p>}
+        {categoryEditor.needsCheck && <div className="skill-category-conflict">
+          <button type="button" className="button button-secondary" disabled={categoryQuery.isFetching} onClick={async () => {
+            const result = await categoryQuery.refetch();
+            if (result.isSuccess && result.data) setCategoryEditor(current => current ? { ...current,
+              latest: result.data.items.find(item => item.family_id === (current.skill.family_id ?? current.skill.id))
+                ?? emptyCategory(current.skill.family_id ?? current.skill.id) } : null);
+          }}>{categoryQuery.isFetching ? "正在核对…" : "核对最新分类"}</button>
+          {categoryQuery.isError && <p role="alert">读取最新分类失败，请重试。</p>}
+          {categoryEditor.latest && <div><p>最新分类：{categoryEditor.latest.categories.length
+            ? categoryEditor.latest.categories.map(value => categoryOptions.find(option => option.value === value)?.label).join("、") : "待分类"}</p>
+            <button type="button" className="button button-secondary" onClick={() => {
+              setCategoryEditor(current => current?.latest ? { ...current, revision: current.latest.revision, needsCheck: false, latest: undefined } : current);
+              categorySave.reset();
+            }}>保留当前选择并采用最新版本</button></div>}
+        </div>}
+        <div className="skill-category-actions"><Button type="button" variant="secondary" disabled={categorySave.isPending} onClick={() => setCategoryEditor(null)}>取消</Button>
+          <Button type="submit" disabled={categorySave.isPending || categoryEditor.needsCheck}>{categorySave.isPending ? "保存中…" : "保存分类"}</Button></div>
+      </form>
+    </WorkspaceDialog>}
     {inspector}
   </div>;
 }
