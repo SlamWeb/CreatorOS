@@ -25,6 +25,28 @@ const metricValue = (value: number | null | undefined) => typeof value === "numb
 const amountValue = (value: number) => Number(value.toPrecision(4)).toString();
 const validAmount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
+// Short case IDs are unique only inside a dataset. Resolve from this run's
+// frozen selection; never infer a namespace from today's catalog or suite name.
+function caseIdentity(run: EvalRun, id: string): string {
+  const raw = run.metadata?.catalog_binding;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return id;
+  const selected = (raw as Record<string, unknown>).selected_instance_ids;
+  if (selected === undefined || selected === null) return id;
+  if (!Array.isArray(selected) || selected.some(item => typeof item !== "string" || !/^[a-z][a-z0-9-]*:[A-Z][A-Z0-9_-]*$/.test(item))) return `${id} · 身份未确认`;
+  const matches = selected.filter((item: string) => item.slice(item.indexOf(":") + 1) === id);
+  return matches.length === 1 ? matches[0] : `${id} · 身份未确认`;
+}
+
+function comparedCaseIdentity(baseline: EvalRun, candidate: EvalRun, id: string): string {
+  const before = caseIdentity(baseline, id), after = caseIdentity(candidate, id);
+  return before === after ? before : `基准 ${before} / 当前 ${after}`;
+}
+
+function comparisonIdentityAgrees(baseline: EvalRun, candidate: EvalRun, id: string): boolean {
+  const before = caseIdentity(baseline, id), after = caseIdentity(candidate, id);
+  return before === after && !before.includes("身份未确认");
+}
+
 function CostComparison({metrics}: {metrics: EvalComparison["metrics"]}) {
   const min = metrics.estimated_cost_min_usd;
   const max = metrics.estimated_cost_max_usd;
@@ -74,7 +96,7 @@ function ResultDetails({run, item}: {run: EvalRun; item: EvalResult | undefined}
   const judgments = Array.isArray(evidence.judgments) ? evidence.judgments.filter((value): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value)) : [];
   const textValue = (value: unknown) => typeof value === "string" ? value : null;
   return <div className="ew-result-detail">
-    <div className="ew-detail-header"><div><span className="ew-eyebrow">题目</span><h3>{item.case_id}</h3></div><Status value={item.status} /></div>
+    <div className="ew-detail-header"><div><span className="ew-eyebrow">题目</span><h3>{caseIdentity(run, item.case_id)}</h3></div><Status value={item.status} /></div>
     <p>{item.summary || "本次未保存判定说明。"}</p>
     <p className="ew-muted">运行 {run.id} · 题目版本 {item.case_definition_hash ?? "未记录"}</p>
     <section className="ew-case-summary"><h4>用户请求</h4>{requests.length ? <>{requests.map((request, index) => <p key={index}>{request}</p>)}<p className="ew-muted">{actualRequests.length ? "实际发送的用户请求。" : "展示冻结题面模板；尚无变量展开后的实际请求。"}</p></> : <p className="ew-muted">本次未记录用户请求。</p>}</section>
@@ -113,7 +135,7 @@ function RunView({run, runs, caseId, onRun, onCase, onCatalog}: {run: EvalRun; r
     {run.display_status === "unknown" && run.status !== "unknown" && <p className="ew-muted">运行状态未确认，最后登记状态：{label(run.status)}；不会自动重试。</p>}
     {runs.length > 1 && <p className="ew-muted">本测试集有 {runs.length} 次运行；先前结果保留，最近一次不代表稳定通过。</p>}
     <div className="ew-case-layout"><div className="ew-case-list" aria-label="题目列表">
-      {run.planned_cases.map(id => {const result = run.results.find(entry => entry.case_id === id); return <button key={id} type="button" className={caseId === id ? "is-selected" : ""} aria-current={caseId === id ? "true" : undefined} onClick={() => onCase(id)}><span>{id}</span><Status value={result?.status ?? missingResult(run)} /><ChevronRight size={16} aria-hidden="true" /></button>;})}
+      {run.planned_cases.map(id => {const result = run.results.find(entry => entry.case_id === id); return <button key={id} type="button" className={caseId === id ? "is-selected" : ""} aria-current={caseId === id ? "true" : undefined} onClick={() => onCase(id)}><span>{caseIdentity(run, id)}</span><Status value={result?.status ?? missingResult(run)} /><ChevronRight size={16} aria-hidden="true" /></button>;})}
       {unplanned.length > 0 && <p role="alert">存在 {unplanned.length} 条计划外结果，请核对运行记录。</p>}
       {!run.planned_cases.length && <p className="ew-muted">本次未记录计划题目。</p>}
     </div><div>{caseId ? <ResultDetails run={run} item={item} /> : <p className="ew-muted ew-choose-case">选择一道题，查看结果和证据。</p>}</div></div>
@@ -165,7 +187,7 @@ function Workbench() {
               {!candidateRun || !baselineRun ? <p className="ew-muted">选择两次运行比较；当前尚未核实哪次是本轮首试。</p> : comparison.isPending ? <p role="status" className="ew-muted">正在核对比较条件…</p> : comparison.isError ? <p role="alert">无法比较：{errorText(comparison.error)} <button type="button" onClick={() => void comparison.refetch()}>重试</button></p> : comparison.data && <>
                 {!comparison.data.contract_compatible && <p className="ew-comparison-note">比较条件不完整或不同，不能计算涨跌。{comparison.data.contract_differences.map(item => `${item.field}（${item.reason === "missing" ? "缺失" : "不同"}）`).join("、")}</p>}
                 <div className="ew-compare-grid"><div><span>可比共同题</span><strong>{comparison.data.comparable_cases} / {comparison.data.common_planned}</strong><small>计划：基准 {comparison.data.baseline_planned} · 当前 {comparison.data.candidate_planned}</small></div><div><span>明确判定通过</span><strong>{comparison.data.outcomes.paired_decidable ? `${comparison.data.outcomes.baseline_passed} → ${comparison.data.outcomes.candidate_passed}` : "未记录"}</strong><small>双方均明确判定 {comparison.data.outcomes.paired_decidable} 题</small></div>{[["input_tokens", "输入 Token"], ["output_tokens", "输出 Token"], ["elapsed_seconds", "耗时（秒）"], ["tool_calls", "工具调用次数"]].map(([key, title]) => {const metric = comparison.data!.metrics[key]; return <div key={key}><span>{title} · 每题均值</span><strong>{metric?.paired_cases ? `${metricValue(metric.baseline_mean)} → ${metricValue(metric.candidate_mean)}` : "未记录"}</strong><small>双方同口径 {metric?.paired_cases ?? 0} 题</small></div>;})}<CostComparison metrics={comparison.data.metrics} /></div>
-                <details className="ew-compare-details"><summary>查看逐题与比较依据</summary><ul>{comparison.data.cases.map(item => <li key={item.case_id}>{item.case_id} · {label(item.baseline_status)} → {label(item.candidate_status)} · {item.comparable ? "条件可比" : `不可比（${item.reason ?? "依据缺失"}）`}</li>)}</ul></details>
+                <details className="ew-compare-details"><summary>查看逐题与比较依据</summary><ul>{comparison.data.cases.map(item => <li key={item.case_id}>{comparedCaseIdentity(baselineRun, candidateRun, item.case_id)} · {label(item.baseline_status)} → {label(item.candidate_status)} · {!comparisonIdentityAgrees(baselineRun, candidateRun, item.case_id) ? "不可比（题目身份未匹配）" : item.comparable ? "条件可比" : `不可比（${item.reason ?? "依据缺失"}）`}</li>)}</ul></details>
               </>}
             </>}
           </section>

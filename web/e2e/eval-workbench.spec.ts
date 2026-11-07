@@ -102,3 +102,32 @@ test("distinguishes absent results from explicitly unrun cases", async ({page}) 
   await expect(page.getByRole("region", {name: "运行详情"})).toContainText("未运行");
   await expect(page.getByRole("region", {name: "运行详情"})).not.toContainText("未记录/未确认");
 });
+
+test("uses each frozen selection for case identity and leaves ambiguous or legacy IDs unguessed", async ({page}) => {
+  await fixture(page);
+  const base = run("run1", "r1"), current = run("run2", "r2");
+  const withCase = (entry: ReturnType<typeof run>, selection: unknown) => ({...entry,
+    planned_cases: ["B06", "B07"],
+    metadata: {...entry.metadata, catalog_binding: {selected_instance_ids: selection}},
+    results: [{...entry.results[0], case_id: "B06"}]});
+  let now = withCase(current, ["natural:B06", "base:B07", "natural:B07"]);
+  await page.route("**/api/eval/v1/rounds/r1", route => route.fulfill({json: {round: rounds[1], runs: [withCase(base, ["base:B06"])]}}));
+  await page.route("**/api/eval/v1/rounds/r2", route => route.fulfill({json: {round: rounds[0], runs: [now]}}));
+  await page.route("**/api/eval/v1/compare?*", route => route.fulfill({json: {baseline_run_id: "run1", candidate_run_id: "run2", contract_compatible: false, contract_differences: [], baseline_planned: 1, candidate_planned: 2, common_planned: 1, comparable_cases: 0, outcomes: {paired_decidable: 0, baseline_passed: 0, candidate_passed: 0}, metrics: {}, cases: [{case_id: "B06", comparable: false, reason: "dataset differs", baseline_status: "passed", candidate_status: "failed"}]}}));
+  await page.goto("/eval?round=r2&run=run2");
+  const list = page.getByLabel("题目列表");
+  await expect(list).toContainText("natural:B06");
+  await expect(list).toContainText("B07 · 身份未确认");
+  await list.getByRole("button", {name: /natural:B06/}).click();
+  await expect(page.getByRole("heading", {name: "natural:B06"})).toBeVisible();
+  await page.getByLabel("选择当前运行").selectOption("run2");
+  await page.getByLabel("选择基准运行").selectOption("run1");
+  await page.getByText("查看逐题与比较依据").click();
+  await expect(page.locator(".ew-compare-details")).toContainText("基准 base:B06 / 当前 natural:B06");
+  await expect(page.locator(".ew-compare-details")).toContainText("不可比（题目身份未匹配）");
+  now = {...now, metadata: {...current.metadata, catalog_binding: undefined}};
+  await page.reload();
+  await expect(list.getByRole("button", {name: /B06/})).toContainText("B06");
+  await expect(list).not.toContainText("natural:B06");
+  await expect(list).not.toContainText("身份未确认");
+});

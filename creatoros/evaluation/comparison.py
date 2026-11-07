@@ -25,6 +25,12 @@ def compare_runs(baseline, candidate):
             reasons.append({"field": key, "reason": "missing"})
         elif left != right:
             reasons.append({"field": key, "reason": "different"})
+    if bm.get("execution_mode") == "local-dispatch-v4" or cm.get("execution_mode") == "local-dispatch-v4":
+        left, right = bm.get("source_namespace"), cm.get("source_namespace")
+        if left not in {"base", "natural"} or right not in {"base", "natural"}:
+            reasons.append({"field": "source_namespace", "reason": "missing"})
+        elif left != right:
+            reasons.append({"field": "source_namespace", "reason": "different"})
 
     left_results = {item["case_id"]: item for item in baseline.get("results", [])}
     right_results = {item["case_id"]: item for item in candidate.get("results", [])}

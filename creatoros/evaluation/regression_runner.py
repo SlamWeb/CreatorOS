@@ -15,6 +15,20 @@ def _digest(value):
 
 
 _MEMBER_FIELDS = ("instance_id", "case_sha256", "resource_class", "execution_readiness", "adapter")
+_ADAPTERS = {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4"}
+
+
+def selection_namespace(selected):
+    """Return the one authorized source for a v4 selection, rejecting collisions."""
+    if not isinstance(selected, list) or not selected:
+        raise ValueError("Selection must identify a source")
+    parts = [re.fullmatch(r"(base|natural):([A-Z][A-Z0-9_-]{0,39})", item) if isinstance(item, str) else None for item in selected]
+    if any(part is None for part in parts):
+        raise ValueError("Invalid instance identity")
+    namespaces = {part.group(1) for part in parts}
+    if len(namespaces) != 1 or len({part.group(2) for part in parts}) != len(parts):
+        raise ValueError("Cannot mix source namespaces or duplicate case IDs")
+    return next(iter(namespaces))
 
 
 def _membership(suite):
@@ -29,9 +43,9 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     plan(scopes)  # validates input; unknown scopes remain explicitly uncovered.
     # Keep the original version addressable even after the default catalog
     # advances; historical selections must retain their original guard.
-    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2"}:
+    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2", "regular-v3", "full-v3"}:
         root = Path(__file__).resolve().parents[2]
-        version = "v1" if suite_id.endswith("-v1") else "v2"
+        version = suite_id.rsplit("-", 1)[1]
         data = catalog(manifest_path=root / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
     else:
         data = catalog()
@@ -51,12 +65,16 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
         raise ValueError("Selected instance is not a suite member")
     blocked = [{"instance_id": item, "reason": by_id[item].get("reason")}
                for item in selected if by_id[item].get("execution_readiness") != "enabled"
-               or by_id[item].get("adapter") not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"}
-               or not item.startswith("base:")]
+               or by_id[item].get("adapter") not in _ADAPTERS
+               or not (item.startswith("base:") or (item.startswith("natural:") and by_id[item].get("adapter") == "local-dispatch-v4"))]
     versions = {by_id[item]["adapter"] for item in selected if by_id[item].get("execution_readiness") == "enabled"
-                and by_id[item].get("adapter") in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"}}
+                and by_id[item].get("adapter") in _ADAPTERS}
     if len(versions) > 1:
         raise ValueError("Cannot mix local dispatch policy versions in one run")
+    if not blocked and versions == {"local-dispatch-v4"}:
+        namespace = selection_namespace(selected)
+        from creatoros.evaluation.benchmark.nonvideo_guard import policy
+        policy([by_id[item]["case_id"] for item in selected], local_dispatch="local-dispatch-v4", source_namespace=namespace)
     # A view with unclassified candidates is partial even when all its current
     # admitted members are selected; never call that the full routine scope.
     complete = selected == planned and not blocked and suite.get("scope_status") == "complete"
@@ -118,13 +136,18 @@ def validate_frozen_binding(case_ids, binding):
             or sum(row.get("resource_class") == "unknown" for row in candidates) != binding["unclassified_candidates"]):
         raise ValueError("Frozen suite selection differs")
     by_id = {row["instance_id"]: row for row in members}
-    if any(not isinstance(x, str) or not x.startswith("base:") or by_id[x]["execution_readiness"] != "enabled"
-           or by_id[x]["adapter"] not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"} for x in selected):
+    if any(not isinstance(x, str) or not (x.startswith("base:") or (x.startswith("natural:") and by_id[x]["adapter"] == "local-dispatch-v4")) or by_id[x]["execution_readiness"] != "enabled"
+           or by_id[x]["adapter"] not in _ADAPTERS for x in selected):
         raise ValueError("Frozen selected instance was not executable")
     if len({by_id[x]["adapter"] for x in selected}) != 1:
         raise ValueError("Frozen selection mixes dispatch policy versions")
-    if [x.removeprefix("base:") for x in selected] != list(case_ids):
+    version = by_id[selected[0]]["adapter"]
+    namespace = selection_namespace(selected) if version == "local-dispatch-v4" else "base"
+    if [x.removeprefix(namespace + ":") for x in selected] != list(case_ids):
         raise ValueError("Frozen selected cases differ")
+    if version == "local-dispatch-v4":
+        from creatoros.evaluation.benchmark.nonvideo_guard import policy
+        policy(case_ids, local_dispatch=version, source_namespace=namespace)
     scope = "partial" if candidates or any(row["execution_readiness"] != "enabled" for row in members) else "complete"
     complete = selected == ids and scope == "complete"
     if binding["scope_status"] != scope or binding["selection_kind"] != ("complete" if complete else "partial"):

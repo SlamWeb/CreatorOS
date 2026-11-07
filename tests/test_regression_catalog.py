@@ -138,6 +138,33 @@ class RegressionCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "v3 adapter requires its exact frozen base source digest"):
             build_catalog(doc, repo_root=self.root)
 
+    def test_v4_natural_qualification_is_namespace_bound_and_cannot_self_authorize(self):
+        doc = json.loads((ROOT / "docs/agent-eval/regression-catalog-v4/catalog.json").read_text(encoding="utf-8"))
+        rows = {c["instance_id"]: c for c in build_catalog(doc, repo_root=self.root)["suites"][0]["cases"]}
+        self.assertEqual(rows["natural:B06"]["execution_readiness"], "enabled")
+        self.assertEqual(rows["natural:B07"]["execution_readiness"], "enabled")
+        self.assertEqual(rows["natural:B05"]["execution_readiness"], "requires_review")
+        forged = copy.deepcopy(doc)
+        forged["classifications"]["natural:B06"]["adapter"] = "local-dispatch-v3"
+        with self.assertRaisesRegex(ValueError, "ineligible execution adapter"):
+            build_catalog(forged, repo_root=self.root)
+        forged = copy.deepcopy(doc)
+        group = next(g for g in forged["classification_groups"] if "natural:B05" in g["instances"])
+        group["instances"].remove("natural:B05")
+        forged["classifications"]["natural:B05"] = {"resource_class": "routine", "adapter": "local-dispatch-v4", "reason": "forged"}
+        with self.assertRaisesRegex(ValueError, "adapter does not authorize"):
+            build_catalog(forged, repo_root=self.root)
+        forged = copy.deepcopy(doc)
+        natural = json.loads((self.root / forged["sources"][1]["path"]).read_text(encoding="utf-8"))
+        next(c for c in natural["cases"] if c["id"] == "B06")["title"] += " changed"
+        digest = canonical_digest(natural)
+        (self.root / "docs/agent-eval/source-snapshots-v1" / (digest + ".json")).write_text(
+            json.dumps(natural, ensure_ascii=False), encoding="utf-8")
+        forged["sources"][1]["canonical_sha256"] = digest
+        forged["adapter_source_sha256_by_namespace"]["natural"] = digest
+        with self.assertRaisesRegex(ValueError, "v4 adapter requires its exact fixed source digests"):
+            build_catalog(forged, repo_root=self.root)
+
     def test_freeze_sources_is_content_addressed_and_does_not_overwrite(self):
         self.doc["catalog_id"] = "new-catalog"
         digest = self.doc["sources"][2]["canonical_sha256"]

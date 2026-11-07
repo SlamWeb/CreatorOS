@@ -22,7 +22,7 @@ from creatoros.evaluation.benchmark.suite_schema import CASE_ID
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v3/catalog.json"
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v4/catalog.json"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -43,6 +43,10 @@ _ADAPTER_SOURCE_BY_VERSION = {
     "local-dispatch-v2": "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e",
     "local-dispatch-v3": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
 }
+_ADAPTER_SOURCE_BY_NAMESPACE = {"local-dispatch-v4": {
+    "base": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
+    "natural": "84589e028b20b3412e980f947c75934ff9377a756e964e493dd727eb987bfbdb",
+}}
 
 
 def _canonical_sha(value):
@@ -87,19 +91,37 @@ def _frozen_dataset(path, digest):
     return doc
 
 
-def _adapter_cases(root, document, adapter, *, allow_unfrozen=False):
+def _adapter_cases(root, document, adapter, namespace="base", *, allow_unfrozen=False):
     """Local-dispatch policy is executable only for identical frozen base cases."""
     from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_VERSION
-    allowed = CASES_BY_VERSION[adapter]
-    snapshot = _ADAPTER_SOURCE_BY_VERSION[adapter]
+    if adapter == "local-dispatch-v4":
+        from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_NAMESPACE
+        sources = _ADAPTER_SOURCE_BY_NAMESPACE[adapter]
+        if namespace not in sources:
+            raise ValueError("v4 adapter namespace is not authorized")
+        if document.get("adapter_source_sha256_by_namespace") != sources:
+            raise ValueError("v4 adapter requires its exact fixed source digests")
+        matching = [source for source in document["sources"] if source.get("namespace") == namespace]
+        snapshot = sources[namespace]
+        if len(matching) != 1 or matching[0].get("canonical_sha256") != snapshot:
+            raise ValueError("v4 adapter requires its exact fixed namespace source")
+        allowed = CASES_BY_NAMESPACE[adapter][namespace]
+    else:
+        if namespace != "base":
+            raise ValueError("adapter namespace is not authorized")
+        allowed = CASES_BY_VERSION[adapter]
+        snapshot = _ADAPTER_SOURCE_BY_VERSION[adapter]
     if adapter == "local-dispatch-v3":
         base = [source for source in document["sources"] if source.get("namespace") == "base"]
         if (document.get("adapter_source_sha256") != snapshot or len(base) != 1
                 or base[0].get("canonical_sha256") != snapshot):
             raise ValueError("v3 adapter requires its exact frozen base source digest")
     target = _snapshot_path(root, snapshot)
-    if not target.exists() and allow_unfrozen and adapter == "local-dispatch-v3":
-        target = _source_path(root, base[0]["path"])
+    if not target.exists() and allow_unfrozen:
+        if adapter == "local-dispatch-v3":
+            target = _source_path(root, base[0]["path"])
+        elif adapter == "local-dispatch-v4":
+            target = _source_path(root, matching[0]["path"])
     doc = (_frozen_dataset(target, snapshot) if target == _snapshot_path(root, snapshot)
            else _dataset(target))
     if canonical_digest(doc) != snapshot:
@@ -274,11 +296,13 @@ def build_catalog(document, *, repo_root=ROOT, allow_unfrozen=False):
             item["side_effects"].append("可能触发外部模型、素材生产或联网，需逐题核实")
         adapter = classification.get("adapter")
         if adapter is not None:
-            if adapter not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"} or resource != "routine" or not identity.startswith("base:"):
+            namespace = identity.split(":", 1)[0]
+            if adapter not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4"} or resource != "routine" or namespace not in ({"base", "natural"} if adapter == "local-dispatch-v4" else {"base"}):
                 raise ValueError("unrecognized or ineligible execution adapter")
-            if adapter not in approved_adapter_cases:
-                approved_adapter_cases[adapter] = _adapter_cases(root, document, adapter, allow_unfrozen=allow_unfrozen)
-            if approved_adapter_cases[adapter].get(item["case_id"]) != item["case_sha256"]:
+            adapter_key = (adapter, namespace)
+            if adapter_key not in approved_adapter_cases:
+                approved_adapter_cases[adapter_key] = _adapter_cases(root, document, adapter, namespace, allow_unfrozen=allow_unfrozen)
+            if approved_adapter_cases[adapter_key].get(item["case_id"]) != item["case_sha256"]:
                 raise ValueError("adapter does not authorize exact case definition")
             item.update(adapter=adapter, execution_readiness="enabled")
 

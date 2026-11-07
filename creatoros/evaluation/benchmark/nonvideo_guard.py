@@ -6,18 +6,27 @@ POLICY = "nonvideo-no-publication-v1"
 COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接等同。"
 
 
-def policy(case_ids, *, local_dispatch=False):
+def policy(case_ids, *, local_dispatch=False, source_namespace=None):
     selected = list(case_ids or [])
-    from .local_dispatch_guard import CASES_BY_VERSION, VERSION, VERSIONS
+    from .local_dispatch_guard import CASES_BY_NAMESPACE, CASES_BY_VERSION, VERSION, VERSIONS
     version = VERSION if local_dispatch is True else local_dispatch
     if version and version not in VERSIONS:
         raise ValueError("Unknown local dispatch policy")
-    allowed = CASES_BY_VERSION[version] if local_dispatch else ALLOWED_CASES
+    if version == "local-dispatch-v4":
+        if source_namespace not in CASES_BY_NAMESPACE[version]:
+            raise ValueError("v4 requires an authorized source namespace")
+        allowed = CASES_BY_NAMESPACE[version][source_namespace]
+    else:
+        if source_namespace is not None:
+            raise ValueError("Namespace applies only to v4")
+        allowed = CASES_BY_VERSION[version] if local_dispatch else ALLOWED_CASES
     if not selected or len(selected) != len(set(selected)) or any(x not in allowed for x in selected):
         raise ValueError("Nonvideo guard requires an explicit allowed subset; B47 is forbidden")
     result = {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}
     if local_dispatch:
         result["local_dispatch"] = version
+    if version == "local-dispatch-v4":
+        result["source_namespace"] = source_namespace
     return result
 
 
@@ -29,8 +38,21 @@ def validate(manifest, case_id=None):
     local_dispatch = config.get("local_dispatch", False)
     if local_dispatch and local_dispatch not in VERSIONS:
         raise ValueError("Unknown local dispatch policy")
-    if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch):
+    if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch,
+                        source_namespace=config.get("source_namespace")):
         raise ValueError("Frozen nonvideo guard policy or case selection differs")
+    if local_dispatch == "local-dispatch-v4":
+        from creatoros.evaluation.regression_runner import selection_namespace
+        from creatoros.evaluation.tool_calling import NATURAL_SUITE_ID, REGRESSION_SUITE_ID
+        binding = manifest["model_configuration"].get("catalog_binding")
+        if not isinstance(binding, dict):
+            raise ValueError("v4 requires a frozen catalog binding")
+        selected = binding.get("selected_instance_ids")
+        namespace = selection_namespace(selected)
+        if (namespace != config["source_namespace"]
+                or [item.split(":", 1)[1] for item in selected] != manifest["selected_case_ids"]
+                or manifest.get("dataset_id") != (NATURAL_SUITE_ID if namespace == "natural" else REGRESSION_SUITE_ID)):
+            raise ValueError("Frozen source namespace and dataset differ")
     if case_id is not None and case_id not in config["case_ids"]:
         raise ValueError("Case is outside frozen nonvideo guard selection")
     return True
