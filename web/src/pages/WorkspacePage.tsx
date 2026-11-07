@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Navigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, studioApi } from "../api/client";
 import type { ProducerSkillItem, TopicView } from "../api/types";
@@ -13,6 +13,8 @@ import { BgmPool, QA_BGM_CREATOR } from "../components/BgmPool";
 import { CreatorSkillLibrary } from "../components/SkillLibrary";
 import { useWorkInbox } from "../components/TaskInbox";
 import { AccountNavigator } from "../components/AccountNavigator";
+import { PrimaryNavigation } from "../components/Layout";
+import { BrandMark } from "../components/BrandMark";
 import { AccountOverview } from "../components/AccountOverview";
 import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SeriesWorkspace } from "../features/series/SeriesWorkspace";
@@ -141,6 +143,10 @@ export function WorkspacePage() {
       ? <ErrorState message={workspaceError.message} onRetry={workspaceError.retry} /> : <>
     <button type="button" className="workspace-tree-toggle" aria-expanded={treeOpen} onClick={() => setTreeOpen(!treeOpen)}>账号与栏目 · {series?.name ?? account?.display_name ?? "选择账号"}</button>
     <aside className={`workspace-rail${treeOpen ? " is-open" : ""}`} aria-label="账号与栏目">
+      {series && <div className="column-side-navigation">
+        <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
+        <PrimaryNavigation />
+      </div>}
       <AccountNavigator accounts={accounts} account={account} series={accountSeries} selectedSeriesId={seriesId}
         accountsLoading={creators.isFetching}
         accountsIncomplete={creators.isError} onRetryAccounts={() => void creators.refetch()}
@@ -153,7 +159,7 @@ export function WorkspacePage() {
         onDelete={() => account && deleteAccount.mutate(account.id)} deletePending={deleteAccount.isPending} />
       {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
     </aside>
-    <main className="workspace-main">
+    <div className="workspace-main">
       {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
       {(accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
       {account && !series && !["data", "materials", "skills", "bgm"].includes(shownView) && <CreatorTaskSummary key={account.id} creatorId={account.id} />}
@@ -169,11 +175,11 @@ export function WorkspacePage() {
         onCreate={beginNewSeries} />
       </>}
       </>}
-      {series && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series}
+      {series && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series} accountName={account?.display_name}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
         skills={skills.data?.items ?? []} onInspectSkill={inspectSkill}
         onDiscuss={discuss} />}
-    </main>
+    </div>
     {accountDraft && <WorkspaceDialog title="新建账号" busy={createAccount.isPending} onClose={() => setAccountDraft(null)}>
       <form className="workspace-create-form" onSubmit={event => {
         event.preventDefault();

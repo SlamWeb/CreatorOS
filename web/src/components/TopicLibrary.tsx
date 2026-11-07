@@ -259,11 +259,12 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
     {query.isPending && <p role="status">正在读取内容…</p>}
     {query.error && <p role="alert" className="form-error">{query.error.message}<button onClick={() => void query.refetch()}>重新读取选题库</button></p>}
     {!query.isPending && !query.error && !query.data?.items.length && <p className="research-empty">{offset ? "这一页没有选题，请返回上一页。" : "还没有选题。"}</p>}
-    {!query.error && <div className="content-feed">{query.data?.items.map(topic => {
+    {!query.error && <div className="content-feed">{query.data?.items.map((topic, index) => {
       const pending = topic.selection_state === "pending";
       const singleTaskRun = !pending && topic.production_task_count === 1 ? topic.preview_run_id : null;
       const displayRunId = singleTaskRun || (!pending && !topic.production_task_count ? topic.existing_run_id : null);
-      const content = <>{!pending && topic.cover_url && <CardCover key={topic.cover_url} url={topic.cover_url} title={topic.title} />}
+      const content = <>{!pending && topic.cover_url ? <CardCover key={topic.cover_url} url={topic.cover_url} title={topic.title} priority={index < 3} />
+        : <div className="content-card-no-cover" aria-hidden="true"><span>{pending ? "候选选题" : "暂无封面"}</span></div>}
         <div className="content-card-copy"><h3>{topic.title}</h3>
           {(pending ? topic.angle : topic.brief) && <p>{pending ? topic.angle : topic.brief}</p>}
         </div></>;
@@ -346,10 +347,11 @@ export function TopicLibrary({ seriesId, startButton, compact = false, onDiscuss
   </section>;
 }
 
-function CardCover({ url, title }: {url: string; title: string}) {
+function CardCover({ url, title, priority }: {url: string; title: string; priority: boolean}) {
   const [failed, setFailed] = useState(false);
   return failed ? <p className="cover-unavailable">封面暂不可读取</p>
-    : <img className="content-card-cover" src={apiUrl(url)} alt={`${title} · 第一张图片`} loading="lazy" onError={() => setFailed(true)} />;
+    : <img className="content-card-cover" src={apiUrl(url)} alt={`${title} · 第一张图片`} width={600} height={800}
+      loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"} onError={() => setFailed(true)} />;
 }
 
 function TopicDetail({ topic, onClose, onRemoved, requestId, startRemoving, onChoose, startButton, onDiscuss, onChanged, onRemovedChanged, returnUrl, onOpenRun, series, skills, defaultSkills, startSplitting }: {

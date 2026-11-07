@@ -11,8 +11,9 @@ import { WorkspaceDialog } from "../../components/WorkspaceDialog";
 import { refreshWorkspace } from "../workspace/workspaceData";
 import { operationKey, operationView, startSeriesOperation } from "./operationState";
 
-export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDiscuss }: {
+export function SeriesWorkspace({ series, accountName, accounts, skills, onInspectSkill, onDiscuss }: {
   series: SeriesView;
+  accountName?: string;
   accounts: { id: string; name: string }[];
   skills: ProducerSkillItem[];
   onInspectSkill: (skill: ProducerSkillItem) => void;
@@ -98,6 +99,7 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
     title={!series.creator_id ? "先分配账号" : undefined}
     onClick={() => runMutation.mutate(topic)}>{runMutation.isPending && runMutation.variables?.id === topic.id ? "提交中…" : topic.available_actions.includes("resume") ? "恢复生产" : "生产"}</button>;
   const heading = <div className="workspace-title-group">
+        <p className="column-context">{accountName ?? "未分配"}<span aria-hidden="true"> / </span>栏目</p>
         <h1>{series.name}</h1>
         <div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
           {!poolItems.length && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目 Skill</button>}
