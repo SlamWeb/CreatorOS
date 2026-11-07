@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 
 from creatoros.evaluation.benchmark.nonvideo_guard import policy
@@ -48,29 +49,43 @@ def _driver_files():
     # changing any benchmark framework module makes old comparisons ineligible.
     framework = sorted(path.relative_to(ROOT).as_posix()
                        for path in (ROOT / "creatoros/evaluation/benchmark").glob("*.py"))
-    return [*framework, "creatoros/evaluation/tool_calling.py", "web/e2e/live-benchmark-v2.mjs"]
+    extra = ["creatoros/evaluation/tool_calling.py", "creatoros/evaluation/regression_runner.py",
+             "creatoros/evaluation/regression_catalog.py", "creatoros/evaluation/change_rules.py",
+             "web/e2e/live-benchmark-v2.mjs"]
+    return [*framework, *(name for name in extra if (ROOT / name).is_file())]
 
 
-def suite_and_metadata(case_ids):
+def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, frozen_catalog=False):
     from creatoros.evaluation.change_rules import plan
     raw = DATASET.read_bytes()
     dataset = json.loads(raw)
     validate_selection(dataset, case_ids)
     if dataset.get("dataset_id") != SUITE_ID:
         raise ValueError("Unexpected tool suite identity")
-    if not set(case_ids) <= SAFE_CASES:
+    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES as LOCAL_CASES, VERSION as LOCAL_VERSION
+    if not set(case_ids) <= (LOCAL_CASES if local_dispatch else SAFE_CASES):
         raise ValueError("Only B05, B06, B07 and B10 have the permitted non-video policy")
-    policy(case_ids)
+    policy(case_ids, local_dispatch=local_dispatch)
     meta = {name: _hash_files(paths) for name, paths in _BUNDLE.items()}
     meta["driver_hash"] = _hash_files(_driver_files())
-    meta.update(dataset_sha256=_sha(raw), execution_mode="nonvideo-no-publication-v1", model="deepseek-flash",
+    scopes = catalog_binding.get("change_scopes") if isinstance(catalog_binding, dict) else ["tool"]
+    requirements = plan(scopes)
+    meta.update(dataset_sha256=_sha(raw), execution_mode=(LOCAL_VERSION if local_dispatch else "nonvideo-no-publication-v1"), model="deepseek-flash",
                 trial_policy="first_attempt", usage_scope="provider_actual_agent",
                 latency_scope="benchmark_case_wall_seconds", tool_calls_scope="observed_model_tool_calls",
-                change_scope="tool", suite_role="specialist", judge_calibration="not_human_calibrated",
+                change_scope=(",".join(scopes)), suite_role=("regression" if catalog_binding is not None else "specialist"), judge_calibration="not_human_calibrated",
                 requires_manifest_binding=True,
-                change_requirements=plan(["tool"]), source_worktree=str(ROOT), fixture_version="benchmark-world-v2-2",
+                change_requirements=requirements, source_worktree=str(ROOT), fixture_version="benchmark-world-v2-2",
                 guard_version="nonvideo-no-publication-v1",
                 sandbox="isolated SQLite/files/process; nonvideo guard is not network isolation")
+    if local_dispatch:
+        meta["guard_version"] = LOCAL_VERSION
+        meta["sandbox"] = "local dispatch guard and deferred workers; not an OS or network sandbox"
+    if catalog_binding is not None:
+        if not local_dispatch:
+            raise ValueError("Catalog execution requires the local dispatch guard")
+        from creatoros.evaluation.regression_runner import validate_binding, validate_frozen_binding
+        meta.update((validate_frozen_binding if frozen_catalog else validate_binding)(case_ids, catalog_binding))
     return dataset, meta
 
 
@@ -141,11 +156,27 @@ def result_from_row(batch, row, definition):
     status = row.get("status")
     if status not in {"passed", "failed", "needs_review", "not_run", "unknown"}:
         status = "unknown"
-    if (row.get("execution_status") not in {"completed", "succeeded"}
+    scores = row.get("scores") if isinstance(row.get("scores"), dict) else {}
+    critical = scores.get("critical_checks") if isinstance(scores.get("critical_checks"), list) else []
+    critical_ids = {"local_dispatch_guard", "foreign_unchanged", "no_private_leak", "forbidden_actions"}
+    program_rules = definition.get("scoring", {}).get("program_checks", [])
+    if isinstance(program_rules, list):
+        critical_ids.update(rule.get("id") for rule in program_rules if isinstance(rule, dict) and rule.get("critical") is True)
+    proven_critical_failure = (scores.get("critical_status") == "failed" and any(
+        isinstance(item, dict) and item.get("id") in critical_ids and item.get("status") == "failed" for item in critical))
+    program = scores.get("program") if isinstance(scores.get("program"), dict) else {}
+    program_ids = {rule.get("id") for rule in program_rules if isinstance(rule, dict)} if isinstance(program_rules, list) else set()
+    proven_program_failure = (row.get("execution_status") in {"completed", "succeeded"}
+        and any(isinstance(item, dict) and item.get("id") in program_ids and item.get("status") == "failed"
+                for item in program.get("items", [])))
+    if proven_critical_failure or proven_program_failure:
+        # A concrete business/safety failure cannot be laundered into unknown
+        # by missing guard evidence or an unrelated infrastructure error.
+        status = "failed"
+    elif (row.get("execution_status") not in {"completed", "succeeded"}
             or row.get("observed_error") in {"guard_evidence_missing_or_mismatched", "duplicate_trial_policy_failed"}):
         # Launcher/browser failures do not prove a model made an incorrect decision.
         status = "unknown"
-    scores = row.get("scores") if isinstance(row.get("scores"), dict) else {}
     trajectory = row.get("trajectory") if isinstance(row.get("trajectory"), dict) else {}
     metrics = {"program_status": row.get("auto_status"), "semantic_status": row.get("semantic_status"),
                "critical_status": scores.get("critical_status"), "tool_calls": trajectory.get("tool_calls"),
@@ -261,13 +292,17 @@ def recover_registered(registry, run_id):
             or git.get("sha") != version or git.get("dirty") is not False or git.get("status_available") is not True):
         raise ValueError("Recovery requires a clean, fully identified source version")
     cases = run["planned_cases"]
-    dataset, current_metadata = suite_and_metadata(cases)
+    binding = run.get("metadata", {}).get("catalog_binding")
+    local_dispatch = run.get("metadata", {}).get("execution_mode") == "local-dispatch-v1"
+    dataset, current_metadata = suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=binding,
+                                                   frozen_catalog=binding is not None)
     if run.get("metadata") != current_metadata:
         raise ValueError("Registered metadata differs from current evaluation source")
     if (manifest.get("source_selection") != "default" or manifest.get("dataset_id") != SUITE_ID
             or manifest.get("selected_case_ids") != cases
             or manifest.get("dataset_snapshot", {}).get("sha256") != current_metadata["dataset_sha256"]
             or manifest.get("model_configuration", {}).get("benchmark_run_id") != run_id
+            or manifest.get("model_configuration", {}).get("catalog_binding") != binding
             or manifest.get("model_configuration", {}).get("provider_request_model") != current_metadata["model"]
             or manifest.get("execution_policy") != {"retries": 0, "first_attempts_only": True}):
         raise ValueError("Frozen manifest differs from registered run")
@@ -356,11 +391,13 @@ def recover_registered(registry, run_id):
             "manifest_sha256": manifest_sha, "trust": "local hashes; not an external signature"}
 
 
-def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=None):
+def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=None, local_dispatch=False, catalog_binding=None):
     """Register first, then freeze and execute; external work is never retried."""
     if not allow_paid:
         raise ValueError("Live tool evaluation requires --allow-paid")
-    dataset, metadata = suite_and_metadata(cases)
+    if catalog_binding is not None and round_data.get("changes") != catalog_binding.get("change_scopes"):
+        raise ValueError("Round change scopes differ from frozen catalog selection")
+    dataset, metadata = suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)
     definitions = {c["id"]: c for c in dataset["cases"] if c["id"] in cases}
     batch = ROOT / "data/agent-benchmark-v2" / run_id
     if batch.exists():
@@ -404,12 +441,24 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         except Exception as exc:
             return type(exc).__name__
     try:
-        code = invoke(prefix + ["freeze", "--batch", run_id, "--dataset", str(DATASET), "--cases", ",".join(cases), "--nonvideo-guard"])
+        freeze_args = prefix + ["freeze", "--batch", run_id, "--dataset", str(DATASET), "--cases", ",".join(cases), "--nonvideo-guard"]
+        if local_dispatch:
+            freeze_args.append("--local-dispatch-guard")
+        if catalog_binding is not None:
+            with tempfile.TemporaryDirectory(prefix="creatoros-eval-catalog-") as scratch:
+                snapshot_path = Path(scratch) / "catalog-binding.json"
+                snapshot_path.write_text(json.dumps(catalog_binding, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                code = invoke(freeze_args + ["--catalog-binding-file", str(snapshot_path)])
+        else:
+            code = invoke(freeze_args)
         if code:
             finish("failed", error=f"freeze exited {code}")
             return {"run_id": run_id, "status": "failed", "stage": "freeze", "exit_code": code}
-        if suite_and_metadata(cases)[1] != metadata:
+        if suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)[1] != metadata:
             raise RuntimeError("Evaluation source changed during freeze; no model call was started")
+        frozen = _read_bounded(batch, "manifest.json", limit=16 * 1024 * 1024)
+        if frozen.get("model_configuration", {}).get("catalog_binding") != catalog_binding:
+            raise ValueError("Frozen catalog binding differs from registered run")
         manifest_hash = _sha(_read_bytes(batch, "manifest.json", limit=16 * 1024 * 1024))
         receipt = _read_bytes(batch, "manifest.json.sha256", limit=1024).decode("ascii").strip()
         if receipt != manifest_hash:
@@ -418,6 +467,8 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         registry.transition(run_id, "running")
         started = True
         code = invoke(prefix + ["run", "--batch", run_id, "--workers", "1"])
+        if suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)[1] != metadata:
+            raise RuntimeError("Evaluation source or regression catalog changed during execution")
         sync_summary(registry, run_id, batch, definitions)
         finish("failed" if code else "completed", error=f"run exited {code}" if code else None)
         return {"run_id": run_id, "status": "failed" if code else "completed", "exit_code": code}

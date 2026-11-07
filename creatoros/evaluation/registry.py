@@ -468,3 +468,38 @@ class EvalRegistry:
             if not row:
                 raise RegistryError("Run not found", "not_found", 404)
             return self._run(db, row)
+
+    def catalog_runs(self, suite_id):
+        """List explicitly associated formal runs; never infer or merge coverage."""
+        _id(suite_id, "suite id")
+        with self._connection() as db:
+            if db is None:
+                return {"items": []}
+            items = []
+            rows = db.execute("SELECT r.*, q.payload AS round_payload FROM eval_runs r "
+                              "JOIN eval_rounds q ON q.id=r.round_id ORDER BY r.created_at DESC,r.id DESC")
+            for row in rows:
+                payload = json.loads(row["payload"])
+                binding = (payload.get("metadata") or {}).get("catalog_binding")
+                if not isinstance(binding, dict) or binding.get("catalog_suite_id") != suite_id:
+                    continue
+                selected, planned = binding.get("selected_instance_ids"), binding.get("planned_instance_ids")
+                if not isinstance(selected, list) or not isinstance(planned, list):
+                    continue
+                # Malformed or forged associations are not presented as coverage.
+                if (any(not isinstance(x, str) or not x for x in selected + planned)
+                        or len(set(planned)) != len(planned) or len(set(selected)) != len(selected)
+                        or not planned or not selected or not set(selected) <= set(planned)):
+                    continue
+                run = self._run(db, row)
+                round_data = json.loads(row["round_payload"])
+                kind = binding.get("selection_kind")
+                if kind not in {"complete", "partial"} or (kind == "complete" and set(selected) != set(planned)):
+                    kind = "unknown"
+                items.append({"round_id": row["round_id"], "round_title": round_data.get("title"),
+                              "run_id": row["id"], "suite_version": binding.get("catalog_suite_version"),
+                              "selection_kind": kind, "status": row["status"],
+                              "display_status": run.get("display_status", row["status"]),
+                              "created_at": row["created_at"], "planned_count": len(planned),
+                              "selected_count": len(selected), "membership_sha256": binding.get("membership_sha256")})
+            return {"items": items}

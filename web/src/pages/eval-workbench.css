@@ -77,6 +77,10 @@
 .ew-run-view { margin-top: 28px; }
 .ew-run-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; margin: 16px 0; color: var(--muted); font-size: 12px; }
 .ew-run-meta select { max-width: min(360px, 100%); }
+.ew-catalog-binding { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 12px 14px; margin: 0 0 16px; background: var(--surface); border-radius: 8px; }
+.ew-catalog-binding strong, .ew-catalog-binding small { display: block; overflow-wrap: anywhere; }
+.ew-catalog-binding strong { font-size: 13px; }
+.ew-catalog-binding small { margin-top: 6px; color: var(--muted); font-size: 11px; }
 .ew-case-layout { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 18px; align-items: start; }
 .ew-case-list, .ew-result-detail { border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); overflow: hidden; }
 .ew-case-list button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 8px; align-items: center; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; color: var(--ink); padding: 13px; }
@@ -95,6 +99,55 @@
 .ew-result-detail details { border-top: 1px solid var(--line); padding: 13px 0; }
 .ew-result-detail summary { cursor: pointer; font-size: 13px; }
 .ew-result-detail pre { padding: 12px; background: var(--surface); overflow: auto; max-height: 400px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.ec-intro { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 20px; }
+.ec-suite-list, .ec-case-list { border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); overflow: hidden; }
+.ec-suite { display: grid; grid-template-columns: minmax(0, 1fr) 95px 110px 18px; align-items: center; gap: 20px; width: 100%; padding: 20px; color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.ec-suite:last-child, .ec-case:last-child { border-bottom: 0; }
+.ec-suite:hover, .ec-case summary:hover { background: var(--surface); }
+.ec-suite-title strong, .ec-suite-title small, .ec-suite-count strong, .ec-suite-count small { display: block; overflow-wrap: anywhere; }
+.ec-suite-title strong { font-size: 15px; }
+.ec-suite-title small, .ec-suite-count small { color: var(--muted); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.ec-suite-count strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ec-back-row { margin-bottom: 18px; }
+.ec-detail { max-width: 1120px; }
+.ec-scope-warning { margin: 18px 0 0; color: var(--warning); font-size: 12px; }
+.ec-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 24px 0 0; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); }
+.ec-counts > div { padding: 18px 20px; min-width: 0; }
+.ec-counts > div + div { border-left: 1px solid var(--line); }
+.ec-counts span, .ec-counts strong, .ec-counts small { display: block; overflow-wrap: anywhere; }
+.ec-counts span, .ec-counts small { color: var(--muted); font-size: 11px; }
+.ec-counts strong { font-size: 23px; margin: 7px 0; font-variant-numeric: tabular-nums; }
+.ec-footnote { margin: 11px 0 26px; }
+.ec-search { display: block; max-width: 360px; color: var(--muted); font-size: 12px; }
+.ec-search input { display: block; width: 100%; margin-top: 7px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); color: var(--ink); font: inherit; }
+.ec-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ec-candidates > summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 12px 0; }
+.ec-list-section { margin: 26px 0; }
+.ec-list-section h3 { margin: 0; font-size: 15px; }
+.ec-case-list { margin-top: 12px; }
+.ec-run { display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; gap: 14px; align-items: center; width: 100%; padding: 15px 19px; background: transparent; color: var(--ink); border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.ec-run:last-child { border-bottom: 0; }
+.ec-run:hover { background: var(--surface); }
+.ec-run strong, .ec-run small { display: block; overflow-wrap: anywhere; }
+.ec-run strong { font-size: 13px; }
+.ec-run small { margin-top: 6px; color: var(--muted); font-size: 11px; }
+.ec-case { border-bottom: 1px solid var(--line); }
+.ec-case summary { list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; align-items: center; gap: 16px; padding: 14px 19px; cursor: pointer; }
+.ec-case summary::-webkit-details-marker { display: none; }
+.ec-case[open] summary > svg { transform: rotate(90deg); }
+.ec-case-main { min-width: 0; }
+.ec-case-main strong, .ec-case-main small { display: block; overflow-wrap: anywhere; }
+.ec-case-main strong { font-size: 13px; }
+.ec-case-main small { color: var(--muted); font-size: 11px; margin-top: 5px; }
+.ec-readiness { white-space: nowrap; padding: 4px 8px; border-radius: 5px; font-size: 11px; }
+.ec-readiness.is-enabled { background: var(--accent-soft); color: var(--accent-strong); }
+.ec-readiness.is-review { background: var(--warning-soft); color: var(--warning); }
+.ec-case-detail { padding: 0 19px 16px; font-size: 12px; line-height: 1.65; }
+.ec-case-detail p { overflow-wrap: anywhere; }
+.ec-case-detail dl { margin: 12px 0 0; display: grid; gap: 8px; }
+.ec-case-detail dl > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; }
+.ec-case-detail dt { color: var(--muted); }
+.ec-case-detail dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .ew-top { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
   .ew-top > div:first-child { flex: 1 1 100%; }
@@ -121,4 +174,13 @@
   .ew-case-layout { display: block; }
   .ew-case-list { margin-bottom: 16px; }
   .ew-run-meta label, .ew-run-meta select { width: 100%; }
+  .ec-suite { grid-template-columns: minmax(0, 1fr) auto 16px; gap: 12px; padding: 16px; }
+  .ec-suite-title { grid-column: 1 / -1; }
+  .ec-suite-count strong { font-size: 18px; }
+  .ec-suite > svg { justify-self: end; }
+  .ec-counts > div { padding: 14px 10px; }
+  .ec-counts strong { font-size: 19px; }
+  .ec-case summary { padding: 14px; gap: 8px; }
+  .ec-case-detail { padding: 0 14px 14px; }
+  .ec-case-detail dl > div { grid-template-columns: 70px minmax(0, 1fr); }
 }

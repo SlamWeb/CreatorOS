@@ -121,10 +121,16 @@ def main():
     verify_guard_version(manifest)
     from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
     guarded = validate(manifest, args.case)
+    from creatoros.evaluation.benchmark.local_dispatch_guard import VERSION as LOCAL_VERSION
+    local_guard = (manifest["model_configuration"].get("benchmark_guard") or {}).get("local_dispatch") == LOCAL_VERSION
     if args.case not in manifest["selected_case_ids"]:
         parser.error("Case is outside the frozen selection")
     if guarded:
         install_video_guard()
+    dispatch_guard = None
+    if local_guard:
+        from creatoros.evaluation.benchmark.local_dispatch_guard import install
+        dispatch_guard = install()
     dataset_path = frozen_dataset_path(args.manifest, manifest).resolve()
     if args.dataset.resolve() != dataset_path:
         parser.error("Trial must use the verified frozen dataset")
@@ -157,15 +163,21 @@ def main():
         return MeasuredProvider(api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-flash",
                                 timeout_seconds=90, max_retries=0, sink=sink)
     world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2],
-                           publication_client=DenyPublication() if guarded else None)
+                           publication_client=DenyPublication() if guarded else None,
+                           defer_background_start=local_guard)
     if guarded:
         from creatoros.integrations import video_production
         from creatoros.evaluation.benchmark.nonvideo_guard import deny_video
         if video_production.produce_video is not deny_video or not isinstance(world.app.state.publishing.client, DenyPublication):
             raise RuntimeError("Benchmark guards not installed")
-        write_json(root / "guard.json", {"policy": manifest["model_configuration"]["benchmark_guard"],
+        receipt = {"policy": manifest["model_configuration"]["benchmark_guard"],
             "case_id": case["id"], "video_dispatch_installed": True, "publication_client_installed": True,
-            "network_sandbox": False})
+            "network_sandbox": False}
+        if local_guard:
+            from creatoros.evaluation.benchmark.local_dispatch_guard import verify_installed
+            verify_installed(dispatch_guard, world.app)
+            receipt.update(local_dispatch_installed=True, background_services_deferred=True)
+        write_json(root / "guard.json", receipt)
     world.app.state.skill_iterations.provider_factory = lambda: MeasuredProvider(
         api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-v4-flash", timeout_seconds=180,
         reasoning_effort="high", max_retries=0, sink=sink, purpose="rsi")
@@ -471,6 +483,17 @@ def main():
         if guard_check is not None and guard_check["status"] != "passed" and error is None:
             error = {"kind": "GuardEvidenceError", "message": "Frozen guard evidence missing or mismatched", "stage": "guard_evidence"}
         scores = score_case(case, grade, semantic_judge)
+        if local_guard:
+            from creatoros.evaluation.benchmark.local_dispatch_guard import apply_gate, verify_installed
+            calls = evidence.get("calls") if error is None else None
+            dispatch_gate = dispatch_guard.score(calls, background_started=world.app.state.background_services_started)
+            try:
+                verify_installed(dispatch_guard, world.app)
+            except RuntimeError:
+                if dispatch_gate["status"] != "failed":
+                    dispatch_gate = {"id": "local_dispatch_guard", "status": "needs_review",
+                                     "detail": "Guard wiring or deferred background state no longer verifiable"}
+            apply_gate(scores, dispatch_gate)
         grade["diagnostic_status"] = grade["auto_status"]
         grade["auto_status"] = scores["program"]["status"]
         semantic_status = scores["semantic"]["status"]

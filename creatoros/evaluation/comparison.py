@@ -49,8 +49,8 @@ def compare_runs(baseline, candidate):
         elif reasons:
             why = "incompatible_run_contract"
         pairs.append({"case_id": case_id, "comparable": why is None, "reason": why,
-                      "baseline_status": left.get("status") if left else "not_run",
-                      "candidate_status": right.get("status") if right else "not_run",
+                      "baseline_status": left.get("status") if left else "missing_result",
+                      "candidate_status": right.get("status") if right else "missing_result",
                       "baseline_attempt": left.get("round_attempt") if left else None,
                       "candidate_attempt": right.get("round_attempt") if right else None})
 

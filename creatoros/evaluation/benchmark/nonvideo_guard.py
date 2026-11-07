@@ -6,18 +6,25 @@ POLICY = "nonvideo-no-publication-v1"
 COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接等同。"
 
 
-def policy(case_ids):
+def policy(case_ids, *, local_dispatch=False):
     selected = list(case_ids or [])
-    if not selected or len(selected) != len(set(selected)) or any(x not in ALLOWED_CASES for x in selected):
+    from .local_dispatch_guard import CASES, VERSION
+    allowed = CASES if local_dispatch else ALLOWED_CASES
+    if not selected or len(selected) != len(set(selected)) or any(x not in allowed for x in selected):
         raise ValueError("Nonvideo guard requires an explicit allowed subset; B47 is forbidden")
-    return {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}
+    result = {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}
+    if local_dispatch:
+        result["local_dispatch"] = VERSION
+    return result
 
 
 def validate(manifest, case_id=None):
     config = manifest["model_configuration"].get("benchmark_guard")
     if config is None:
         return False
-    if config != policy(manifest["selected_case_ids"]):
+    from .local_dispatch_guard import VERSION
+    local_dispatch = config.get("local_dispatch") == VERSION
+    if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch):
         raise ValueError("Frozen nonvideo guard policy or case selection differs")
     if case_id is not None and case_id not in config["case_ids"]:
         raise ValueError("Case is outside frozen nonvideo guard selection")
@@ -54,6 +61,8 @@ def evidence(manifest, case_id, root):
         receipt = json.loads((root / "guard.json").read_text(encoding="utf-8"))
         expected = {"policy": configured, "case_id": case_id, "video_dispatch_installed": True,
                     "publication_client_installed": True, "network_sandbox": False}
+        if configured.get("local_dispatch"):
+            expected.update(local_dispatch_installed=True, background_services_deferred=True)
         if receipt != expected:
             raise ValueError("guard receipt does not match frozen policy and case")
     except (OSError, ValueError, TypeError, KeyError) as error:

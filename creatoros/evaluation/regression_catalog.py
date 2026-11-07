@@ -1,0 +1,305 @@
+"""Read-only versioned regression views over frozen, independently identified cases.
+
+The catalog defines membership and conservative resource classification. It
+does not start evaluation, establish a sandbox, or turn a new fixture into an
+executable benchmark. A new adapter must be reviewed in code before it can be
+marked enabled.
+"""
+from __future__ import annotations
+
+import argparse
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import re
+
+from creatoros.evaluation.benchmark.manifest import _dataset, _reject_links
+from creatoros.evaluation.benchmark.natural_suite import canonical_digest
+from creatoros.evaluation.benchmark.suite_schema import CASE_ID
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json"
+_NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
+_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+_SHA = re.compile(r"^[0-9a-f]{64}$")
+_CLASS = {"routine", "heavy", "unknown"}
+
+
+def _canonical_sha(value):
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _source_path(root, relative):
+    if not isinstance(relative, str) or "\\" in relative:
+        raise ValueError("source path must be a repository-relative POSIX path")
+    parts = Path(relative).parts
+    if (len(parts) < 4 or parts[:2] != ("docs", "agent-eval") or
+            any(part in {".", ".."} for part in parts) or not relative.endswith(".json")):
+        raise ValueError("source path must be a JSON file under docs/agent-eval")
+    source = _reject_links(root / relative, root)
+    if not source.resolve().is_relative_to(root.resolve()):
+        raise ValueError("source path escaped repository")
+    return source
+
+
+def _adapter_cases(root):
+    """Local-dispatch policy is executable only for identical frozen base cases."""
+    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES, VERSION
+    if VERSION != "local-dispatch-v1":
+        raise ValueError("local dispatch adapter version differs")
+    path = _source_path(root, "docs/agent-eval/tool-calling-v1/cases.json")
+    doc = _dataset(path)
+    return {case["id"]: _canonical_sha(case) for case in doc["cases"] if case["id"] in CASES}
+
+
+def build_catalog(document, *, repo_root=ROOT):
+    """Validate a catalog document and resolve its versioned suite views.
+
+    `repo_root` enables isolated tests and explicit local extension tooling.
+    Source digests pin definitions; results and live-run records are separate.
+    """
+    root = Path(repo_root).absolute()
+    if not isinstance(document, dict) or document.get("schema_version") != "regression-catalog-v1":
+        raise ValueError("unsupported catalog schema")
+    if not isinstance(document.get("catalog_id"), str) or not _NAME.fullmatch(document["catalog_id"]):
+        raise ValueError("invalid catalog id")
+    if not isinstance(document.get("version"), str) or not _VERSION.fullmatch(document["version"]):
+        raise ValueError("invalid catalog version")
+    sources = document.get("sources")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("catalog requires sources")
+
+    instances, source_info, family_splits = {}, {}, {}
+    dataset_ids, namespaces = set(), set()
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError("invalid source")
+        name, dataset_id = source.get("namespace"), source.get("dataset_id")
+        if not isinstance(name, str) or not _NAME.fullmatch(name) or name in namespaces:
+            raise ValueError("duplicate or invalid source namespace")
+        if not isinstance(dataset_id, str) or not dataset_id or dataset_id in dataset_ids:
+            raise ValueError("duplicate or invalid source dataset id")
+        expected = source.get("canonical_sha256")
+        if not isinstance(expected, str) or not _SHA.fullmatch(expected):
+            raise ValueError("source requires a canonical SHA-256")
+        path = _source_path(root, source.get("path"))
+        try:
+            doc = _dataset(path)
+        except (KeyError, TypeError, IndexError) as error:
+            raise ValueError("source dataset is malformed") from error
+        if doc.get("dataset_id") != dataset_id or canonical_digest(doc) != expected:
+            raise ValueError("source identity or frozen digest differs")
+        selection = source.get("selection")
+        if selection == "all":
+            if "natural_selection_policy" in doc:
+                raise ValueError("natural placeholders cannot be selected")
+            selected = [case["id"] for case in doc["cases"]]
+        elif selection == "natural_eligible":
+            selected = doc.get("natural_selection_policy", {}).get("eligible_case_ids")
+        elif selection == "suite_eligible":
+            selected = doc.get("suite", {}).get("eligible_case_ids")
+        else:
+            raise ValueError("unsupported source selection")
+        if not isinstance(selected, list) or not selected or len(selected) != len(set(selected)):
+            raise ValueError("source selection must contain unique eligible IDs")
+        by_id = {case["id"]: case for case in doc["cases"]}
+        if any(identifier not in by_id for identifier in selected):
+            raise ValueError("selected case not present in source")
+        namespaces.add(name)
+        dataset_ids.add(dataset_id)
+        source_info[name] = {"source": source, "document": doc, "cases": by_id, "selected": set(selected)}
+        for case_id in selected:
+            if not CASE_ID.fullmatch(case_id):
+                raise ValueError("invalid case identity")
+            case = by_id[case_id]
+            family, split = case.get("family"), case.get("split")
+            if (not isinstance(family, str) or not family.strip() or split not in {"dev", "acceptance"}
+                    or not isinstance(case.get("title"), str) or not case["title"].strip()):
+                raise ValueError("case requires family and split")
+            if family in family_splits and family_splits[family] != split:
+                raise ValueError("case family crosses development and acceptance")
+            family_splits[family] = split
+            key = f"{name}:{case_id}"
+            if key in instances:
+                raise ValueError("duplicate case instance")
+            instances[key] = {"instance_id": key, "dataset_id": dataset_id, "case_id": case_id,
+                "title": case.get("title") or case_id, "family": family, "split": split, "scenario": case.get("scenario"),
+                "parent_instance_id": None, "source_path": source["path"],
+                "source_sha256": expected, "case_sha256": _canonical_sha(case),
+                "live_codex_declared": case.get("live_codex"),
+                "dependencies": ["DeepSeek 模型", "隔离测试世界与浏览器", "本地 ffmpeg / ffprobe 测试素材初始化"],
+                "side_effects": ["模型调用可能产生费用", "尚须逐题确认其他外部副作用"],
+                "resource_class": "unknown", "execution_readiness": "requires_review",
+                "adapter": None, "reason": "尚未核实真实调用链、执行资格及外部副作用。",
+                "classification_evidence": [source["path"]]}
+
+    for name, info in source_info.items():
+        parent = info["source"].get("parent_namespace")
+        if parent is not None and (not isinstance(parent, str) or not _NAME.fullmatch(parent)):
+            raise ValueError("invalid source parent")
+        seen = {name}
+        cursor = parent
+        while cursor is not None:
+            if cursor in seen or cursor not in source_info:
+                raise ValueError("unknown or cyclic source parent")
+            seen.add(cursor)
+            cursor = source_info[cursor]["source"].get("parent_namespace")
+        if parent is None:
+            if info["source"]["selection"] == "natural_eligible":
+                raise ValueError("natural variants require an explicit parent source")
+            continue
+        if info["source"]["selection"] == "natural_eligible":
+            policy = info["document"]["natural_selection_policy"]
+            parent_source = source_info[parent]["source"]
+            if (policy.get("parent_dataset_id") != parent_source["dataset_id"]
+                    or policy.get("parent_canonical_sha256") != parent_source["canonical_sha256"]):
+                raise ValueError("natural source parent identity or digest differs")
+        for case_id in info["selected"]:
+            child_key, parent_key = f"{name}:{case_id}", f"{parent}:{case_id}"
+            if parent_key not in instances:
+                raise ValueError("case parent is absent from catalog")
+            child, original = instances[child_key], instances[parent_key]
+            if child["family"] != original["family"] or child["split"] != original["split"]:
+                raise ValueError("variant differs from parent family or split")
+            child["parent_instance_id"] = parent_key
+
+    classifications = document.get("classifications", {})
+    if not isinstance(classifications, dict):
+        raise ValueError("invalid classifications")
+    classifications = deepcopy(classifications)
+    groups = document.get("classification_groups", [])
+    if not isinstance(groups, list):
+        raise ValueError("invalid classification groups")
+    group_ids = set()
+    for group in groups:
+        if not isinstance(group, dict) or set(group) - {"id", "resource_class", "reason", "evidence_paths", "instances", "dependencies", "side_effects"}:
+            raise ValueError("invalid classification group")
+        group_id, members = group.get("id"), group.get("instances")
+        if not isinstance(group_id, str) or not _NAME.fullmatch(group_id) or group_id in group_ids:
+            raise ValueError("duplicate or invalid classification group")
+        group_ids.add(group_id)
+        if not isinstance(members, list) or not members or any(not isinstance(x, str) for x in members) or len(members) != len(set(members)):
+            raise ValueError("invalid classification members")
+        paths = group.get("evidence_paths")
+        if not isinstance(paths, list) or not paths or any(not isinstance(p, str) or "\\" in p or Path(p).is_absolute()
+            or any(part in {".", ".."} for part in Path(p).parts) for p in paths):
+            raise ValueError("classification requires safe repository evidence paths")
+        for key in ("dependencies", "side_effects"):
+            if key in group and (not isinstance(group[key], list) or any(not isinstance(x, str) or not x for x in group[key])):
+                raise ValueError("invalid classification notes")
+        for identity in members:
+            if identity in classifications:
+                raise ValueError("duplicate classification")
+            classifications[identity] = {key: deepcopy(value) for key, value in group.items() if key not in {"id", "instances"}}
+    approved_adapter_cases = None
+    for identity, classification in classifications.items():
+        if identity not in instances or not isinstance(classification, dict):
+            raise ValueError("classification references unknown instance")
+        if set(classification) - {"resource_class", "reason", "adapter", "evidence_paths", "dependencies", "side_effects"}:
+            raise ValueError("unsupported classification field")
+        resource = classification.get("resource_class")
+        reason = classification.get("reason")
+        if resource not in _CLASS or not isinstance(reason, str) or not reason.strip():
+            raise ValueError("classification requires resource and evidence reason")
+        item = instances[identity]
+        item.update(resource_class=resource, reason=f"{reason}（{item['case_id']}：{item['title']}；场景 {item['scenario']}）")
+        item["classification_evidence"].extend(classification.get("evidence_paths", []))
+        item["dependencies"].extend(classification.get("dependencies", []))
+        item["side_effects"].extend(classification.get("side_effects", []))
+        if resource == "heavy":
+            item["dependencies"].append("重资源：生产、Codex 或真实联网（以题目为准）")
+            item["side_effects"].append("可能触发外部模型、素材生产或联网，需逐题核实")
+        adapter = classification.get("adapter")
+        if adapter is not None:
+            if adapter != "local-dispatch-v1" or resource != "routine" or not identity.startswith("base:"):
+                raise ValueError("unrecognized or ineligible execution adapter")
+            if approved_adapter_cases is None:
+                approved_adapter_cases = _adapter_cases(root)
+            if approved_adapter_cases.get(item["case_id"]) != item["case_sha256"]:
+                raise ValueError("adapter does not authorize exact case definition")
+            item.update(adapter=adapter, execution_readiness="enabled")
+
+    suites = document.get("suites")
+    if not isinstance(suites, list) or not suites:
+        raise ValueError("catalog requires suites")
+    resolved, suite_ids = [], set()
+    for suite in suites:
+        if not isinstance(suite, dict) or not isinstance(suite.get("id"), str) or not _NAME.fullmatch(suite["id"]) or suite["id"] in suite_ids:
+            raise ValueError("duplicate or invalid suite id")
+        suite_ids.add(suite["id"])
+        if not isinstance(suite.get("version"), str) or not _VERSION.fullmatch(suite["version"]):
+            raise ValueError("suite version required")
+        if not isinstance(suite.get("title"), str) or not suite["title"].strip():
+            raise ValueError("suite title required")
+        if not isinstance(suite.get("description", ""), str):
+            raise ValueError("suite description must be text")
+        if suite.get("include_all") is True:
+            if "instances" in suite or "include_resource_classes" in suite:
+                raise ValueError("suite cannot combine membership selectors")
+            selected = list(instances)
+        elif "include_resource_classes" in suite:
+            classes = suite["include_resource_classes"]
+            if ("instances" in suite or not isinstance(classes, list) or not classes
+                    or any(not isinstance(value, str) or value not in _CLASS for value in classes)
+                    or len(classes) != len(set(classes))):
+                raise ValueError("invalid resource class selector")
+            selected = [key for key, item in instances.items() if item["resource_class"] in classes]
+        else:
+            selected = suite.get("instances")
+        if not isinstance(selected, list) or not selected or any(not isinstance(x, str) for x in selected):
+            raise ValueError("suite membership must be a nonempty list")
+        if len(selected) != len(set(selected)) or any(key not in instances for key in selected):
+            raise ValueError("suite has duplicate or unknown instance")
+        cases = [deepcopy(instances[key]) for key in selected]
+        candidates = ([deepcopy(item) for key, item in instances.items()
+                       if key not in selected and item["resource_class"] != "heavy"]
+                      if suite.get("show_unclassified") is True else [])
+        digest_input = {"id": suite["id"], "version": suite["version"],
+                        "cases": [{key: item[key] for key in ("instance_id", "case_sha256", "resource_class", "execution_readiness", "adapter")} for item in cases],
+                        "candidates": [{key: item[key] for key in ("instance_id", "case_sha256", "resource_class", "execution_readiness", "adapter")} for item in candidates]}
+        resolved.append({"id": suite["id"], "version": suite["version"], "title": suite["title"],
+                         "membership_sha256": _canonical_sha(digest_input),
+                         "description": suite.get("description", ""), "cases": cases, "candidates": candidates,
+                         "scope_status": "partial" if candidates or any(x["execution_readiness"] != "enabled" for x in cases) else "complete",
+                         "counts": {"defined": len(cases), "enabled": sum(x["execution_readiness"] == "enabled" for x in cases),
+                                    "requires_review": sum(x["execution_readiness"] != "enabled" for x in cases),
+                                    "routine": sum(x["resource_class"] == "routine" for x in cases),
+                                    "heavy": sum(x["resource_class"] == "heavy" for x in cases),
+                                    "unknown_resource": sum(x["resource_class"] == "unknown" for x in cases),
+                                    "pending_candidates": len(candidates),
+                                    "unclassified_candidates": sum(x["resource_class"] == "unknown" for x in candidates)}})
+    return {"schema_version": document["schema_version"], "catalog_id": document["catalog_id"],
+            "version": document["version"], "catalog_sha256": _canonical_sha(document),
+            "catalog_source": deepcopy(document), "suites": resolved}
+
+
+def catalog(manifest_path=DEFAULT_MANIFEST, *, repo_root=ROOT):
+    path = Path(manifest_path)
+    root = Path(repo_root).absolute()
+    if not path.is_absolute():
+        path = root / path
+    checked = _reject_links(path, root)
+    if not checked.resolve().is_relative_to(root.resolve()):
+        raise ValueError("catalog path escaped repository")
+    return build_catalog(json.loads(checked.read_text(encoding="utf-8-sig")), repo_root=root)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--summary", action="store_true", help="Show suite counts and frozen identities only")
+    args = parser.parse_args()
+    data = catalog(args.manifest)
+    if args.summary:
+        data = {key: value for key, value in data.items() if key != "catalog_source"}
+        data = {**data, "suites": [{key: suite[key] for key in
+                ("id", "version", "title", "membership_sha256", "scope_status", "counts")}
+                for suite in data["suites"]]}
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

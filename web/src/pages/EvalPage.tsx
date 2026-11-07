@@ -2,17 +2,22 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { RefreshCw, ChevronRight } from "lucide-react";
 import { registryApi, type EvalComparison, type EvalResult, type EvalRun } from "../features/eval/registry";
+import { loadCatalog } from "../features/eval/catalog";
 import { LegacyEvalPage } from "./LegacyEvalPage";
+import { EvalSuites } from "./EvalSuites";
 import "./eval-workbench.css";
 
 const options = {retry: false, refetchOnWindowFocus: false};
 const labels: Record<string, string> = {
   passed: "通过", failed: "失败", needs_review: "待复核", not_run: "未运行", unknown: "未知",
+  pending_result: "暂无结果", unknown_result: "暂无结果/状态未知", missing_result: "未记录/未确认",
   registered: "已登记", freezing: "冻结中", running: "运行中", completed: "已完成", interrupted: "已中断",
   merged: "已合并", unmerged: "未合并", developing: "开发中", development: "开发中", draft: "开发中",
 };
 const label = (value: string | null | undefined) => value ? (labels[value] ?? value) : "未记录";
 const errorText = (value: unknown) => value instanceof Error ? value.message : "读取失败";
+const missingResult = (run: EvalRun) => run.display_status === "unknown" || run.status === "unknown"
+  ? "unknown_result" : ["registered", "freezing", "running"].includes(run.status) ? "pending_result" : "missing_result";
 const dateText = (value?: string | null) => value ? value.replace("T", " ").replace(/\.\d+Z$/, " UTC").replace(/Z$/, " UTC") : "未记录";
 const latestFirst = (items: EvalRun[]) => [...items].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 const pretty = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -60,7 +65,7 @@ function ChangeRequirements({run}: {run: EvalRun | undefined}) {
 }
 
 function ResultDetails({run, item}: {run: EvalRun; item: EvalResult | undefined}) {
-  if (!item) return <div className="ew-result-detail"><p>此题尚无结果。</p></div>;
+  if (!item) return <div className="ew-result-detail"><p>{label(missingResult(run))}。</p></div>;
   const metrics = item.metrics ?? {};
   const evidence = item.evidence ?? {};
   const actualRequests = Array.isArray(evidence.actual_user_requests) ? evidence.actual_user_requests.filter((value): value is string => typeof value === "string" && value.length > 0) : [];
@@ -80,17 +85,35 @@ function ResultDetails({run, item}: {run: EvalRun; item: EvalResult | undefined}
   </div>;
 }
 
-function RunView({run, runs, caseId, onRun, onCase}: {run: EvalRun; runs: EvalRun[]; caseId: string; onRun: (id: string) => void; onCase: (id: string) => void}) {
+function RunCatalogBinding({run, onCatalog}: {run: EvalRun; onCatalog: (suiteId: string) => void}) {
+  const raw = run.metadata?.catalog_binding;
+  const binding = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+  const id = typeof binding?.catalog_suite_id === "string" ? binding.catalog_suite_id : "";
+  const version = typeof binding?.catalog_suite_version === "string" ? binding.catalog_suite_version : "";
+  const catalog = useQuery({queryKey: ["eval-catalog"], queryFn: ({signal}) => loadCatalog(signal), enabled: !!id, ...options});
+  if (!binding || !id) return null;
+  const suite = catalog.data?.suites.find(item => item.id === id && item.version === version);
+  const planned = Array.isArray(binding.planned_instance_ids) ? binding.planned_instance_ids.length : null;
+  const selected = Array.isArray(binding.selected_instance_ids) ? binding.selected_instance_ids.length : null;
+  const scope = binding.selection_kind === "complete" ? "完整范围" : binding.selection_kind === "partial" ? "范围不完整" : "范围未记录";
+  return <section className="ew-catalog-binding" aria-label="所属回归集">
+    <span><strong>{suite?.title ?? id}</strong><small>版本 {version || "未记录"} · {scope} · {selected === null || planned === null ? "数量未记录" : `${selected} / ${planned} 题`}</small></span>
+    {suite && <button type="button" className="ew-link" onClick={() => onCatalog(id)}>查看题集</button>}
+  </section>;
+}
+
+function RunView({run, runs, caseId, onRun, onCase, onCatalog}: {run: EvalRun; runs: EvalRun[]; caseId: string; onRun: (id: string) => void; onCase: (id: string) => void; onCatalog: (id: string) => void}) {
   const item = run.results.find(result => result.case_id === caseId);
   const unplanned = run.results.filter(result => !run.planned_cases.includes(result.case_id));
   return <section className="ew-run-view" aria-label="运行详情">
     <div className="ew-section-head"><div><p className="ew-eyebrow">测试集</p><h2>{run.suite_id}</h2></div><button type="button" className="ew-link" onClick={() => onRun("")}>返回测试结果</button></div>
     <div className="ew-run-meta"><label>运行记录 <select aria-label="运行记录" value={run.id} onChange={e => onRun(e.target.value)}>{runs.map((entry, index) => <option key={entry.id} value={entry.id}>{index === 0 ? "最新 · " : ""}{dateText(entry.created_at)} · {label(entry.display_status ?? entry.status)} · {entry.id}</option>)}</select></label>
       <span>题集版本 {run.suite_version}</span><span>计划 {run.planned_cases.length} 题 · 已记录 {run.results.length} 题</span><Status value={run.display_status ?? run.status} /></div>
+    <RunCatalogBinding run={run} onCatalog={onCatalog} />
     {run.display_status === "unknown" && run.status !== "unknown" && <p className="ew-muted">运行状态未确认，最后登记状态：{label(run.status)}；不会自动重试。</p>}
     {runs.length > 1 && <p className="ew-muted">本测试集有 {runs.length} 次运行；先前结果保留，最近一次不代表稳定通过。</p>}
     <div className="ew-case-layout"><div className="ew-case-list" aria-label="题目列表">
-      {run.planned_cases.map(id => {const result = run.results.find(entry => entry.case_id === id); return <button key={id} type="button" className={caseId === id ? "is-selected" : ""} aria-current={caseId === id ? "true" : undefined} onClick={() => onCase(id)}><span>{id}</span><Status value={result?.status ?? "not_run"} /><ChevronRight size={16} aria-hidden="true" /></button>;})}
+      {run.planned_cases.map(id => {const result = run.results.find(entry => entry.case_id === id); return <button key={id} type="button" className={caseId === id ? "is-selected" : ""} aria-current={caseId === id ? "true" : undefined} onClick={() => onCase(id)}><span>{id}</span><Status value={result?.status ?? missingResult(run)} /><ChevronRight size={16} aria-hidden="true" /></button>;})}
       {unplanned.length > 0 && <p role="alert">存在 {unplanned.length} 条计划外结果，请核对运行记录。</p>}
       {!run.planned_cases.length && <p className="ew-muted">本次未记录计划题目。</p>}
     </div><div>{caseId ? <ResultDetails run={run} item={item} /> : <p className="ew-muted ew-choose-case">选择一道题，查看结果和证据。</p>}</div></div>
@@ -121,7 +144,7 @@ function Workbench() {
   const comparison = useQuery({queryKey: ["eval-registry", "compare", baselineRunId, candidateId], queryFn: ({signal}) => registryApi.compare(baselineRunId, candidateId, signal), enabled: !!baselineRun && !!candidateRun && baselineRunId !== candidateId, ...options});
   const refresh = () => {void rounds.refetch(); if (roundId) void detail.refetch(); if (baseId && baseId !== roundId) void baseline.refetch(); if (baselineRun && candidateRun) void comparison.refetch();};
   return <main className="eval-hub">
-    <header className="ew-top"><div><p className="ew-eyebrow">CREATOROS / EVAL</p><h1>评测工作台</h1></div><div className="ew-top-actions"><button type="button" className="ew-link" onClick={() => update({view: "history", round: null, base: null, run: null, case: null})}>历史 Benchmark</button><button type="button" className="ew-refresh" onClick={refresh} disabled={rounds.isFetching || detail.isFetching}><RefreshCw size={15} />刷新</button></div></header>
+    <header className="ew-top"><div><p className="ew-eyebrow">CREATOROS / EVAL</p><h1>评测工作台</h1></div><div className="ew-top-actions"><button type="button" className="ew-link" onClick={() => update({view: "suites", suite: null})}>回归集</button><button type="button" className="ew-link" onClick={() => update({view: "history", round: null, base: null, run: null, case: null})}>历史 Benchmark</button><button type="button" className="ew-refresh" onClick={refresh} disabled={rounds.isFetching || detail.isFetching}><RefreshCw size={15} />刷新</button></div></header>
     {rounds.isPending && <p role="status" className="ew-message">正在读取评测记录…</p>}
     {rounds.isError && <div role="alert" className="ew-message"><p>{errorText(rounds.error)}</p><button type="button" onClick={() => void rounds.refetch()}>重试</button></div>}
     {rounds.data && rounds.data.items.length === 0 && <div className="ew-empty"><h2>还没有正式评测记录</h2><p>登记并运行正式评测后，结果会显示在这里。</p><button type="button" className="ew-link" onClick={() => update({view: "history"})}>查看历史 Benchmark <ChevronRight size={15} /></button></div>}
@@ -134,7 +157,7 @@ function Workbench() {
         {detail.isPending && <p role="status" className="ew-message">正在读取轮次…</p>}
         {detail.isError && <div role="alert" className="ew-message"><p>{errorText(detail.error)}</p><button type="button" onClick={() => void detail.refetch()}>重试</button></div>}
         {selected && <><div className="ew-title"><div><p className="ew-eyebrow">更新轮次 / {selected.id}</p><h2>{selected.title}</h2><p>{selected.change_summary || "未记录改动说明。"}</p><p className="ew-muted">版本 {selected.code_version || "未记录"} · {selected.branch || "未记录分支"} · {dateText(selected.created_at)}</p></div><Status value={selected.merge_status} /></div>
-          <div className="ew-notice"><strong>整体结论未提供</strong><p>请查看各测试集的实际结果及未运行项。</p></div>
+          <div className="ew-notice"><strong>整体结论未提供</strong><p>请查看各测试集的实际结果及尚未确认项。</p></div>
           <ChangeRequirements run={ordered[0]} />
           <section className="ew-compare" aria-label="版本比较"><div className="ew-section-head"><h2>与基准比较</h2><label>对比 <select aria-label="选择对比版本" value={baseId} onChange={e => update({base: e.target.value, base_run: null})}><option value="">选择基准</option>{baseId && !rounds.data.items.some(item => item.id === baseId) && <option value={baseId}>基准不可用 · {baseId}</option>}{rounds.data.items.filter(item => item.id !== roundId).map(item => <option key={item.id} value={item.id}>{item.title} · {item.branch || "未记录分支"}</option>)}</select></label></div>
             {!baseId ? <p className="ew-muted">没有记录上一轮，请选择对比版本。</p> : baseId === roundId ? <p role="alert">请选择不同的对比版本。</p> : baseline.isPending ? <p role="status" className="ew-muted">正在读取基准…</p> : baseline.isError ? <p role="alert">基准读取失败：{errorText(baseline.error)} <button type="button" onClick={() => void baseline.refetch()}>重试</button></p> : baseline.data && <>
@@ -146,8 +169,8 @@ function Workbench() {
               </>}
             </>}
           </section>
-          {runId ? run ? <RunView run={run} runs={ordered.filter(entry => entry.suite_id === run.suite_id)} caseId={caseId} onRun={id => update({run: id || null, case: null})} onCase={id => update({case: id})} /> : <div role="alert" className="ew-message">此轮没有该运行记录。<button type="button" onClick={() => update({run: null, case: null})}>返回测试结果</button></div> : <section aria-label="测试结果"><div className="ew-section-head"><h2>测试结果</h2><span className="ew-muted">{ordered.length} 次运行</span></div>
-            {grouped.size === 0 ? <div className="ew-empty ew-small"><p>这一轮尚无已登记的运行。</p></div> : <div className="ew-suites">{Array.from(grouped.entries()).map(([suite, entries]) => {const latest = entries[0]; const counts = latest.planned_cases.reduce<Record<string, number>>((acc, id) => {const key = latest.results.find(result => result.case_id === id)?.status ?? "not_run"; acc[key] = (acc[key] ?? 0) + 1; return acc;}, {}); return <button type="button" key={suite} className="ew-suite" onClick={() => update({run: latest.id, case: null})}><span className="ew-suite-name"><strong>{suite}</strong><small>最新运行 · {entries.length} 次记录 · 版本 {latest.suite_version}</small></span><span className="ew-suite-count">{Object.entries(counts).map(([key, count]) => `${count} ${label(key)}`).join(" · ") || "未记录题目"}</span><Status value={latest.display_status ?? latest.status} /><ChevronRight size={16} aria-hidden="true" /></button>;})}</div>}
+          {runId ? run ? <RunView run={run} runs={ordered.filter(entry => entry.suite_id === run.suite_id)} caseId={caseId} onRun={id => update({run: id || null, case: null})} onCase={id => update({case: id})} onCatalog={id => update({view: "suites", suite: id})} /> : <div role="alert" className="ew-message">此轮没有该运行记录。<button type="button" onClick={() => update({run: null, case: null})}>返回测试结果</button></div> : <section aria-label="测试结果"><div className="ew-section-head"><h2>测试结果</h2><span className="ew-muted">{ordered.length} 次运行</span></div>
+            {grouped.size === 0 ? <div className="ew-empty ew-small"><p>这一轮尚无已登记的运行。</p></div> : <div className="ew-suites">{Array.from(grouped.entries()).map(([suite, entries]) => {const latest = entries[0]; const counts = latest.planned_cases.reduce<Record<string, number>>((acc, id) => {const key = latest.results.find(result => result.case_id === id)?.status ?? missingResult(latest); acc[key] = (acc[key] ?? 0) + 1; return acc;}, {}); return <button type="button" key={suite} className="ew-suite" onClick={() => update({run: latest.id, case: null})}><span className="ew-suite-name"><strong>{suite}</strong><small>最新运行 · {entries.length} 次记录 · 版本 {latest.suite_version}</small></span><span className="ew-suite-count">{Object.entries(counts).map(([key, count]) => `${count} ${label(key)}`).join(" · ") || "未记录题目"}</span><Status value={latest.display_status ?? latest.status} /><ChevronRight size={16} aria-hidden="true" /></button>;})}</div>}
           </section>}
         </>}
       </div>
@@ -157,5 +180,6 @@ function Workbench() {
 
 export function EvalPage() {
   const [params] = useSearchParams();
+  if (params.get("view") === "suites") return <EvalSuites />;
   return params.get("view") === "history" || params.has("batch") || (params.has("case") && !params.has("round") && !params.has("run")) ? <LegacyEvalPage /> : <Workbench />;
 }

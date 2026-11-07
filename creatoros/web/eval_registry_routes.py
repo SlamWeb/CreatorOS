@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from creatoros.evaluation.comparison import compare_runs
+from creatoros.evaluation.regression_catalog import catalog
 from creatoros.evaluation.registry import RegistryError
 from .observation import clean
 
@@ -18,13 +19,25 @@ def eval_registry_routes(registry):
         except RegistryError as error:
             return JSONResponse({"error": {"code": error.code, "message": str(error)}},
                                 status_code=error.status, headers={"Cache-Control": "no-store"})
-        except (OSError, sqlite3.Error):
+        except (OSError, sqlite3.Error, ValueError, TypeError):
             return JSONResponse({"error": {"code": "registry_unavailable", "message": "评测记录暂不可用。"}},
                                 status_code=503, headers={"Cache-Control": "no-store"})
 
     @router.get("/rounds")
     def rounds():
         return respond(registry.rounds)
+
+    @router.get("/suites")
+    def suites():
+        try:
+            return JSONResponse(clean(catalog()), headers={"Cache-Control": "no-store"})
+        except (OSError, ValueError, TypeError, KeyError):
+            return JSONResponse({"error": {"code": "catalog_unavailable", "message": "评测集目录无法读取或校验。"}},
+                                status_code=503, headers={"Cache-Control": "no-store"})
+
+    @router.get("/suites/{suite_id}/runs")
+    def suite_runs(suite_id: str):
+        return respond(registry.catalog_runs, suite_id)
 
     @router.get("/rounds/{round_id}")
     def round_detail(round_id: str):

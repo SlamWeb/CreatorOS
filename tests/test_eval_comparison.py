@@ -25,6 +25,7 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(out["outcomes"], {"paired_decidable": 1, "baseline_passed": 0, "candidate_passed": 1})
         self.assertEqual(out["metrics"]["input_tokens"], {"paired_cases": 1, "baseline_mean": 20, "candidate_mean": 10})
         self.assertEqual(out["cases"][2]["reason"], "missing_result")
+        self.assertEqual(out["cases"][2]["baseline_status"], "missing_result")
 
     def test_incompatible_contract_or_case_never_produces_score_deltas(self):
         a = run("a", [result("A", "passed", 1)])

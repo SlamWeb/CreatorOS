@@ -191,6 +191,24 @@ class ToolCallingRegistryTests(unittest.TestCase):
         self.assertEqual(result["evidence"]["execution_status"], "failed")
         self.assertEqual(result["evidence"]["observed_error"], "server_start")
 
+    def test_missing_guard_does_not_hide_proven_critical_or_program_failures(self):
+        batch = self.root / "batch"
+        batch.mkdir()
+        definition = {**self.definition, "scoring": {"program_checks": [{"id": "outcome_01", "critical": False}]}}
+        row = {"status": "needs_review", "execution_status": "completed",
+               "observed_error": "guard_evidence_missing_or_mismatched", "scores": {
+                   "critical_status": "failed", "critical_checks": [{"id": "local_dispatch_guard", "status": "failed"}]}}
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition)["status"], "failed")
+        row["execution_status"] = "failed"
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition)["status"], "failed")
+        row["execution_status"] = "completed"
+        row["scores"] = {"critical_status": "passed", "program": {"items": [{"id": "outcome_01", "status": "failed"}]}}
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition)["status"], "failed")
+        row["execution_status"] = "failed"
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition)["status"], "unknown")
+        row["scores"] = {"critical_status": "failed", "critical_checks": [{"id": "browser_completed", "status": "failed"}]}
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition)["status"], "unknown")
+
     def test_empty_request_aggregate_is_not_zero_actual_usage(self):
         batch = self.root / "batch"
         record = batch / "records" / ("a" * 32)

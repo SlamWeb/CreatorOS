@@ -17,7 +17,7 @@ REPO = Path(__file__).resolve().parents[3]
 DATASET = REPO / "docs/agent-eval/benchmark-v2/cases.json"
 
 
-def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
+def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dispatch=False, catalog_binding=None):
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
     from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION
@@ -47,7 +47,10 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False):
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
     if nonvideo_guard:
         from creatoros.evaluation.benchmark.nonvideo_guard import policy
-        configuration["benchmark_guard"] = policy(case_ids)
+        configuration["benchmark_guard"] = policy(case_ids, local_dispatch=local_dispatch)
+    if catalog_binding is not None:
+        from creatoros.evaluation.regression_runner import validate_binding
+        configuration.update(validate_binding(case_ids, catalog_binding))
     manifest = freeze_manifest(root / "manifest.json", dataset_path, pricing=pricing,
                                model_configuration=configuration, case_ids=case_ids)
     return manifest
@@ -171,20 +174,36 @@ def main():
     parser.add_argument("--dataset", type=Path, help="Dataset for freeze; run/report use the frozen dataset")
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
+    parser.add_argument("--local-dispatch-guard", action="store_true", help="Freeze local-only Agent dispatch guard with background workers disabled")
+    parser.add_argument("--catalog-binding", help="JSON frozen suite identity; only for explicit regression freeze")
+    parser.add_argument("--catalog-binding-file", type=Path, help="UTF-8 JSON frozen suite identity for large catalogs")
     args = parser.parse_args()
     if not args.batch or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in args.batch):
         parser.error("Use a simple immutable batch name")
     root = REPO / "data/agent-benchmark-v2" / args.batch
     if args.action == "freeze":
+        if args.catalog_binding and args.catalog_binding_file:
+            parser.error("Choose one catalog binding input")
+        if args.local_dispatch_guard and not args.nonvideo_guard:
+            parser.error("Local dispatch requires the nonvideo guard")
         if args.nonvideo_guard:
             from creatoros.evaluation.benchmark.nonvideo_guard import policy
-            policy(args.cases.split(",") if args.cases else None)
+            policy(args.cases.split(",") if args.cases else None, local_dispatch=args.local_dispatch_guard)
         root.mkdir(parents=True, exist_ok=False)
-        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None, nonvideo_guard=args.nonvideo_guard)
+        raw_binding = args.catalog_binding
+        if args.catalog_binding_file:
+            with args.catalog_binding_file.open("rb") as stream:
+                data = stream.read(1024 * 1024 + 1)
+            if len(data) > 1024 * 1024:
+                parser.error("Catalog binding exceeds size limit")
+            raw_binding = data.decode("utf-8")
+        binding = json.loads(raw_binding) if raw_binding else None
+        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None, nonvideo_guard=args.nonvideo_guard, local_dispatch=args.local_dispatch_guard,
+                          catalog_binding=binding)
         print(json.dumps({"batch": args.batch, "selected_cases": manifest["selected_case_ids"],
                           "frozen_files": len(manifest["source_hashes"]), "path": str(root)}, ensure_ascii=False))
     else:
-        if args.nonvideo_guard or args.cases:
+        if args.nonvideo_guard or args.local_dispatch_guard or args.catalog_binding or args.catalog_binding_file or args.cases:
             parser.error("Guard and case selection must be frozen, not changed at run/report time")
         from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
         from creatoros.evaluation.benchmark.report import summarize_batch
