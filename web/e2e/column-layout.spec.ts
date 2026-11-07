@@ -9,9 +9,20 @@ test("column navigation remains usable on desktop and mobile", async ({ page, re
   const series = await seriesResponse.json();
   await page.goto(`/workspace?creator=${account.id}&series=${series.id}`);
   await expect(page.getByRole("heading", { name: "测试栏目", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "运营指令" })).toBeHidden();
+  const inbox = page.getByRole("button", { name: "任务", exact: true });
+  await inbox.click();
+  await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭任务" }).click();
+  await expect(inbox).toBeFocused();
+  await page.keyboard.press("Control+k");
+  await expect(page.getByRole("dialog", { name: "运营指令" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭运营指令" }).click();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Skill", exact: true })).toBeVisible();
   await expect(page.locator("main")).toHaveCount(1);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "测试栏目", exact: true })).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "跳到正文" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -20,6 +31,10 @@ test("column navigation remains usable on desktop and mobile", async ({ page, re
   await expect(page.getByRole("heading", { name: "测试栏目", exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(inbox).toBeVisible();
+  await inbox.click();
+  await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭任务" }).click();
   await expect(page.getByRole("link", { name: "Skill", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: /^账号与栏目 ·/ });
   await toggle.click();
