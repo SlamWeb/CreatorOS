@@ -175,7 +175,7 @@ export function WorkspacePage() {
         onCreate={beginNewSeries} />
       </>}
       </>}
-      {series && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series} accountName={account?.display_name}
+      {series && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
         skills={skills.data?.items ?? []} onInspectSkill={inspectSkill}
         onDiscuss={discuss} />}

@@ -82,8 +82,6 @@
   .column-side-navigation .nav-item.active { background: #e7eef9; color: #174f91; }
   .column-workspace .workspace:has(.column-side-navigation) .workspace-main { padding: 34px clamp(28px, 3vw, 48px) 80px; }
 }
-.column-context { margin: 0 0 10px; color: #626b78; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
-.column-context span { padding: 0 5px; color: #a3abb6; }
 .series-content-section .workspace-title-group h1 { font-size: clamp(28px, 2.5vw, 36px); letter-spacing: -.035em; }
 .series-content-section .workspace-bound-skills { margin-top: 10px; color: #626b78; font-size: 13px; }
 .series-content-section .library-heading { gap: 24px; margin-bottom: 32px; }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronsUpDown, Folder, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, GalleryVerticalEnd, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
 import type { CreatorDirectoryItem, SeriesView } from "../api/types";
 import { UnseenDot } from "./TaskInbox";
 import { WorkspaceDialog } from "./WorkspaceDialog";
@@ -41,7 +41,7 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
     <nav className="account-nav-series" aria-label="当前账号的栏目">
       {matchingSeries.map(item => <button type="button" key={item.id} className={`rail-series${selectedSeriesId === item.id ? " active" : ""}`}
         aria-current={selectedSeriesId === item.id ? "page" : undefined} aria-label={item.name} onClick={() => onSelectSeries(item.id)}>
-        <Folder size={15} aria-hidden="true" /><span title={item.name}>{item.name}</span>{hasUnseen(item.id) && <UnseenDot label="栏目有未查看内容" />}
+        <GalleryVerticalEnd size={15} aria-hidden="true" /><span title={item.name}>{item.name}</span>{hasUnseen(item.id) && <UnseenDot label="栏目有未查看内容" />}
       </button>)}
       {!matchingSeries.length && <p className="account-nav-empty">{seriesSearch ? "没有匹配的栏目" : "还没有栏目"}</p>}
     </nav>
@@ -61,7 +61,7 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
         {!matchingAccounts.length && !accountsLoading && !accountsIncomplete && <p className="account-nav-empty">{accounts.length ? "没有匹配的账号" : "还没有账号"}</p>}
       </div>
       <footer className="account-switch-footer">
-        {!!unassigned.length && <button type="button" onClick={() => { onSelectSeries(unassigned[0].id); setSwitching(false); }}><Folder size={16} />未分配栏目</button>}
+        {!!unassigned.length && <button type="button" onClick={() => { onSelectSeries(unassigned[0].id); setSwitching(false); }}><GalleryVerticalEnd size={16} aria-hidden="true" />未分配栏目</button>}
         <button type="button" onClick={() => { setSwitching(false); requestAnimationFrame(onCreateAccount); }}><Plus size={16} />新建账号</button>
         {account && !series.length && <button type="button" className="action-danger" disabled={deletePending}
           onClick={() => confirmingDelete ? onDelete() : onConfirmDelete()}><Trash2 size={15} />{deletePending ? "删除中…" : confirmingDelete ? "确认删除账号" : "删除当前账号"}</button>}

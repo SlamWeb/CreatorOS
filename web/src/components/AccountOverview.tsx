@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Folder, Plus } from "lucide-react";
+import { GalleryVerticalEnd, Plus } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { apiUrl, studioApi } from "../api/client";
 import type { SeriesView } from "../api/types";
@@ -25,10 +25,10 @@ export function AccountOverview({ creatorId, series, onSelect, onCreate, hasUnse
       <header className="account-overview-section-head"><h2>栏目</h2></header>
       {series.length ? <div className="account-column-list">{series.map(item => <button type="button" key={item.id}
         onClick={() => onSelect(item.id)} aria-label={`进入栏目 ${item.name}`}>
-        <Folder size={18} aria-hidden="true" /><span>{item.name}</span>
+        <GalleryVerticalEnd size={18} aria-hidden="true" /><span>{item.name}</span>
         {hasUnseen(item.id) && <span className="account-column-dot" aria-label="栏目有未查看内容" />}
       </button>)}</div> : <div className="account-overview-empty">
-        <Folder size={24} aria-hidden="true" /><p>{creatorId ? "这个账号还没有栏目" : "还没有账号"}</p>
+        <GalleryVerticalEnd size={24} aria-hidden="true" /><p>{creatorId ? "这个账号还没有栏目" : "还没有账号"}</p>
         <button type="button" className="button button-primary" onClick={onCreate}><Plus size={15} aria-hidden="true" />{creatorId ? "新建栏目" : "新建账号"}</button>
       </div>}
     </section>
