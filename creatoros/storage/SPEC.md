@@ -1,5 +1,10 @@
 # CreatorOS Storage SPEC
 
+## Skill 工作台展示分类（2026-11-07）
+
+- `20261107_0029` 新增独立 `skill_display_categories` 表，以 Skill family ID 为键保存用户显式选择的 `content`、`visual`、`processing`、`rules` 多标签和乐观并发 revision；空列表表示待分类。元数据不进入 Skill 文件、Skill 版本摘要或 Run 冻结输入，不根据历史角色推断。
+- 本机全局 Web 的 `/api/skill-display-categories` 用于列出分类及以所见 revision 比较更新；不向 Agent 会话或账号作用域开放。该本机检查不是完整身份认证。已有分类时拒绝降级删除表。正式库尚未迁移或重启。
+
 ## 生产队列历史（2026-11-03）
 
 - 迁移 `20261103_0027` 新增 `production_queue_history`；显式重派失败或待核对队列时，以及栏目转移暂停有旧错误的待执行队列项时，追加原调度证据，不修改或回填历史 Run/Attempt。

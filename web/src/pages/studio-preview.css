@@ -1,4 +1,4 @@
-.sp-app { min-height:100vh; background:#fafaf8; color:#292d34; font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif; }
+.sp-app { min-height:100vh; background:#fafaf8; color:#292d34; font-family:var(--font-sans); }
 .sp-app * { box-sizing:border-box; }
 .sp-app button,.sp-app input,.sp-app select,.sp-app textarea { font:inherit; }
 .sp-app button { cursor:pointer; border:1px solid #dcdfdf; border-radius:9px; background:white; padding:9px 14px; color:inherit; }

@@ -114,6 +114,7 @@ from .eval_routes import eval_routes
 from creatoros.evaluation.benchmark.store import BenchmarkStore
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, SkillWriteOutcomeUnknown, skills_root_for
+from .skill_display_categories import skill_display_category_routes
 
 
 def create_app(
@@ -282,6 +283,7 @@ def create_app(
     app.include_router(research_routes(research, queries))
     app.include_router(reference_routes(db, app.state.reference_production, queries))
     app.include_router(skill_routes(db, skill_installs))
+    app.include_router(skill_display_category_routes(db, skill_installs.catalog))
     app.include_router(skill_version_routes(skill_versions))
     app.include_router(skill_iteration_routes(iterations, chat))
     app.include_router(chat_routes(chat))
