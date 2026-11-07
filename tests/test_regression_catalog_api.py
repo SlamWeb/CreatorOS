@@ -27,9 +27,9 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.headers["cache-control"], "no-store")
                 suites = response.json()["suites"]
-                self.assertEqual([s["id"] for s in suites], ["regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v2", "full-v2", "regular-v1", "full-v1"])
-                self.assertEqual([s["historical"] for s in suites], [False, False, True, True, True, True, True, True])
-                full = next(s for s in suites if s["id"] == "full-v4")
+                self.assertEqual([s["id"] for s in suites], ["regular-v5", "full-v5", "regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v2", "full-v2", "regular-v1", "full-v1"])
+                self.assertEqual([s["historical"] for s in suites], [False, False, True, True, True, True, True, True, True, True])
+                full = next(s for s in suites if s["id"] == "full-v5")
                 self.assertEqual(full["counts"]["defined"], 120)
                 self.assertEqual(full["scope_status"], "partial")
                 self.assertTrue(any(c["execution_readiness"] == "requires_review" for c in full["cases"]))
@@ -80,6 +80,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
         current = catalog()
         v1 = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
         v3 = catalog(ROOT / "docs/agent-eval/regression-catalog-v3/catalog.json")
+        v4 = catalog(ROOT / "docs/agent-eval/regression-catalog-v4/catalog.json")
         def load(path=None):
             if path is None:
                 return current
@@ -87,6 +88,8 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 raise ValueError("damaged v2")
             if "regression-catalog-v3" in str(path):
                 return v3
+            if "regression-catalog-v4" in str(path):
+                return v4
             return v1
         app = FastAPI()
         app.include_router(eval_registry_routes(EvalRegistry(Path(tempfile.gettempdir()) / "not-used-eval.sqlite")))
@@ -95,7 +98,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 response = client.get("/api/eval/v1/suites")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual([row["id"] for row in response.json()["suites"]],
-                                 ["regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v1", "full-v1"])
+                                 ["regular-v5", "full-v5", "regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v1", "full-v1"])
                 self.assertIn("v2", response.json()["historical_error"])
 
     def test_stale_historical_source_does_not_block_current_or_change_run(self):
@@ -127,7 +130,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
             current = build_catalog(updated, repo_root=root)
             current = copy.deepcopy(current)
             for suite in current["suites"]:
-                suite["id"] = suite["id"].replace("-v2", "-v4")
+                suite["id"] = suite["id"].replace("-v2", "-v5")
             stale = json.loads((ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json").read_text(encoding="utf-8"))
             def load(path=None):
                 if path is None:
@@ -136,6 +139,8 @@ class RegressionCatalogApiTests(unittest.TestCase):
                     return build_catalog(updated, repo_root=root)
                 if "regression-catalog-v3" in str(path):
                     raise ValueError("v3 unavailable in isolated fixture")
+                if "regression-catalog-v4" in str(path):
+                    raise ValueError("v4 unavailable in isolated fixture")
                 return build_catalog(stale, repo_root=root)
             app = FastAPI()
             app.include_router(eval_registry_routes(registry))
@@ -143,7 +148,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 with TestClient(app) as client:
                     data = client.get("/api/eval/v1/suites").json()
                     self.assertEqual([row["id"] for row in data["suites"]],
-                                     ["regular-v4", "full-v4", "regular-v2", "full-v2"])
+                                     ["regular-v5", "full-v5", "regular-v2", "full-v2"])
                     self.assertIn("历史目录暂不可用", data["historical_error"])
                     self.assertEqual(client.get("/api/eval/v1/suites/regular-v1/runs").json()["items"][0]["run_id"], "old-run")
             self.assertEqual(registry.get_run("old-run"), before)

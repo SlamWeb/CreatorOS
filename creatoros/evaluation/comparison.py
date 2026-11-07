@@ -25,9 +25,12 @@ def compare_runs(baseline, candidate):
             reasons.append({"field": key, "reason": "missing"})
         elif left != right:
             reasons.append({"field": key, "reason": "different"})
-    if bm.get("execution_mode") == "local-dispatch-v4" or cm.get("execution_mode") == "local-dispatch-v4":
+    if bm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5"} or cm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5"}:
         left, right = bm.get("source_namespace"), cm.get("source_namespace")
-        if left not in {"base", "natural"} or right not in {"base", "natural"}:
+        def source_valid(metadata):
+            allowed = {"base", "natural"} if metadata.get("execution_mode") == "local-dispatch-v4" else {"base", "natural", "expansion"}
+            return metadata.get("source_namespace") in allowed
+        if not source_valid(bm) or not source_valid(cm):
             reasons.append({"field": "source_namespace", "reason": "missing"})
         elif left != right:
             reasons.append({"field": "source_namespace", "reason": "different"})

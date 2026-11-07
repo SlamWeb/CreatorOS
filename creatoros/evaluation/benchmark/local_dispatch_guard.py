@@ -19,6 +19,12 @@ CASES_BY_VERSION = {
 CASES_BY_VERSION["local-dispatch-v4"] = CASES_BY_VERSION["local-dispatch-v3"]
 CASES_BY_NAMESPACE = {"local-dispatch-v4": {"base": CASES_BY_VERSION["local-dispatch-v3"],
                                             "natural": frozenset({"B06", "B07"})}}
+CASES_BY_NAMESPACE["local-dispatch-v5"] = {
+    "base": CASES_BY_NAMESPACE["local-dispatch-v4"]["base"] | frozenset({"B18", "B19", "B33", "B35", "B37", "B39"}),
+    "natural": CASES_BY_NAMESPACE["local-dispatch-v4"]["natural"],
+    "expansion": frozenset({"E06", "E07", "Y04", "C02", "E05"}),
+}
+CASES_BY_VERSION["local-dispatch-v5"] = CASES_BY_NAMESPACE["local-dispatch-v5"]["base"]
 VERSIONS = frozenset(CASES_BY_VERSION)
 CASES = CASES_BY_VERSION[VERSION]
 
@@ -44,7 +50,7 @@ class DispatchGuard:
             if not model_requested:
                 return original(call, context=context, model_requested=model_requested)
             allowed = call.name in LOCAL_TOOLS
-            if self.version in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4"} and call.name == "manage_media_collection":
+            if self.version in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5"} and call.name == "manage_media_collection":
                 # Reject duplicate keys as well as malformed or non-object JSON;
                 # the actual executor still enforces account and argument rules.
                 def unique_pairs(pairs):

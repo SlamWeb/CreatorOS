@@ -46,7 +46,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
     source_namespace = None
-    if local_dispatch == "local-dispatch-v4":
+    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5"}:
         if catalog_binding is None:
             raise ValueError("v4 requires a catalog binding")
         from creatoros.evaluation.regression_runner import selection_namespace, validate_binding
@@ -191,7 +191,7 @@ def main():
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
     parser.add_argument("--local-dispatch-guard", action="store_true", help="Freeze local-only Agent dispatch guard with background workers disabled")
-    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4"], help="Explicit local dispatch policy version")
+    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5"], help="Explicit local dispatch policy version")
     parser.add_argument("--catalog-binding", help="JSON frozen suite identity; only for explicit regression freeze")
     parser.add_argument("--catalog-binding-file", type=Path, help="UTF-8 JSON frozen suite identity for large catalogs")
     args = parser.parse_args()
@@ -206,7 +206,7 @@ def main():
         if args.local_dispatch_guard and not args.nonvideo_guard:
             parser.error("Local dispatch requires the nonvideo guard")
         local_dispatch = (args.local_dispatch_version or True) if args.local_dispatch_guard else False
-        if args.nonvideo_guard and local_dispatch != "local-dispatch-v4":
+        if args.nonvideo_guard and local_dispatch not in {"local-dispatch-v4", "local-dispatch-v5"}:
             from creatoros.evaluation.benchmark.nonvideo_guard import policy
             policy(args.cases.split(",") if args.cases else None, local_dispatch=local_dispatch)
         root.mkdir(parents=True, exist_ok=False)

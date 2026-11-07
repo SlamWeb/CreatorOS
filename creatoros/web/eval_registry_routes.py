@@ -33,7 +33,7 @@ def eval_registry_routes(registry):
             current = catalog()
             current_suites = [{**suite, "historical": False} for suite in current["suites"]]
             old_suites, unavailable = [], []
-            for version in ("v3", "v2", "v1"):
+            for version in ("v4", "v3", "v2", "v1"):
                 try:
                     historical = catalog(ROOT / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
                     old_suites.extend({**suite, "historical": True} for suite in historical["suites"])

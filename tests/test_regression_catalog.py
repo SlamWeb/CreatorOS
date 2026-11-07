@@ -165,6 +165,28 @@ class RegressionCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "v4 adapter requires its exact fixed source digests"):
             build_catalog(forged, repo_root=self.root)
 
+    def test_v5_expansion_is_namespace_bound_and_cannot_self_authorize(self):
+        doc = json.loads((ROOT / "docs/agent-eval/regression-catalog-v5/catalog.json").read_text(encoding="utf-8"))
+        rows = {c["instance_id"]: c for c in build_catalog(doc, repo_root=self.root)["suites"][0]["cases"]}
+        for identity in ("expansion:E06", "expansion:E07", "expansion:Y04", "expansion:C02", "expansion:E05"):
+            self.assertEqual(rows[identity]["execution_readiness"], "enabled")
+        forged = copy.deepcopy(doc)
+        group = next(g for g in forged["classification_groups"] if "expansion:D01" in g["instances"])
+        group["instances"].remove("expansion:D01")
+        forged["classifications"]["expansion:D01"] = {"resource_class": "routine", "adapter": "local-dispatch-v5", "reason": "forged"}
+        with self.assertRaisesRegex(ValueError, "adapter does not authorize"):
+            build_catalog(forged, repo_root=self.root)
+        forged = copy.deepcopy(doc)
+        expansion = json.loads((self.root / forged["sources"][2]["path"]).read_text(encoding="utf-8"))
+        next(c for c in expansion["cases"] if c["id"] == "E06")["title"] += " changed"
+        digest = canonical_digest(expansion)
+        (self.root / "docs/agent-eval/source-snapshots-v1" / (digest + ".json")).write_text(
+            json.dumps(expansion, ensure_ascii=False), encoding="utf-8")
+        forged["sources"][2]["canonical_sha256"] = digest
+        forged["adapter_source_sha256_by_namespace"]["expansion"] = digest
+        with self.assertRaisesRegex(ValueError, "v5 adapter requires its exact fixed source digests"):
+            build_catalog(forged, repo_root=self.root)
+
     def test_freeze_sources_is_content_addressed_and_does_not_overwrite(self):
         self.doc["catalog_id"] = "new-catalog"
         digest = self.doc["sources"][2]["canonical_sha256"]

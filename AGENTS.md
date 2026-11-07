@@ -28,6 +28,6 @@
 - 根据影响面选择单元、契约、集成、浏览器和真实模型验证；保留失败和未覆盖项，不把受控测试或截图当作真实模型/完整用户体验的证明。低频、低成本且无破坏性的验证优先真实调用；故障注入及昂贵或不可逆场景可使用受控替身并说明。
 - 前端改动遵循 [web/FRONTEND_WORKFLOW.md](web/FRONTEND_WORKFLOW.md)，区分视觉与实际操作；遇到与最新用户确认相冲突的历史要求，先核实并说明，不照搬旧记录。
 - 新增或修改业务边界时验证授权、幂等、事务、错误与恢复；依具体风险选择回归，不为每个模块修改自动重跑 50 题 Benchmark。
-- 评测选集：声明改动范围后用 `python -m creatoros.evaluation.change_rules <scope>` 查看必要与建议检查；用 `python -m creatoros.evaluation.regression_runner plan --suite regular-v4` 查看常规回归成员及未准入项，运行和扩展规则见 [回归目录](docs/agent-eval/regression-catalog-v4/README.md)。交付时记录已运行结果及必要项未运行原因，选集建议不等于测试通过。
+- 评测选集：声明改动范围后用 `python -m creatoros.evaluation.change_rules <scope>` 查看必要与建议检查；用 `python -m creatoros.evaluation.regression_runner plan --suite regular-v5` 查看常规回归成员及未准入项，运行和扩展规则见 [回归目录](docs/agent-eval/regression-catalog-v5/README.md)。交付时记录已运行结果及必要项未运行原因，选集建议不等于测试通过。
 - 遇到真实使用中的异常时，评估能否用脱敏、可复现的案例覆盖；值得长期防回归的案例加入对应测试集或评测集，并记录暂不能覆盖的原因。
 - 交付说明写清实际修改、验证结果、未验证项和剩余风险；不要把计划写成已经实现。
