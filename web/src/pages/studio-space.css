@@ -151,6 +151,10 @@ a.bind-tag { color: var(--accent); }
 .skill-page .skill-install-disclosure > summary::after { content: none !important; }
 .skill-page .skill-install-disclosure summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .skill-page .skill-install { max-width: 460px; margin-top: 10px; }
+.skill-page .artifact-extraction { margin-bottom: 0; }
+.skill-page .skill-install-toggle { min-height: 40px; padding: 9px 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--ink); font-size: 14px; font-weight: 500; }
+.skill-page .skill-install-toggle:hover { background: var(--surface); }
+.skill-page .skill-install-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 850px) {
   .skill-page .space-columns { grid-template-columns: minmax(0, 1fr); gap: 26px; }
   .skill-page .skill-compose { position: static; order: -1; }

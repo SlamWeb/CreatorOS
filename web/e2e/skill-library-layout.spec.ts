@@ -8,6 +8,21 @@ test.beforeEach(async ({ request }) => {
   expect(seeded.ok(), await seeded.text()).toBeTruthy();
 });
 
+test("Skill creation and GitHub install actions share a row and the install form remains usable", async ({ page }) => {
+  await page.goto("/skills");
+  const extract = page.getByRole("button", { name: "从作品提炼" });
+  const author = page.getByRole("button", { name: "自己写 Skill" });
+  const install = page.getByRole("button", { name: "从 GitHub 安装" });
+  await expect(install).toBeVisible({ timeout: 15000 });
+  const positions = await Promise.all([extract.boundingBox(), author.boundingBox(), install.boundingBox()]);
+  expect(positions.every(box => box && Math.abs(box.y - positions[0]!.y) < 2)).toBeTruthy();
+  await install.click();
+  await expect(install).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("textbox", { name: "GitHub Skill 链接" })).toBeVisible();
+  await install.click();
+  await expect(page.getByRole("textbox", { name: "GitHub Skill 链接" })).toBeHidden();
+});
+
 test("search and pools preserve the selected Skill across refresh", async ({ page }, info) => {
   await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   const writes: string[] = [];

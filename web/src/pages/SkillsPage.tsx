@@ -233,6 +233,7 @@ export function SkillsPage() {
   });
 
   const [installUrl, setInstallUrl] = useState("");
+  const [installOpen, setInstallOpen] = useState(false);
   const [installRole, setInstallRole] = useState<"mind" | "production" | "">("");
   const [jobId, setJobId] = useState<string | null>(null);
   const install = useMutation({
@@ -452,11 +453,10 @@ export function SkillsPage() {
       : skills.isError ? <ErrorState message={skills.error.message} onRetry={() => void skills.refetch()} /> : <>
     <header className="space-head"><h1>Skill 库</h1></header>
     <SkillIterationHistory />
-    <ArtifactSkillExtraction onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
+    <ArtifactSkillExtraction entryExtra={<button type="button" className="button button-secondary skill-install-toggle" aria-expanded={installOpen} aria-controls="skill-github-install" onClick={() => setInstallOpen(value => !value)}>从 GitHub 安装</button>} onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
       setSelectedIds([skill.id]); setComposerOpen(true); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
     }} />
-    <details className="skill-install-disclosure"><summary>从 GitHub 安装</summary>
-        <form className="skill-install" onSubmit={event => { event.preventDefault(); if (installUrl.trim()) install.mutate(); }}>
+        <form id="skill-github-install" className="skill-install" hidden={!installOpen} onSubmit={event => { event.preventDefault(); if (installUrl.trim()) install.mutate(); }}>
           <input aria-label="GitHub Skill 链接" type="url" required placeholder="https://github.com/…"
             value={installUrl} onChange={event => setInstallUrl(event.target.value)} />
           <div>
@@ -470,7 +470,6 @@ export function SkillsPage() {
           {install.isError && <p className="form-error" role="alert">{install.error.message}</p>}
           {job.data && <p className="space-note" role="status">{job.data.status} · {job.data.message}</p>}
         </form>
-    </details>
     <div className="space-columns">
       <section className="skill-catalog" aria-label="Skill 列表">
         <div className="skill-catalog-controls">
