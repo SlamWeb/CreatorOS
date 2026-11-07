@@ -14,7 +14,7 @@ def catalog(scope="partial", disabled=False):
         return {"instance_id": "base:" + identifier, "case_id": identifier, "case_sha256": "c" * 64,
                 "resource_class": "routine",
                 "execution_readiness": "enabled" if enabled else "requires_review",
-                "adapter": "tool-calling-v1" if enabled else None, "reason": "not yet verified"}
+                "adapter": "local-dispatch-v2" if enabled else None, "reason": "not yet verified"}
     source = {"schema_version": "regression-catalog-v1", "version": "1"}
     candidates = [case("B07", False)] if scope == "partial" else []
     suite = {"id": "regular-v1", "version": "1", "scope_status": scope,
@@ -40,6 +40,22 @@ class RegressionRunnerTests(unittest.TestCase):
             subset = regression_runner.prepare("regular-v1", ["base:B05"])
         self.assertEqual(complete["catalog_binding"]["selection_kind"], "complete")
         self.assertEqual(subset["catalog_binding"]["selection_kind"], "partial")
+
+    def test_guard_policy_follows_adapter_and_mixed_versions_are_rejected(self):
+        from creatoros.evaluation import tool_calling
+        data = catalog()
+        suite = data["suites"][0]
+        suite["cases"][0]["adapter"] = "local-dispatch-v1"
+        suite["membership_sha256"] = regression_runner._digest(regression_runner._membership(suite))
+        with patch.object(regression_runner, "catalog", return_value=data):
+            with self.assertRaises(ValueError):
+                regression_runner.prepare("regular-v1")
+            v1 = regression_runner.prepare("regular-v1", ["base:B05"])
+            self.assertEqual(v1["requires_local_dispatch"], "local-dispatch-v1")
+            binding = v1["catalog_binding"]
+            self.assertEqual(tool_calling.suite_and_metadata(["B05"], local_dispatch="local-dispatch-v1", catalog_binding=binding)[1]["guard_version"], "local-dispatch-v1")
+            with self.assertRaises(ValueError):
+                tool_calling.suite_and_metadata(["B05"], local_dispatch="local-dispatch-v2", catalog_binding=binding)
 
     def test_blocked_and_forged_binding_fail_closed(self):
         with patch.object(regression_runner, "catalog", return_value=catalog(disabled=True)):

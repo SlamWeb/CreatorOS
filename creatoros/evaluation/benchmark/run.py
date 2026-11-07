@@ -51,6 +51,11 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
     if catalog_binding is not None:
         from creatoros.evaluation.regression_runner import validate_binding
         configuration.update(validate_binding(case_ids, catalog_binding))
+        selected = set(catalog_binding["selected_instance_ids"])
+        adapters = {row["adapter"] for row in catalog_binding["frozen_catalog"]["membership"]["cases"]
+                    if row["instance_id"] in selected}
+        if adapters != {configuration.get("benchmark_guard", {}).get("local_dispatch")}:
+            raise ValueError("Frozen catalog adapter and guard version differ")
     manifest = freeze_manifest(root / "manifest.json", dataset_path, pricing=pricing,
                                model_configuration=configuration, case_ids=case_ids)
     return manifest
@@ -175,6 +180,7 @@ def main():
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
     parser.add_argument("--local-dispatch-guard", action="store_true", help="Freeze local-only Agent dispatch guard with background workers disabled")
+    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2"], help="Explicit local dispatch policy version")
     parser.add_argument("--catalog-binding", help="JSON frozen suite identity; only for explicit regression freeze")
     parser.add_argument("--catalog-binding-file", type=Path, help="UTF-8 JSON frozen suite identity for large catalogs")
     args = parser.parse_args()
@@ -184,11 +190,14 @@ def main():
     if args.action == "freeze":
         if args.catalog_binding and args.catalog_binding_file:
             parser.error("Choose one catalog binding input")
+        if args.local_dispatch_version and not args.local_dispatch_guard:
+            parser.error("Local dispatch version requires its guard")
         if args.local_dispatch_guard and not args.nonvideo_guard:
             parser.error("Local dispatch requires the nonvideo guard")
+        local_dispatch = (args.local_dispatch_version or True) if args.local_dispatch_guard else False
         if args.nonvideo_guard:
             from creatoros.evaluation.benchmark.nonvideo_guard import policy
-            policy(args.cases.split(",") if args.cases else None, local_dispatch=args.local_dispatch_guard)
+            policy(args.cases.split(",") if args.cases else None, local_dispatch=local_dispatch)
         root.mkdir(parents=True, exist_ok=False)
         raw_binding = args.catalog_binding
         if args.catalog_binding_file:
@@ -198,12 +207,12 @@ def main():
                 parser.error("Catalog binding exceeds size limit")
             raw_binding = data.decode("utf-8")
         binding = json.loads(raw_binding) if raw_binding else None
-        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None, nonvideo_guard=args.nonvideo_guard, local_dispatch=args.local_dispatch_guard,
+        manifest = freeze(root, args.dataset or DATASET, args.cases.split(",") if args.cases else None, nonvideo_guard=args.nonvideo_guard, local_dispatch=local_dispatch,
                           catalog_binding=binding)
         print(json.dumps({"batch": args.batch, "selected_cases": manifest["selected_case_ids"],
                           "frozen_files": len(manifest["source_hashes"]), "path": str(root)}, ensure_ascii=False))
     else:
-        if args.nonvideo_guard or args.local_dispatch_guard or args.catalog_binding or args.catalog_binding_file or args.cases:
+        if args.nonvideo_guard or args.local_dispatch_guard or args.local_dispatch_version or args.catalog_binding or args.catalog_binding_file or args.cases:
             parser.error("Guard and case selection must be frozen, not changed at run/report time")
         from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
         from creatoros.evaluation.benchmark.report import summarize_batch

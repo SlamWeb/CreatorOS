@@ -20,7 +20,7 @@ from creatoros.evaluation.benchmark.suite_schema import CASE_ID
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json"
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -47,9 +47,7 @@ def _source_path(root, relative):
 
 def _adapter_cases(root):
     """Local-dispatch policy is executable only for identical frozen base cases."""
-    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES, VERSION
-    if VERSION != "local-dispatch-v1":
-        raise ValueError("local dispatch adapter version differs")
+    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES
     path = _source_path(root, "docs/agent-eval/tool-calling-v1/cases.json")
     doc = _dataset(path)
     return {case["id"]: _canonical_sha(case) for case in doc["cases"] if case["id"] in CASES}
@@ -214,7 +212,7 @@ def build_catalog(document, *, repo_root=ROOT):
             item["side_effects"].append("可能触发外部模型、素材生产或联网，需逐题核实")
         adapter = classification.get("adapter")
         if adapter is not None:
-            if adapter != "local-dispatch-v1" or resource != "routine" or not identity.startswith("base:"):
+            if adapter not in {"local-dispatch-v1", "local-dispatch-v2"} or resource != "routine" or not identity.startswith("base:"):
                 raise ValueError("unrecognized or ineligible execution adapter")
             if approved_adapter_cases is None:
                 approved_adapter_cases = _adapter_cases(root)

@@ -41,6 +41,24 @@ class RegressionCatalogTests(unittest.TestCase):
         self.assertEqual(variant["execution_readiness"], "requires_review")
         self.assertNotEqual(variant["case_sha256"], next(c for c in full["cases"] if c["instance_id"] == "base:B06")["case_sha256"])
 
+    def test_versioned_catalog_preserves_old_membership_and_adapters(self):
+        old = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
+        new = catalog()
+        self.assertEqual((old["catalog_id"], new["catalog_id"]),
+                         ("creatoros-regression-v1", "creatoros-regression-v2"))
+        for before, after in zip(old["suites"], new["suites"]):
+            self.assertNotEqual(before["id"], after["id"])
+            self.assertNotEqual(before["membership_sha256"], after["membership_sha256"])
+            self.assertEqual(before["counts"], after["counts"])
+            old_rows = {c["instance_id"]: c for c in before["cases"]}
+            new_rows = {c["instance_id"]: c for c in after["cases"]}
+            self.assertEqual(set(old_rows), set(new_rows))
+            for key, row in old_rows.items():
+                updated = new_rows[key]
+                self.assertEqual(row["case_sha256"], updated["case_sha256"])
+                self.assertEqual(updated["adapter"],
+                                 "local-dispatch-v2" if row["adapter"] == "local-dispatch-v1" else row["adapter"])
+
     def test_source_digest_and_path_fail_closed(self):
         altered = self.root / "docs/agent-eval/benchmark-v2/cases.json"
         payload = json.loads(altered.read_text(encoding="utf-8"))

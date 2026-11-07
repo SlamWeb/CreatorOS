@@ -58,10 +58,30 @@ class LocalDispatchGuardTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             policy(["B31"])
         p = policy(["B31", "B40"], local_dispatch=True)
-        self.assertEqual(p["local_dispatch"], "local-dispatch-v1")
+        self.assertEqual(p["local_dispatch"], "local-dispatch-v2")
         self.assertTrue(validate({"selected_case_ids": ["B31", "B40"], "model_configuration": {"benchmark_guard": p}}))
+        old = policy(["B31"], local_dispatch="local-dispatch-v1")
+        self.assertTrue(validate({"selected_case_ids": ["B31"], "model_configuration": {"benchmark_guard": old}}))
         with self.assertRaises(ValueError):
             policy(["B47"], local_dispatch=True)
+
+    def test_collection_v2_read_only_and_v1_still_denies(self):
+        forwarded = []
+        def original(call, context=None, *, model_requested=False):
+            forwarded.append(call.arguments)
+            return ToolResult("ok")
+        for version in ("local-dispatch-v1", "local-dispatch-v2"):
+            for args, safe in (( '{"action":"list"}', True), ('{"action":"get"}', True),
+                               ('{"action":"export"}', False), ('{"action":"create"}', False),
+                               ('{"action":"update"}', False), ('{"action":"remove"}', False),
+                               ('{"action":"future"}', False), ('{}', False), ('[]', False),
+                               ('{', False), ('{"action":"list","action":"export"}', False)):
+                guard = DispatchGuard(version)
+                result = guard.wrap(original)(ToolCall("collection", "manage_media_collection", args), model_requested=True)
+                self.assertEqual(not result.is_error, safe and version == "local-dispatch-v2", (version, args))
+                if result.is_error:
+                    self.assertEqual(guard.score(None)["status"], "failed")
+        self.assertEqual(len(forwarded), 2)
 
     def test_receipt_requires_actual_installed_wrapper_and_deferred_state(self):
         import creatoros.agent.loop as loop

@@ -50,7 +50,8 @@ function SuiteDetail({ suite, back, openRun }: { suite: CatalogSuite; back: () =
   const visibleCandidates = (suite.candidates ?? []).filter(matches);
   return <div className="ec-detail">
     <div className="ec-back-row"><button className="ew-link" type="button" onClick={back}>← 返回回归集</button></div>
-    <div className="ew-title"><div><p className="ew-eyebrow">回归集 / {suite.id}</p><h2>{suite.title}</h2><p>{suite.description}</p><p className="ew-muted">版本 {suite.version}</p></div></div>
+    <div className="ew-title"><div><p className="ew-eyebrow">回归集 / {suite.id}</p><h2>{suite.title}</h2><p>{suite.description}</p><p className="ew-muted">版本 {suite.version}{suite.historical ? " · 历史版本，只读" : " · 当前版本"}</p></div></div>
+    {suite.historical && <p className="ec-scope-warning">历史目录仅供查看，运行记录与当前版本分开保存。</p>}
     {suite.scope_status === "partial" && <p className="ec-scope-warning">执行范围尚不完整，不能视为全量运行能力。</p>}
     <section className="ec-counts" aria-label="套件范围"><div><span>已定义</span><strong>{suite.cases.length}</strong><small>正式成员</small></div><div><span>执行准入</span><strong>{enabled}</strong><small>适配器已开放</small></div><div><span>待核查</span><strong>{needsReview}</strong><small>尚未开放执行</small></div></section>
     <p className="ew-muted ec-footnote">这是题集定义与准入状态；运行结果请在评测工作台查看。题集成员可能与其他集合重叠。</p>
@@ -82,12 +83,13 @@ export function EvalSuites() {
   return <main className="eval-hub"><header className="ew-top"><div><p className="ew-eyebrow">CREATOROS / EVAL</p><h1>回归集</h1></div><div className="ew-top-actions"><button type="button" className="ew-link" onClick={() => update(null, null)}>返回评测工作台</button><button type="button" className="ew-refresh" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={15} />刷新</button></div></header>
     {query.isPending && <p role="status" className="ew-message">正在读取回归集…</p>}
     {query.isError && <div role="alert" className="ew-message"><p>{query.error instanceof Error ? query.error.message : "读取回归集失败。"}</p><button type="button" onClick={() => void query.refetch()}>重试</button></div>}
-    {query.data && suiteId && !selected && <div role="alert" className="ew-message"><p>未找到该版本的回归集。</p><button type="button" className="ew-link" onClick={() => update("suites", null)}>返回回归集</button></div>}
+    {query.data?.historical_error && <p role="status" className="ew-message">{query.data.historical_error}</p>}
+    {query.data && suiteId && !selected && <div role="alert" className="ew-message"><p>{query.data.historical_error ? "无法确认该回归集是否属于暂不可用的历史目录。" : "未找到该版本的回归集。"}</p><button type="button" className="ew-link" onClick={() => update("suites", null)}>返回回归集</button></div>}
     {query.data && selected && <SuiteDetail key={selected.id} suite={selected} back={() => update("suites", null)} openRun={openRun} />}
     {query.data && !suiteId && <><p className="ec-intro">查看每套题的范围和执行准入；每次运行的实际结果在评测工作台中查看。</p>
       {query.data.suites.length ? <div className="ec-suite-list">{query.data.suites.map(suite => {
         const enabled = suite.cases.filter(item => item.execution_readiness === "enabled").length;
-        return <button type="button" className="ec-suite" key={suite.id} onClick={() => update("suites", suite.id)}><span className="ec-suite-title"><strong>{suite.title}</strong><small>{suite.description}</small><small>版本 {suite.version}{suite.scope_status === "partial" ? " · 执行范围尚不完整" : ""}</small></span><span className="ec-suite-count"><strong>{suite.cases.length}</strong><small>正式成员</small></span><span className="ec-suite-count"><strong>{enabled}</strong><small>适配器已开放</small></span><ChevronRight size={17} aria-hidden="true" /></button>;
+        return <button type="button" className="ec-suite" key={suite.id} onClick={() => update("suites", suite.id)}><span className="ec-suite-title"><strong>{suite.title}</strong><small>{suite.description}</small><small>版本 {suite.version}{suite.historical ? " · 历史版本，只读" : " · 当前版本"}{suite.scope_status === "partial" ? " · 执行范围尚不完整" : ""}</small></span><span className="ec-suite-count"><strong>{suite.cases.length}</strong><small>正式成员</small></span><span className="ec-suite-count"><strong>{enabled}</strong><small>适配器已开放</small></span><ChevronRight size={17} aria-hidden="true" /></button>;
       })}</div> : <div className="ew-empty"><h2>暂无回归集</h2><p>目录中还没有可展示的题集。</p></div>}
     </>}
   </main>;

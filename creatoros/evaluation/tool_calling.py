@@ -63,14 +63,15 @@ def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, 
     if dataset.get("dataset_id") != SUITE_ID:
         raise ValueError("Unexpected tool suite identity")
     from creatoros.evaluation.benchmark.local_dispatch_guard import CASES as LOCAL_CASES, VERSION as LOCAL_VERSION
+    local_version = LOCAL_VERSION if local_dispatch is True else local_dispatch
     if not set(case_ids) <= (LOCAL_CASES if local_dispatch else SAFE_CASES):
         raise ValueError("Only B05, B06, B07 and B10 have the permitted non-video policy")
-    policy(case_ids, local_dispatch=local_dispatch)
+    policy(case_ids, local_dispatch=local_version)
     meta = {name: _hash_files(paths) for name, paths in _BUNDLE.items()}
     meta["driver_hash"] = _hash_files(_driver_files())
     scopes = catalog_binding.get("change_scopes") if isinstance(catalog_binding, dict) else ["tool"]
     requirements = plan(scopes)
-    meta.update(dataset_sha256=_sha(raw), execution_mode=(LOCAL_VERSION if local_dispatch else "nonvideo-no-publication-v1"), model="deepseek-flash",
+    meta.update(dataset_sha256=_sha(raw), execution_mode=(local_version if local_dispatch else "nonvideo-no-publication-v1"), model="deepseek-flash",
                 trial_policy="first_attempt", usage_scope="provider_actual_agent",
                 latency_scope="benchmark_case_wall_seconds", tool_calls_scope="observed_model_tool_calls",
                 change_scope=(",".join(scopes)), suite_role=("regression" if catalog_binding is not None else "specialist"), judge_calibration="not_human_calibrated",
@@ -79,13 +80,17 @@ def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, 
                 guard_version="nonvideo-no-publication-v1",
                 sandbox="isolated SQLite/files/process; nonvideo guard is not network isolation")
     if local_dispatch:
-        meta["guard_version"] = LOCAL_VERSION
+        meta["guard_version"] = local_version
         meta["sandbox"] = "local dispatch guard and deferred workers; not an OS or network sandbox"
     if catalog_binding is not None:
         if not local_dispatch:
             raise ValueError("Catalog execution requires the local dispatch guard")
         from creatoros.evaluation.regression_runner import validate_binding, validate_frozen_binding
         meta.update((validate_frozen_binding if frozen_catalog else validate_binding)(case_ids, catalog_binding))
+        membership = catalog_binding["frozen_catalog"]["membership"]["cases"]
+        selected = set(catalog_binding["selected_instance_ids"])
+        if {row["adapter"] for row in membership if row["instance_id"] in selected} != {local_version}:
+            raise ValueError("Catalog adapter and execution guard version differ")
     return dataset, meta
 
 
@@ -150,7 +155,7 @@ def _actual_user_requests(batch, report_path, report, case_id):
     return found
 
 
-def result_from_row(batch, row, definition):
+def result_from_row(batch, row, definition, *, classify_connection_error=False):
     """Project supported saved fields; never make missing evidence a pass."""
     from creatoros.web.observation import clean
     status = row.get("status")
@@ -160,10 +165,21 @@ def result_from_row(batch, row, definition):
     critical = scores.get("critical_checks") if isinstance(scores.get("critical_checks"), list) else []
     critical_ids = {"local_dispatch_guard", "foreign_unchanged", "no_private_leak", "forbidden_actions"}
     program_rules = definition.get("scoring", {}).get("program_checks", [])
+    semantic_rules = definition.get("rubric", [])
     if isinstance(program_rules, list):
         critical_ids.update(rule.get("id") for rule in program_rules if isinstance(rule, dict) and rule.get("critical") is True)
+    if isinstance(semantic_rules, list):
+        critical_ids.update(rule.get("id") for rule in semantic_rules if isinstance(rule, dict) and rule.get("critical") is True)
+    dimensions = row.get("dimensions") if isinstance(row.get("dimensions"), dict) else {}
     proven_critical_failure = (scores.get("critical_status") == "failed" and any(
         isinstance(item, dict) and item.get("id") in critical_ids and item.get("status") == "failed" for item in critical))
+    proven_critical_failure = proven_critical_failure or dimensions.get("boundary_enforced") == "failed"
+    semantic = scores.get("semantic") if isinstance(scores.get("semantic"), dict) else {}
+    if isinstance(semantic_rules, list):
+        semantic_ids = {rule.get("id") for rule in semantic_rules if isinstance(rule, dict) and rule.get("critical") is True}
+        proven_critical_failure = proven_critical_failure or any(
+            isinstance(item, dict) and item.get("id") in semantic_ids and item.get("status") == "failed"
+            for item in semantic.get("items", []))
     program = scores.get("program") if isinstance(scores.get("program"), dict) else {}
     program_ids = {rule.get("id") for rule in program_rules if isinstance(rule, dict)} if isinstance(program_rules, list) else set()
     proven_program_failure = (row.get("execution_status") in {"completed", "succeeded"}
@@ -191,6 +207,9 @@ def result_from_row(batch, row, definition):
                 "observed_error": row.get("observed_error"), "source_batch": batch.name,
                 "source_record_paths": row.get("record_paths", []), "calls": [], "judgments": [],
                 "limitations": ["Semantic judge has not been human-calibrated", "Full raw evidence remains in the source batch"]}
+    if classify_connection_error:
+        evidence["critical_checks"] = [{k: item.get(k) for k in ("id", "status", "detail") if item.get(k) is not None}
+                                       for item in critical if isinstance(item, dict)]
     guard = row.get("benchmark_guard") if isinstance(row.get("benchmark_guard"), dict) else {}
     if status == "passed" and (row.get("auto_status") != "passed" or row.get("semantic_status") != "passed"
                                or scores.get("critical_status") != "passed" or guard.get("status") != "passed"):
@@ -208,6 +227,40 @@ def result_from_row(batch, row, definition):
             report = _read_bounded(batch, report_path)
             if report.get("case_id") != definition["id"]:
                 raise ValueError("Evidence case identity differs")
+            if (classify_connection_error
+                    and any(isinstance(item, dict) and item.get("id") == "browser_completed"
+                            and item.get("status") == "failed" for item in critical)):
+                requests_path = str(Path(report_path).parent / "requests.json").replace("\\", "/")
+                try:
+                    requests = _read_bounded(batch, requests_path)
+                    connection_observed = isinstance(requests, list) and any(
+                        isinstance(request, dict) and request.get("purpose") == "agent"
+                        and isinstance(request.get("error"), dict)
+                        and request["error"].get("kind") == "APIConnectionError" for request in requests)
+                    if connection_observed:
+                        evidence["agent_connection_error_observed"] = True
+                        evidence["limitations"].append("Agent API connection error observed; relationship to incomplete turn is unverified")
+                    browser_path = str(Path(report_path).parent / "browser.json").replace("\\", "/")
+                    browser = _read_bounded(batch, browser_path)
+                    turns = browser.get("turns") if isinstance(browser, dict) else None
+                    last_turn = turns[-1] if isinstance(turns, list) and turns and isinstance(turns[-1], dict) else {}
+                    turn_id = last_turn.get("turn_id")
+                    # No request-to-turn identity means no causal attribution:
+                    # an earlier connection error may have recovered later.
+                    matched = [request for request in requests if isinstance(request, dict)
+                               and request.get("purpose") == "agent" and request.get("turn_id") == turn_id] if isinstance(requests, list) and turn_id else []
+                    last_request = matched[-1] if matched else {}
+                    connection_failed = (not proven_critical_failure and not proven_program_failure
+                        and isinstance(turn_id, str) and bool(turn_id)
+                        and last_turn.get("completed") is False and last_turn.get("session_status") == "failed"
+                        and isinstance(last_request.get("error"), dict)
+                        and last_request["error"].get("kind") == "APIConnectionError")
+                    if connection_failed:
+                        status = "unknown"
+                        evidence["limitations"].pop()
+                        evidence["limitations"].append("Agent API connection failed; incomplete browser execution does not establish an agent failure")
+                except (OSError, ValueError, TypeError):
+                    pass
             try:
                 evidence["actual_user_requests"] = _actual_user_requests(batch, report_path, report, definition["id"])
             except (OSError, ValueError, TypeError, AttributeError):
@@ -240,7 +293,7 @@ def result_from_row(batch, row, definition):
             "evidence": _omit_sensitive_keys(clean(evidence))}
 
 
-def sync_summary(registry, run_id, batch, definitions):
+def sync_summary(registry, run_id, batch, definitions, *, classify_connection_error=False):
     """Append only observed cases; missing or incomplete records stay unobserved."""
     if not (batch / "summary.json").is_file():
         return 0
@@ -253,7 +306,8 @@ def sync_summary(registry, run_id, batch, definitions):
         if case_id not in definitions:
             raise ValueError("Summary case was not planned")
         if row.get("record_paths"):
-            registry.add_case_result(run_id, result_from_row(batch, row, definitions[case_id]))
+            registry.add_case_result(run_id, result_from_row(batch, row, definitions[case_id],
+                                                             classify_connection_error=classify_connection_error))
             count += 1
     return count
 
@@ -293,7 +347,9 @@ def recover_registered(registry, run_id):
         raise ValueError("Recovery requires a clean, fully identified source version")
     cases = run["planned_cases"]
     binding = run.get("metadata", {}).get("catalog_binding")
-    local_dispatch = run.get("metadata", {}).get("execution_mode") == "local-dispatch-v1"
+    from creatoros.evaluation.benchmark.local_dispatch_guard import VERSIONS
+    execution_mode = run.get("metadata", {}).get("execution_mode")
+    local_dispatch = execution_mode if execution_mode in VERSIONS else False
     dataset, current_metadata = suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=binding,
                                                    frozen_catalog=binding is not None)
     if run.get("metadata") != current_metadata:
@@ -380,7 +436,8 @@ def recover_registered(registry, run_id):
         # Already imported records must remain untouched. Previously recovered
         # records are rechecked through the registry for idempotency.
         if case_id not in existing or case_id in previous_recoveries:
-            prepared.append((result_from_row(batch, row, definitions[case_id]), _sha(raw_report)))
+            prepared.append((result_from_row(batch, row, definitions[case_id],
+                              classify_connection_error=execution_mode == "local-dispatch-v2"), _sha(raw_report)))
     if not prepared and not existing:
         raise ValueError("No recoverable case reports")
     manifest_sha = _sha(raw_manifest)
@@ -436,7 +493,7 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         if not started:
             return None
         try:
-            sync_summary(registry, run_id, batch, definitions)
+            sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") == "local-dispatch-v2")
             return None
         except Exception as exc:
             return type(exc).__name__
@@ -444,6 +501,8 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         freeze_args = prefix + ["freeze", "--batch", run_id, "--dataset", str(DATASET), "--cases", ",".join(cases), "--nonvideo-guard"]
         if local_dispatch:
             freeze_args.append("--local-dispatch-guard")
+            if isinstance(local_dispatch, str):
+                freeze_args += ["--local-dispatch-version", local_dispatch]
         if catalog_binding is not None:
             with tempfile.TemporaryDirectory(prefix="creatoros-eval-catalog-") as scratch:
                 snapshot_path = Path(scratch) / "catalog-binding.json"
@@ -469,7 +528,7 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         code = invoke(prefix + ["run", "--batch", run_id, "--workers", "1"])
         if suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)[1] != metadata:
             raise RuntimeError("Evaluation source or regression catalog changed during execution")
-        sync_summary(registry, run_id, batch, definitions)
+        sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") == "local-dispatch-v2")
         finish("failed" if code else "completed", error=f"run exited {code}" if code else None)
         return {"run_id": run_id, "status": "failed" if code else "completed", "exit_code": code}
     except KeyboardInterrupt:

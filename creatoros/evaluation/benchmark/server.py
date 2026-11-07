@@ -121,8 +121,8 @@ def main():
     verify_guard_version(manifest)
     from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
     guarded = validate(manifest, args.case)
-    from creatoros.evaluation.benchmark.local_dispatch_guard import VERSION as LOCAL_VERSION
-    local_guard = (manifest["model_configuration"].get("benchmark_guard") or {}).get("local_dispatch") == LOCAL_VERSION
+    local_guard_version = (manifest["model_configuration"].get("benchmark_guard") or {}).get("local_dispatch")
+    local_guard = bool(local_guard_version)
     if args.case not in manifest["selected_case_ids"]:
         parser.error("Case is outside the frozen selection")
     if guarded:
@@ -130,7 +130,7 @@ def main():
     dispatch_guard = None
     if local_guard:
         from creatoros.evaluation.benchmark.local_dispatch_guard import install
-        dispatch_guard = install()
+        dispatch_guard = install(local_guard_version)
     dataset_path = frozen_dataset_path(args.manifest, manifest).resolve()
     if args.dataset.resolve() != dataset_path:
         parser.error("Trial must use the verified frozen dataset")

@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from creatoros.evaluation.comparison import compare_runs
-from creatoros.evaluation.regression_catalog import catalog
+from creatoros.evaluation.regression_catalog import ROOT, catalog
 from creatoros.evaluation.registry import RegistryError
 from .observation import clean
 
@@ -30,7 +30,20 @@ def eval_registry_routes(registry):
     @router.get("/suites")
     def suites():
         try:
-            return JSONResponse(clean(catalog()), headers={"Cache-Control": "no-store"})
+            current = catalog()
+            current_suites = [{**suite, "historical": False} for suite in current["suites"]]
+            try:
+                historical = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
+                old_suites = [{**suite, "historical": True} for suite in historical["suites"]]
+                historical_error = None
+            except (OSError, ValueError, TypeError, KeyError):
+                old_suites = []
+                historical_error = "历史目录暂不可用；历史轮次及运行记录仍可查看。"
+            ids = [suite["id"] for suite in current_suites + old_suites]
+            if len(ids) != len(set(ids)):
+                raise ValueError("Catalog suite IDs overlap")
+            return JSONResponse(clean({**current, "suites": current_suites + old_suites,
+                                       "historical_error": historical_error}), headers={"Cache-Control": "no-store"})
         except (OSError, ValueError, TypeError, KeyError):
             return JSONResponse({"error": {"code": "catalog_unavailable", "message": "评测集目录无法读取或校验。"}},
                                 status_code=503, headers={"Cache-Control": "no-store"})

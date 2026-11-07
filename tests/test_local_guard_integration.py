@@ -53,6 +53,24 @@ def worker(root):
         assert guard.score(None)["status"] == "failed"
         assert not world.app.state.background_services_started
 
+        # Real local Studio GETs reach the account-bound product path. Writes
+        # never reach the API; foreign ownership is still checked by the host.
+        collection_id = world.variables["collection_a"]
+        read_guard = DispatchGuard()
+        read = read_guard.wrap(execute_tool_call)
+        def collection(args):
+            return read(ToolCall(uuid4().hex, "manage_media_collection", json.dumps(args)), context, model_requested=True)
+        before_collection = world.snapshot()["database"]["media_collections"]
+        assert not collection({"action": "list", "include_sources": True}).is_error
+        assert not collection({"action": "get", "collection_id": collection_id}).is_error
+        foreign_collection = collection({"action": "get", "creator_id": "bench-b", "collection_id": world.variables["foreign_collection"]})
+        assert foreign_collection.is_error and foreign_collection.error_type == "agent_scope_rejected"
+        for action in ("export", "create", "update", "remove", "unknown"):
+            result = collection({"action": action, "collection_id": collection_id})
+            assert result.is_error and result.error_type == "local_dispatch_guard_denied"
+        assert read_guard.score(None)["status"] == "failed"
+        assert before_collection == world.snapshot()["database"]["media_collections"]
+
         # Exercise the real Agent loop: the controlled provider attempts both
         # production and network research. Neither tool reaches its executor.
         import creatoros.agent.loop as agent_loop
@@ -92,6 +110,37 @@ def worker(root):
         assert before["database"]["content_runs"] == after["database"]["content_runs"]
         assert before["database"]["topic_research_queue_items"] == after["database"]["topic_research_queue_items"]
         assert not world.app.state.background_services_started
+
+        # The actual agent loop also preserves successful reads in its trace,
+        # while recording an export attempt as a mandatory failure.
+        class CollectionProvider(Provider):
+            def stream(self, _context):
+                self.number += 1
+                if self.number == 1:
+                    for index, (call_id, args) in enumerate((
+                        ("list-read", {"action": "list"}),
+                        ("get-read", {"action": "get", "collection_id": collection_id}),
+                        ("export-denied", {"action": "export", "collection_id": collection_id}))):
+                        yield ToolCallDelta(index, call_id, "manage_media_collection", json.dumps(args))
+                    yield StreamEnd("tool_calls")
+                else:
+                    yield TextDelta("已停止。")
+                    yield StreamEnd("stop")
+        collection_guard, events = DispatchGuard(), []
+        prompts = iter(["受控素材测试", "/exit"])
+        try:
+            agent_loop.execute_tool_call = collection_guard.wrap(previous)
+            agent_loop.run_agent(CollectionProvider(), console=Console(input_fn=lambda _prompt: next(prompts), output=StringIO()),
+                session_file=context.session_file, runtime_context=context, user_request_id=uuid4().hex,
+                on_agent_event=lambda event: events.append(event))
+        finally:
+            agent_loop.execute_tool_call = previous
+        results = {e.data["tool_call_id"]: e.data for e in events if e.kind == "tool_result"}
+        assert set(results) == {"list-read", "get-read", "export-denied"}, results
+        assert not results["list-read"].get("is_error") and not results["get-read"].get("is_error")
+        assert results["export-denied"].get("error_type") == "local_dispatch_guard_denied"
+        assert collection_guard.score([{"tool_call_id": key} for key in results])["status"] == "failed"
+        assert before_collection == world.snapshot()["database"]["media_collections"]
 
         # Also use the real async chat HTTP endpoint with all service workers
         # deferred. This catches incorrect assumptions about startup/lifespan.

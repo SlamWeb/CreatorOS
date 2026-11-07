@@ -105,6 +105,27 @@ class JudgeCalibrationTest(unittest.TestCase):
         self.assertFalse(scoped_business_oracle(state, 'a')['runs_complete'])
         self.assertIsNone(scoped_business_oracle(state, 'a')['runs'])
 
+    def test_complete_run_projection_and_judge_prompt_distinguish_absence_from_unknown(self):
+        state = {'database': {'series': [{'id': 's', 'creator_id': 'a'}],
+            'topics': [{'id': 'with-run', 'series_id': 's'}, {'id': 'without-run', 'series_id': 's'}],
+            'topic_removals': [], 'content_runs': [{'id': 'r', 'topic_id': 'with-run', 'status': 'awaiting_approval'}]}}
+        oracle = scoped_business_oracle(state, 'a')
+        self.assertTrue(oracle['runs_complete'])
+        self.assertEqual([r['topic_id'] for r in oracle['runs']], ['with-run'])
+        case = {'id': 'B07', 'rubric': [{'id': 'b07-s3', 'question': '制作状态是否一致？'}]}
+        payload = {'rubric': case['rubric'], 'temporal_evidence': {}, 'business_oracle': {'before': oracle}}
+        FakeProvider.response = {'items': [{'id': 'b07-s3', 'pass': None, 'evidence': 'fixture'}]}
+        evaluate_judge(case, payload, [], REPO, lambda x: None, provider_factory=FakeProvider)
+        messages, _ = FakeProvider.contexts[-1]
+        prompt = messages[0]['content']
+        self.assertIn('范围内某选题没有匹配记录即可确认该快照中它没有Run', prompt)
+        self.assertIn('完整性标志缺失、为false或证据冲突时不得作此推断', prompt)
+        self.assertTrue(json.loads(messages[1]['content'])['business_oracle']['before']['runs_complete'])
+        state['database']['content_runs'] = [{'id': 'r', 'topic_id': 'with-run'}]
+        incomplete = scoped_business_oracle(state, 'a')
+        self.assertFalse(incomplete['runs_complete'])
+        self.assertIsNone(incomplete['runs'])
+
     def test_missing_and_incorrect_verdict_are_not_pass(self):
         result = compare({'a':True,'b':False,'c':None}, {'items':[{'id':'a','pass':False}, {'id':'b','pass':True}]})
         self.assertEqual([x['classification'] for x in result], ['false_fail','false_pass','missing_response'])

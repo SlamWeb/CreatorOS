@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from pathlib import Path
 import re
 
 from creatoros.evaluation.regression_catalog import catalog
@@ -26,7 +27,13 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     from creatoros.evaluation.change_rules import plan
     scopes = change_scopes if change_scopes is not None else ["unknown"]
     plan(scopes)  # validates input; unknown scopes remain explicitly uncovered.
-    data = catalog()
+    # Keep the original version addressable even after the default catalog
+    # advances; historical selections must retain their original guard.
+    if suite_id in {"regular-v1", "full-v1"}:
+        root = Path(__file__).resolve().parents[2]
+        data = catalog(manifest_path=root / "docs/agent-eval/regression-catalog-v1/catalog.json")
+    else:
+        data = catalog()
     suite = next((s for s in data["suites"] if s["id"] == suite_id), None)
     if suite is None:
         raise ValueError("Unknown regression suite")
@@ -43,8 +50,12 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
         raise ValueError("Selected instance is not a suite member")
     blocked = [{"instance_id": item, "reason": by_id[item].get("reason")}
                for item in selected if by_id[item].get("execution_readiness") != "enabled"
-               or by_id[item].get("adapter") not in {"tool-calling-v1", "local-dispatch-v1"}
+               or by_id[item].get("adapter") not in {"local-dispatch-v1", "local-dispatch-v2"}
                or not item.startswith("base:")]
+    versions = {by_id[item]["adapter"] for item in selected if by_id[item].get("execution_readiness") == "enabled"
+                and by_id[item].get("adapter") in {"local-dispatch-v1", "local-dispatch-v2"}}
+    if len(versions) > 1:
+        raise ValueError("Cannot mix local dispatch policy versions in one run")
     # A view with unclassified candidates is partial even when all its current
     # admitted members are selected; never call that the full routine scope.
     complete = selected == planned and not blocked and suite.get("scope_status") == "complete"
@@ -61,9 +72,7 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     }
     return {"catalog_binding": binding, "blocked": blocked,
             "selected_cases": [by_id[item]["case_id"] for item in selected],
-            # All catalog runs use the new guard, even where the old weaker
-            # tool-only adapter happened to allow the same source case.
-            "requires_local_dispatch": True}
+            "requires_local_dispatch": next(iter(versions), None)}
 
 
 def validate_binding(case_ids, binding):
@@ -109,8 +118,10 @@ def validate_frozen_binding(case_ids, binding):
         raise ValueError("Frozen suite selection differs")
     by_id = {row["instance_id"]: row for row in members}
     if any(not isinstance(x, str) or not x.startswith("base:") or by_id[x]["execution_readiness"] != "enabled"
-           or by_id[x]["adapter"] not in {"tool-calling-v1", "local-dispatch-v1"} for x in selected):
+           or by_id[x]["adapter"] not in {"local-dispatch-v1", "local-dispatch-v2"} for x in selected):
         raise ValueError("Frozen selected instance was not executable")
+    if len({by_id[x]["adapter"] for x in selected}) != 1:
+        raise ValueError("Frozen selection mixes dispatch policy versions")
     if [x.removeprefix("base:") for x in selected] != list(case_ids):
         raise ValueError("Frozen selected cases differ")
     scope = "partial" if candidates or any(row["execution_readiness"] != "enabled" for row in members) else "complete"

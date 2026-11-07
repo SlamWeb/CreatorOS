@@ -22,9 +22,10 @@ export interface CatalogSuite {
   cases: CatalogCase[];
   candidates?: CatalogCase[];
   scope_status?: "partial" | "complete";
+  historical?: boolean;
 }
 
-export interface EvalCatalog { schema_version: string; suites: CatalogSuite[] }
+export interface EvalCatalog { schema_version: string; suites: CatalogSuite[]; historical_error?: string | null }
 
 export interface CatalogSuiteRun {
   round_id: string;

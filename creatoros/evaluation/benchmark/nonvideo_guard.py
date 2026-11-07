@@ -8,13 +8,16 @@ COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接
 
 def policy(case_ids, *, local_dispatch=False):
     selected = list(case_ids or [])
-    from .local_dispatch_guard import CASES, VERSION
+    from .local_dispatch_guard import CASES, VERSION, VERSIONS
+    version = VERSION if local_dispatch is True else local_dispatch
+    if version and version not in VERSIONS:
+        raise ValueError("Unknown local dispatch policy")
     allowed = CASES if local_dispatch else ALLOWED_CASES
     if not selected or len(selected) != len(set(selected)) or any(x not in allowed for x in selected):
         raise ValueError("Nonvideo guard requires an explicit allowed subset; B47 is forbidden")
     result = {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}
     if local_dispatch:
-        result["local_dispatch"] = VERSION
+        result["local_dispatch"] = version
     return result
 
 
@@ -22,8 +25,10 @@ def validate(manifest, case_id=None):
     config = manifest["model_configuration"].get("benchmark_guard")
     if config is None:
         return False
-    from .local_dispatch_guard import VERSION
-    local_dispatch = config.get("local_dispatch") == VERSION
+    from .local_dispatch_guard import VERSIONS
+    local_dispatch = config.get("local_dispatch", False)
+    if local_dispatch and local_dispatch not in VERSIONS:
+        raise ValueError("Unknown local dispatch policy")
     if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch):
         raise ValueError("Frozen nonvideo guard policy or case selection differs")
     if case_id is not None and case_id not in config["case_ids"]:

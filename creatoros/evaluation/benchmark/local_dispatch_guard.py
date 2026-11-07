@@ -6,9 +6,11 @@ the ordinary tool trace, and a rejected attempt is an explicit critical gate.
 from __future__ import annotations
 
 from collections import Counter
+import json
 from threading import Lock
 
-VERSION = "local-dispatch-v1"
+VERSION = "local-dispatch-v2"
+VERSIONS = frozenset({"local-dispatch-v1", VERSION})
 CASES = frozenset({"B01", "B02", "B03", "B05", "B06", "B07", "B10", "B31", "B32", "B38", "B40"})
 
 # These tools use only the isolated local Studio routes or session archive.
@@ -20,7 +22,10 @@ LOCAL_TOOLS = frozenset({"manage_topics", "list_creators", "list_creator_series"
 
 
 class DispatchGuard:
-    def __init__(self):
+    def __init__(self, version=VERSION):
+        if version not in VERSIONS:
+            raise ValueError("Unknown local dispatch policy")
+        self.version = version
         self._observed = []
         self._lock = Lock()
         self._wrapper = None
@@ -29,7 +34,23 @@ class DispatchGuard:
         def execute(call, context=None, *, model_requested=False):
             if not model_requested:
                 return original(call, context=context, model_requested=model_requested)
-            denied = call.name not in LOCAL_TOOLS or (call.name == "read_file" and
+            allowed = call.name in LOCAL_TOOLS
+            if self.version == VERSION and call.name == "manage_media_collection":
+                # Reject duplicate keys as well as malformed or non-object JSON;
+                # the actual executor still enforces account and argument rules.
+                def unique_pairs(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result:
+                            raise ValueError("Duplicate argument")
+                        result[key] = value
+                    return result
+                try:
+                    args = json.loads(call.arguments, object_pairs_hook=unique_pairs)
+                    allowed = isinstance(args, dict) and args.get("action") in ("list", "get")
+                except (TypeError, ValueError):
+                    allowed = False
+            denied = not allowed or (call.name == "read_file" and
                       (context is None or not context.archive_only_reads))
             with self._lock:
                 self._observed.append({"id": call.id, "denied": denied})
@@ -56,10 +77,10 @@ class DispatchGuard:
         return {"id": "local_dispatch_guard", "status": "passed", "detail": "No restricted dispatch"}
 
 
-def install():
+def install(version=VERSION):
     # Only the dedicated per-case benchmark process installs this wrapper.
     import creatoros.agent.loop as loop
-    guard = DispatchGuard()
+    guard = DispatchGuard(version)
     loop.execute_tool_call = guard.wrap(loop.execute_tool_call)
     return guard
 

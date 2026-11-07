@@ -17,6 +17,14 @@ def result(case_id, status, tokens, *, definition="same", scope="provider_actual
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_dispatch_versions_are_not_comparable(self):
+        a = run("a", [result("A", "passed", 1)], execution_mode="local-dispatch-v1")
+        b = run("b", [result("A", "passed", 2)], execution_mode="local-dispatch-v2")
+        out = compare_runs(a, b)
+        self.assertFalse(out["contract_compatible"])
+        self.assertIn({"field": "execution_mode", "reason": "different"}, out["contract_differences"])
+        self.assertEqual(out["comparable_cases"], 0)
+
     def test_comparison_excludes_missing_and_unknown_without_hiding_them(self):
         a = run("a", [result("A", "failed", 20), result("B", "needs_review", 80)])
         b = run("b", [result("A", "passed", 10), result("B", "passed", None)])

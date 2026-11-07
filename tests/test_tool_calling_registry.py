@@ -222,6 +222,49 @@ class ToolCallingRegistryTests(unittest.TestCase):
         self.assertIsNone(result["metrics"]["output_tokens"])
         self.assertIsNone(result["metrics"]["elapsed_seconds"])
 
+    def test_agent_connection_failure_is_unknown_only_without_proven_failure(self):
+        batch = self.root / "batch"
+        record = batch / "records" / ("b" * 32)
+        record.mkdir(parents=True)
+        (record / "report.json").write_text(json.dumps({"case_id": self.definition["id"]}), encoding="utf-8")
+        requests = [{"purpose": "agent", "turn_id": "turn-1", "error": {"kind": "APIConnectionError"}}]
+        (record / "requests.json").write_text(json.dumps(requests), encoding="utf-8")
+        browser = {"turns": [{"turn_id": "turn-1", "completed": False, "session_status": "failed"}]}
+        (record / "browser.json").write_text(json.dumps(browser), encoding="utf-8")
+        row = {"status": "failed", "execution_status": "completed", "record_paths": ["records/" + "b" * 32 + "/report.json"],
+               "scores": {"critical_status": "failed", "critical_checks": [{"id": "browser_completed", "status": "failed"}]}}
+        result = tool_calling.result_from_row(batch, row, self.definition, classify_connection_error=True)
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["evidence"]["critical_checks"][0]["status"], "failed")
+        self.assertTrue(result["evidence"]["agent_connection_error_observed"])
+        self.assertEqual(tool_calling.result_from_row(batch, row, self.definition)["status"], "failed")
+        row["scores"]["critical_checks"].append({"id": "local_dispatch_guard", "status": "failed"})
+        self.assertEqual(tool_calling.result_from_row(batch, row, self.definition, classify_connection_error=True)["status"], "failed")
+        row["scores"]["critical_checks"].pop()
+        definition = {**self.definition, "rubric": [{"id": "semantic-critical", "critical": True}]}
+        row["scores"]["critical_checks"].append({"id": "semantic-critical", "status": "failed"})
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition, classify_connection_error=True)["status"], "failed")
+        row["scores"]["critical_checks"].pop()
+        row["scores"]["semantic"] = {"items": [{"id": "semantic-critical", "status": "failed"}]}
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition, classify_connection_error=True)["status"], "failed")
+        row["scores"].pop("semantic")
+        row["dimensions"] = {"boundary_enforced": "failed"}
+        self.assertEqual(tool_calling.result_from_row(batch, row, definition, classify_connection_error=True)["status"], "failed")
+        row.pop("dimensions")
+        requests.append({"purpose": "agent", "turn_id": "turn-1", "error": None})
+        (record / "requests.json").write_text(json.dumps(requests), encoding="utf-8")
+        self.assertEqual(tool_calling.result_from_row(batch, row, self.definition, classify_connection_error=True)["status"], "failed")
+        requests.pop()
+        requests[0].pop("turn_id")
+        (record / "requests.json").write_text(json.dumps(requests), encoding="utf-8")
+        unbound = tool_calling.result_from_row(batch, row, self.definition, classify_connection_error=True)
+        self.assertEqual(unbound["status"], "failed")
+        self.assertTrue(unbound["evidence"]["agent_connection_error_observed"])
+        requests[0]["turn_id"] = "turn-1"
+        requests[0]["purpose"] = "judge"
+        (record / "requests.json").write_text(json.dumps(requests), encoding="utf-8")
+        self.assertEqual(tool_calling.result_from_row(batch, row, self.definition, classify_connection_error=True)["status"], "failed")
+
     def test_framework_report_metrics_and_projection_change_comparability(self):
         framework = self.root / "creatoros/evaluation/benchmark"
         framework.mkdir(parents=True)
