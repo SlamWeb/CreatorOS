@@ -180,7 +180,7 @@ def main():
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
     parser.add_argument("--local-dispatch-guard", action="store_true", help="Freeze local-only Agent dispatch guard with background workers disabled")
-    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2"], help="Explicit local dispatch policy version")
+    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"], help="Explicit local dispatch policy version")
     parser.add_argument("--catalog-binding", help="JSON frozen suite identity; only for explicit regression freeze")
     parser.add_argument("--catalog-binding-file", type=Path, help="UTF-8 JSON frozen suite identity for large catalogs")
     args = parser.parse_args()

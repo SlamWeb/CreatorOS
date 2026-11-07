@@ -11,8 +11,10 @@ import argparse
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import tempfile
 
 from creatoros.evaluation.benchmark.manifest import _dataset, _reject_links
 from creatoros.evaluation.benchmark.natural_suite import canonical_digest
@@ -20,11 +22,27 @@ from creatoros.evaluation.benchmark.suite_schema import CASE_ID
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json"
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v3/catalog.json"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _CLASS = {"routine", "heavy", "unknown"}
+# These are hashes of the unchanged published v1/v2 catalogs, not catalog IDs.
+# Their original adapter authorization is itself frozen independently of the
+# mutable tool-calling dataset and the current dispatch policy.
+_PUBLISHED_ADAPTER_SOURCE = {
+    "51e070beff5e9297a3f53e24dce7fa4afe3cdfafda32a965fbf1b62e0352f54c": "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e",
+    "ee4d021c69e95a8f74fbac474303c9adabf0ff12d4cae80ad4488c6dce0c37c3": "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e",
+}
+# Execution authorization is released with the guard, independently of any
+# catalog that asks to enable it. A catalog cannot select a different source
+# merely by updating its own digest; changing the baseline requires a newly
+# reviewed guard/authorization version.
+_ADAPTER_SOURCE_BY_VERSION = {
+    "local-dispatch-v1": "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e",
+    "local-dispatch-v2": "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e",
+    "local-dispatch-v3": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
+}
 
 
 def _canonical_sha(value):
@@ -32,28 +50,64 @@ def _canonical_sha(value):
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _source_path(root, relative):
+def _validate_source_name(relative):
     if not isinstance(relative, str) or "\\" in relative:
         raise ValueError("source path must be a repository-relative POSIX path")
     parts = Path(relative).parts
     if (len(parts) < 4 or parts[:2] != ("docs", "agent-eval") or
             any(part in {".", ".."} for part in parts) or not relative.endswith(".json")):
         raise ValueError("source path must be a JSON file under docs/agent-eval")
+
+
+def _source_path(root, relative):
+    _validate_source_name(relative)
     source = _reject_links(root / relative, root)
     if not source.resolve().is_relative_to(root.resolve()):
         raise ValueError("source path escaped repository")
     return source
 
 
-def _adapter_cases(root):
+def _snapshot_path(root, digest):
+    if not isinstance(digest, str) or not _SHA.fullmatch(digest):
+        raise ValueError("invalid snapshot digest")
+    return _source_path(root, f"docs/agent-eval/source-snapshots-v1/{digest}.json")
+
+
+def _frozen_dataset(path, digest):
+    """Read immutable, digest-pinned definitions without today's run validator.
+
+    Published snapshots were validated when sealed. Rechecking them with a
+    later grader's version requirements would make historical viewing depend
+    on current execution code. Execution has its own runtime validation.
+    """
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(doc, dict) or not isinstance(doc.get("cases"), list)
+            or canonical_digest(doc) != digest):
+        raise ValueError("source snapshot digest differs")
+    return doc
+
+
+def _adapter_cases(root, document, adapter, *, allow_unfrozen=False):
     """Local-dispatch policy is executable only for identical frozen base cases."""
-    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES
-    path = _source_path(root, "docs/agent-eval/tool-calling-v1/cases.json")
-    doc = _dataset(path)
-    return {case["id"]: _canonical_sha(case) for case in doc["cases"] if case["id"] in CASES}
+    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_VERSION
+    allowed = CASES_BY_VERSION[adapter]
+    snapshot = _ADAPTER_SOURCE_BY_VERSION[adapter]
+    if adapter == "local-dispatch-v3":
+        base = [source for source in document["sources"] if source.get("namespace") == "base"]
+        if (document.get("adapter_source_sha256") != snapshot or len(base) != 1
+                or base[0].get("canonical_sha256") != snapshot):
+            raise ValueError("v3 adapter requires its exact frozen base source digest")
+    target = _snapshot_path(root, snapshot)
+    if not target.exists() and allow_unfrozen and adapter == "local-dispatch-v3":
+        target = _source_path(root, base[0]["path"])
+    doc = (_frozen_dataset(target, snapshot) if target == _snapshot_path(root, snapshot)
+           else _dataset(target))
+    if canonical_digest(doc) != snapshot:
+        raise ValueError("adapter snapshot digest differs")
+    return {case["id"]: _canonical_sha(case) for case in doc["cases"] if case["id"] in allowed}
 
 
-def build_catalog(document, *, repo_root=ROOT):
+def build_catalog(document, *, repo_root=ROOT, allow_unfrozen=False):
     """Validate a catalog document and resolve its versioned suite views.
 
     `repo_root` enables isolated tests and explicit local extension tooling.
@@ -66,6 +120,8 @@ def build_catalog(document, *, repo_root=ROOT):
         raise ValueError("invalid catalog id")
     if not isinstance(document.get("version"), str) or not _VERSION.fullmatch(document["version"]):
         raise ValueError("invalid catalog version")
+    if "sources_frozen" in document and not isinstance(document["sources_frozen"], bool):
+        raise ValueError("sources_frozen must be boolean")
     sources = document.get("sources")
     if not isinstance(sources, list) or not sources:
         raise ValueError("catalog requires sources")
@@ -83,9 +139,15 @@ def build_catalog(document, *, repo_root=ROOT):
         expected = source.get("canonical_sha256")
         if not isinstance(expected, str) or not _SHA.fullmatch(expected):
             raise ValueError("source requires a canonical SHA-256")
-        path = _source_path(root, source.get("path"))
+        _validate_source_name(source.get("path"))
+        frozen = _snapshot_path(root, expected)
+        if (frozen.exists() or (not allow_unfrozen and
+                (_canonical_sha(document) in _PUBLISHED_ADAPTER_SOURCE or document.get("sources_frozen") is True))):
+            path = frozen
+        else:
+            path = _source_path(root, source["path"])
         try:
-            doc = _dataset(path)
+            doc = _frozen_dataset(path, expected) if path == frozen else _dataset(path)
         except (KeyError, TypeError, IndexError) as error:
             raise ValueError("source dataset is malformed") from error
         if doc.get("dataset_id") != dataset_id or canonical_digest(doc) != expected:
@@ -192,7 +254,7 @@ def build_catalog(document, *, repo_root=ROOT):
             if identity in classifications:
                 raise ValueError("duplicate classification")
             classifications[identity] = {key: deepcopy(value) for key, value in group.items() if key not in {"id", "instances"}}
-    approved_adapter_cases = None
+    approved_adapter_cases = {}
     for identity, classification in classifications.items():
         if identity not in instances or not isinstance(classification, dict):
             raise ValueError("classification references unknown instance")
@@ -212,11 +274,11 @@ def build_catalog(document, *, repo_root=ROOT):
             item["side_effects"].append("可能触发外部模型、素材生产或联网，需逐题核实")
         adapter = classification.get("adapter")
         if adapter is not None:
-            if adapter not in {"local-dispatch-v1", "local-dispatch-v2"} or resource != "routine" or not identity.startswith("base:"):
+            if adapter not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"} or resource != "routine" or not identity.startswith("base:"):
                 raise ValueError("unrecognized or ineligible execution adapter")
-            if approved_adapter_cases is None:
-                approved_adapter_cases = _adapter_cases(root)
-            if approved_adapter_cases.get(item["case_id"]) != item["case_sha256"]:
+            if adapter not in approved_adapter_cases:
+                approved_adapter_cases[adapter] = _adapter_cases(root, document, adapter, allow_unfrozen=allow_unfrozen)
+            if approved_adapter_cases[adapter].get(item["case_id"]) != item["case_sha256"]:
                 raise ValueError("adapter does not authorize exact case definition")
             item.update(adapter=adapter, execution_readiness="enabled")
 
@@ -285,11 +347,59 @@ def catalog(manifest_path=DEFAULT_MANIFEST, *, repo_root=ROOT):
     return build_catalog(json.loads(checked.read_text(encoding="utf-8-sig")), repo_root=root)
 
 
+def freeze_sources(document, *, repo_root=ROOT):
+    """Copy verified catalog inputs into immutable, content-addressed files.
+
+    Existing files are verified, never overwritten. Publishing a catalog and
+    qualifying its execution adapters remain separate explicit actions.
+    """
+    root = Path(repo_root).absolute()
+    build_catalog(document, repo_root=root, allow_unfrozen=True)
+    frozen = []
+    for source in document["sources"]:
+        digest = source["canonical_sha256"]
+        target = _snapshot_path(root, digest)
+        if target.exists():
+            if canonical_digest(_frozen_dataset(target, digest)) != digest:
+                raise ValueError("existing source snapshot digest differs")
+        else:
+            original = _source_path(root, source["path"])
+            payload = original.read_bytes()
+            if (canonical_digest(json.loads(payload.decode("utf-8"))) != digest
+                    or canonical_digest(_dataset(original)) != digest):
+                raise ValueError("source identity or frozen digest differs")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target = _snapshot_path(root, digest)
+            fd, temp_name = tempfile.mkstemp(prefix=".source-", suffix=".tmp", dir=target.parent)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(payload)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temp_name, target)
+            except FileExistsError:
+                if canonical_digest(_frozen_dataset(_snapshot_path(root, digest), digest)) != digest:
+                    raise ValueError("existing source snapshot digest differs")
+            finally:
+                Path(temp_name).unlink(missing_ok=True)
+        frozen.append(digest)
+    return frozen
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--summary", action="store_true", help="Show suite counts and frozen identities only")
+    parser.add_argument("--freeze-sources", action="store_true", help="Persist verified catalog inputs by digest")
     args = parser.parse_args()
+    if args.freeze_sources:
+        path = args.manifest if args.manifest.is_absolute() else ROOT / args.manifest
+        checked = _reject_links(path, ROOT)
+        if not checked.resolve().is_relative_to(ROOT.resolve()):
+            raise ValueError("catalog path escaped repository")
+        document = json.loads(checked.read_text(encoding="utf-8-sig"))
+        print(json.dumps({"frozen_sources": freeze_sources(document)}, ensure_ascii=False))
+        return
     data = catalog(args.manifest)
     if args.summary:
         data = {key: value for key, value in data.items() if key != "catalog_source"}

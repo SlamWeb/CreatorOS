@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import copy
 import sqlite3
 import json
 import shutil
@@ -26,9 +27,9 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.headers["cache-control"], "no-store")
                 suites = response.json()["suites"]
-                self.assertEqual([s["id"] for s in suites], ["regular-v2", "full-v2", "regular-v1", "full-v1"])
-                self.assertEqual([s["historical"] for s in suites], [False, False, True, True])
-                full = next(s for s in suites if s["id"] == "full-v2")
+                self.assertEqual([s["id"] for s in suites], ["regular-v3", "full-v3", "regular-v2", "full-v2", "regular-v1", "full-v1"])
+                self.assertEqual([s["historical"] for s in suites], [False, False, True, True, True, True])
+                full = next(s for s in suites if s["id"] == "full-v3")
                 self.assertEqual(full["counts"]["defined"], 120)
                 self.assertEqual(full["scope_status"], "partial")
                 self.assertTrue(any(c["execution_readiness"] == "requires_review" for c in full["cases"]))
@@ -75,6 +76,25 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 503)
                 self.assertEqual(response.json()["error"]["code"], "catalog_unavailable")
 
+    def test_one_broken_historical_version_does_not_hide_the_other(self):
+        current = catalog()
+        v1 = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
+        def load(path=None):
+            if path is None:
+                return current
+            if "regression-catalog-v2" in str(path):
+                raise ValueError("damaged v2")
+            return v1
+        app = FastAPI()
+        app.include_router(eval_registry_routes(EvalRegistry(Path(tempfile.gettempdir()) / "not-used-eval.sqlite")))
+        with patch("creatoros.web.eval_registry_routes.catalog", side_effect=load):
+            with TestClient(app) as client:
+                response = client.get("/api/eval/v1/suites")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([row["id"] for row in response.json()["suites"]],
+                                 ["regular-v3", "full-v3", "regular-v1", "full-v1"])
+                self.assertIn("v2", response.json()["historical_error"])
+
     def test_stale_historical_source_does_not_block_current_or_change_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             registry = EvalRegistry(Path(tmp) / "registry.sqlite")
@@ -92,6 +112,9 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 dest = root / relative
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / relative, dest)
+            adapter = "docs/agent-eval/source-snapshots-v1/72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e.json"
+            (root / adapter).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / adapter, root / adapter)
             source = root / "docs/agent-eval/expansion-50-v1/cases.json"
             changed = json.loads(source.read_text(encoding="utf-8"))
             changed["cases"][0]["title"] += " (updated)"
@@ -99,15 +122,23 @@ class RegressionCatalogApiTests(unittest.TestCase):
             updated = json.loads((ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json").read_text(encoding="utf-8"))
             updated["sources"][2]["canonical_sha256"] = canonical_digest(changed)
             current = build_catalog(updated, repo_root=root)
+            current = copy.deepcopy(current)
+            for suite in current["suites"]:
+                suite["id"] = suite["id"].replace("-v2", "-v3")
             stale = json.loads((ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json").read_text(encoding="utf-8"))
             def load(path=None):
-                return current if path is None else build_catalog(stale, repo_root=root)
+                if path is None:
+                    return current
+                if "regression-catalog-v2" in str(path):
+                    return build_catalog(updated, repo_root=root)
+                return build_catalog(stale, repo_root=root)
             app = FastAPI()
             app.include_router(eval_registry_routes(registry))
             with patch("creatoros.web.eval_registry_routes.catalog", side_effect=load):
                 with TestClient(app) as client:
                     data = client.get("/api/eval/v1/suites").json()
-                    self.assertEqual([row["id"] for row in data["suites"]], ["regular-v2", "full-v2"])
+                    self.assertEqual([row["id"] for row in data["suites"]],
+                                     ["regular-v3", "full-v3", "regular-v2", "full-v2"])
                     self.assertIn("历史目录暂不可用", data["historical_error"])
                     self.assertEqual(client.get("/api/eval/v1/suites/regular-v1/runs").json()["items"][0]["run_id"], "old-run")
             self.assertEqual(registry.get_run("old-run"), before)

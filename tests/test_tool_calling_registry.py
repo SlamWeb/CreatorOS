@@ -19,9 +19,34 @@ from creatoros.evaluation.benchmark.nonvideo_guard import evidence as guard_evid
 class ToolCallingRegistryTests(unittest.TestCase):
     @staticmethod
     def write_fake_manifest(batch):
-        raw = b'{"fixture":"manifest"}\n'
+        manifest = {"dataset_id": tool_calling.SUITE_ID, "selected_case_ids": ["B05"],
+            "dataset_snapshot": {"sha256": "same"}, "model_configuration": {"benchmark_run_id": "run01",
+            "benchmark_guard": policy(["B05"])}}
+        raw = json.dumps(manifest).encode()
         (batch / "manifest.json").write_bytes(raw)
         (batch / "manifest.json.sha256").write_text(tool_calling._sha(raw), encoding="ascii")
+
+    @staticmethod
+    def write_trial(batch, report, row):
+        record_id = "a" * 32
+        record = batch / "records" / record_id
+        record.mkdir(parents=True)
+        manifest = json.loads((batch / "manifest.json").read_text())
+        digest = tool_calling._sha((batch / "manifest.json").read_bytes())
+        binding = {"benchmark_batch_id": "run01", "benchmark_manifest_sha256": digest}
+        report.update(case_id="B05", run_id=record_id, dataset_id=tool_calling.SUITE_ID, **binding)
+        for field in ("auto_status", "semantic_status", "execution_status", "scores", "dimensions", "trajectory"):
+            if field in row:
+                report[field] = row[field]
+        (record / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        (batch / "claims").mkdir()
+        (batch / "claims/B05.json").write_text(json.dumps({"case_id": "B05", "run_id": record_id,
+            "first_attempt": True, **binding}), encoding="utf-8")
+        receipt = {"policy": manifest["model_configuration"]["benchmark_guard"], "case_id": "B05",
+                   "video_dispatch_installed": True, "publication_client_installed": True, "network_sandbox": False}
+        (record / "guard.json").write_text(json.dumps(receipt), encoding="utf-8")
+        row["benchmark_guard"] = guard_evidence(manifest, "B05", record)
+        (batch / "summary.json").write_text(json.dumps({"dataset_id": tool_calling.SUITE_ID, "cases": [row]}), encoding="utf-8")
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -29,7 +54,7 @@ class ToolCallingRegistryTests(unittest.TestCase):
         self.registry = EvalRegistry(self.root / "shared.sqlite")
         self.round = {"id": "R01", "title": "tool change", "code_version": "code-hash"}
         self.definition = {"id": "B05", "title": "test", "steps": [{"kind": "user", "text": "查一下"}]}
-        self.dataset = {"cases": [self.definition]}
+        self.dataset = {"dataset_id": tool_calling.SUITE_ID, "cases": [self.definition]}
         self.metadata = {"dataset_sha256": "same"}
         self.root_patch = patch.object(tool_calling, "ROOT", self.root)
         self.metadata_patch = patch.object(tool_calling, "suite_and_metadata", return_value=(self.dataset, self.metadata))
@@ -108,16 +133,13 @@ class ToolCallingRegistryTests(unittest.TestCase):
                 self.write_fake_manifest(batch)
                 return 0
             self.assertEqual(self.registry.get_run("run01")["status"], "running")
-            record.mkdir(parents=True)
-            (record / "report.json").write_text(json.dumps({"case_id": "B05", "execution_status": "completed",
-                "elapsed_seconds": 1.5, "metrics": {"agent": {"model_calls": 1, "usage": {"input_tokens": 12, "output_tokens": None}}}}), encoding="utf-8")
+            row = {"case_id": "B05", "status": "passed", "auto_status": "passed", "semantic_status": "passed", "execution_status": "completed",
+                "record_paths": ["records/" + "a" * 32 + "/report.json"], "scores": {"critical_status": "passed"},
+                "dimensions": {"boundary_enforced": "passed"}, "trajectory": {"tool_calls": 1}}
+            self.write_trial(batch, {"elapsed_seconds": 1.5, "metrics": {"agent": {"model_calls": 1,
+                "usage": {"input_tokens": 12, "output_tokens": None}}}}, row)
             (record / "calls.json").write_text(json.dumps([{"tool": "manage_topics", "arguments": {"action": "list"},
                 "raw_result": "must not copy raw content", "is_error": False}]), encoding="utf-8")
-            (batch / "summary.json").write_text(json.dumps({"dataset_id": tool_calling.SUITE_ID, "cases": [{
-                "case_id": "B05", "status": "passed", "auto_status": "passed", "semantic_status": "passed", "execution_status": "completed",
-                "record_paths": ["records/" + "a" * 32 + "/report.json"], "scores": {"critical_status": "passed"},
-                "benchmark_guard": {"status": "passed"},
-                "trajectory": {"tool_calls": 1}}]}), encoding="utf-8")
             return 0
         result = tool_calling.run_registered(self.registry, round_data=self.round, run_id="run01", cases=["B05"],
                                              allow_paid=True, invoke=invoke)
@@ -317,11 +339,9 @@ class ToolCallingRegistryTests(unittest.TestCase):
                 batch.mkdir(parents=True)
                 self.write_fake_manifest(batch)
                 return 0
-            record.mkdir(parents=True)
-            (record / "report.json").write_text(json.dumps({"case_id": "B05", "execution_status": "completed"}), encoding="utf-8")
-            (batch / "summary.json").write_text(json.dumps({"dataset_id": tool_calling.SUITE_ID, "cases": [{
-                "case_id": "B05", "status": "needs_review", "execution_status": "completed",
-                "record_paths": ["records/" + "a" * 32 + "/report.json"]}]}), encoding="utf-8")
+            row = {"case_id": "B05", "status": "needs_review", "execution_status": "completed",
+                   "record_paths": ["records/" + "a" * 32 + "/report.json"]}
+            self.write_trial(batch, {}, row)
             raise KeyboardInterrupt
         with self.assertRaises(KeyboardInterrupt):
             tool_calling.run_registered(self.registry, round_data=self.round, run_id="run01", cases=["B05"],
@@ -329,6 +349,57 @@ class ToolCallingRegistryTests(unittest.TestCase):
         run = self.registry.get_run("run01")
         self.assertEqual(run["status"], "interrupted")
         self.assertEqual(run["results"][0]["case_id"], "B05")
+
+    def test_first_sync_verifies_binding_for_specialist_and_both_legacy_guards(self):
+        record_id = "a" * 32
+        for dispatch in (False, "local-dispatch-v1", "local-dispatch-v2"):
+            with self.subTest(dispatch=dispatch), tempfile.TemporaryDirectory() as temporary:
+                batch = Path(temporary) / "batch"
+                record = batch / "records" / record_id
+                record.mkdir(parents=True)
+                (batch / "claims").mkdir()
+                guard = policy(["B05"], local_dispatch=dispatch)
+                binding = None if not dispatch else {"catalog_suite_id": "regular-" + dispatch[-2:]}
+                config = {"benchmark_run_id": "batch", "benchmark_guard": guard, "catalog_binding": binding}
+                manifest = {"dataset_id": tool_calling.SUITE_ID, "selected_case_ids": ["B05"],
+                            "dataset_snapshot": {"sha256": "source"}, "model_configuration": config}
+                raw = json.dumps(manifest).encode()
+                (batch / "manifest.json").write_bytes(raw)
+                digest = tool_calling._sha(raw)
+                evidence_binding = {"benchmark_batch_id": "batch", "benchmark_manifest_sha256": digest}
+                claim = {"case_id": "B05", "run_id": record_id, "first_attempt": True, **evidence_binding}
+                report = {"case_id": "B05", "run_id": record_id, "dataset_id": tool_calling.SUITE_ID,
+                          "auto_status": "passed", "semantic_status": "passed", "execution_status": "completed",
+                          "dimensions": {"boundary_enforced": "passed"}, **evidence_binding}
+                receipt = {"policy": guard, "case_id": "B05", "video_dispatch_installed": True,
+                           "publication_client_installed": True, "network_sandbox": False}
+                if dispatch:
+                    receipt.update(local_dispatch_installed=True, background_services_deferred=True)
+                (record / "guard.json").write_text(json.dumps(receipt))
+                row = {"case_id": "B05", "record_paths": [f"records/{record_id}/report.json"], "status": "passed",
+                       "auto_status": "passed", "semantic_status": "passed", "execution_status": "completed",
+                       "dimensions": {"boundary_enforced": "passed"}, "benchmark_guard": guard_evidence(manifest, "B05", record)}
+                (batch / "summary.json").write_text(json.dumps({"dataset_id": tool_calling.SUITE_ID, "cases": [row]}))
+                class Registry:
+                    def __init__(self): self.added = []
+                    def get_run(self, _): return {"manifest_sha256": digest, "suite_id": tool_calling.SUITE_ID,
+                        "planned_cases": ["B05"], "metadata": {"catalog_binding": binding, "dataset_sha256": "source"}}
+                    def add_case_result(self, _, result): self.added.append(result)
+                registry = Registry()
+                def write():
+                    (batch / "claims/B05.json").write_text(json.dumps(claim))
+                    (record / "report.json").write_text(json.dumps(report))
+                write()
+                self.assertEqual(tool_calling.sync_summary(registry, "batch", batch, {"B05": {"id": "B05"}}), 1)
+                self.assertEqual(len(registry.added), 1)
+                report["benchmark_batch_id"] = "other"; write()
+                with self.assertRaisesRegex(ValueError, "Report does not match"):
+                    tool_calling.sync_summary(registry, "batch", batch, {"B05": {"id": "B05"}})
+                report["benchmark_batch_id"] = "batch"
+                claim["benchmark_manifest_sha256"] = "b" * 64; write()
+                with self.assertRaisesRegex(ValueError, "claim"):
+                    tool_calling.sync_summary(registry, "batch", batch, {"B05": {"id": "B05"}})
+                self.assertEqual(len(registry.added), 1)
 
 
 class ToolCallingRecoveryTests(unittest.TestCase):

@@ -32,13 +32,15 @@ def eval_registry_routes(registry):
         try:
             current = catalog()
             current_suites = [{**suite, "historical": False} for suite in current["suites"]]
-            try:
-                historical = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
-                old_suites = [{**suite, "historical": True} for suite in historical["suites"]]
-                historical_error = None
-            except (OSError, ValueError, TypeError, KeyError):
-                old_suites = []
-                historical_error = "历史目录暂不可用；历史轮次及运行记录仍可查看。"
+            old_suites, unavailable = [], []
+            for version in ("v2", "v1"):
+                try:
+                    historical = catalog(ROOT / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
+                    old_suites.extend({**suite, "historical": True} for suite in historical["suites"])
+                except (OSError, ValueError, TypeError, KeyError):
+                    unavailable.append(version)
+            historical_error = (f"历史目录暂不可用（{', '.join(unavailable)}）；历史轮次及运行记录仍可查看。"
+                                if unavailable else None)
             ids = [suite["id"] for suite in current_suites + old_suites]
             if len(ids) != len(set(ids)):
                 raise ValueError("Catalog suite IDs overlap")

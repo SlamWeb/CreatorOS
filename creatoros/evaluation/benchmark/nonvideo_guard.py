@@ -8,11 +8,11 @@ COMPARABILITY = "守卫批次与无守卫结果执行条件不同，不能直接
 
 def policy(case_ids, *, local_dispatch=False):
     selected = list(case_ids or [])
-    from .local_dispatch_guard import CASES, VERSION, VERSIONS
+    from .local_dispatch_guard import CASES_BY_VERSION, VERSION, VERSIONS
     version = VERSION if local_dispatch is True else local_dispatch
     if version and version not in VERSIONS:
         raise ValueError("Unknown local dispatch policy")
-    allowed = CASES if local_dispatch else ALLOWED_CASES
+    allowed = CASES_BY_VERSION[version] if local_dispatch else ALLOWED_CASES
     if not selected or len(selected) != len(set(selected)) or any(x not in allowed for x in selected):
         raise ValueError("Nonvideo guard requires an explicit allowed subset; B47 is forbidden")
     result = {"id": POLICY, "case_ids": selected, "video_dispatch": "deny", "publication_client": "deny"}

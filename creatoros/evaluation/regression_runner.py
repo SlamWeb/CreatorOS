@@ -29,9 +29,10 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     plan(scopes)  # validates input; unknown scopes remain explicitly uncovered.
     # Keep the original version addressable even after the default catalog
     # advances; historical selections must retain their original guard.
-    if suite_id in {"regular-v1", "full-v1"}:
+    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2"}:
         root = Path(__file__).resolve().parents[2]
-        data = catalog(manifest_path=root / "docs/agent-eval/regression-catalog-v1/catalog.json")
+        version = "v1" if suite_id.endswith("-v1") else "v2"
+        data = catalog(manifest_path=root / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
     else:
         data = catalog()
     suite = next((s for s in data["suites"] if s["id"] == suite_id), None)
@@ -50,10 +51,10 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
         raise ValueError("Selected instance is not a suite member")
     blocked = [{"instance_id": item, "reason": by_id[item].get("reason")}
                for item in selected if by_id[item].get("execution_readiness") != "enabled"
-               or by_id[item].get("adapter") not in {"local-dispatch-v1", "local-dispatch-v2"}
+               or by_id[item].get("adapter") not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"}
                or not item.startswith("base:")]
     versions = {by_id[item]["adapter"] for item in selected if by_id[item].get("execution_readiness") == "enabled"
-                and by_id[item].get("adapter") in {"local-dispatch-v1", "local-dispatch-v2"}}
+                and by_id[item].get("adapter") in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"}}
     if len(versions) > 1:
         raise ValueError("Cannot mix local dispatch policy versions in one run")
     # A view with unclassified candidates is partial even when all its current
@@ -118,7 +119,7 @@ def validate_frozen_binding(case_ids, binding):
         raise ValueError("Frozen suite selection differs")
     by_id = {row["instance_id"]: row for row in members}
     if any(not isinstance(x, str) or not x.startswith("base:") or by_id[x]["execution_readiness"] != "enabled"
-           or by_id[x]["adapter"] not in {"local-dispatch-v1", "local-dispatch-v2"} for x in selected):
+           or by_id[x]["adapter"] not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"} for x in selected):
         raise ValueError("Frozen selected instance was not executable")
     if len({by_id[x]["adapter"] for x in selected}) != 1:
         raise ValueError("Frozen selection mixes dispatch policy versions")

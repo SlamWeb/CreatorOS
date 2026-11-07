@@ -9,9 +9,15 @@ from collections import Counter
 import json
 from threading import Lock
 
-VERSION = "local-dispatch-v2"
-VERSIONS = frozenset({"local-dispatch-v1", VERSION})
-CASES = frozenset({"B01", "B02", "B03", "B05", "B06", "B07", "B10", "B31", "B32", "B38", "B40"})
+VERSION = "local-dispatch-v3"
+_V1_V2_CASES = frozenset({"B01", "B02", "B03", "B05", "B06", "B07", "B10", "B31", "B32", "B38", "B40"})
+CASES_BY_VERSION = {
+    "local-dispatch-v1": _V1_V2_CASES,
+    "local-dispatch-v2": _V1_V2_CASES,
+    VERSION: _V1_V2_CASES | frozenset({"B08", "B09", "B11", "B12", "B13", "B14", "B15", "B16", "B17", "B20", "B25", "B30"}),
+}
+VERSIONS = frozenset(CASES_BY_VERSION)
+CASES = CASES_BY_VERSION[VERSION]
 
 # These tools use only the isolated local Studio routes or session archive.
 # manage_topics deliberately reaches the real ownership/permission checks and
@@ -35,7 +41,7 @@ class DispatchGuard:
             if not model_requested:
                 return original(call, context=context, model_requested=model_requested)
             allowed = call.name in LOCAL_TOOLS
-            if self.version == VERSION and call.name == "manage_media_collection":
+            if self.version in {"local-dispatch-v2", "local-dispatch-v3"} and call.name == "manage_media_collection":
                 # Reject duplicate keys as well as malformed or non-object JSON;
                 # the actual executor still enforces account and argument rules.
                 def unique_pairs(pairs):

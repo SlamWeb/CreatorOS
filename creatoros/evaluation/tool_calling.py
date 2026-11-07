@@ -21,6 +21,8 @@ from creatoros.evaluation.benchmark.suite_schema import validate_selection
 ROOT = Path(__file__).resolve().parents[2]
 DATASET = ROOT / "docs/agent-eval/tool-calling-v1/cases.json"
 SUITE_ID = "creatoros-tool-calling-v1-20261107"
+REGRESSION_DATASET = ROOT / "docs/agent-eval/benchmark-v2/cases.json"
+REGRESSION_SUITE_ID = "creatoros-trace-benchmark-v3.4-20261105"
 SAFE_CASES = frozenset({"B05", "B06", "B07", "B10"})
 _BUNDLE = {
     "fixture_hash": ("creatoros/evaluation/benchmark/world.py", "creatoros/evaluation/benchmark/nonvideo_guard.py"),
@@ -55,16 +57,50 @@ def _driver_files():
     return [*framework, *(name for name in extra if (ROOT / name).is_file())]
 
 
+def _execution_dataset(local_dispatch, catalog_binding):
+    """Resolve the immutable dataset authorized for the bound guard version."""
+    if local_dispatch is True:
+        from creatoros.evaluation.benchmark.local_dispatch_guard import VERSION
+        local_dispatch = VERSION
+    if catalog_binding is None or local_dispatch not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3"}:
+        return DATASET, SUITE_ID
+    from creatoros.evaluation.regression_catalog import _ADAPTER_SOURCE_BY_VERSION, _snapshot_path
+    from creatoros.evaluation.benchmark.natural_suite import canonical_digest
+    from creatoros.evaluation.benchmark.manifest import _dataset
+    try:
+        digest = _ADAPTER_SOURCE_BY_VERSION[local_dispatch]
+        expected_id = SUITE_ID
+        if local_dispatch == "local-dispatch-v3":
+            expected_id = REGRESSION_SUITE_ID
+            source = catalog_binding["frozen_catalog"]["source"]
+            bases = [item for item in source["sources"] if item.get("namespace") == "base"]
+            if (len(bases) != 1 or bases[0].get("dataset_id") != expected_id
+                    or bases[0].get("canonical_sha256") != digest):
+                raise ValueError("Catalog base dataset identity or authorization differs")
+        path = _snapshot_path(ROOT, digest)
+        dataset = _dataset(path)
+        if dataset.get("dataset_id") != expected_id or canonical_digest(dataset) != digest:
+            raise ValueError("Frozen base dataset digest or identity differs")
+        return path, expected_id
+    except (KeyError, TypeError, OSError) as error:
+        raise ValueError("Frozen base dataset unavailable") from error
+
+
 def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, frozen_catalog=False):
     from creatoros.evaluation.change_rules import plan
-    raw = DATASET.read_bytes()
+    from creatoros.evaluation.benchmark.local_dispatch_guard import VERSION as LOCAL_VERSION
+    if local_dispatch is True:
+        local_dispatch = LOCAL_VERSION
+    use_base = local_dispatch == "local-dispatch-v3" and catalog_binding is not None
+    dataset_path, expected_id = _execution_dataset(local_dispatch, catalog_binding)
+    raw = dataset_path.read_bytes()
     dataset = json.loads(raw)
     validate_selection(dataset, case_ids)
-    if dataset.get("dataset_id") != SUITE_ID:
+    if dataset.get("dataset_id") != expected_id:
         raise ValueError("Unexpected tool suite identity")
-    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES as LOCAL_CASES, VERSION as LOCAL_VERSION
-    local_version = LOCAL_VERSION if local_dispatch is True else local_dispatch
-    if not set(case_ids) <= (LOCAL_CASES if local_dispatch else SAFE_CASES):
+    from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_VERSION
+    local_version = local_dispatch
+    if not set(case_ids) <= (CASES_BY_VERSION.get(local_version, frozenset()) if local_dispatch else SAFE_CASES):
         raise ValueError("Only B05, B06, B07 and B10 have the permitted non-video policy")
     policy(case_ids, local_dispatch=local_version)
     meta = {name: _hash_files(paths) for name, paths in _BUNDLE.items()}
@@ -91,6 +127,12 @@ def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, 
         selected = set(catalog_binding["selected_instance_ids"])
         if {row["adapter"] for row in membership if row["instance_id"] in selected} != {local_version}:
             raise ValueError("Catalog adapter and execution guard version differ")
+        definitions = {case["id"]: case for case in dataset["cases"]}
+        for row in membership:
+            if row["instance_id"] in selected:
+                identity = row["instance_id"].removeprefix("base:")
+                if identity not in definitions or row["case_sha256"] != _definition_hash(definitions[identity]):
+                    raise ValueError("Catalog case definition differs from execution dataset")
     return dataset, meta
 
 
@@ -122,10 +164,10 @@ def _read_bytes(batch: Path, relative: str, limit=1024 * 1024):
     return raw
 
 
-def _actual_user_requests(batch, report_path, report, case_id):
+def _actual_user_requests(batch, report_path, report, case_id, *, dataset_id=SUITE_ID):
     """Match saved user messages with browser-submitted queries, excluding host injections."""
     match = re.fullmatch(r"records/([a-f0-9]{32})/report\.json", report_path)
-    if not match or report.get("run_id") != match.group(1) or report.get("dataset_id") != SUITE_ID:
+    if not match or report.get("run_id") != match.group(1) or report.get("dataset_id") != dataset_id:
         raise ValueError("Report identity is not verifiable")
     record = f"records/{match.group(1)}"
     messages = _read_bounded(batch, f"{record}/messages.json")
@@ -155,7 +197,7 @@ def _actual_user_requests(batch, report_path, report, case_id):
     return found
 
 
-def result_from_row(batch, row, definition, *, classify_connection_error=False):
+def result_from_row(batch, row, definition, *, classify_connection_error=False, dataset_id=SUITE_ID):
     """Project supported saved fields; never make missing evidence a pass."""
     from creatoros.web.observation import clean
     status = row.get("status")
@@ -262,7 +304,7 @@ def result_from_row(batch, row, definition, *, classify_connection_error=False):
                 except (OSError, ValueError, TypeError):
                     pass
             try:
-                evidence["actual_user_requests"] = _actual_user_requests(batch, report_path, report, definition["id"])
+                evidence["actual_user_requests"] = _actual_user_requests(batch, report_path, report, definition["id"], dataset_id=dataset_id)
             except (OSError, ValueError, TypeError, AttributeError):
                 evidence["limitations"].append("Actual user request evidence unavailable")
             if report.get("execution_status") in {"completed", "succeeded"}:
@@ -293,21 +335,62 @@ def result_from_row(batch, row, definition, *, classify_connection_error=False):
             "evidence": _omit_sensitive_keys(clean(evidence))}
 
 
-def sync_summary(registry, run_id, batch, definitions, *, classify_connection_error=False):
+def sync_summary(registry, run_id, batch, definitions, *, classify_connection_error=False, dataset_id=SUITE_ID):
     """Append only observed cases; missing or incomplete records stay unobserved."""
     if not (batch / "summary.json").is_file():
         return 0
     summary = _read_bounded(batch, "summary.json", limit=16 * 1024 * 1024)
-    if summary.get("dataset_id") != SUITE_ID:
+    if summary.get("dataset_id") != dataset_id:
         raise ValueError("Summary dataset identity differs")
+    run = registry.get_run(run_id)
+    manifest_sha = run.get("manifest_sha256")
+    raw_manifest = _read_bytes(batch, "manifest.json", limit=16 * 1024 * 1024)
+    if not isinstance(manifest_sha, str) or _sha(raw_manifest) != manifest_sha:
+        raise ValueError("Registered manifest binding missing or differs")
+    manifest = json.loads(raw_manifest.decode("utf-8-sig"))
+    from creatoros.evaluation.benchmark.nonvideo_guard import validate as validate_guard
+    config = manifest.get("model_configuration", {})
+    if (run.get("suite_id") != dataset_id or manifest.get("dataset_id") != dataset_id
+            or manifest.get("selected_case_ids") != run.get("planned_cases")
+            or config.get("benchmark_run_id") != run_id
+            or config.get("catalog_binding") != run.get("metadata", {}).get("catalog_binding")
+            or manifest.get("dataset_snapshot", {}).get("sha256") != run.get("metadata", {}).get("dataset_sha256")
+            or not validate_guard(manifest)):
+        raise ValueError("Frozen dataset, selection, or guard differs")
     count = 0
     for row in summary.get("cases", []):
         case_id = row.get("case_id") if isinstance(row, dict) else None
         if case_id not in definitions:
             raise ValueError("Summary case was not planned")
         if row.get("record_paths"):
+            paths = row["record_paths"]
+            match = re.fullmatch(r"records/([a-f0-9]{32})/report\.json", paths[0]) if isinstance(paths, list) and len(paths) == 1 and isinstance(paths[0], str) else None
+            if not match:
+                raise ValueError("First-attempt report identity unavailable")
+            expected = {"benchmark_batch_id": run_id, "benchmark_manifest_sha256": manifest_sha}
+            claim = _read_bounded(batch, f"claims/{case_id}.json")
+            if claim != {"case_id": case_id, "run_id": match.group(1), "first_attempt": True, **expected}:
+                raise ValueError("First-attempt claim does not match")
+            report = _read_bounded(batch, paths[0])
+            if (report.get("case_id") != case_id or report.get("run_id") != match.group(1)
+                    or report.get("dataset_id") != dataset_id or any(report.get(k) != v for k, v in expected.items())):
+                raise ValueError("Report does not match bound batch and dataset")
+            for field in ("auto_status", "semantic_status", "execution_status", "scores", "dimensions", "trajectory"):
+                if row.get(field, {}) != report.get(field, {}):
+                    raise ValueError("Summary evidence differs from original report")
+            from creatoros.evaluation.benchmark.nonvideo_guard import evidence as guard_evidence
+            guard = guard_evidence(manifest, case_id, batch / "records" / match.group(1))
+            if not isinstance(guard, dict) or row.get("benchmark_guard") != guard:
+                raise ValueError("Guard receipt missing or mismatched")
+            from creatoros.evaluation.benchmark.report import _case_status, _error_kind, _safety
+            failures, unknown = _safety(report)
+            expected_status = _case_status(report, failures)
+            if expected_status == "passed" and unknown:
+                expected_status = "needs_review"
+            if row.get("status") != expected_status or row.get("observed_error") != _error_kind(report.get("error")):
+                raise ValueError("Summary status differs from original report")
             registry.add_case_result(run_id, result_from_row(batch, row, definitions[case_id],
-                                                             classify_connection_error=classify_connection_error))
+                                                             classify_connection_error=classify_connection_error, dataset_id=dataset_id))
             count += 1
     return count
 
@@ -326,8 +409,9 @@ def recover_registered(registry, run_id):
     run = registry.get_run(run_id)
     if run["status"] not in {"failed", "interrupted", "unknown"}:
         raise ValueError("Recovery requires a terminal failed/interrupted/unknown run")
-    if run.get("suite_id") != SUITE_ID or run.get("suite_version") != "v1":
+    if (run.get("suite_id"), run.get("suite_version")) not in {(SUITE_ID, "v1"), (REGRESSION_SUITE_ID, "v3.4")}:
         raise ValueError("Recovery suite identity differs")
+    dataset_id = run["suite_id"]
     batch = safe_path(ROOT / "data/agent-benchmark-v2", ROOT / "data/agent-benchmark-v2" / run_id)
     if batch.name != run_id:
         raise ValueError("Recovery batch identity differs")
@@ -352,9 +436,11 @@ def recover_registered(registry, run_id):
     local_dispatch = execution_mode if execution_mode in VERSIONS else False
     dataset, current_metadata = suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=binding,
                                                    frozen_catalog=binding is not None)
+    if dataset.get("dataset_id") != dataset_id:
+        raise ValueError("Registered suite and execution dataset differ")
     if run.get("metadata") != current_metadata:
         raise ValueError("Registered metadata differs from current evaluation source")
-    if (manifest.get("source_selection") != "default" or manifest.get("dataset_id") != SUITE_ID
+    if (manifest.get("source_selection") != "default" or manifest.get("dataset_id") != dataset_id
             or manifest.get("selected_case_ids") != cases
             or manifest.get("dataset_snapshot", {}).get("sha256") != current_metadata["dataset_sha256"]
             or manifest.get("model_configuration", {}).get("benchmark_run_id") != run_id
@@ -369,7 +455,7 @@ def recover_registered(registry, run_id):
         raise ValueError("Frozen case definitions differ")
     summary = _read_bounded(batch, "summary.json", limit=16 * 1024 * 1024)
     rows = summary.get("cases") if isinstance(summary, dict) else None
-    if (summary.get("dataset_id") != SUITE_ID or summary.get("planned_case_ids") != cases
+    if (summary.get("dataset_id") != dataset_id or summary.get("planned_case_ids") != cases
             or not isinstance(rows, list) or [row.get("case_id") for row in rows if isinstance(row, dict)] != cases):
         raise ValueError("Saved summary does not match the registered plan")
     definitions = {case["id"]: case for case in frozen["cases"] if case["id"] in cases}
@@ -387,7 +473,7 @@ def recover_registered(registry, run_id):
         observed = _read_bounded(batch, relative)
         observed_case = observed.get("case_id") if isinstance(observed, dict) else None
         if (observed_case not in definitions or observed.get("run_id") != directory.name
-                or observed.get("dataset_id") != SUITE_ID or observed_case in observed_records):
+                or observed.get("dataset_id") != dataset_id or observed_case in observed_records):
             raise ValueError("Unplanned, mismatched or duplicate trial report")
         observed_records[observed_case] = relative
     existing = {result["case_id"] for result in run.get("results", [])}
@@ -415,7 +501,7 @@ def recover_registered(registry, run_id):
         raw_report = _read_bytes(batch, record_path)
         report = json.loads(raw_report.decode("utf-8-sig"))
         if (not isinstance(report, dict) or report.get("case_id") != case_id
-                or report.get("run_id") != match.group(1) or report.get("dataset_id") != SUITE_ID
+                or report.get("run_id") != match.group(1) or report.get("dataset_id") != dataset_id
                 or any(report.get(key) != value for key, value in trial_binding.items())):
             raise ValueError("Report identity differs from registered case")
         guard = guard_evidence(manifest, case_id, batch / "records" / match.group(1))
@@ -437,7 +523,7 @@ def recover_registered(registry, run_id):
         # records are rechecked through the registry for idempotency.
         if case_id not in existing or case_id in previous_recoveries:
             prepared.append((result_from_row(batch, row, definitions[case_id],
-                              classify_connection_error=execution_mode == "local-dispatch-v2"), _sha(raw_report)))
+                              classify_connection_error=execution_mode in {"local-dispatch-v2", "local-dispatch-v3"}, dataset_id=dataset_id), _sha(raw_report)))
     if not prepared and not existing:
         raise ValueError("No recoverable case reports")
     manifest_sha = _sha(raw_manifest)
@@ -455,13 +541,17 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
     if catalog_binding is not None and round_data.get("changes") != catalog_binding.get("change_scopes"):
         raise ValueError("Round change scopes differ from frozen catalog selection")
     dataset, metadata = suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)
+    dataset_id = dataset["dataset_id"]
+    dataset_path, expected_dataset_id = _execution_dataset(local_dispatch, catalog_binding)
+    if dataset_id != expected_dataset_id:
+        raise ValueError("Registered dataset identity differs from bound source")
     definitions = {c["id"]: c for c in dataset["cases"] if c["id"] in cases}
     batch = ROOT / "data/agent-benchmark-v2" / run_id
     if batch.exists():
         raise ValueError("Batch already exists; a new run ID is required")
     registry.register_round(round_data)
-    registry.register_run({"id": run_id, "round_id": round_data["id"], "suite_id": SUITE_ID,
-                           "suite_version": "v1", "planned_cases": cases, "metadata": metadata})
+    registry.register_run({"id": run_id, "round_id": round_data["id"], "suite_id": dataset_id,
+                           "suite_version": "v3.4" if dataset_id == REGRESSION_SUITE_ID else "v1", "planned_cases": cases, "metadata": metadata})
     invoke = invoke or (lambda args: subprocess.run(args, cwd=ROOT, check=False).returncode)
     prefix = [sys.executable, "-m", "creatoros.evaluation.benchmark.run"]
     # Atomically claim this registered run. A duplicate runner must not mutate
@@ -493,12 +583,12 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         if not started:
             return None
         try:
-            sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") == "local-dispatch-v2")
+            sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3"}, dataset_id=dataset_id)
             return None
         except Exception as exc:
             return type(exc).__name__
     try:
-        freeze_args = prefix + ["freeze", "--batch", run_id, "--dataset", str(DATASET), "--cases", ",".join(cases), "--nonvideo-guard"]
+        freeze_args = prefix + ["freeze", "--batch", run_id, "--dataset", str(dataset_path), "--cases", ",".join(cases), "--nonvideo-guard"]
         if local_dispatch:
             freeze_args.append("--local-dispatch-guard")
             if isinstance(local_dispatch, str):
@@ -528,7 +618,7 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         code = invoke(prefix + ["run", "--batch", run_id, "--workers", "1"])
         if suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)[1] != metadata:
             raise RuntimeError("Evaluation source or regression catalog changed during execution")
-        sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") == "local-dispatch-v2")
+        sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3"}, dataset_id=dataset_id)
         finish("failed" if code else "completed", error=f"run exited {code}" if code else None)
         return {"run_id": run_id, "status": "failed" if code else "completed", "exit_code": code}
     except KeyboardInterrupt:

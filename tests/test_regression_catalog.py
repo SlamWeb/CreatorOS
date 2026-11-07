@@ -4,8 +4,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from creatoros.evaluation.regression_catalog import DEFAULT_MANIFEST, ROOT, build_catalog, catalog
+from creatoros.evaluation.regression_catalog import DEFAULT_MANIFEST, ROOT, build_catalog, catalog, freeze_sources
 from creatoros.evaluation.benchmark.natural_suite import canonical_digest
 
 
@@ -18,13 +19,14 @@ class RegressionCatalogTests(unittest.TestCase):
             dest = self.root / relative
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, dest)
-        self.doc = json.loads(DEFAULT_MANIFEST.read_text(encoding="utf-8"))
+        shutil.copytree(ROOT / "docs/agent-eval/source-snapshots-v1", self.root / "docs/agent-eval/source-snapshots-v1")
+        self.doc = json.loads((ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json").read_text(encoding="utf-8"))
 
     def tearDown(self):
         self.temp.cleanup()
 
     def test_current_membership_and_provenance_do_not_double_count(self):
-        data = catalog()
+        data = catalog(ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json")
         regular, full = data["suites"]
         self.assertEqual(regular["counts"], {"defined": 108, "enabled": 11, "requires_review": 97,
                                              "routine": 108, "heavy": 0, "unknown_resource": 0,
@@ -43,9 +45,11 @@ class RegressionCatalogTests(unittest.TestCase):
 
     def test_versioned_catalog_preserves_old_membership_and_adapters(self):
         old = catalog(ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json")
-        new = catalog()
+        new = catalog(ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json")
         self.assertEqual((old["catalog_id"], new["catalog_id"]),
                          ("creatoros-regression-v1", "creatoros-regression-v2"))
+        self.assertEqual(old["catalog_sha256"], "51e070beff5e9297a3f53e24dce7fa4afe3cdfafda32a965fbf1b62e0352f54c")
+        self.assertEqual(new["catalog_sha256"], "ee4d021c69e95a8f74fbac474303c9adabf0ff12d4cae80ad4488c6dce0c37c3")
         for before, after in zip(old["suites"], new["suites"]):
             self.assertNotEqual(before["id"], after["id"])
             self.assertNotEqual(before["membership_sha256"], after["membership_sha256"])
@@ -60,15 +64,110 @@ class RegressionCatalogTests(unittest.TestCase):
                                  "local-dispatch-v2" if row["adapter"] == "local-dispatch-v1" else row["adapter"])
 
     def test_source_digest_and_path_fail_closed(self):
-        altered = self.root / "docs/agent-eval/benchmark-v2/cases.json"
+        altered = self.root / "docs/agent-eval/source-snapshots-v1" / (self.doc["sources"][0]["canonical_sha256"] + ".json")
         payload = json.loads(altered.read_text(encoding="utf-8"))
         payload["cases"][0]["title"] = "modified"
         altered.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "digest"):
             build_catalog(self.doc, repo_root=self.root)
+
+    def test_published_sources_and_adapter_remain_available_after_shared_changes(self):
+        old_doc = json.loads((ROOT / "docs/agent-eval/regression-catalog-v1/catalog.json").read_text(encoding="utf-8"))
+        before = [build_catalog(doc, repo_root=self.root) for doc in (old_doc, self.doc)]
+        for relative in ("docs/agent-eval/benchmark-v2/cases.json", "docs/agent-eval/natural-v2/cases.json",
+                         "docs/agent-eval/expansion-50-v1/cases.json", "docs/agent-eval/tool-calling-v1/cases.json"):
+            path = self.root / relative
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["cases"][0]["title"] += " changed later"
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        after = [build_catalog(doc, repo_root=self.root) for doc in (old_doc, self.doc)]
+        self.assertEqual(before, after)
+        (self.root / "docs/agent-eval/benchmark-v2/cases.json").unlink()
+        self.assertEqual(before, [build_catalog(doc, repo_root=self.root) for doc in (old_doc, self.doc)])
+        # Historical display depends on frozen hashes, not later run-validator semantics.
+        with patch("creatoros.evaluation.regression_catalog._dataset", side_effect=ValueError("future validator")):
+            self.assertEqual(before, [build_catalog(doc, repo_root=self.root) for doc in (old_doc, self.doc)])
+
+    def test_published_snapshot_tampering_and_missing_adapter_fail_closed(self):
+        frozen = self.root / "docs/agent-eval/source-snapshots-v1"
+        adapter = frozen / "72f4ac13ac545ff1d681e143819d521fcf035db304129b0890c1bb01bb588c9e.json"
+        payload = json.loads(adapter.read_text(encoding="utf-8"))
+        payload["cases"][0]["title"] += " altered"
+        adapter.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "snapshot digest"):
+            build_catalog(self.doc, repo_root=self.root)
+        adapter.unlink()
+        with self.assertRaises(FileNotFoundError):
+            build_catalog(self.doc, repo_root=self.root)
+
+    def test_v3_adapter_uses_frozen_base_and_cannot_widen_v1_or_v2(self):
+        doc = copy.deepcopy(self.doc)
+        doc["adapter_source_sha256"] = doc["sources"][0]["canonical_sha256"]
+        group = next(group for group in doc["classification_groups"] if "base:B08" in group["instances"])
+        group["instances"].remove("base:B08")
+        doc["classifications"]["base:B08"] = {"resource_class": "routine", "adapter": "local-dispatch-v3", "reason": "qualified"}
+        case = next(row for row in build_catalog(doc, repo_root=self.root)["suites"][0]["cases"] if row["instance_id"] == "base:B08")
+        self.assertEqual(case["execution_readiness"], "enabled")
+        for adapter in ("local-dispatch-v1", "local-dispatch-v2"):
+            doc["classifications"]["base:B08"]["adapter"] = adapter
+            with self.assertRaisesRegex(ValueError, "adapter"):
+                build_catalog(doc, repo_root=self.root)
+        doc["classifications"]["base:B08"]["adapter"] = "local-dispatch-v3"
+        doc["adapter_source_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "adapter"):
+            build_catalog(doc, repo_root=self.root)
+
+    def test_v3_catalog_cannot_authorize_its_own_altered_baseline(self):
+        doc = json.loads((ROOT / "docs/agent-eval/regression-catalog-v3/catalog.json").read_text(encoding="utf-8"))
+        self.assertEqual(next(c for c in build_catalog(doc, repo_root=self.root)["suites"][0]["cases"]
+                              if c["instance_id"] == "base:B25")["execution_readiness"], "enabled")
+        snapshot_dir = self.root / "docs/agent-eval/source-snapshots-v1"
+        base = json.loads((self.root / doc["sources"][0]["path"]).read_text(encoding="utf-8"))
+        next(c for c in base["cases"] if c["id"] == "B25")["title"] += " altered task"
+        changed = canonical_digest(base)
+        (snapshot_dir / (changed + ".json")).write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+        doc["sources"][0]["canonical_sha256"] = changed
+        doc["adapter_source_sha256"] = changed
+        # Keep natural-parent provenance and both content-addressed snapshots
+        # internally consistent, so the authorization check is the rejection.
+        natural = json.loads((self.root / doc["sources"][1]["path"]).read_text(encoding="utf-8"))
+        natural["natural_selection_policy"]["parent_canonical_sha256"] = changed
+        natural_sha = canonical_digest(natural)
+        (snapshot_dir / (natural_sha + ".json")).write_text(json.dumps(natural, ensure_ascii=False), encoding="utf-8")
+        doc["sources"][1]["canonical_sha256"] = natural_sha
+        with self.assertRaisesRegex(ValueError, "v3 adapter requires its exact frozen base source digest"):
+            build_catalog(doc, repo_root=self.root)
+
+    def test_freeze_sources_is_content_addressed_and_does_not_overwrite(self):
+        self.doc["catalog_id"] = "new-catalog"
+        digest = self.doc["sources"][2]["canonical_sha256"]
+        target = self.root / "docs/agent-eval/source-snapshots-v1" / (digest + ".json")
+        target.unlink()
+        self.assertIn(digest, freeze_sources(self.doc, repo_root=self.root))
+        original = target.read_bytes()
+        self.assertIn(digest, freeze_sources(self.doc, repo_root=self.root))
+        self.assertEqual(target.read_bytes(), original)
+        target.write_text('{}', encoding="utf-8")
+        with self.assertRaises((ValueError, KeyError)):
+            freeze_sources(self.doc, repo_root=self.root)
+        self.assertEqual(target.read_text(encoding="utf-8"), '{}')
         self.doc["sources"][0]["path"] = "docs/agent-eval/../../secrets.json"
         with self.assertRaisesRegex(ValueError, "source path"):
             build_catalog(self.doc, repo_root=self.root)
+
+    def test_sealed_catalog_requires_snapshots_but_can_be_explicitly_frozen(self):
+        doc = copy.deepcopy(self.doc)
+        doc["catalog_id"] = "new-sealed-catalog"
+        doc["sources_frozen"] = True
+        digest = doc["sources"][2]["canonical_sha256"]
+        target = self.root / "docs/agent-eval/source-snapshots-v1" / (digest + ".json")
+        target.unlink()
+        with self.assertRaises(FileNotFoundError):
+            build_catalog(doc, repo_root=self.root)
+        freeze_sources(doc, repo_root=self.root)
+        self.assertEqual(target.exists(), True)
+        self.assertEqual(build_catalog(doc, repo_root=self.root)["catalog_id"], "new-sealed-catalog")
+        self.assertEqual(list(target.parent.glob('.source-*.tmp')), [])
 
     def test_duplicates_unknown_members_and_forged_adapter_rejected(self):
         self.doc["suites"][0].pop("include_resource_classes")
@@ -134,14 +233,14 @@ class RegressionCatalogTests(unittest.TestCase):
             build_catalog(self.doc, repo_root=self.root)
 
     def test_unverified_case_with_no_codex_flag_is_not_enabled(self):
-        full = catalog()["suites"][1]["cases"]
+        full = catalog(ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json")["suites"][1]["cases"]
         case = next(item for item in full if item["instance_id"] == "base:B08")
         self.assertFalse(case["live_codex_declared"])
         self.assertEqual(case["execution_readiness"], "requires_review")
         self.assertEqual(case["resource_class"], "routine")
 
     def test_each_routine_case_has_traceable_basis_and_danger_is_not_hidden(self):
-        regular = catalog()["suites"][0]["cases"]
+        regular = catalog(ROOT / "docs/agent-eval/regression-catalog-v2/catalog.json")["suites"][0]["cases"]
         self.assertTrue(all(item["classification_evidence"] and item["scenario"] in item["reason"] for item in regular))
         self.assertTrue(all((ROOT / path).is_file() for item in regular for path in item["classification_evidence"]))
         image = next(item for item in regular if item["instance_id"] == "base:B29")
