@@ -80,11 +80,51 @@ test("a dense catalog remains readable on desktop and mobile", async ({ page }, 
   });
   await page.goto("/skills");
   await expect(page.getByRole("button", { name: "很长的 Skill 名称用于检查中文换行和英文 overflow example", exact: true })).toBeVisible();
+  const pool = page.getByRole("region", { name: "待分类池" });
+  const toggle = pool.getByRole("button", { name: "展开待分类池" });
+  await expect(pool.getByRole("button", { name: "演示 Skill 6", exact: true })).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await page.screenshot({ path: info.outputPath("skill-library-dense-desktop.png"), fullPage: true });
+  await toggle.click();
+  await expect(pool.getByRole("button", { name: "演示 Skill 6", exact: true })).toBeVisible();
+  await pool.getByRole("button", { name: "收起待分类池" }).click();
+  await expect(pool.getByRole("button", { name: "演示 Skill 6", exact: true })).toHaveCount(0);
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("演示 Skill 24");
+  await expect(pool.getByRole("button", { name: "演示 Skill 24", exact: true })).toBeVisible();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).clear();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("searchbox", { name: "搜索 Skill" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("skill-library-dense-mobile.png"), fullPage: true });
+});
+
+test("dragging an unclassified Skill into a pool persists its category", async ({ page, request }) => {
+  await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
+  await page.goto("/skills");
+  const source = page.getByRole("region", { name: "待分类池" }).getByRole("button", { name: "knowledge-to-carousel", exact: true });
+  const target = page.getByRole("region", { name: "内容创作池" });
+  await expect(source).toBeVisible({ timeout: 15000 });
+  await source.dragTo(target);
+  await expect(target.getByRole("button", { name: "knowledge-to-carousel", exact: true })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "已将" })).toBeVisible();
+  const response = await request.get("/api/skill-display-categories");
+  const data = await response.json();
+  expect(data.items.find((item: { family_id: string }) => item.family_id === "knowledge-to-carousel").categories).toEqual(["content"]);
+  await page.reload();
+  await expect(target.getByRole("button", { name: "knowledge-to-carousel", exact: true })).toBeVisible();
+});
+
+test("a failed classification drop preserves the intended category for review", async ({ page }) => {
+  await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
+  await page.route("**/api/skill-display-categories/*", route => route.fulfill({ status: 409, json: { detail: "受控冲突" } }));
+  await page.goto("/skills");
+  const source = page.getByRole("region", { name: "待分类池" }).getByRole("button", { name: "inspector-visual", exact: true });
+  await expect(source).toBeVisible({ timeout: 15000 });
+  await source.dragTo(page.getByRole("region", { name: "视觉表现池" }));
+  const editor = page.getByRole("dialog", { name: "设置 Skill 分类" });
+  await expect(editor.getByLabel("视觉表现")).toBeChecked();
+  await expect(editor.getByRole("button", { name: "保存分类" })).toBeDisabled();
+  await expect(editor.getByRole("button", { name: "核对最新分类" })).toBeVisible();
 });
 
 test("category edits persist and multi-category selection stays synchronized", async ({ page }, info) => {
@@ -106,6 +146,35 @@ test("category edits persist and multi-category selection stays synchronized", a
   await expect(rules.getByRole("button", { name: "取消选择 inspector-mind" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("region", { name: "待分类池" })).toContainText("inspector-visual");
   await page.screenshot({ path: info.outputPath("skill-pools-desktop.png"), fullPage: true });
+});
+
+test("category pools expand independently without changing the selection", async ({ page }) => {
+  await page.route("**/api/producer-skills", async route => {
+    const response = await route.fetch();
+    const result = await response.json();
+    const sample = result.items.find((item: { name: string }) => item.name === "inspector-visual");
+    result.items = Array.from({ length: 13 }, (_, index) => ({ ...sample,
+      id: `pool-fixture-${index}`, family_id: `pool-fixture-${index}`,
+      name: `池子测试 ${index + 1}`, display_name: `池子测试 ${index + 1}` }));
+    await route.fulfill({ response, json: result });
+  });
+  await page.route("**/api/skill-display-categories", route => route.fulfill({ json: {
+    items: Array.from({ length: 13 }, (_, index) => ({ family_id: `pool-fixture-${index}`,
+      categories: [index < 7 ? "content" : "visual"], revision: 1 }))
+  } }));
+  await page.goto("/skills");
+  const content = page.getByRole("region", { name: "内容创作池" });
+  const visual = page.getByRole("region", { name: "视觉表现池" });
+  await expect(content.getByRole("heading", { name: "内容创作", exact: true })).toBeVisible();
+  await expect(content.getByRole("button", { name: "池子测试 6", exact: true })).toHaveCount(0);
+  await expect(visual.getByRole("button", { name: "池子测试 13", exact: true })).toHaveCount(0);
+  await content.getByRole("button", { name: "加入 池子测试 1" }).click();
+  await content.getByRole("button", { name: "展开内容创作池" }).click();
+  await expect(content.getByRole("button", { name: "池子测试 6", exact: true })).toBeVisible();
+  await expect(visual.getByRole("button", { name: "池子测试 13", exact: true })).toHaveCount(0);
+  await content.getByRole("button", { name: "收起内容创作池" }).click();
+  await expect(page.getByLabel("Skill 组合框", { exact: true })).toContainText("池子测试 1");
+  await expect(content.getByRole("button", { name: "取消选择 池子测试 1" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("a pending merge cannot change the selected Skills via drag or add", async ({ page }) => {

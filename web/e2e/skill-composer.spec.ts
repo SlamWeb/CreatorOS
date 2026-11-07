@@ -37,6 +37,7 @@ test("dragging a Skill near the viewport edge scrolls a long list to the basket"
     await route.fulfill({ response, json: result });
   });
   await page.goto("/skills");
+  await page.getByRole("button", { name: "展开待分类池" }).click();
   const card = page.getByRole("button", { name: "inspector-visual", exact: true });
   await card.scrollIntoViewIfNeeded();
   const start = await card.boundingBox();

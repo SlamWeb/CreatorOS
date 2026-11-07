@@ -31,6 +31,17 @@ function validCategoryRecord(value: unknown): value is CategoryRecord {
     && new Set(record.categories).size === record.categories.length;
 }
 function emptyCategory(familyId: string): CategoryRecord { return { family_id: familyId, categories: [], revision: 0 }; }
+async function saveSkillCategories(input: CategoryEditor): Promise<CategoryRecord> {
+  const result = await request<unknown>(`/api/skill-display-categories/${encodeURIComponent(input.skill.id)}`, {
+    method: "PUT", body: JSON.stringify({ categories: input.categories, expected_revision: input.revision }),
+  });
+  const familyId = input.skill.family_id ?? input.skill.id;
+  if (!validCategoryRecord(result) || result.family_id !== familyId || result.revision !== input.revision + 1
+      || result.categories.length !== input.categories.length || !input.categories.every(category => result.categories.includes(category))) {
+    throw new Error("保存结果无法确认，请先核对最新分类。");
+  }
+  return result;
+}
 
 
 const composerKey = "creatoros:skill-composer:v1";
@@ -86,27 +97,33 @@ export function SkillsPage() {
       return { items: value.items as CategoryRecord[] };
     } });
   const [categoryEditor, setCategoryEditor] = useState<CategoryEditor | null>(null);
+  const [categoryDropNotice, setCategoryDropNotice] = useState("");
   const categorySave = useMutation({ retry: false,
-    mutationFn: async (input: CategoryEditor) => {
-      const result = await request<unknown>(`/api/skill-display-categories/${encodeURIComponent(input.skill.id)}`, {
-        method: "PUT", body: JSON.stringify({ categories: input.categories, expected_revision: input.revision }),
-      });
-      const familyId = input.skill.family_id ?? input.skill.id;
-      if (!validCategoryRecord(result) || result.family_id !== familyId || result.revision !== input.revision + 1
-          || result.categories.length !== input.categories.length || !input.categories.every(category => result.categories.includes(category))) {
-        throw new Error("保存结果无法确认，请先核对最新分类。");
-      }
-      return result;
-    },
+    mutationFn: saveSkillCategories,
     onSuccess: result => {
       client.setQueryData<{ items: CategoryRecord[] }>(["skill-display-categories"], current => ({ items: [
         ...(current?.items ?? []).filter(item => item.family_id !== result.family_id), result,
       ] }));
       setCategoryEditor(null);
+      setCategoryDropNotice("");
     },
     onError: () => setCategoryEditor(current => current ? { ...current, needsCheck: true, latest: undefined } : null),
   });
+  const categoryDrop = useMutation({ retry: false, mutationFn: saveSkillCategories,
+    onSuccess: (result, input) => {
+      client.setQueryData<{ items: CategoryRecord[] }>(["skill-display-categories"], current => ({ items: [
+        ...(current?.items ?? []).filter(item => item.family_id !== result.family_id), result,
+      ] }));
+      setCategoryDropNotice(`已将「${skillLabel(input.skill)}」归入${categoryOptions.find(option => option.value === input.categories[0])?.label ?? "分类"}。`);
+    },
+    onError: (_error, input) => {
+      setCategoryDropNotice("分类保存失败或结果未知，请核对最新分类。");
+      categorySave.reset();
+      setCategoryEditor({ ...input, needsCheck: true, latest: undefined });
+    },
+  });
   const [selectedIds, setSelectedIds] = useState<string[]>(initial.ids);
+  const [expandedPools, setExpandedPools] = useState<Set<string>>(() => new Set());
   const [composerOpen, setComposerOpen] = useState(initial.ids.length > 0);
   const [name, setName] = useState(initial.name);
   const [creatorId, setCreatorId] = useState(initial.creatorId);
@@ -233,10 +250,20 @@ export function SkillsPage() {
     queryFn: () => request<{ status: string; message: string }>(`/api/producer-skills/jobs/${encodeURIComponent(jobId!)}`),
   });
 
-  const validTarget = (_payload: DragPayload, target: string | null) => target === "skill-basket";
+  const validTarget = (payload: DragPayload, target: string | null) => {
+    if (target === "skill-basket") return true;
+    if (!target || !categoriesAvailable || categoryDrop.isPending || categorySave.isPending || categoryEditor) return false;
+    return categoryOptions.some(option => target === `category-${option.value}`) && categoryFor(payload.skill).categories.length === 0;
+  };
 
   const applyDrop = (payload: DragPayload, target: string) => {
-    if (target === "skill-basket") addSkill(payload.skill);
+    if (target === "skill-basket") { addSkill(payload.skill); return; }
+    const option = categoryOptions.find(item => target === `category-${item.value}`);
+    if (option && validTarget(payload, target)) {
+      const current = categoryFor(payload.skill);
+      setCategoryDropNotice("");
+      categoryDrop.mutate({ skill: payload.skill, categories: [option.value], revision: current.revision, needsCheck: false });
+    }
   };
 
   const onDragStart = (payload: DragPayload) => (event: React.PointerEvent) => {
@@ -388,7 +415,7 @@ export function SkillsPage() {
         {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
       <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`} aria-description={categoryLabel} title={`设置分类：${categoryLabel}`}
-        disabled={!categoriesAvailable} onClick={() => {
+        disabled={!categoriesAvailable || categoryDrop.isPending} onClick={() => {
           categorySave.reset();
           const current = categoryFor(skill);
           setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
@@ -398,6 +425,24 @@ export function SkillsPage() {
         {isSelected ? "已选" : "加入"}
       </Button>
     </div>;
+  };
+
+  const renderPool = (id: SkillCategory | "uncategorized", label: string, poolSkills: ProducerSkillItem[]) => {
+    const expanded = expandedPools.has(id);
+    const shownSkills = expanded ? poolSkills : poolSkills.slice(0, 5);
+    const dropTarget = id !== "uncategorized" ? `category-${id}` : undefined;
+    const canDrop = Boolean(drag && dropTarget && validTarget(drag.payload, dropTarget));
+    return <section className={`skill-pool${id === "uncategorized" ? " skill-uncategorized" : ""}${canDrop ? drag?.target === dropTarget ? " category-drop-active" : " category-drop-ready" : ""}`}
+      key={id} aria-label={`${label}池`} data-drop={dropTarget}>
+      <h2><span className={`skill-pool-icon skill-pool-icon-${id}`} aria-hidden="true">{categoryIcon(id === "uncategorized" ? [] : [id])}</span>{label}</h2>
+      <div className="skill-catalog-list" id={`skill-pool-${id}`}>{shownSkills.map(skill => skillCard(skill))}</div>
+      {!poolSkills.length && <p className="skill-pool-empty">暂无 Skill</p>}
+      {poolSkills.length > 5 && <button type="button" className="skill-pool-toggle" aria-expanded={expanded} aria-controls={`skill-pool-${id}`}
+        aria-label={`${expanded ? "收起" : "展开"}${label}池`}
+        onClick={() => setExpandedPools(previous => { const next = new Set(previous); if (expanded) next.delete(id); else next.add(id); return next; })}>
+        {expanded ? "收起" : "展开更多"}
+      </button>}
+    </section>;
   };
 
   return <div className="space-page skill-page">
@@ -434,6 +479,7 @@ export function SkillsPage() {
         </div>
         {categoryQuery.isPending && <p className="skill-category-status" role="status">正在读取分类…</p>}
         {categoryQuery.isError && <p className="skill-category-status" role="alert">分类读取失败，当前显示全部 Skill。 <button type="button" onClick={() => void categoryQuery.refetch()}>重试读取</button></p>}
+        {(categoryDrop.isPending || categoryDropNotice) && <p className="skill-category-status" role="status">{categoryDrop.isPending ? "正在保存分类…" : categoryDropNotice}</p>}
         {selectedRole !== "all" && <button type="button" className="skill-legacy-filter" onClick={() => setBrowseParam("role", "all")}>
           旧版筛选：{selectedRole === "mind" ? "Mind" : selectedRole === "production" ? "Visualize" : "其他"} · 清除
         </button>}
@@ -443,18 +489,11 @@ export function SkillsPage() {
           <div className="skill-pools" aria-label="Skill 分类池">
             {categoryOptions.map(option => {
               const poolSkills = visibleSkills.filter(skill => categoryFor(skill).categories.includes(option.value));
-              return <section className="skill-pool" key={option.value} aria-label={`${option.label}池`}>
-                <h2>{option.label}<span>{poolSkills.length}</span></h2>
-                <div className="skill-catalog-list">{poolSkills.map(skill => skillCard(skill))}</div>
-                {!poolSkills.length && <p className="skill-pool-empty">暂无 Skill</p>}
-              </section>;
+              return renderPool(option.value, option.label, poolSkills);
             })}
           </div>
-          {visibleSkills.some(skill => !categoryFor(skill).categories.length) && <section className="skill-pool skill-uncategorized" aria-label="待分类池">
-            <h2>待分类<span>{visibleSkills.filter(skill => !categoryFor(skill).categories.length).length}</span></h2>
-            <div className="skill-catalog-list">{visibleSkills.filter(skill => !categoryFor(skill).categories.length).map(skill => skillCard(skill))}</div>
-          </section>}
-        </> : <div className="skill-catalog-list">{visibleSkills.map(skill => skillCard(skill))}</div>}
+          {visibleSkills.some(skill => !categoryFor(skill).categories.length) && renderPool("uncategorized", "待分类", visibleSkills.filter(skill => !categoryFor(skill).categories.length))}
+        </> : categoryQuery.isError ? <div className="skill-catalog-list">{visibleSkills.map(skill => skillCard(skill))}</div> : null}
         {!visibleSkills.length && <p className="skill-catalog-empty">{allSkills.length ? "没有匹配的 Skill。" : "还没有 Skill。"}</p>}
       </section>
 
