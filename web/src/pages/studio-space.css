@@ -115,7 +115,6 @@ a.bind-tag { color: var(--accent); }
 .studio-shell:has(.skill-page) .topbar-title,
 .studio-shell:has(.skill-page) .topbar-actions > .command-trigger:not(.work-inbox-trigger) { display: none; }
 .studio-shell:has(.skill-page) .page-container { width: min(1440px, 100%); padding-top: 34px; }
-.skill-page { font-family: "Inter Variable", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
 .skill-page .space-head { margin-bottom: 20px; padding-right: 64px; }
 .skill-page .space-head h1 { font-size: 24px; font-weight: 650; line-height: 1.3; letter-spacing: -.02em; }
 .skill-page .space-columns { grid-template-columns: minmax(0, 1fr) minmax(270px, 320px); gap: 32px; margin-top: 22px; }
@@ -221,4 +220,22 @@ a.bind-tag { color: var(--accent); }
   .skill-page .skill-card { grid-column: 1; grid-row: 1 / span 2; }
   .skill-page .skill-categorize { grid-column: 2; grid-row: 1; }
   .skill-page .skill-select { grid-column: 2; grid-row: 2; }
+}
+
+/* Four independent pools keep categories visible while composing. */
+.skill-page .skill-pools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.skill-page .skill-pool { min-width: 0; }
+.skill-page .skill-pool h2 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.skill-page .skill-pool h2 span { color: #62626b; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.skill-page .skill-pool-empty { margin: 0; padding: 14px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: #62626b; font-size: 13px; }
+.skill-page .skill-uncategorized { margin-top: 24px; }
+.skill-page .skill-uncategorized .skill-catalog-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }
+.skill-page .skill-card-wrap { display: flex; gap: 2px; min-width: 0; margin-bottom: 6px; padding: 0 6px 0 0; border-radius: var(--radius-sm); }
+.skill-page .skill-card { min-height: 42px; padding: 9px 12px; }
+.skill-page .skill-copy strong { font-size: 14px; font-weight: 500; line-height: 1.4; }
+.skill-page .skill-categorize { min-width: 32px; padding: 4px; font-size: 17px; line-height: 1; }
+.skill-page .skill-select { min-width: 42px; padding: 4px; }
+@media (max-width: 1100px) {
+  .skill-page .skill-pools { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .skill-page .skill-uncategorized .skill-catalog-list { grid-template-columns: minmax(0, 1fr); }
 }

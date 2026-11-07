@@ -15,7 +15,7 @@ colors:
   brand-light: "#74b7ff"
 typography:
   display:
-    fontFamily: '"Inter Variable", "Inter", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif'
+    fontFamily: '"Inter Variable", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
     fontSize: "clamp(48px, 6.8vw, 96px)"
     fontWeight: 700
     lineHeight: 1.18
@@ -26,7 +26,7 @@ typography:
     lineHeight: 1.35
     letterSpacing: "-0.025em"
   body:
-    fontFamily: '"Inter Variable", "Inter", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif'
+    fontFamily: '"Inter Variable", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
     fontSize: "clamp(16px, 1.5vw, 20px)"
     fontWeight: 400
     lineHeight: 1.8
@@ -133,14 +133,14 @@ components:
 
 #### 信息如何呈现
 
-- **字体与按钮。** 沿用 `--font-sans` 的 Inter 与系统中文字体栈，正文和按钮保持自然字距；中文实际字形随设备上的回退字体变化。标题用近黑和适度字重建立层级，辅助文字用中性灰。Skill 库以页面标题 24px、条目名称 15px、说明和按钮 14px 为当前参考，使用中等字重并以实际中英文渲染和可读性为准。主要按钮用蓝底白字，次要按钮用白底、浅灰细边及深色文字；采用紧凑的圆角矩形和一致的内边距。保留清晰的 hover、键盘焦点及禁用状态，同一决策区域只突出一个主要操作。
+- **字体与按钮。** 全站使用 `--font-sans`：英文 Inter，中文优先本机 Noto Sans SC，其次系统中文字体，正文和按钮保持自然字距；中文实际字形随设备上的回退字体变化。标题用近黑和适度字重建立层级，辅助文字用中性灰。Skill 库以页面标题 24px、条目名称 15px、说明和按钮 14px 为当前参考，使用中等字重并以实际中英文渲染和可读性为准。主要按钮用蓝底白字，次要按钮用白底、浅灰细边及深色文字；采用紧凑的圆角矩形和一致的内边距。保留清晰的 hover、键盘焦点及禁用状态，同一决策区域只突出一个主要操作。
 
 - **先看对象，再看操作。** 页面首先让人识别当前账号、栏目或作品；标题、相邻关系和稳定位置共同表达层级。页面切换后仍能看清所属上下文和返回路径。
 - **让真实内容承担视觉重点。** 栏目以实际作品和选题为核心，验收以当前版本的真实产物为核心。空、加载和失败分别表达，不用装饰或虚构作品填充。
 - **状态紧贴对象与决策。** 待处理、进行中、失败、待批准、已批准及已发布依实际数据展示；状态文字和形状不能只靠颜色区分。批准不等于发布；当前栏目 Skill 与历史任务冻结版本不能混为一谈。
 - **一处突出当前主要动作。** 同一决策区域区分主动作、次动作和危险动作；动作层级随状态变化，不用同等强调的按钮淹没作品。设置、历史版本和技术证据可按需展开，但保持可发现、可返回。
 - **用布局减少解释成本。** 通过分组、间距、对齐、标题和组件状态表现关系；需要防止误解的业务含义仍保留简短明确的文字。不要用说明段落弥补不清楚的层级，也不要为追求极简隐藏必要反馈。
-- **Skill 库辨识。** Skill 条目使用白底细边的独立组件，类别通过实际分类名称与小型线性图标表达；多分类显示数量，未分类和分类读取失败不能冒充已分类。Skill 库优先尝试本机 Noto Sans SC 显示中文，缺失时回退系统中文字体；这只是该页面的试验，不声称跨设备字体一致。
+- **Skill 库辨识。** Skill 库同时展示四个正式分类池，待分类单独收纳。条目使用白底细边，默认只显示名称，可查看详情、点击加入或拖入组合；多分类项目在对应池里共享选择状态。未分类和分类读取失败不能冒充已分类。中文字体当前依赖本机 Noto Sans SC，缺失时回退系统中文字体，不声称跨设备字体一致。
 
 #### 屏幕分享与日常使用
 

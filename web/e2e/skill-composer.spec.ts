@@ -33,7 +33,7 @@ test("dragging a Skill near the viewport edge scrolls a long list to the basket"
     const result = await response.json();
     const visual = result.items.find((item: { name: string }) => item.name === "inspector-visual");
     expect(visual).toBeTruthy();
-    result.items = [...Array.from({ length: 20 }, (_, i) => ({ ...visual, id: `filler-${i}`, name: `测试占位 ${i}`, display_name: `测试占位 ${i}` })), visual];
+    result.items = [...Array.from({ length: 60 }, (_, i) => ({ ...visual, id: `filler-${i}`, name: `测试占位 ${i}`, display_name: `测试占位 ${i}` })), visual];
     await route.fulfill({ response, json: result });
   });
   await page.goto("/skills");

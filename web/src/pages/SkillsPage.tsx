@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { Image as ImageIcon, Package, Clapperboard, SlidersHorizontal, ShieldCheck, Layers } from "lucide-react";
+import { Image as ImageIcon, Package, Clapperboard, SlidersHorizontal, ShieldCheck, Layers, Ellipsis } from "lucide-react";
 import { studioApi, request } from "../api/client";
 import { useCreatorDirectory } from "../api/useCreatorDirectory";
 import type { ProducerSkillItem } from "../api/types";
@@ -378,22 +378,21 @@ export function SkillsPage() {
     const isSelected = selectedIds.includes(skill.id);
     const categories = categoriesAvailable ? categoryFor(skill).categories : [];
     const categoryNames = categories.map(value => categoryOptions.find(option => option.value === value)?.label ?? value);
-    const categoryLabel = !categoriesAvailable ? "分类" : categoryNames.length ? `${categoryNames[0]}${categoryNames.length > 1 ? ` +${categoryNames.length - 1}` : ""}` : "待分类";
+    const categoryLabel = !categoriesAvailable ? "分类" : categoryNames.length ? categoryNames.join("、") : "待分类";
     return <div key={skill.id} className={`skill-card-wrap ${draggingSkill?.id === skill.id ? "drag-source" : ""}`}>
       <button type="button" className={`skill-card${busy ? " view-only" : ""}`} aria-label={skillLabel(skill)}
         onPointerDown={event => { suppressClick.current = false; if (!busy) onDragStart({ kind: "skill", skill })(event); }}
         onClick={event => { if (event.detail > 0 && suppressClick.current) { suppressClick.current = false; return; } inspectSkill(skill); }}
-        aria-haspopup="dialog">
-        <span className="skill-icon" aria-hidden="true">{categoryIcon(categories)}</span>
-        <span className="skill-copy"><strong>{skillLabel(skill)}</strong>{skill.description && <span className="skill-description">{skill.description}</span>}</span>
+        aria-haspopup="dialog" title={skill.description || skillLabel(skill)}>
+        <span className="skill-copy"><strong>{skillLabel(skill)}</strong></span>
         {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
-      <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`} aria-description={categoryNames.join("、") || categoryLabel} title={categoryNames.join("、") || categoryLabel}
+      <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`} aria-description={categoryLabel} title={`设置分类：${categoryLabel}`}
         disabled={!categoriesAvailable} onClick={() => {
           categorySave.reset();
           const current = categoryFor(skill);
           setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
-        }}>{categoryLabel}</Button>
+        }}><Ellipsis size={16} aria-hidden="true" /></Button>
       <Button type="button" variant="ghost" size="sm" className="skill-select" aria-label={`${isSelected ? "取消选择" : "加入"} ${skillLabel(skill)}`}
         aria-pressed={isSelected} disabled={busy} onClick={() => isSelected ? setSelectedIds(ids => ids.filter(id => id !== skill.id)) : addSkill(skill)}>
         {isSelected ? "已选" : "加入"}
@@ -432,20 +431,30 @@ export function SkillsPage() {
         <div className="skill-catalog-controls">
           <input type="search" aria-label="搜索 Skill" placeholder="搜索 Skill…" value={queryText}
             onChange={event => setBrowseParam("q", event.target.value)} />
-          <div className="skill-category-filters" role="group" aria-label="Skill 分类">
-            {[{ value: "all", label: "全部" }, ...categoryOptions, { value: "uncategorized", label: "待分类" }].map(option =>
-              <button type="button" key={option.value} className={selectedCategory === option.value ? "is-current" : ""}
-                aria-pressed={selectedCategory === option.value} disabled={option.value !== "all" && !categoriesAvailable}
-                onClick={() => setBrowseParam("category", option.value)}>{option.label}</button>)}
-          </div>
         </div>
         {categoryQuery.isPending && <p className="skill-category-status" role="status">正在读取分类…</p>}
         {categoryQuery.isError && <p className="skill-category-status" role="alert">分类读取失败，当前显示全部 Skill。 <button type="button" onClick={() => void categoryQuery.refetch()}>重试读取</button></p>}
         {selectedRole !== "all" && <button type="button" className="skill-legacy-filter" onClick={() => setBrowseParam("role", "all")}>
           旧版筛选：{selectedRole === "mind" ? "Mind" : selectedRole === "production" ? "Visualize" : "其他"} · 清除
         </button>}
+        {selectedCategory !== "all" && <button type="button" className="skill-legacy-filter" onClick={() => setBrowseParam("category", "all")}>清除分类筛选</button>}
         <p className="skill-catalog-count" aria-live="polite">{visibleSkills.length} 项</p>
-        <div className="skill-catalog-list">{visibleSkills.map(skill => skillCard(skill))}</div>
+        {categoriesAvailable ? <>
+          <div className="skill-pools" aria-label="Skill 分类池">
+            {categoryOptions.map(option => {
+              const poolSkills = visibleSkills.filter(skill => categoryFor(skill).categories.includes(option.value));
+              return <section className="skill-pool" key={option.value} aria-label={`${option.label}池`}>
+                <h2>{option.label}<span>{poolSkills.length}</span></h2>
+                <div className="skill-catalog-list">{poolSkills.map(skill => skillCard(skill))}</div>
+                {!poolSkills.length && <p className="skill-pool-empty">暂无 Skill</p>}
+              </section>;
+            })}
+          </div>
+          {visibleSkills.some(skill => !categoryFor(skill).categories.length) && <section className="skill-pool skill-uncategorized" aria-label="待分类池">
+            <h2>待分类<span>{visibleSkills.filter(skill => !categoryFor(skill).categories.length).length}</span></h2>
+            <div className="skill-catalog-list">{visibleSkills.filter(skill => !categoryFor(skill).categories.length).map(skill => skillCard(skill))}</div>
+          </section>}
+        </> : <div className="skill-catalog-list">{visibleSkills.map(skill => skillCard(skill))}</div>}
         {!visibleSkills.length && <p className="skill-catalog-empty">{allSkills.length ? "没有匹配的 Skill。" : "还没有 Skill。"}</p>}
       </section>
 

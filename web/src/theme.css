@@ -31,6 +31,6 @@
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 20px;
-  --font-sans: "Inter Variable", "Inter", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
 }
