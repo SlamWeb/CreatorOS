@@ -41,7 +41,7 @@ def validate(manifest, case_id=None):
     if config != policy(manifest["selected_case_ids"], local_dispatch=local_dispatch,
                         source_namespace=config.get("source_namespace")):
         raise ValueError("Frozen nonvideo guard policy or case selection differs")
-    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
         from creatoros.evaluation.regression_runner import selection_namespace
         from creatoros.evaluation.tool_calling import E06_SCOPE_SUITE_ID, EXPANSION_SUITE_ID, NATURAL_SUITE_ID, REGRESSION_SUITE_ID
         binding = manifest["model_configuration"].get("catalog_binding")

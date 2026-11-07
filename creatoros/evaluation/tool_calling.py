@@ -65,13 +65,13 @@ def _execution_dataset(local_dispatch, catalog_binding):
     if local_dispatch is True:
         from creatoros.evaluation.benchmark.local_dispatch_guard import VERSION
         local_dispatch = VERSION
-    if catalog_binding is None or local_dispatch not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+    if catalog_binding is None or local_dispatch not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
         return DATASET, SUITE_ID
     from creatoros.evaluation.regression_catalog import _ADAPTER_SOURCE_BY_VERSION, _snapshot_path
     from creatoros.evaluation.benchmark.natural_suite import canonical_digest
     from creatoros.evaluation.benchmark.manifest import _dataset
     try:
-        if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+        if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
             from creatoros.evaluation.regression_catalog import _ADAPTER_SOURCE_BY_NAMESPACE
             from creatoros.evaluation.regression_runner import selection_namespace
             namespace = selection_namespace(catalog_binding["selected_instance_ids"])
@@ -80,14 +80,14 @@ def _execution_dataset(local_dispatch, catalog_binding):
             namespace = "base"
             digest = _ADAPTER_SOURCE_BY_VERSION[local_dispatch]
         expected_id = SUITE_ID
-        if local_dispatch in {"local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+        if local_dispatch in {"local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
             expected_id = {"base": REGRESSION_SUITE_ID, "natural": NATURAL_SUITE_ID, "expansion": EXPANSION_SUITE_ID, "e06-scope": E06_SCOPE_SUITE_ID}[namespace]
             source = catalog_binding["frozen_catalog"]["source"]
             bases = [item for item in source["sources"] if item.get("namespace") == namespace]
             if (len(bases) != 1 or bases[0].get("dataset_id") != expected_id
                     or bases[0].get("canonical_sha256") != digest):
                 raise ValueError("Catalog base dataset identity or authorization differs")
-            if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"} and (
+            if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"} and (
                 not isinstance(source.get("adapter_source_sha256_by_namespace"), dict)
                 or any(source["adapter_source_sha256_by_namespace"].get(k) != v
                        for k, v in _ADAPTER_SOURCE_BY_NAMESPACE[local_dispatch].items())
@@ -108,7 +108,7 @@ def suite_and_metadata(case_ids, *, local_dispatch=False, catalog_binding=None, 
     if local_dispatch is True:
         local_dispatch = LOCAL_VERSION
     namespace = None
-    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
         if catalog_binding is None:
             raise ValueError("v4 requires catalog binding")
         from creatoros.evaluation.regression_runner import selection_namespace
@@ -381,7 +381,7 @@ def sync_summary(registry, run_id, batch, definitions, *, classify_connection_er
             or manifest.get("dataset_snapshot", {}).get("sha256") != run.get("metadata", {}).get("dataset_sha256")
             or not validate_guard(manifest)):
         raise ValueError("Frozen dataset, selection, or guard differs")
-    if (config.get("benchmark_guard", {}).get("local_dispatch") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}
+    if (config.get("benchmark_guard", {}).get("local_dispatch") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}
             and config["benchmark_guard"].get("source_namespace") != run.get("metadata", {}).get("source_namespace")):
         raise ValueError("Registered source namespace differs from frozen guard")
     count = 0
@@ -550,7 +550,7 @@ def recover_registered(registry, run_id):
         # records are rechecked through the registry for idempotency.
         if case_id not in existing or case_id in previous_recoveries:
             prepared.append((result_from_row(batch, row, definitions[case_id],
-                              classify_connection_error=execution_mode in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}, dataset_id=dataset_id), _sha(raw_report)))
+                              classify_connection_error=execution_mode in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}, dataset_id=dataset_id), _sha(raw_report)))
     if not prepared and not existing:
         raise ValueError("No recoverable case reports")
     manifest_sha = _sha(raw_manifest)
@@ -610,7 +610,7 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         if not started:
             return None
         try:
-            sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}, dataset_id=dataset_id)
+            sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}, dataset_id=dataset_id)
             return None
         except Exception as exc:
             return type(exc).__name__
@@ -645,7 +645,7 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         code = invoke(prefix + ["run", "--batch", run_id, "--workers", "1"])
         if suite_and_metadata(cases, local_dispatch=local_dispatch, catalog_binding=catalog_binding)[1] != metadata:
             raise RuntimeError("Evaluation source or regression catalog changed during execution")
-        sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}, dataset_id=dataset_id)
+        sync_summary(registry, run_id, batch, definitions, classify_connection_error=metadata.get("execution_mode") in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}, dataset_id=dataset_id)
         finish("failed" if code else "completed", error=f"run exited {code}" if code else None)
         return {"run_id": run_id, "status": "failed" if code else "completed", "exit_code": code}
     except KeyboardInterrupt:

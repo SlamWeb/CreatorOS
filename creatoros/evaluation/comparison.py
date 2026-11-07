@@ -25,10 +25,10 @@ def compare_runs(baseline, candidate):
             reasons.append({"field": key, "reason": "missing"})
         elif left != right:
             reasons.append({"field": key, "reason": "different"})
-    if bm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"} or cm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+    if bm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"} or cm.get("execution_mode") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
         left, right = bm.get("source_namespace"), cm.get("source_namespace")
         def source_valid(metadata):
-            allowed = ({"base", "natural"} if metadata.get("execution_mode") == "local-dispatch-v4" else {"e06-scope"} if metadata.get("execution_mode") == "local-dispatch-v6" else {"expansion"} if metadata.get("execution_mode") == "local-dispatch-v7" else {"base", "natural", "expansion"})
+            allowed = ({"base", "natural"} if metadata.get("execution_mode") == "local-dispatch-v4" else {"e06-scope"} if metadata.get("execution_mode") == "local-dispatch-v6" else {"expansion"} if metadata.get("execution_mode") == "local-dispatch-v7" else {"base"} if metadata.get("execution_mode") == "local-dispatch-v8" else {"base", "natural", "expansion"})
             return metadata.get("source_namespace") in allowed
         if not source_valid(bm) or not source_valid(cm):
             reasons.append({"field": "source_namespace", "reason": "missing"})

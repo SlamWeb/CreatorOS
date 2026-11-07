@@ -22,7 +22,7 @@ from creatoros.evaluation.benchmark.suite_schema import CASE_ID
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v8/catalog.json"
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v9/catalog.json"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -54,6 +54,8 @@ _ADAPTER_SOURCE_BY_NAMESPACE = {"local-dispatch-v4": {
     "e06-scope": "d23426b33b0d4ee98bb098024db217d9dcd29a672fb86640c21847b89325549c",
 }, "local-dispatch-v7": {
     "expansion": "830efbbda78bc0f1b9a534f1f8a0d72fc1311d8e58518726de090393bbecb608",
+}, "local-dispatch-v8": {
+    "base": "2f92a6cba88fa9a7342edab629091a8813b34d605efe36c7d04f428db14b04e5",
 }}
 
 
@@ -102,7 +104,7 @@ def _frozen_dataset(path, digest):
 def _adapter_cases(root, document, adapter, namespace="base", *, allow_unfrozen=False):
     """Local-dispatch policy is executable only for identical frozen base cases."""
     from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_VERSION
-    if adapter in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+    if adapter in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
         from creatoros.evaluation.benchmark.local_dispatch_guard import CASES_BY_NAMESPACE
         sources = _ADAPTER_SOURCE_BY_NAMESPACE[adapter]
         if namespace not in sources:
@@ -129,7 +131,7 @@ def _adapter_cases(root, document, adapter, namespace="base", *, allow_unfrozen=
     if not target.exists() and allow_unfrozen:
         if adapter == "local-dispatch-v3":
             target = _source_path(root, base[0]["path"])
-        elif adapter in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
+        elif adapter in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
             target = _source_path(root, matching[0]["path"])
     doc = (_frozen_dataset(target, snapshot) if target == _snapshot_path(root, snapshot)
            else _dataset(target))
@@ -313,9 +315,9 @@ def build_catalog(document, *, repo_root=ROOT, allow_unfrozen=False):
         adapter = classification.get("adapter")
         if adapter is not None:
             namespace = identity.split(":", 1)[0]
-            if (adapter not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}
+            if (adapter not in {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}
                     or resource != "routine" or namespace not in
-                    ({"expansion"} if adapter == "local-dispatch-v7" else {"e06-scope"} if adapter == "local-dispatch-v6" else {"base", "natural", "expansion"} if adapter == "local-dispatch-v5" else {"base", "natural"} if adapter == "local-dispatch-v4" else {"base"})):
+                    ({"base"} if adapter == "local-dispatch-v8" else {"expansion"} if adapter == "local-dispatch-v7" else {"e06-scope"} if adapter == "local-dispatch-v6" else {"base", "natural", "expansion"} if adapter == "local-dispatch-v5" else {"base", "natural"} if adapter == "local-dispatch-v4" else {"base"})):
                 raise ValueError("unrecognized or ineligible execution adapter")
             adapter_key = (adapter, namespace)
             if adapter_key not in approved_adapter_cases:

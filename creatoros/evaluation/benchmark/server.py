@@ -101,7 +101,8 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
-    root = args.root.resolve()
+    requested_root = args.root.absolute()
+    root = requested_root.resolve()
     repo = Path(__file__).resolve().parents[3]
     if not root.is_relative_to(repo / "data/agent-benchmark-v2"):
         parser.error("Trial must live in the dedicated benchmark namespace")
@@ -123,6 +124,11 @@ def main():
     guarded = validate(manifest, args.case)
     local_guard_version = (manifest["model_configuration"].get("benchmark_guard") or {}).get("local_dispatch")
     local_guard = bool(local_guard_version)
+    if local_guard_version == 'local-dispatch-v8':
+        from creatoros.evaluation.benchmark.local_dispatch_guard import DispatchGuard
+        if ('..' in args.root.parts or requested_root != root
+                or not DispatchGuard._safe_under(repo, requested_root)):
+            parser.error("Image trial path includes links or traversal")
     if args.case not in manifest["selected_case_ids"]:
         parser.error("Case is outside the frozen selection")
     if guarded:
@@ -165,6 +171,8 @@ def main():
     world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2],
                            publication_client=DenyPublication() if guarded else None,
                            defer_background_start=local_guard)
+    if local_guard_version == 'local-dispatch-v8':
+        dispatch_guard.bind_world(world, requested_root / 'world', trusted_root=repo)
     if guarded:
         from creatoros.integrations import video_production
         from creatoros.evaluation.benchmark.nonvideo_guard import deny_video

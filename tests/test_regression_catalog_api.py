@@ -27,9 +27,9 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.headers["cache-control"], "no-store")
                 suites = response.json()["suites"]
-                self.assertEqual([s["id"] for s in suites], ["regular-v8", "full-v8", "regular-v7", "full-v7", "regular-v6", "full-v6", "regular-v5", "full-v5", "regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v2", "full-v2", "regular-v1", "full-v1"])
-                self.assertEqual([s["historical"] for s in suites], [False, False] + [True] * 14)
-                full = next(s for s in suites if s["id"] == "full-v8")
+                self.assertEqual([s["id"] for s in suites], [f"{kind}-v{version}" for version in range(9, 0, -1) for kind in ("regular", "full")])
+                self.assertEqual([s["historical"] for s in suites], [False, False] + [True] * 16)
+                full = next(s for s in suites if s["id"] == "full-v9")
                 self.assertEqual(full["counts"]["defined"], 120)
                 self.assertEqual(full["scope_status"], "partial")
                 self.assertTrue(any(c["execution_readiness"] == "requires_review" for c in full["cases"]))
@@ -84,6 +84,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
         v5 = catalog(ROOT / "docs/agent-eval/regression-catalog-v5/catalog.json")
         v6 = catalog(ROOT / "docs/agent-eval/regression-catalog-v6/catalog.json")
         v7 = catalog(ROOT / "docs/agent-eval/regression-catalog-v7/catalog.json")
+        v8 = catalog(ROOT / "docs/agent-eval/regression-catalog-v8/catalog.json")
         def load(path=None):
             if path is None:
                 return current
@@ -99,6 +100,8 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 return v6
             if "regression-catalog-v7" in str(path):
                 return v7
+            if "regression-catalog-v8" in str(path):
+                return v8
             return v1
         app = FastAPI()
         app.include_router(eval_registry_routes(EvalRegistry(Path(tempfile.gettempdir()) / "not-used-eval.sqlite")))
@@ -107,7 +110,7 @@ class RegressionCatalogApiTests(unittest.TestCase):
                 response = client.get("/api/eval/v1/suites")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual([row["id"] for row in response.json()["suites"]],
-                                 ["regular-v8", "full-v8", "regular-v7", "full-v7", "regular-v6", "full-v6", "regular-v5", "full-v5", "regular-v4", "full-v4", "regular-v3", "full-v3", "regular-v1", "full-v1"])
+                                 [f"{kind}-v{version}" for version in (9, 8, 7, 6, 5, 4, 3, 1) for kind in ("regular", "full")])
                 self.assertIn("v2", response.json()["historical_error"])
 
     def test_stale_historical_source_does_not_block_current_or_change_run(self):
@@ -156,6 +159,8 @@ class RegressionCatalogApiTests(unittest.TestCase):
                     raise ValueError("v6 unavailable in isolated fixture")
                 if "regression-catalog-v7" in str(path):
                     raise ValueError("v7 unavailable in isolated fixture")
+                if "regression-catalog-v8" in str(path):
+                    raise ValueError("v8 unavailable in isolated fixture")
                 return build_catalog(stale, repo_root=root)
             app = FastAPI()
             app.include_router(eval_registry_routes(registry))

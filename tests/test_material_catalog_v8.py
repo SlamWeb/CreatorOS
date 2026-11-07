@@ -7,7 +7,7 @@ from creatoros.evaluation.regression_runner import prepare
 
 class MaterialCatalogV8Test(unittest.TestCase):
     def test_three_material_cases_are_explicitly_admitted(self):
-        current = catalog()
+        current = catalog(ROOT / 'docs/agent-eval/regression-catalog-v8/catalog.json')
         self.assertEqual([suite['counts']['defined'] for suite in current['suites']], [108, 120])
         cases = {case['instance_id']: case for case in current['suites'][0]['cases']}
         for case_id in ('P01', 'P02', 'P03'):
@@ -19,7 +19,7 @@ class MaterialCatalogV8Test(unittest.TestCase):
                             for x in ('P01', 'P02', 'P03')))
 
     def test_guard_does_not_authorize_unreviewed_case(self):
-        document = copy.deepcopy(catalog()['catalog_source'])
+        document = copy.deepcopy(catalog(ROOT / 'docs/agent-eval/regression-catalog-v8/catalog.json')['catalog_source'])
         document['classifications']['expansion:E07'] = {'resource_class': 'routine', 'adapter': 'local-dispatch-v7', 'reason': 'test'}
         with self.assertRaises(ValueError):
             build_catalog(document)
