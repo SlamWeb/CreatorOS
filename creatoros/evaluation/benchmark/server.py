@@ -224,12 +224,13 @@ def main():
         messages = json.loads(messages_path.read_text(encoding="utf-8"))
         turns = {row.get("turn_id"): index for index, row in enumerate(browser.get("turns", []), 1)}
         trace_dir = messages_path.with_suffix(".request-trace")
-        calls, seen = [], set()
+        calls, seen, duplicate_ids = [], set(), set()
         for path in sorted(trace_dir.glob("*.json"), key=lambda path: path.stat().st_mtime_ns):
             snapshot = json.loads(path.read_text(encoding="utf-8"))
             for call in (snapshot.get("response") or {}).get("tool_calls", []):
                 identity = (snapshot["request_id"], call["id"])
                 if identity in seen:
+                    duplicate_ids.add(call['id'])
                     continue
                 seen.add(identity)
                 result = next((row for row in messages if row.get("role") == "tool" and row.get("tool_call_id") == call["id"]), {})
@@ -243,6 +244,11 @@ def main():
                     "request_id": snapshot["request_id"], "turn_id": snapshot.get("turn_id"),
                     "turn_index": turns.get(snapshot.get("turn_id")), "raw_result": raw,
                     "is_error": error_type is not None, "error_type": error_type})
+        from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
+        if applies_e06(case):
+            for call in calls:
+                if call['tool_call_id'] in duplicate_ids:
+                    call['ambiguous_call_id'] = True
         return messages, calls
 
     def waiting(session_id):
@@ -285,7 +291,7 @@ def main():
             "conversation": [{key: entry[key] for key in ("role", "content", "tool_calls", "tool_call_id") if key in entry}
                              for entry in evidence["messages"] if entry.get("role") in {"user", "assistant"}],
             "variables": world.variables,
-            "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id") if k in row} for row in evidence["calls"]],
+            "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id", "ambiguous_call_id") if k in row} for row in evidence["calls"]],
             "state_checks": evidence["grade"]["checks"], "rubric": rules, "temporal_evidence": temporal,
             "candidate_skills": candidate_skills, "candidate_evidence_error": candidate_error,
             "original_skill": evidence["initial_skills"]["skill_texts"].get(world.variables["skill_a"]),
@@ -293,6 +299,11 @@ def main():
                            for item in evidence["background"]["extractions"]],
             "iterations": evidence["background"]["iterations"],
             "codex": {key: evidence["codex"].get(key) for key in ("nested_constraints", "submit_artifacts", "images")}}
+        from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
+        if applies_e06(case):
+            payload['e06_tool_receipts'] = [
+                {key: entry[key] for key in ('tool_call_id', 'content') if key in entry}
+                for entry in evidence['messages'] if entry.get('role') == 'tool']
         from creatoros.evaluation.benchmark.semantic_judge import scoped_business_oracle
         payload["business_oracle"] = {name: scoped_business_oracle(evidence[name], world.variables["creator_a"], evidence["before"] if name == "after" else None)
                                       for name in ("before", "after")}

@@ -187,6 +187,20 @@ class RegressionCatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "v5 adapter requires its exact fixed source digests"):
             build_catalog(forged, repo_root=self.root)
 
+    def test_v6_withdraws_only_old_e06_without_changing_v5(self):
+        old = catalog(ROOT / "docs/agent-eval/regression-catalog-v5/catalog.json")
+        new = catalog()
+        self.assertEqual(new["catalog_id"], "creatoros-regression-v6")
+        for previous, current in zip(old["suites"], new["suites"]):
+            before = {case["instance_id"]: case for case in previous["cases"]}
+            after = {case["instance_id"]: case for case in current["cases"]}
+            self.assertEqual(set(before), set(after))
+            self.assertEqual({identity for identity in before if before[identity] != after[identity]}, {"expansion:E06"})
+            self.assertEqual(before["expansion:E06"]["execution_readiness"], "enabled")
+            self.assertEqual(after["expansion:E06"]["execution_readiness"], "requires_review")
+            self.assertEqual(previous["counts"]["enabled"], 36)
+            self.assertEqual(current["counts"]["enabled"], 35)
+
     def test_freeze_sources_is_content_addressed_and_does_not_overwrite(self):
         self.doc["catalog_id"] = "new-catalog"
         digest = self.doc["sources"][2]["canonical_sha256"]

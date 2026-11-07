@@ -23,6 +23,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
     from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.judge_contradiction_guard import VERSION as JUDGE_CONTRADICTION_GUARD_VERSION
     from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_EVIDENCE_GUARD_VERSION
+    from creatoros.evaluation.benchmark.e06_scope_evidence import VERSION as E06_SCOPE_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.rsi_evidence import VERSION as RSI_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.video_evidence import VERSION as VIDEO_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.research_evidence import VERSION as RESEARCH_EVIDENCE_VERSION
@@ -39,6 +40,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
         "judge_evidence_version": JUDGE_EVIDENCE_VERSION,
         "judge_contradiction_guard_version": JUDGE_CONTRADICTION_GUARD_VERSION,
         "program_evidence_guard_version": PROGRAM_EVIDENCE_GUARD_VERSION,
+        "e06_scope_evidence_version": E06_SCOPE_EVIDENCE_VERSION,
         "benchmark_evidence_versions": {"rsi": RSI_EVIDENCE_VERSION, "video": VIDEO_EVIDENCE_VERSION,
                                         "research": RESEARCH_EVIDENCE_VERSION, "research_qualification": RESEARCH_GUARD_VERSION,
                                         "visual_expansion": VISUAL_EXPANSION_VERSION},

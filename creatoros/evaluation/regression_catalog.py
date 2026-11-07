@@ -22,7 +22,7 @@ from creatoros.evaluation.benchmark.suite_schema import CASE_ID
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v5/catalog.json"
+DEFAULT_MANIFEST = ROOT / "docs/agent-eval/regression-catalog-v6/catalog.json"
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,79}$")
 _VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")

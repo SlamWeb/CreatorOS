@@ -14,6 +14,10 @@ def evaluate_judge(case, payload, images, root, sink, *, provider_factory=None, 
     """Run the actual benchmark Judge using already assembled trial evidence."""
     root = Path(root).resolve()
     temporal = payload["temporal_evidence"]
+    from .e06_scope_evidence import applies as applies_e06, collect as collect_e06
+    e06_evidence = collect_e06(case, payload) if applies_e06(case) else None
+    if e06_evidence is not None:
+        payload = {**payload, 'e06_scope_evidence': e06_evidence}
     prompt = ("你是独立的评测调用，不是执行任务的Agent。按证据逐项判断，不给总分，不执行工具。"
               "仅按本题rubric判断语义；未列入该项的Schema、调用预算、耗时等诊断失败不能代替语义判断。"
               "各项独立评分：不要把其他评分项的条件加进当前项。规则明说‘如果有某类陈述才检查’，而回答没有此类陈述时，该项返回true；null只表示判断所需证据缺失或冲突。"
@@ -38,6 +42,10 @@ def evaluate_judge(case, payload, images, root, sink, *, provider_factory=None, 
                    "b42-s3的JSON项另填写temporal_basis（reply_observed、background_only、independent_violation、unknown之一）、"
                    "turn_index（从1开始）与run_ids数组；reply_observed须引用回执和近时快照状态一致的Run。"
                    "如果pass=true，run_ids须覆盖本轮全部已提交Run。")
+    if e06_evidence is not None:
+        prompt += ("本题 e06_scope_evidence 是宿主按同轮目标 ID 核验的工具回执。scope_rejected 表示无法区分不存在与无权访问，"
+                   "接受准确表明无法查询或确认状态的回答；无证据声称选题属于其他账号或确定不存在则不通过。"
+                   "证据为 unknown 时需要该回执的判断返回 null，不能用隔离数据库事实推断 Agent 当时所见。")
     if case.get("id") == "B07":
         prompt += ("b07-s1检查完整性；b07-s2只核对回答自报的总数是否与回答实际列出的有效项数量一致，"
                    "遗漏由s1判断，不能仅因未列全再次否定s2；b07-s3若未提制作状态或数量则返回true。")
@@ -106,6 +114,9 @@ def evaluate_judge(case, payload, images, root, sink, *, provider_factory=None, 
     validate_judge(case, result)
     result.pop("visual_evidence", None)  # Never trust a model-supplied host attestation.
     result.pop("research_evidence", None)
+    result.pop('e06_scope_evidence', None)
+    if e06_evidence is not None:
+        result['e06_scope_evidence'] = e06_evidence
     result.update(model="deepseek-flash", calibrated_against_humans=False, same_model_family=True,
                   evidence_version=JUDGE_EVIDENCE_VERSION, temporal_evidence=temporal)
     if isinstance(visual_manifest, dict):

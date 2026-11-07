@@ -84,12 +84,12 @@ test("keeps current suites accessible when the historical catalog fails", async 
 
 test("reads the actual versioned catalog from the isolated backend", async ({ page }) => {
   const response = page.waitForResponse(result => result.url().includes("/api/eval/v1/suites") && result.request().method() === "GET");
-  await page.goto("/eval?view=suites&suite=full-v5");
+  await page.goto("/eval?view=suites&suite=full-v6");
   const reply = await response;
   expect(reply.status()).toBe(200);
   const body = await reply.json() as { suites: { id: string; title: string; counts: { defined: number; requires_review: number } }[] };
-  const full = body.suites.find(item => item.id === "full-v5");
-  const regular = body.suites.find(item => item.id === "regular-v5");
+  const full = body.suites.find(item => item.id === "full-v6");
+  const regular = body.suites.find(item => item.id === "regular-v6");
   expect(full).toBeTruthy();
   expect(regular).toBeTruthy();
   expect(full!.counts.defined).toBeGreaterThan(0);
@@ -99,7 +99,8 @@ test("reads the actual versioned catalog from the isolated backend", async ({ pa
   await expect(scope.locator("strong").nth(2)).toHaveText(String(full!.counts.requires_review));
   await expect(page.getByText("执行范围尚不完整，不能视为全量运行能力。")).toBeVisible();
   await page.getByRole("button", { name: "返回回归集" }).click();
-  await expect(page.getByRole("button", { name: /常规全量回归.*版本 5.*当前版本/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /常规全量回归.*版本 6.*当前版本/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /常规全量回归.*版本 5.*历史版本/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /常规全量回归.*版本 4.*历史版本/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /常规全量回归.*版本 3.*历史版本/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /常规全量回归.*版本 2.*历史版本/ })).toBeVisible();
@@ -113,7 +114,7 @@ test("opens a real registered suite run through the isolated backend", async ({ 
 import sys
 from creatoros.evaluation.registry import EvalRegistry
 from creatoros.evaluation.regression_runner import prepare
-r=EvalRegistry(sys.argv[1]); b=prepare('regular-v5', ['base:B06'])['catalog_binding']
+r=EvalRegistry(sys.argv[1]); b=prepare('regular-v6', ['base:B06'])['catalog_binding']
 r.register_round({'id':'catalog-round','title':'隔离回归轮次','code_version':'test-sha'})
 r.register_round({'id':'historical-round','title':'历史回归轮次','code_version':'old-sha'})
 r.register_round({'id':'v3-round','title':'第三版回归轮次','code_version':'v3-sha'})
@@ -127,7 +128,7 @@ r.transition('catalog-run','completed')
   const seeded = spawnSync(process.env.CREATOROS_PYTHON ?? "python", ["-c", script, path.join(root, "eval-registry.sqlite3")],
     { cwd: path.resolve(import.meta.dirname, "../.."), encoding: "utf8" });
   expect(seeded.status, seeded.stderr).toBe(0);
-  await page.goto("/eval?view=suites&suite=regular-v5");
+  await page.goto("/eval?view=suites&suite=regular-v6");
   const records = page.getByRole("region", {name: "已登记运行"});
   await expect(records).toContainText("隔离回归轮次");
   await expect(records).not.toContainText("历史回归轮次");
@@ -142,7 +143,7 @@ r.transition('catalog-run','completed')
   await expect(records).toContainText("历史回归轮次");
   await expect(records).not.toContainText("隔离回归轮次");
   await expect(records.getByRole("button")).toHaveCount(1);
-  await page.goto("/eval?view=suites&suite=regular-v5");
+  await page.goto("/eval?view=suites&suite=regular-v6");
   await records.getByRole("button", {name: /隔离回归轮次/}).click();
   const binding = page.getByRole("region", {name: "所属回归集"});
   await expect(binding).toContainText(/常规.*回归/);

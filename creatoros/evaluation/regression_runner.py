@@ -16,6 +16,12 @@ def _digest(value):
 
 _MEMBER_FIELDS = ("instance_id", "case_sha256", "resource_class", "execution_readiness", "adapter")
 _ADAPTERS = {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5"}
+# A safety withdrawal affects new executions only; frozen history and recovery
+# remain readable under its originally recorded contract.
+_NEW_RUN_BLOCKLIST = {
+    ("expansion:E06", "830efbbda78bc0f1b9a534f1f8a0d72fc1311d8e58518726de090393bbecb608"):
+        "历史评分口径与账号范围权限契约不一致，修正与验证完成前不可新运行。",
+}
 
 
 def selection_namespace(selected):
@@ -43,7 +49,7 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     plan(scopes)  # validates input; unknown scopes remain explicitly uncovered.
     # Keep the original version addressable even after the default catalog
     # advances; historical selections must retain their original guard.
-    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2", "regular-v3", "full-v3", "regular-v4", "full-v4"}:
+    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2", "regular-v3", "full-v3", "regular-v4", "full-v4", "regular-v5", "full-v5"}:
         root = Path(__file__).resolve().parents[2]
         version = suite_id.rsplit("-", 1)[1]
         data = catalog(manifest_path=root / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
@@ -68,6 +74,11 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
                or by_id[item].get("adapter") not in _ADAPTERS
                or not (item.startswith("base:") or (item.startswith("natural:") and by_id[item].get("adapter") in {"local-dispatch-v4", "local-dispatch-v5"})
                        or (item.startswith("expansion:") and by_id[item].get("adapter") == "local-dispatch-v5"))]
+    already_blocked = {item["instance_id"] for item in blocked}
+    for item in selected:
+        reason = _NEW_RUN_BLOCKLIST.get((item, by_id[item].get("source_sha256")))
+        if reason and item not in already_blocked:
+            blocked.append({"instance_id": item, "reason": reason})
     versions = {by_id[item]["adapter"] for item in selected if by_id[item].get("execution_readiness") == "enabled"
                 and by_id[item].get("adapter") in _ADAPTERS}
     if len(versions) > 1:

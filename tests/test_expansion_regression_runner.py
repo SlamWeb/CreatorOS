@@ -15,6 +15,23 @@ from creatoros.evaluation.comparison import CONTRACT_FIELDS, compare_runs
 
 
 class ExpansionRegressionRunnerTests(unittest.TestCase):
+    def test_withdrawn_e06_cannot_start_from_current_or_historical_catalog(self):
+        from creatoros.evaluation.registry import EvalRegistry
+        for suite in ("regular-v5", "full-v5", "regular-v6", "full-v6"):
+            with self.subTest(suite=suite), tempfile.TemporaryDirectory() as temp:
+                prepared = regression_runner.prepare(suite, ["expansion:E06"], ["agent_shared"])
+                self.assertEqual([item["instance_id"] for item in prepared["blocked"]], ["expansion:E06"])
+                self.assertIn("评分", prepared["blocked"][0]["reason"])
+                calls = []
+                registry = EvalRegistry(Path(temp) / "eval.sqlite")
+                with self.assertRaises(ValueError):
+                    tool_calling.run_registered(registry, round_data={"id": "round", "title": "blocked",
+                        "code_version": "test", "changes": ["agent_shared"]}, run_id="blocked-run", cases=["E06"],
+                        allow_paid=True, invoke=lambda args: calls.append(args), local_dispatch="local-dispatch-v5",
+                        catalog_binding=prepared["catalog_binding"])
+                self.assertFalse(calls)
+                self.assertFalse((Path(temp) / "eval.sqlite").exists())
+
     def test_exact_scopes_and_legacy_policy(self):
         v4, v5 = CASES_BY_NAMESPACE["local-dispatch-v4"], CASES_BY_NAMESPACE["local-dispatch-v5"]
         self.assertEqual(v5["base"] - v4["base"], {"B18", "B19", "B33", "B35", "B37", "B39"})
@@ -35,14 +52,14 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
                 prepared = regression_runner.prepare("regular-v5", selected, ["agent_shared"])
                 if prepared["blocked"]:
                     raise ValueError("not admitted")
-        for case in ("E06", "E07", "Y04", "C02", "E05"):
+        for case in ("E07", "Y04", "C02", "E05"):
             prepared = regression_runner.prepare("regular-v5", ["expansion:" + case], ["agent_shared"])
             self.assertFalse(prepared["blocked"])
             regression_runner.validate_frozen_binding([case], prepared["catalog_binding"])
         self.assertEqual(regression_runner.prepare("regular-v4", ["natural:B06"])["requires_local_dispatch"], "local-dispatch-v4")
 
     def test_real_freeze_for_each_source_and_source_swap_rejected(self):
-        for identity in ("base:B18", "natural:B06", "expansion:E06"):
+        for identity in ("base:B18", "natural:B06", "expansion:E07"):
             with self.subTest(identity=identity), tempfile.TemporaryDirectory() as temp:
                 prepared = regression_runner.prepare("regular-v5", [identity], ["agent_shared"])
                 binding, cases = prepared["catalog_binding"], prepared["selected_cases"]
@@ -69,16 +86,23 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
 
     def test_expansion_sync_and_recovery_preserve_dataset_identity(self):
         case, run_id, record_id = "E06", "run01", "b" * 32
-        prepared = regression_runner.prepare("regular-v5", ["expansion:" + case], ["agent_shared"])
-        binding = prepared["catalog_binding"]
-        path, dataset_id = tool_calling._execution_dataset("local-dispatch-v5", binding)
-        dataset, metadata = tool_calling.suite_and_metadata([case], local_dispatch="local-dispatch-v5", catalog_binding=binding)
+        # Construct the previously authorized frozen batch before withdrawal;
+        # subsequent reads and recovery use the real active blocklist.
+        with patch.dict(regression_runner._NEW_RUN_BLOCKLIST, {}, clear=True):
+            prepared = regression_runner.prepare("regular-v5", ["expansion:" + case], ["agent_shared"])
+            binding = prepared["catalog_binding"]
+            path, dataset_id = tool_calling._execution_dataset("local-dispatch-v5", binding)
+            dataset, metadata = tool_calling.suite_and_metadata([case], local_dispatch="local-dispatch-v5", catalog_binding=binding)
+        regression_runner.validate_frozen_binding([case], binding)
+        self.assertEqual(tool_calling.suite_and_metadata([case], local_dispatch="local-dispatch-v5",
+                                                        catalog_binding=binding, frozen_catalog=True), (dataset, metadata))
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             batch = root / "data/agent-benchmark-v2" / run_id
             record = batch / "records" / record_id
             record.mkdir(parents=True)
-            manifest = freeze(batch, path, [case], nonvideo_guard=True, local_dispatch="local-dispatch-v5", catalog_binding=binding)
+            with patch.dict(regression_runner._NEW_RUN_BLOCKLIST, {}, clear=True):
+                manifest = freeze(batch, path, [case], nonvideo_guard=True, local_dispatch="local-dispatch-v5", catalog_binding=binding)
             verify_manifest(batch / "manifest.json")
             digest = tool_calling._sha((batch / "manifest.json").read_bytes())
             guard = manifest["model_configuration"]["benchmark_guard"]
@@ -137,7 +161,7 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
 
     def test_registered_expansion_freezes_before_controlled_failure(self):
         from creatoros.evaluation.registry import EvalRegistry
-        prepared = regression_runner.prepare("regular-v5", ["expansion:E06"], ["agent_shared"])
+        prepared = regression_runner.prepare("regular-v6", ["expansion:E07"], ["agent_shared"])
         binding = prepared["catalog_binding"]
         path, identity = tool_calling._execution_dataset("local-dispatch-v5", binding)
         with tempfile.TemporaryDirectory() as temp:
@@ -151,7 +175,7 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
                     self.assertEqual(registry.get_run("expansion-run")["status"], "freezing")
                     frozen_binding = json.loads(Path(args[args.index("--catalog-binding-file") + 1]).read_text(encoding="utf-8"))
                     batch.mkdir(parents=True)
-                    freeze(batch, path, ["E06"], nonvideo_guard=True,
+                    freeze(batch, path, ["E07"], nonvideo_guard=True,
                            local_dispatch="local-dispatch-v5", catalog_binding=frozen_binding)
                     return 0
                 self.assertEqual(registry.get_run("expansion-run")["status"], "running")
@@ -161,7 +185,7 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
                  patch.object(tool_calling, "_hash_files", return_value="a" * 64), \
                  patch.object(tool_calling, "_driver_files", return_value=[]):
                 result = tool_calling.run_registered(registry, round_data={"id": "round", "title": "expansion",
-                    "code_version": "test", "changes": ["agent_shared"]}, run_id="expansion-run", cases=["E06"],
+                    "code_version": "test", "changes": ["agent_shared"]}, run_id="expansion-run", cases=["E07"],
                     allow_paid=True, invoke=invoke, local_dispatch="local-dispatch-v5", catalog_binding=binding)
             run = registry.get_run("expansion-run")
             self.assertEqual(commands, ["freeze", "run"])
