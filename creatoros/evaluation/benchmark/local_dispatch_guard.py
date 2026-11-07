@@ -27,6 +27,8 @@ CASES_BY_NAMESPACE["local-dispatch-v5"] = {
 CASES_BY_VERSION["local-dispatch-v5"] = CASES_BY_NAMESPACE["local-dispatch-v5"]["base"]
 CASES_BY_NAMESPACE["local-dispatch-v6"] = {"e06-scope": frozenset({"E06"})}
 CASES_BY_VERSION["local-dispatch-v6"] = frozenset({"E06"})
+CASES_BY_NAMESPACE["local-dispatch-v7"] = {"expansion": frozenset({"P01", "P02", "P03"})}
+CASES_BY_VERSION["local-dispatch-v7"] = CASES_BY_NAMESPACE["local-dispatch-v7"]["expansion"]
 VERSIONS = frozenset(CASES_BY_VERSION)
 CASES = CASES_BY_VERSION[VERSION]
 
@@ -52,7 +54,7 @@ class DispatchGuard:
             if not model_requested:
                 return original(call, context=context, model_requested=model_requested)
             allowed = call.name in LOCAL_TOOLS
-            if self.version in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"} and call.name == "manage_media_collection":
+            if self.version in {"local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"} and call.name == "manage_media_collection":
                 # Reject duplicate keys as well as malformed or non-object JSON;
                 # the actual executor still enforces account and argument rules.
                 def unique_pairs(pairs):
@@ -65,6 +67,19 @@ class DispatchGuard:
                 try:
                     args = json.loads(call.arguments, object_pairs_hook=unique_pairs)
                     allowed = isinstance(args, dict) and args.get("action") in ("list", "get")
+                except (TypeError, ValueError):
+                    allowed = False
+            if self.version == "local-dispatch-v7" and call.name == "manage_material":
+                def unique_pairs(pairs):
+                    result = {}
+                    for key, value in pairs:
+                        if key in result:
+                            raise ValueError("Duplicate argument")
+                        result[key] = value
+                    return result
+                try:
+                    args = json.loads(call.arguments, object_pairs_hook=unique_pairs)
+                    allowed = isinstance(args, dict) and args.get("action") in {"list", "get", "analysis_status", "analysis"}
                 except (TypeError, ValueError):
                     allowed = False
             denied = not allowed or (call.name == "read_file" and

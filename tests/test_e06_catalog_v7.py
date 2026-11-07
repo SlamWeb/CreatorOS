@@ -7,7 +7,7 @@ from creatoros.evaluation.regression_runner import prepare
 
 class E06CatalogV7Test(unittest.TestCase):
     def test_revised_case_replaces_old_and_preserves_old_catalog(self):
-        new = catalog()
+        new = catalog(ROOT / 'docs/agent-eval/regression-catalog-v7/catalog.json')
         regular, full = new['suites']
         self.assertEqual((regular['counts']['defined'], full['counts']['defined']), (108, 120))
         cases = {c['instance_id']: c for c in full['cases']}
@@ -18,13 +18,13 @@ class E06CatalogV7Test(unittest.TestCase):
         self.assertIn('expansion:E06', {c['instance_id'] for c in old['suites'][1]['cases']})
 
     def test_catalog_cannot_self_authorize_changed_revised_source(self):
-        document = copy.deepcopy(catalog()['catalog_source'])
+        document = copy.deepcopy(catalog(ROOT / 'docs/agent-eval/regression-catalog-v7/catalog.json')['catalog_source'])
         document['adapter_source_sha256_by_namespace']['e06-scope'] = '0' * 64
         with self.assertRaises(ValueError):
             build_catalog(document)
 
     def test_exclusion_must_name_existing_unique_eligible_cases(self):
-        document = copy.deepcopy(catalog()['catalog_source'])
+        document = copy.deepcopy(catalog(ROOT / 'docs/agent-eval/regression-catalog-v7/catalog.json')['catalog_source'])
         source = next(s for s in document['sources'] if s['namespace'] == 'expansion')
         for bad in (['NOT-EXIST'], ['E06', 'E06']):
             source['exclude_case_ids'] = bad

@@ -24,6 +24,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
     from creatoros.evaluation.benchmark.judge_contradiction_guard import VERSION as JUDGE_CONTRADICTION_GUARD_VERSION
     from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_EVIDENCE_GUARD_VERSION
     from creatoros.evaluation.benchmark.e06_scope_evidence import VERSION as E06_SCOPE_EVIDENCE_VERSION
+    from creatoros.evaluation.benchmark.material_read_evidence import VERSION as MATERIAL_READ_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.rsi_evidence import VERSION as RSI_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.video_evidence import VERSION as VIDEO_EVIDENCE_VERSION
     from creatoros.evaluation.benchmark.research_evidence import VERSION as RESEARCH_EVIDENCE_VERSION
@@ -41,6 +42,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
         "judge_contradiction_guard_version": JUDGE_CONTRADICTION_GUARD_VERSION,
         "program_evidence_guard_version": PROGRAM_EVIDENCE_GUARD_VERSION,
         "e06_scope_evidence_version": E06_SCOPE_EVIDENCE_VERSION,
+        "material_read_evidence_version": MATERIAL_READ_EVIDENCE_VERSION,
         "benchmark_evidence_versions": {"rsi": RSI_EVIDENCE_VERSION, "video": VIDEO_EVIDENCE_VERSION,
                                         "research": RESEARCH_EVIDENCE_VERSION, "research_qualification": RESEARCH_GUARD_VERSION,
                                         "visual_expansion": VISUAL_EXPANSION_VERSION},
@@ -48,7 +50,7 @@ def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dis
         "codex_billing": "subscription; monetary cost unknown", "browser": "Chrome real SPA",
         "max_concurrent_cases": 3, "live_codex_timeout_seconds": 2100}
     source_namespace = None
-    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"}:
+    if local_dispatch in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
         if catalog_binding is None:
             raise ValueError("v4 requires a catalog binding")
         from creatoros.evaluation.regression_runner import selection_namespace, validate_binding
@@ -193,7 +195,7 @@ def main():
     parser.add_argument("--cases", help="Only when freezing: explicit comma-separated protocol preflight subset")
     parser.add_argument("--nonvideo-guard", action="store_true", help="Freeze the restricted nonvideo policy; requires explicit cases")
     parser.add_argument("--local-dispatch-guard", action="store_true", help="Freeze local-only Agent dispatch guard with background workers disabled")
-    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"], help="Explicit local dispatch policy version")
+    parser.add_argument("--local-dispatch-version", choices=["local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"], help="Explicit local dispatch policy version")
     parser.add_argument("--catalog-binding", help="JSON frozen suite identity; only for explicit regression freeze")
     parser.add_argument("--catalog-binding-file", type=Path, help="UTF-8 JSON frozen suite identity for large catalogs")
     args = parser.parse_args()
@@ -208,7 +210,7 @@ def main():
         if args.local_dispatch_guard and not args.nonvideo_guard:
             parser.error("Local dispatch requires the nonvideo guard")
         local_dispatch = (args.local_dispatch_version or True) if args.local_dispatch_guard else False
-        if args.nonvideo_guard and local_dispatch not in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"}:
+        if args.nonvideo_guard and local_dispatch not in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
             from creatoros.evaluation.benchmark.nonvideo_guard import policy
             policy(args.cases.split(",") if args.cases else None, local_dispatch=local_dispatch)
         root.mkdir(parents=True, exist_ok=False)

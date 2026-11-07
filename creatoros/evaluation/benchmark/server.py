@@ -245,7 +245,8 @@ def main():
                     "turn_index": turns.get(snapshot.get("turn_id")), "raw_result": raw,
                     "is_error": error_type is not None, "error_type": error_type})
         from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
-        if applies_e06(case):
+        from creatoros.evaluation.benchmark.material_read_evidence import applies as applies_material
+        if applies_e06(case) or applies_material(case):
             for call in calls:
                 if call['tool_call_id'] in duplicate_ids:
                     call['ambiguous_call_id'] = True
@@ -302,6 +303,11 @@ def main():
         from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
         if applies_e06(case):
             payload['e06_tool_receipts'] = [
+                {key: entry[key] for key in ('tool_call_id', 'content') if key in entry}
+                for entry in evidence['messages'] if entry.get('role') == 'tool']
+        from creatoros.evaluation.benchmark.material_read_evidence import applies as applies_material
+        if applies_material(case):
+            payload['material_tool_receipts'] = [
                 {key: entry[key] for key in ('tool_call_id', 'content') if key in entry}
                 for entry in evidence['messages'] if entry.get('role') == 'tool']
         from creatoros.evaluation.benchmark.semantic_judge import scoped_business_oracle

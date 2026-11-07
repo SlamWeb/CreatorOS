@@ -1,9 +1,4 @@
-"""Controlled material read probes, not an executable-policy admission.
-
-Every trial owns its SQLite and filesystem. No model or paid service is used.
-The current dispatch guard still denies manage_material, including safe reads;
-these tests do not by themselves authorize any benchmark case.
-"""
+"""Controlled material reads under v7; no model or paid service is used."""
 import os
 from pathlib import Path
 import subprocess
@@ -17,19 +12,22 @@ CASES = ('P01', 'P02', 'P03')
 
 def worker(parent, case_id):
     import json
+    from io import StringIO
     from uuid import uuid4
 
     parent = Path(parent).resolve()
     os.environ['DATABASE_URL'] = 'sqlite:///' + (parent / 'world/world.db').as_posix()
     os.environ['CREATOROS_EVAL_REGISTRY'] = str(parent / 'registry.sqlite')
 
-    from creatoros.ai.types import ToolCall
+    from creatoros.ai.types import StreamEnd, TextDelta, ToolCall, ToolCallDelta
     from creatoros.context import RuntimeContext
     from creatoros.evaluation.benchmark.local_dispatch_guard import DispatchGuard
     from creatoros.evaluation.benchmark.world import BenchmarkWorld
     from creatoros.tools.execution import execute_tool_call
     from creatoros.web.chat import ACCOUNT_TOOLS
+    from creatoros.terminal import Console
     from tests.agent_studio_support import serve
+    import creatoros.agent.loop as agent_loop
 
     dataset = Path(__file__).resolve().parents[1] / 'docs/agent-eval/expansion-50-v1/cases.json'
     case = next(row for row in json.loads(dataset.read_text(encoding='utf-8'))['cases'] if row['id'] == case_id)
@@ -41,9 +39,9 @@ def worker(parent, case_id):
             context = RuntimeContext(project_root=world.root, studio_url=url, creator_id='bench-a',
                 agent_session_id=session['id'], session_file=world.root / 'sessions' / session['id'] / 'messages.json',
                 allowed_tools=ACCOUNT_TOOLS, archive_only_reads=True, user_request_id=uuid4().hex)
-            guard = DispatchGuard('local-dispatch-v5')
+            guard = DispatchGuard('local-dispatch-v7')
             guarded = guard.wrap(execute_tool_call)
-            def call(action, *, use_guard=False, **kwargs):
+            def call(action, *, use_guard=True, **kwargs):
                 method = guarded if use_guard else execute_tool_call
                 args = {'action': action, **kwargs}
                 return method(ToolCall(uuid4().hex, 'manage_material', json.dumps(args)), context,
@@ -69,14 +67,48 @@ def worker(parent, case_id):
                 status = call('analysis_status', material_id=local_id)
                 assert not status.is_error, (status.error_type, status.content)
                 body = json.loads(status.content)
-                assert 'completed' not in json.dumps(body, ensure_ascii=False).lower(), body
-            # Current policy denies even reads, and the potentially side-effectful
-            # actions never reach the material backend.
-            assert call('list', use_guard=True).error_type == 'local_dispatch_guard_denied'
+                assert body.get('status') == 'not_started', body
+                analysis = call('analysis', material_id=local_id)
+                assert analysis.error_type != 'local_dispatch_guard_denied'
+            # Side-effectful operations never reach the material backend.
             for action, args in (('import_link', {'source_url': 'https://example.invalid/test'}),
-                                 ('analyze', {'material_id': local_id})):
+                                 ('analyze', {'material_id': local_id}),
+                                 ('import_status', {'import_id': 'unknown'}), ('future_action', {})):
                 denied = call(action, use_guard=True, **args)
                 assert denied.is_error and denied.error_type == 'local_dispatch_guard_denied'
+            for raw in ('[]', '{"action":"list","action":"analyze"}', '{'):
+                denied = guarded(ToolCall(uuid4().hex, 'manage_material', raw), context, model_requested=True)
+                assert denied.is_error and denied.error_type == 'local_dispatch_guard_denied'
+            spoof = call('list', creator_id='bench-b')
+            assert spoof.is_error and world.canary not in spoof.content
+            # Exercise the real Agent loop with a scripted provider. This proves
+            # dispatch and tracing, not that a model answered correctly.
+            action, args = ('list', {}) if case_id == 'P01' else ('get', {'material_id': local_id}) if case_id == 'P02' else ('analysis_status', {'material_id': local_id})
+            class Provider:
+                context_window, reserve_output_tokens = 128000, 4096
+                def __init__(self): self.number, self.client = 0, self
+                def close(self): pass
+                def stream(self, _):
+                    self.number += 1
+                    if self.number == 1:
+                        yield ToolCallDelta(0, 'material-call', 'manage_material', json.dumps({'action': action, **args}))
+                        yield StreamEnd('tool_calls')
+                    else:
+                        yield TextDelta('测试完成。')
+                        yield StreamEnd('stop')
+            traced, events, original = DispatchGuard('local-dispatch-v7'), [], agent_loop.execute_tool_call
+            prompts = iter(['测试', '/exit'])
+            try:
+                agent_loop.execute_tool_call = traced.wrap(original)
+                agent_loop.run_agent(Provider(), console=Console(input_fn=lambda _: next(prompts), output=StringIO()),
+                    session_file=context.session_file, runtime_context=context, user_request_id=uuid4().hex,
+                    on_agent_event=lambda event: events.append(event))
+            finally:
+                agent_loop.execute_tool_call = original
+            results = [event.data for event in events if event.kind == 'tool_result']
+            assert len(results) == 1 and not results[0].get('is_error'), results
+            assert traced.score([{'tool_call_id': 'material-call'}])['status'] == 'passed'
+            assert not world.app.state.materials._analysis_jobs
             after = world.snapshot()
             assert before['database'] == after['database']
             assert before['files'] == after['files']

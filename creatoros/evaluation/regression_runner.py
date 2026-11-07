@@ -15,7 +15,7 @@ def _digest(value):
 
 
 _MEMBER_FIELDS = ("instance_id", "case_sha256", "resource_class", "execution_readiness", "adapter")
-_ADAPTERS = {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"}
+_ADAPTERS = {"local-dispatch-v1", "local-dispatch-v2", "local-dispatch-v3", "local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}
 # A safety withdrawal affects new executions only; frozen history and recovery
 # remain readable under its originally recorded contract.
 _NEW_RUN_BLOCKLIST = {
@@ -49,7 +49,7 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     plan(scopes)  # validates input; unknown scopes remain explicitly uncovered.
     # Keep the original version addressable even after the default catalog
     # advances; historical selections must retain their original guard.
-    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2", "regular-v3", "full-v3", "regular-v4", "full-v4", "regular-v5", "full-v5", "regular-v6", "full-v6"}:
+    if suite_id in {"regular-v1", "full-v1", "regular-v2", "full-v2", "regular-v3", "full-v3", "regular-v4", "full-v4", "regular-v5", "full-v5", "regular-v6", "full-v6", "regular-v7", "full-v7"}:
         root = Path(__file__).resolve().parents[2]
         version = suite_id.rsplit("-", 1)[1]
         data = catalog(manifest_path=root / f"docs/agent-eval/regression-catalog-{version}/catalog.json")
@@ -72,8 +72,8 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     blocked = [{"instance_id": item, "reason": by_id[item].get("reason")}
                for item in selected if by_id[item].get("execution_readiness") != "enabled"
                or by_id[item].get("adapter") not in _ADAPTERS
-               or not (item.startswith("base:") or (item.startswith("natural:") and by_id[item].get("adapter") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"})
-                       or (item.startswith("expansion:") and by_id[item].get("adapter") == "local-dispatch-v5")
+               or not (item.startswith("base:") or (item.startswith("natural:") and by_id[item].get("adapter") in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"})
+                       or (item.startswith("expansion:") and by_id[item].get("adapter") in {"local-dispatch-v5", "local-dispatch-v7"})
                        or (item.startswith("e06-scope:") and by_id[item].get("adapter") == "local-dispatch-v6"))]
     already_blocked = {item["instance_id"] for item in blocked}
     for item in selected:
@@ -85,7 +85,7 @@ def prepare(suite_id, selected_instance_ids=None, change_scopes=None):
     if len(versions) > 1 and selected_instance_ids is not None:
         raise ValueError("Cannot mix local dispatch policy versions in one run")
     namespaces = {item.split(":", 1)[0] for item in selected}
-    if not blocked and len(versions) == 1 and next(iter(versions)) in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"} and (selected_instance_ids is not None or len(namespaces) == 1):
+    if not blocked and len(versions) == 1 and next(iter(versions)) in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"} and (selected_instance_ids is not None or len(namespaces) == 1):
         namespace = selection_namespace(selected)
         from creatoros.evaluation.benchmark.nonvideo_guard import policy
         policy([by_id[item]["case_id"] for item in selected], local_dispatch=next(iter(versions)), source_namespace=namespace)
@@ -159,18 +159,18 @@ def validate_frozen_binding(case_ids, binding):
             or sum(row.get("resource_class") == "unknown" for row in candidates) != binding["unclassified_candidates"]):
         raise ValueError("Frozen suite selection differs")
     by_id = {row["instance_id"]: row for row in members}
-    if any(not isinstance(x, str) or not (x.startswith("base:") or (x.startswith("natural:") and by_id[x]["adapter"] in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"})
-               or (x.startswith("expansion:") and by_id[x]["adapter"] == "local-dispatch-v5")
+    if any(not isinstance(x, str) or not (x.startswith("base:") or (x.startswith("natural:") and by_id[x]["adapter"] in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"})
+               or (x.startswith("expansion:") and by_id[x]["adapter"] in {"local-dispatch-v5", "local-dispatch-v7"})
                or (x.startswith("e06-scope:") and by_id[x]["adapter"] == "local-dispatch-v6")) or by_id[x]["execution_readiness"] != "enabled"
            or by_id[x]["adapter"] not in _ADAPTERS for x in selected):
         raise ValueError("Frozen selected instance was not executable")
     if len({by_id[x]["adapter"] for x in selected}) != 1:
         raise ValueError("Frozen selection mixes dispatch policy versions")
     version = by_id[selected[0]]["adapter"]
-    namespace = selection_namespace(selected) if version in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"} else "base"
+    namespace = selection_namespace(selected) if version in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"} else "base"
     if [x.removeprefix(namespace + ":") for x in selected] != list(case_ids):
         raise ValueError("Frozen selected cases differ")
-    if version in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6"}:
+    if version in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7"}:
         from creatoros.evaluation.benchmark.nonvideo_guard import policy
         policy(case_ids, local_dispatch=version, source_namespace=namespace)
     scope = "partial" if candidates or any(row["execution_readiness"] != "enabled" for row in members) else "complete"
