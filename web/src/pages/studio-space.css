@@ -132,21 +132,22 @@ a.bind-tag { color: var(--accent); }
 .skill-page .skill-card:hover:not(:disabled) { background: var(--surface); }
 .skill-page .skill-icon { width: 20px; height: 20px; flex: 0 0 20px; border-radius: 0; background: transparent; color: var(--muted); }
 .skill-page .skill-copy { display: grid; gap: 3px; }
-.skill-page .skill-copy strong { font-size: 14px; font-weight: 600; line-height: 1.4; }
-.skill-page .skill-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #62626b; font-size: 13px; line-height: 1.4; }
+.skill-page .skill-copy strong { font-size: 15px; font-weight: 550; line-height: 1.4; }
+.skill-page .skill-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #62626b; font-size: 14px; line-height: 1.45; }
 .skill-page .skill-select { flex: none; border-radius: 6px; color: var(--accent); }
 .skill-page .skill-select[aria-pressed="true"] { color: #62626b; }
 .skill-page .skill-catalog-empty { margin: 24px 0; color: #62626b; font-size: 13px; }
 .skill-page .skill-compose { position: sticky; top: 24px; min-width: 0; }
 .skill-page .skill-compose .space-col-head { margin: 0 0 12px; }
-.skill-page .skill-compose .space-col-head h2 { font-size: 14px; }
+.skill-page .skill-compose .space-col-head h2 { font-size: 16px; font-weight: 600; }
 .skill-page .composer { padding: 16px 0 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
 .skill-page .skill-basket { min-height: 88px; padding: 10px; border-width: 1px; border-radius: 6px; }
 .skill-page .skill-basket > p { margin: 18px 4px; color: #62626b; }
 .skill-page .basket-item { background: var(--surface); border-radius: 6px; }
 .skill-page .composer-create { border-radius: 6px; }
-.skill-page .skill-install-disclosure { margin-top: 16px; font-size: 13px; color: var(--muted); }
-.skill-page .skill-install-disclosure summary { width: fit-content; cursor: pointer; }
+.skill-page .skill-install-disclosure { margin-top: 16px; font-size: 14px; }
+.skill-page .skill-install-disclosure summary { width: fit-content; min-height: 40px; padding: 9px 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--ink); font-weight: 500; line-height: 1.4; cursor: pointer; }
+.skill-page .skill-install-disclosure summary:hover { background: var(--surface); }
 .skill-page .skill-install-disclosure summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .skill-page .skill-install { max-width: 460px; margin-top: 10px; }
 @media (max-width: 850px) {
@@ -200,7 +201,7 @@ a.bind-tag { color: var(--accent); }
 .skill-page .skill-categorize { flex: none; border-radius: 6px; color: #62626b; }
 .skill-page .skill-category-status { margin: 10px 0 0; color: #62626b; font-size: 13px; line-height: 1.5; }
 .skill-page .skill-category-status button { border: 0; background: transparent; padding: 0; color: var(--accent); font: inherit; }
-.skill-page .extraction-entry-actions .extraction-toggle { min-height: 40px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--canvas); font-size: 13px; font-weight: 600; }
+.skill-page .extraction-entry-actions .extraction-toggle { min-height: 40px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: var(--canvas); font-size: 14px; font-weight: 500; }
 .skill-page .extraction-entry-actions .extraction-toggle:first-child { color: white; border-color: var(--accent); background: var(--accent); }
 .skill-page .extraction-entry-actions .extraction-toggle:first-child:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
 .skill-page .extraction-entry-actions .extraction-toggle:not(:first-child):hover:not(:disabled) { background: var(--surface); }
