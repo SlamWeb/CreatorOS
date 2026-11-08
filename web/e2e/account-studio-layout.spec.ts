@@ -20,6 +20,12 @@ test("account and series navigation stay in the workspace while global navigatio
   await expect(page.getByRole("button", { name: "切换账号" })).toContainText(first.display_name);
   await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name }).click();
   await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  const selectedCard = page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name });
+  const cardBounds = await selectedCard.boundingBox();
+  expect(cardBounds).not.toBeNull();
+  await page.mouse.move(cardBounds!.x + cardBounds!.width * .8, cardBounds!.y + cardBounds!.height * .6);
+  await expect.poll(() => selectedCard.evaluate(element => (element as HTMLElement).style.getPropertyValue("--image-x"))).not.toBe("");
+  await page.screenshot({ path: info.outputPath("workspace-hover.png") });
   await page.getByRole("button", { name: "可用 Skill" }).click();
   await expect(page).toHaveURL(/view=skills/);
   await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name }).click();
@@ -43,6 +49,12 @@ test("account and series navigation stay in the workspace while global navigatio
   await expect(page.locator(".series-content-section")).toHaveCSS("animation-name", "none");
   await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name })).toHaveCSS("transition-duration", "0s");
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(selectedCard).toBeInViewport();
+  await expect.poll(async () => {
+    const card = await selectedCard.boundingBox();
+    const nav = await page.getByRole("navigation", { name: "当前账号的栏目" }).boundingBox();
+    return !!card && !!nav && card.x >= nav.x - 1 && card.x + card.width <= nav.x + nav.width + 1;
+  }).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("workspace-mobile.png"), fullPage: true });
 });

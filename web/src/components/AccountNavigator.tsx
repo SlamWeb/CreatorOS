@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, GalleryVerticalEnd, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
@@ -6,6 +6,40 @@ import type { CreatorDirectoryItem, PageResponse, SeriesView, TopicView } from "
 import { UnseenDot } from "./TaskInbox";
 import { WorkspaceDialog } from "./WorkspaceDialog";
 import "./account-navigator.css";
+
+function SeriesCard({ item, cover, active, unseen, onSelect }: {
+  item: SeriesView; cover?: string; active: boolean; unseen: boolean; onSelect: () => void;
+}) {
+  const frame = useRef<number | null>(null);
+  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
+  function move(event: PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType !== "mouse" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const card = event.currentTarget;
+    const { clientX, clientY } = event;
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      const bounds = card.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
+      const x = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
+      const y = Math.min(1, Math.max(0, (clientY - bounds.top) / bounds.height));
+      card.style.setProperty("--light-x", `${x * 100}%`);
+      card.style.setProperty("--light-y", `${y * 100}%`);
+      card.style.setProperty("--image-x", `${(x - .5) * 4}px`);
+      card.style.setProperty("--image-y", `${(y - .5) * 4}px`);
+      frame.current = null;
+    });
+  }
+  function reset(event: PointerEvent<HTMLButtonElement>) {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
+    for (const key of ["--light-x", "--light-y", "--image-x", "--image-y"]) event.currentTarget.style.removeProperty(key);
+  }
+  return <button type="button" className={`rail-series${active ? " active" : ""}`}
+    aria-current={active ? "page" : undefined} aria-label={item.name} onClick={onSelect} onPointerMove={move} onPointerLeave={reset}>
+    <span className="account-series-thumb" aria-hidden="true"><GalleryVerticalEnd size={18} />{cover && <img src={apiUrl(cover)} alt="" width={48} height={48} loading="lazy" onError={event => { event.currentTarget.hidden = true; }} />}</span>
+    <span className="account-series-name" title={item.name}>{item.name}</span>{unseen && <UnseenDot label="栏目有未查看内容" />}
+  </button>;
+}
 
 export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete, onRetryAccounts, account, series, selectedSeriesId, unassigned, onSelectAccount, onSelectSeries,
   onCreateAccount, onCreateSeries, createSeriesDisabled, hasUnseen, confirmingDelete, onConfirmDelete, onDelete, deletePending,
@@ -20,6 +54,7 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
   const [switching, setSwitching] = useState(false);
   const [search, setSearch] = useState("");
   const [seriesSearch, setSeriesSearch] = useState("");
+  const seriesNav = useRef<HTMLElement>(null);
   const recent = useQuery({ queryKey: ["runs", "account-overview", account?.id],
     queryFn: () => studioApi.runsPage(0, account!.id), enabled: !!account, staleTime: 60_000, retry: false });
   const covers = useMemo(() => {
@@ -45,6 +80,23 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
   useEffect(() => { setSeriesSearch(""); }, [account?.id, series[0]?.creator_id]);
   const matchingAccounts = accounts.filter(item => item.display_name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
   const matchingSeries = series.filter(item => item.name.toLocaleLowerCase().includes(seriesSearch.trim().toLocaleLowerCase()));
+  useEffect(() => {
+    const nav = seriesNav.current;
+    if (!nav) return;
+    function revealSelected() {
+      const selected = nav!.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!selected || nav!.scrollWidth <= nav!.clientWidth) return;
+      const navBox = nav!.getBoundingClientRect();
+      const cardBox = selected.getBoundingClientRect();
+      const delta = cardBox.left < navBox.left ? cardBox.left - navBox.left - 8
+        : cardBox.right > navBox.right ? cardBox.right - navBox.right + 8 : 0;
+      if (delta) nav!.scrollBy({ left: delta, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    }
+    revealSelected();
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [selectedSeriesId, shownView, seriesSearch, series.length]);
   const title = account?.display_name ?? (unassigned.length && series.some(item => item.creator_id === null) ? "未分配栏目" : "选择账号");
   const views = [{ value: "data", label: "数据" },
     ...(showBgm ? [{ value: "bgm", label: "BGM" }] : []), { value: "skills", label: "可用 Skill" }];
@@ -60,12 +112,9 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
         <button key={view.value} type="button" aria-pressed={shownView === view.value} onClick={() => onViewChange(view.value)}>{view.label}</button>)}</nav>}
     </div>
     {(account || series.length > 0) && <div className="account-series-navigation">
-      <nav className="account-nav-series" aria-label="当前账号的栏目">
-        {matchingSeries.map(item => <button type="button" key={item.id} className={`rail-series${selectedSeriesId === item.id && ["content", "materials"].includes(shownView) ? " active" : ""}`}
-          aria-current={selectedSeriesId === item.id && ["content", "materials"].includes(shownView) ? "page" : undefined} aria-label={item.name} onClick={() => onSelectSeries(item.id)}>
-          <span className="account-series-thumb" aria-hidden="true"><GalleryVerticalEnd size={18} />{displayCovers.has(item.id) && <img src={apiUrl(displayCovers.get(item.id)!)} alt="" width={48} height={48} loading="lazy" onError={event => { event.currentTarget.hidden = true; }} />}</span>
-          <span className="account-series-name" title={item.name}>{item.name}</span>{hasUnseen(item.id) && <UnseenDot label="栏目有未查看内容" />}
-        </button>)}
+      <nav ref={seriesNav} className="account-nav-series" aria-label="当前账号的栏目">
+        {matchingSeries.map(item => <SeriesCard key={item.id} item={item} cover={displayCovers.get(item.id)}
+          active={selectedSeriesId === item.id && ["content", "materials"].includes(shownView)} unseen={hasUnseen(item.id)} onSelect={() => onSelectSeries(item.id)} />)}
         <button type="button" className="account-series-create" aria-label="新建栏目" disabled={createSeriesDisabled} onClick={onCreateSeries}><Plus size={15} aria-hidden="true" />新建栏目</button>
       </nav>
       {series.length > 7 && <label className="account-nav-search account-series-search"><Search size={15} aria-hidden="true" />

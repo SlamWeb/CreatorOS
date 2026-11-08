@@ -13,8 +13,8 @@
 .series-view-tabs button { padding: 9px 1px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; }
 .series-view-tabs button[aria-pressed="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
 .series-view-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.series-content-section, .workspace-main > .media-collections { animation: workspace-content-enter 180ms ease-out; }
-@keyframes workspace-content-enter { from { opacity: .65; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.series-content-section, .workspace-main > .media-collections { animation: workspace-content-enter 240ms cubic-bezier(.22, 1, .36, 1); }
+@keyframes workspace-content-enter { from { opacity: .72; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .series-content-section, .workspace-main > .media-collections { animation: none; } }
 .workspace-tree-toggle { display: none; }
 .workspace-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
@@ -88,12 +88,12 @@
 .series-content-section .library-browse-actions { margin-left: 0; }
 .series-content-section .library-count { color: #555f6b; font-size: 13px; font-variant-numeric: tabular-nums; }
 .series-content-section .content-feed { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 24px 20px; }
-.series-content-section .content-card { display: flex; flex-direction: column; border-color: #e3e7ec; border-radius: 14px; }
+.series-content-section .content-card { position: relative; display: flex; flex-direction: column; border-color: #e3e7ec; border-radius: 14px; transition: transform 260ms cubic-bezier(.22, 1, .36, 1), border-color 200ms ease, box-shadow 260ms ease; }
 .series-content-section .content-card-main { border-radius: 13px 13px 0 0; }
 .series-content-section .content-card-no-cover, .series-content-section .cover-unavailable { width: 100%; aspect-ratio: 3 / 4; }
 .series-content-section .content-card-cover { width: 100%; height: auto; aspect-ratio: auto; background: transparent; }
 .series-content-section .content-card-no-cover, .series-content-section .cover-unavailable { display: grid; place-items: center; margin: 0; padding: 20px; color: #626b78; background: #f1f3f6; font-size: 13px; }
-.series-content-section .content-card-copy { padding: 15px 16px 8px; }
+.series-content-section .content-card-copy { padding: 15px 16px 8px; transition: transform 260ms cubic-bezier(.22, 1, .36, 1); }
 .series-content-section .content-card-copy h3 { font-size: 15px; line-height: 1.45; }
 .series-content-section .content-card-copy p { color: #626b78; font-size: 13px; line-height: 1.55; -webkit-line-clamp: 2; }
 .series-content-section .content-card-footer { order: 1; padding: 0 16px 10px; min-height: 36px; }
@@ -102,6 +102,15 @@
 .series-content-section .content-card > .topic-skill-usage { order: 2; margin: 0 16px 16px; color: #626b78; font-size: 12px; }
 .series-content-section .content-card-menu summary { width: 36px; height: 36px; }
 .series-content-section :is(button, a, summary, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.series-content-section .content-card:focus-within { z-index: 2; border-color: #b7cce9; box-shadow: 0 8px 24px rgb(33 101 196 / .12), 0 0 0 1px rgb(33 101 196 / .08); }
+@media (hover: hover) and (pointer: fine) {
+  .series-content-section .content-card:hover { z-index: 2; transform: translateY(-4px); border-color: #b7cce9; box-shadow: 0 14px 32px rgb(33 101 196 / .12), 0 3px 10px rgb(25 38 65 / .06); }
+  .series-content-section .content-card:hover .content-card-copy { transform: translateY(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .series-content-section .content-card, .series-content-section .content-card-copy { transition: none; }
+  .series-content-section .content-card:hover, .series-content-section .content-card:hover .content-card-copy { transform: none; }
+}
 
 @media (min-width: 1400px) { .workspace.chat-open .content-feed { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1101px) { .workspace.chat-open .account-recent-grid, .workspace.chat-open .account-column-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

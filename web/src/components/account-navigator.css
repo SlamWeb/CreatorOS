@@ -48,17 +48,22 @@
 .account-resource-actions button:hover { color: var(--ink); background: #f5f6f8; }
 .account-resource-actions button[aria-pressed="true"] { color: var(--ink); background: #f1f3f6; }
 .account-series-navigation { min-width: 0; margin-bottom: 28px; }
-.account-series-navigation .account-nav-series { display: flex; gap: 10px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; padding: 2px 2px 8px; }
+.account-series-navigation .account-nav-series { display: flex; gap: 10px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; padding: 8px 6px 16px; margin: -6px -6px -8px; }
 .account-series-navigation .account-nav-series .rail-series,
 .account-series-create { flex: 0 0 auto; width: 180px; min-height: 66px; padding: 7px; border: 1px solid #e1e5eb; border-radius: 10px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 13px; font-weight: 550; white-space: nowrap; transition: border-color 180ms ease, box-shadow 180ms ease, transform 200ms cubic-bezier(.22, 1, .36, 1); }
-.account-series-navigation .account-nav-series .rail-series { gap: 10px; }
+.account-series-navigation .account-nav-series .rail-series { position: relative; isolation: isolate; gap: 10px; }
+.account-series-navigation .account-nav-series .rail-series::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; opacity: 0; background: radial-gradient(120px circle at var(--light-x, 50%) var(--light-y, 50%), rgb(53 126 250 / .14), transparent 72%); transition: opacity 220ms ease; }
 .account-series-navigation .account-nav-series .rail-series > .account-series-thumb { position: relative; display: grid; place-items: center; flex: 0 0 50px; width: 50px; height: 50px; overflow: hidden; border-radius: 6px; color: #929aa5; background: #f4f5f7; }
-.account-series-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.account-series-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: translate(var(--image-x, 0px), var(--image-y, 0px)) scale(1.08); transition: transform 320ms cubic-bezier(.2, .8, .2, 1); }
 .account-series-navigation .account-nav-series .rail-series > .account-series-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-series-navigation .account-nav-series .rail-series.active { border-color: var(--accent); background: var(--canvas); color: var(--ink); box-shadow: 0 0 0 1px var(--accent); }
+.account-series-navigation .account-nav-series .rail-series.active { border-color: var(--accent); background: var(--canvas); color: var(--ink); box-shadow: 0 0 0 1px var(--accent), 0 5px 16px rgb(26 102 230 / .13); }
 .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { border-color: #aeb9c8; background: var(--canvas); color: var(--ink); }
 .account-series-navigation .account-nav-series .rail-series.active:hover { border-color: var(--accent); }
-@media (hover: hover) and (pointer: fine) { .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { transform: translateY(-2px); } }
+@media (hover: hover) and (pointer: fine) {
+  .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { transform: translateY(-3px); box-shadow: 0 8px 22px rgb(36 93 178 / .15); }
+  .account-series-navigation .account-nav-series .rail-series:hover::before { opacity: 1; }
+}
+.account-series-navigation .account-nav-series .rail-series:focus-visible::before { opacity: 1; }
 .account-series-navigation .account-nav-series .rail-series:active, .account-series-create:active { transform: scale(.985); }
 .account-series-create { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; padding: 7px 14px; color: #626b78; }
 .account-series-search { width: min(260px, 100%); margin: 12px 0; }
@@ -72,4 +77,6 @@
 @media (prefers-reduced-motion: reduce) {
   .account-series-navigation .account-nav-series .rail-series, .account-series-create { transition: none; }
   .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover, .account-series-navigation .account-nav-series .rail-series:active, .account-series-create:active { transform: none; }
+  .account-series-thumb img { transition: none; transform: none; }
+  .account-series-navigation .account-nav-series .rail-series::before { transition: none; }
 }
