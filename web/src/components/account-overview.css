@@ -16,9 +16,8 @@
 .account-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 24px 18px; }
 .account-work { min-width: 0; }
 .account-work > a { display: block; border-radius: 10px; }
-.account-work-cover { aspect-ratio: 3 / 4; overflow: hidden; border-radius: 10px; background: var(--surface); }
-.account-work-cover img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .2s ease-out; }
-.account-work > a:hover img { transform: scale(1.025); }
+.account-work-cover { overflow: hidden; border-radius: 10px; background: transparent; }
+.account-work-cover img { display: block; width: 100%; height: auto; }
 .account-work-copy { padding: 11px 0 0; }
 .account-work-copy h3 { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: 0; font-size: 14px; line-height: 1.5; font-weight: 550; overflow-wrap: anywhere; }
 .account-work-copy p { margin: 5px 0 0; font-size: 12px; color: #62626a; overflow-wrap: anywhere; }
@@ -26,4 +25,3 @@
 .account-overview button:focus-visible, .account-overview a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 1100px) { .account-column-list, .account-recent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .account-overview { gap: 26px; } .account-column-list { grid-template-columns: minmax(0, 1fr); } .account-recent-grid { gap: 20px 12px; } }
-@media (prefers-reduced-motion: reduce) { .account-work-cover img { transition: none; } .account-work > a:hover img { transform: none; } }

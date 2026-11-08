@@ -36,3 +36,28 @@
 .account-switch-footer .action-danger { color: var(--danger); }
 .account-switch-footer .action-danger:hover { background: var(--danger-soft); }
 .workspace-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Account identity and navigation stay with the work, not the global rail. */
+.account-studio-head { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 16px 24px; padding-right: 60px; margin-bottom: 22px; }
+.account-studio-title { margin: 0; min-width: 0; }
+.account-studio-head .account-nav-switch { width: auto; max-width: min(100%, 420px); padding: 4px; gap: 10px; }
+.account-studio-head .account-nav-avatar { width: 36px; height: 36px; flex-basis: 36px; font-size: 14px; }
+.account-studio-head .account-nav-name { font-size: 22px; font-weight: 650; line-height: 1.3; }
+.account-studio-head .workspace-data-tabs { flex-wrap: wrap; gap: 16px; border: 0; margin: 0; }
+.account-studio-head .workspace-data-tabs button { min-height: 36px; }
+.account-series-navigation { min-width: 0; margin-bottom: 26px; border-bottom: 1px solid #e5e8ed; }
+.account-series-navigation .account-nav-series { display: flex; gap: 20px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.account-series-navigation .account-nav-series .rail-series,
+.account-series-create { flex: 0 0 auto; width: auto; min-height: 40px; max-width: 230px; padding: 8px 1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #62626a; font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.account-series-navigation .account-nav-series .rail-series > span:first-of-type { display: block; overflow: hidden; text-overflow: ellipsis; }
+.account-series-navigation .account-nav-series .rail-series.active { border-bottom-color: var(--accent); background: transparent; color: var(--accent-strong); }
+.account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { background: transparent; color: var(--accent-strong); }
+.account-series-create { display: inline-flex; align-items: center; gap: 5px; }
+.account-series-search { width: min(260px, 100%); margin: 12px 0; }
+.account-studio-head button:focus-visible, .account-series-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .account-studio-head { align-items: flex-start; padding-right: 48px; gap: 8px; margin-bottom: 16px; }
+  .account-studio-head .account-nav-name { font-size: 20px; }
+  .account-studio-head .workspace-data-tabs { gap: 12px; }
+  .account-series-navigation .account-nav-series { gap: 16px; }
+}

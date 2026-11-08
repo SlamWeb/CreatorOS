@@ -40,9 +40,9 @@ async function workspaceFixture(request: APIRequestContext, topicCount = 0, incl
 test("workspace tree keeps empty columns manageable, Skill links inspect real files, and main navigation stays fixed", async ({ page, request }, info) => {
   const data = await workspaceFixture(request, 24, true);
   await page.goto(`/?creator=${data.account.id}`);
-  await expect(page.locator(".account-column-list > button")).toHaveCount(2);
+  await expect(page.locator(".account-nav-series .rail-series")).toHaveCount(3);
   await expect(page.getByRole("heading", { name: data.empty.name })).toHaveCount(0);
-  await expect(page.locator(".workspace-rail").getByRole("button", { name: data.empty.name })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: data.empty.name })).toBeVisible();
   await expect(page.locator(".rail-series").filter({ hasText: data.series.name })).toContainText(data.series.name);
   await expect(page.locator(".rail-series small, .rail-series .status-pill")).toHaveCount(0);
   expect(await page.locator(".rail-series").filter({ hasText: new RegExp(data.account.display_name.replace("工作区管理-", "")) }).allTextContents())
@@ -87,7 +87,7 @@ test("empty columns delete immediately; nonempty columns require the stated conf
   expect(emptyResponse.ok()).toBeTruthy();
   expect(confirmCalls).toBe(0);
   page.off("dialog", autoAccept);
-  await expect(page.locator(".workspace-rail").getByRole("button", { name: data.empty.name })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: data.empty.name })).toHaveCount(0);
 
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
   const settings = await openSettings(page);
@@ -107,7 +107,7 @@ test("empty columns delete immediately; nonempty columns require the stated conf
   const archivedResponse = await archived;
   const result = await archivedResponse.json();
   expect(result.status).toBe("archived");
-  await expect(page.locator(".workspace-rail").getByRole("button", { name: data.series.name })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: data.series.name })).toHaveCount(0);
   await expect.poll(async () => (await request.get(`/api/series/${data.series.id}/topics`).then(response => response.json())).items
     .some((topic: { id: string }) => topic.id === data.topicIds[0])).toBeTruthy();
 });

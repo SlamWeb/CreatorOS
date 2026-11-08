@@ -272,16 +272,12 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   await page.setViewportSize({ width: 1440, height: 900 });
 
   await page.goto(`/workspace?creator=${creatorId}`);
-  await expect(page.getByRole("complementary", { name: "账号与栏目" }).getByRole("button", { name: "Agent 每日一题" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: "Agent 每日一题" })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("05-workspace-with-data.png"), fullPage: true });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/workspace?creator=${creatorId}`);
-  const mobileTree = page.getByRole("button", { name: /账号与栏目/ });
-  await expect(mobileTree).toHaveAttribute("aria-expanded", "false");
-  await mobileTree.click();
-  await expect(page.locator(".workspace-rail")).toHaveClass(/is-open/);
-  await expect(page.getByRole("complementary", { name: "账号与栏目" }).getByRole("button", { name: "Agent 每日一题" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: "Agent 每日一题" })).toBeVisible();
   const width = await page.evaluate(() => ({ body: document.body.scrollWidth, viewport: window.innerWidth }));
   expect(width.body).toBeLessThanOrEqual(width.viewport);
   await page.screenshot({ path: testInfo.outputPath("06-mobile-workspace.png"), fullPage: true });

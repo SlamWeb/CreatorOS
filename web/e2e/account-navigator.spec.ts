@@ -20,11 +20,7 @@ async function accountsFixture(request: APIRequestContext) {
 }
 
 async function openRail(page: Page) {
-  const rail = page.getByRole("complementary", { name: "账号与栏目", includeHidden: true });
-  // Initial HTTP loading has no rail yet; do not mistake that for a collapsed
-  // mobile rail and wait for the desktop-hidden toggle instead.
-  await expect(rail).toBeAttached();
-  if (!await rail.isVisible()) await page.getByRole("button", { name: /^账号与栏目 ·/ }).click();
+  const rail = page.locator(".workspace-main");
   await expect(rail).toBeVisible();
   return rail;
 }
@@ -72,7 +68,7 @@ test("account links and search work beyond the first 100 accounts", async ({ pag
   const rail = await openRail(page);
   await expect(rail.getByRole("button", { name: "切换账号", exact: true })).toContainText(target.display_name, { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: targetSeries.name, exact: true })).toBeVisible();
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toHaveCount(0);
   const launcher = page.getByRole("button", { name: "打开账号对话" });
   await expect(launcher).toHaveAttribute("title", `与 ${target.display_name} 对话`);
 
@@ -94,7 +90,7 @@ test("account links and search work beyond the first 100 accounts", async ({ pag
   await createDialog.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: newName, exact: true })).toBeVisible({ timeout: 20_000 });
   await page.goto(`/workspace?creator=${target.id}&series=${otherSeries.id}`);
-  await expect(page.getByText("栏目不存在或不属于当前账号，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByText("栏目不存在或不属于当前账号，请重新选择栏目。", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: otherSeries.name, exact: true })).toHaveCount(0);
 
   // A saved Skill composer draft must not silently submit as unassigned if
@@ -181,13 +177,13 @@ test("target account distinguishes a missing account from a failed detail read",
   });
   await page.goto(`/workspace?creator=${account.id}`);
   await expect(page.getByRole("alert")).toContainText("读取当前账号失败");
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "打开账号对话" })).toBeDisabled();
   await page.getByRole("button", { name: "重新连接", exact: true }).click();
   await expect(page.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "打开账号对话" })).toHaveAttribute("title", `与 ${account.display_name} 对话`);
   await page.goto("/workspace?creator=missing-account-fixture");
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "打开账号对话" })).toBeDisabled();
 });
 
@@ -210,16 +206,16 @@ test("searchable account switching scopes the rail and survives refresh and brow
   await expect(rail.getByRole("button", { name: data.external.name, exact: true })).toBeVisible();
   await expect(rail.getByRole("button", { name: data.first.name, exact: true })).toHaveCount(0);
   await expect(rail.getByRole("button", { name: "新建栏目", exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "栏目", exact: true })).toContainText(data.external.name);
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" })).toContainText(data.external.name);
   await page.reload();
   await expectLocation(page, data.other.id);
   await expect(rail.getByRole("button", { name: data.external.name, exact: true })).toBeVisible();
   await page.goBack();
   await expectLocation(page, data.account.id, data.first.id);
   await expect(page.getByRole("heading", { name: data.first.name, exact: true, level: 1 })).toBeVisible();
-  await rail.getByRole("button", { name: "账号概览", exact: true }).click();
+  await rail.getByRole("button", { name: "近期作品", exact: true }).click();
   await expectLocation(page, data.account.id);
-  const columns = page.getByRole("region", { name: "栏目", exact: true });
+  const columns = page.getByRole("navigation", { name: "当前账号的栏目" });
   await expect(columns).toContainText(data.first.name);
   await expect(columns).toContainText(data.second.name);
   await expect(columns).not.toContainText(data.external.name);
@@ -305,7 +301,7 @@ test("creating an account selects the persisted empty account and keeps both cre
   await expect(recent).toContainText(/还没有|暂无/);
   await expect(recent.getByRole("img")).toHaveCount(0);
   await expect(columns).not.toContainText(data.first.name);
-  await expect((await openRail(page)).getByRole("button", { name: "新建栏目", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: "新建栏目", exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("account-navigator-empty-desktop.png"), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   const mobileSwitcher = await openSwitcher(page);
@@ -349,7 +345,7 @@ test("account overview lists all its columns and bounds recent image works at de
     .then(response => response.json()).then(result => result.status))), { timeout: 30_000 })
     .toEqual(Array(7).fill("awaiting_approval"));
   await page.goto(`/?creator=${data.account.id}`);
-  const columns = page.getByRole("region", { name: "栏目", exact: true });
+  const columns = page.getByRole("navigation", { name: "当前账号的栏目" });
   await expect(columns).toContainText(data.first.name);
   await expect(columns).toContainText(data.second.name);
   await expect(columns).not.toContainText(data.external.name);
@@ -396,6 +392,7 @@ test("account overview lists all its columns and bounds recent image works at de
   await page.screenshot({ path: info.outputPath("account-navigator-overview-mobile.png"), fullPage: true });
   const rail = await openRail(page);
   await expect(rail.getByRole("button", { name: data.first.name, exact: true })).toBeVisible();
+  await rail.getByRole("button", { name: "新建栏目", exact: true }).scrollIntoViewIfNeeded();
   await expect(rail.getByRole("button", { name: "新建栏目", exact: true })).toBeInViewport();
   await page.screenshot({ path: info.outputPath("account-navigator-rail-mobile.png"), fullPage: true });
 });
