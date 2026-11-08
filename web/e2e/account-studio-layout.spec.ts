@@ -22,8 +22,12 @@ test("account and series navigation stay in the workspace while global navigatio
   await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
   await page.getByRole("button", { name: "可用 Skill" }).click();
   await expect(page).toHaveURL(/view=skills/);
-  await page.getByRole("button", { name: "内容", exact: true }).click();
+  await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name }).click();
   await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  await page.getByRole("navigation", { name: "栏目工作区" }).getByRole("button", { name: "素材" }).click();
+  await expect(page.getByRole("region", { name: "素材文件夹" })).toBeVisible();
+  await page.getByRole("navigation", { name: "栏目工作区" }).getByRole("button", { name: "作品" }).click();
+  await expect(page.getByRole("heading", { name: two.name })).toBeAttached();
   await sidebar.getByRole("link", { name: "Skill", exact: true }).click();
   expect(await sidebar.boundingBox()).toEqual(box);
   await sidebar.getByRole("link", { name: "账号与栏目" }).click();
@@ -35,6 +39,9 @@ test("account and series navigation stay in the workspace while global navigatio
   await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: one.name })).toHaveCount(0);
   await page.goBack();
   await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator(".series-content-section")).toHaveCSS("animation-name", "none");
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name })).toHaveCSS("transition-duration", "0s");
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("workspace-mobile.png"), fullPage: true });

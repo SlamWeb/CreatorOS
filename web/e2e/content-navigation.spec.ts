@@ -25,17 +25,13 @@ async function fixture(request: APIRequestContext) {
   return { account, series, topics, newest, run };
 }
 
-test("account overview shows recent work; column pagination retains chronological order", async ({ page, request }, info) => {
+test("column pagination retains chronological order without writes", async ({ page, request }, info) => {
   const data = await fixture(request);
   const original = await request.get(`/api/series/${data.series.id}/topics?limit=100`).then(r => r.json());
   const writes: string[] = [];
   page.on("request", req => { if (req.method() !== "GET") writes.push(req.url()); });
-  await page.goto(`/?creator=${data.account.id}&topics=queued`);
-  const recent = page.getByRole("region", { name: "近期作品" });
-  await expect(recent.getByRole("img")).toHaveCount(1);
-  await expect(recent.getByRole("link", { name: "查看内容 故事选题 1" })).toBeVisible();
-  await page.screenshot({ path: info.outputPath("account-preview-desktop.png"), fullPage: true });
-  await page.getByRole("button", { name: `进入栏目 ${data.series.name}` }).click();
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=queued`);
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: data.series.name })).toBeVisible();
   await expect(page.locator(".content-card")).toHaveCount(20);
   await expect(page.locator(".content-card").first()).toContainText("刚添加的新选题");
   await expect(page.getByRole("group", { name: "生产进度" })).toHaveCount(0);

@@ -7,9 +7,9 @@ import { StatusPill } from "./StatusPill";
 import { VideoProductionForm } from "./VideoProductionForm";
 import "./media-collections.css";
 
-type CollectionSummary = { id: string; name: string; version: number; topic_id: string | null };
+type CollectionSummary = { id: string; name: string; version: number; topic_id: string | null; series_id?: string | null; display_series_id?: string | null };
 type MediaSource = {
-  run_id: string; run_title: string; topic_id?: string | null; topic_title?: string | null; status: string;
+  run_id: string; run_title: string; series_id?: string | null; topic_id?: string | null; topic_title?: string | null; status: string;
   revision_id: string | null; revision_number: number | null; image_count: number; error?: string | null;
 };
 type MediaItem = {
@@ -25,12 +25,13 @@ const collectionPath = (creatorId: string, id: string) => `${basePath(creatorId)
 const uncertain = (error: Error | null) => error instanceof ApiError && (error.status === 0 || error.status >= 500);
 const errorMessage = (error: Error | null) => error ? `${error.message}${uncertain(error) ? " 请求结果待核对，已重新读取文件夹；不会自动重发。" : ""}` : "";
 
-export function MediaCollections({ creatorId }: { creatorId: string }) {
+export function MediaCollections({ creatorId, seriesId }: { creatorId: string; seriesId?: string }) {
   const [params, setParams] = useSearchParams();
   const client = useQueryClient();
   const selectedId = params.get("collection");
   const topicHint = params.get("collection_topic");
   const [creating, setCreating] = useState(false);
+  const [showUnsorted, setShowUnsorted] = useState(false);
   const [name, setName] = useState("");
   const [topicId, setTopicId] = useState("");
   const [runIds, setRunIds] = useState<string[]>([]);
@@ -57,11 +58,12 @@ export function MediaCollections({ creatorId }: { creatorId: string }) {
     if (existing) select(existing.id);
     else { setTopicId(topicHint); setCreating(true); }
   }, [topicHint, selectedId, list.data, list.isFetching]);
-  const topics = useMemo(() => Array.from(new Map((sources.data?.items ?? [])
-    .filter(source => source.topic_id).map(source => [source.topic_id!, { id: source.topic_id!, title: source.topic_title ?? source.run_title }])).values()), [sources.data]);
+  const scopedSources = useMemo(() => (sources.data?.items ?? []).filter(source => !seriesId || source.series_id === seriesId), [sources.data, seriesId]);
+  const topics = useMemo(() => Array.from(new Map(scopedSources
+    .filter(source => source.topic_id).map(source => [source.topic_id!, { id: source.topic_id!, title: source.topic_title ?? source.run_title }])).values()), [scopedSources]);
   const create = useMutation({ retry: false,
     mutationFn: () => request<CollectionDetail>(basePath(creatorId), { method: "POST", body: JSON.stringify({
-      name: name.trim(), topic_id: topicId || null, run_ids: runIds, request_id: requestId.current,
+      name: name.trim(), topic_id: topicId || null, run_ids: runIds, request_id: requestId.current, ...(seriesId ? { series_id: seriesId } : {}),
     }) }),
     onSuccess: async result => {
       await refresh();
@@ -76,6 +78,9 @@ export function MediaCollections({ creatorId }: { creatorId: string }) {
   const locked = create.isPending || uncertain(create.error);
   function editDraft() { create.reset(); requestId.current = crypto.randomUUID(); }
   const topicLabel = topics.find(topic => topic.id === topicId)?.title;
+  const folders = list.data?.items.filter(item => !seriesId || item.display_series_id === seriesId) ?? [];
+  const unsorted = seriesId ? list.data?.items.filter(item => !item.display_series_id) ?? [] : [];
+  const selectedFolder = list.data?.items.find(item => item.id === selectedId);
   return <section className="media-collections" aria-label="素材文件夹">
     <header className="media-section-head"><div><h2>素材文件夹</h2><p>把同一选题和不同制作任务的图片放在一起选片。</p></div>
       <button className="button button-primary" type="button" disabled={create.isPending} onClick={() => setCreating(value => !value)} aria-expanded={creating}><Plus size={16} aria-hidden="true" />新建文件夹</button>
@@ -90,7 +95,7 @@ export function MediaCollections({ creatorId }: { creatorId: string }) {
         {topics.map(topic => <option key={topic.id} value={topic.id}>{topic.title}</option>)}
       </select></label>
       {topicId && <p className="media-hint">这个选题已有和之后产出的图片会自动收进来。</p>}
-      <RunPicker sources={sources.data?.items ?? []} selected={runIds} topicId={topicId} disabled={locked}
+      <RunPicker sources={scopedSources} selected={runIds} topicId={topicId} disabled={locked}
         onChange={ids => { editDraft(); setRunIds(ids); }} />
       {sources.isPending && <p role="status">正在读取可选来源…</p>}
       {sources.isError && <p className="form-error" role="alert">来源读取失败：{sources.error.message} <button type="button" className="text-link" onClick={() => void sources.refetch()}>重新读取来源</button></p>}
@@ -99,14 +104,16 @@ export function MediaCollections({ creatorId }: { creatorId: string }) {
       {create.isError && <p className="form-error" role="alert">{errorMessage(create.error)}</p>}
     </form>}
     {list.isPending ? <div className="media-loading" role="status">正在读取文件夹…</div> : list.isError ? <p className="form-error" role="alert">{list.error.message} <button className="text-link" type="button" onClick={() => void list.refetch()}>重新读取文件夹</button></p> : <>
-      <nav className="media-folder-list" aria-label="选择素材文件夹">{list.data.items.map(item => <button type="button" key={item.id} aria-pressed={selectedId === item.id}
+      <nav className="media-folder-list" aria-label="选择素材文件夹">{folders.map(item => <button type="button" key={item.id} aria-pressed={selectedId === item.id}
         onClick={() => select(item.id)}><Folder size={17} aria-hidden="true" /><span>{item.name}</span></button>)}</nav>
-      {!list.data.items.length && !creating && <div className="media-empty"><h3>先建一个文件夹</h3><p>关联选题后会持续收图，也可以加入这个账号的其他制作任务。</p><button type="button" className="button button-secondary" onClick={() => setCreating(true)}>新建文件夹</button></div>}
-      {selectedId ? <CollectionContent key={`${creatorId}:${selectedId}`} creatorId={creatorId} collectionId={selectedId} pickerSources={sources.data?.items ?? []}
+      {!!unsorted.length && <div><button type="button" className="button button-quiet" aria-expanded={showUnsorted} onClick={() => setShowUnsorted(value => !value)}>待整理素材</button>
+        {showUnsorted && <nav className="media-folder-list" aria-label="待整理素材">{unsorted.map(item => <button type="button" key={item.id} aria-pressed={selectedId === item.id} onClick={() => select(item.id)}><Folder size={17} aria-hidden="true" /><span>{item.name}</span></button>)}</nav>}</div>}
+      {!folders.length && !creating && !selectedId && <div className="media-empty"><h3>还没有素材文件夹</h3><p>关联选题后会持续收图，也可以加入制作任务。</p><button type="button" className="button button-secondary" onClick={() => setCreating(true)}>新建文件夹</button></div>}
+      {selectedId ? <CollectionContent key={`${creatorId}:${selectedId}`} creatorId={creatorId} collectionId={selectedId} pickerSources={selectedFolder?.series_id ? (sources.data?.items ?? []).filter(source => source.series_id === selectedFolder.series_id) : sources.data?.items ?? []}
         onRefreshSources={() => void sources.refetch()} pickerError={sources.error?.message} onDeleted={() => setParams(previous => {
           if (previous.get("collection") !== selectedId || (previous.get("creator") && previous.get("creator") !== creatorId)) return previous;
           const next = new URLSearchParams(previous); next.delete("collection"); return next;
-        })} /> : !!list.data.items.length && !creating && <p className="media-hint">选择一个文件夹，查看图片与来源。</p>}
+        })} /> : !!folders.length && !creating && <p className="media-hint">选择一个文件夹，查看图片与来源。</p>}
     </>}
   </section>;
 }

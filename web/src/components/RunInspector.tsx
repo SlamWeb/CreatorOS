@@ -43,7 +43,7 @@ export function RunInspector({ run }: { run: RunDetail }) {
   const requestedReturn = params.get("return");
   const requestedRevision = params.get("revision");
   // Only return to our own content workspace, never an arbitrary external URL.
-  const returnTo = requestedReturn && /^\/(?:\?|$|series\/[^/?#]+(?:\?|$))/.test(requestedReturn)
+  const returnTo = requestedReturn && /^\/(?:\?|$|workspace(?:\?|$)|series\/[^/?#]+(?:\?|$))/.test(requestedReturn)
     ? requestedReturn : `/series/${run.series_id}`;
   const [selected, setSelected] = useState<string | null>(() => requestedRevision);
   useEffect(() => { setSelected(requestedRevision); }, [run.id, requestedRevision]);

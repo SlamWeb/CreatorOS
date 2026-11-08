@@ -43,21 +43,33 @@
 .account-studio-head .account-nav-switch { width: auto; max-width: min(100%, 420px); padding: 4px; gap: 10px; }
 .account-studio-head .account-nav-avatar { width: 36px; height: 36px; flex-basis: 36px; font-size: 14px; }
 .account-studio-head .account-nav-name { font-size: 22px; font-weight: 650; line-height: 1.3; }
-.account-studio-head .workspace-data-tabs { flex-wrap: wrap; gap: 16px; border: 0; margin: 0; }
-.account-studio-head .workspace-data-tabs button { min-height: 36px; }
-.account-series-navigation { min-width: 0; margin-bottom: 26px; border-bottom: 1px solid #e5e8ed; }
-.account-series-navigation .account-nav-series { display: flex; gap: 20px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.account-resource-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.account-resource-actions button { min-height: 36px; padding: 7px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #555e6c; font: inherit; font-size: 13px; font-weight: 550; }
+.account-resource-actions button:hover { color: var(--ink); background: #f5f6f8; }
+.account-resource-actions button[aria-pressed="true"] { color: var(--ink); background: #f1f3f6; }
+.account-series-navigation { min-width: 0; margin-bottom: 28px; }
+.account-series-navigation .account-nav-series { display: flex; gap: 10px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; padding: 2px 2px 8px; }
 .account-series-navigation .account-nav-series .rail-series,
-.account-series-create { flex: 0 0 auto; width: auto; min-height: 40px; max-width: 230px; padding: 8px 1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: #62626a; font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; }
-.account-series-navigation .account-nav-series .rail-series > span:first-of-type { display: block; overflow: hidden; text-overflow: ellipsis; }
-.account-series-navigation .account-nav-series .rail-series.active { border-bottom-color: var(--accent); background: transparent; color: var(--accent-strong); }
-.account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { background: transparent; color: var(--accent-strong); }
-.account-series-create { display: inline-flex; align-items: center; gap: 5px; }
+.account-series-create { flex: 0 0 auto; width: 180px; min-height: 66px; padding: 7px; border: 1px solid #e1e5eb; border-radius: 10px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 13px; font-weight: 550; white-space: nowrap; transition: border-color 180ms ease, box-shadow 180ms ease, transform 200ms cubic-bezier(.22, 1, .36, 1); }
+.account-series-navigation .account-nav-series .rail-series { gap: 10px; }
+.account-series-navigation .account-nav-series .rail-series > .account-series-thumb { position: relative; display: grid; place-items: center; flex: 0 0 50px; width: 50px; height: 50px; overflow: hidden; border-radius: 6px; color: #929aa5; background: #f4f5f7; }
+.account-series-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.account-series-navigation .account-nav-series .rail-series > .account-series-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-series-navigation .account-nav-series .rail-series.active { border-color: var(--accent); background: var(--canvas); color: var(--ink); box-shadow: 0 0 0 1px var(--accent); }
+.account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { border-color: #aeb9c8; background: var(--canvas); color: var(--ink); }
+.account-series-navigation .account-nav-series .rail-series.active:hover { border-color: var(--accent); }
+@media (hover: hover) and (pointer: fine) { .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover { transform: translateY(-2px); } }
+.account-series-navigation .account-nav-series .rail-series:active, .account-series-create:active { transform: scale(.985); }
+.account-series-create { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; padding: 7px 14px; color: #626b78; }
 .account-series-search { width: min(260px, 100%); margin: 12px 0; }
 .account-studio-head button:focus-visible, .account-series-navigation button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 760px) {
   .account-studio-head { align-items: flex-start; padding-right: 48px; gap: 8px; margin-bottom: 16px; }
   .account-studio-head .account-nav-name { font-size: 20px; }
-  .account-studio-head .workspace-data-tabs { gap: 12px; }
-  .account-series-navigation .account-nav-series { gap: 16px; }
+  .account-resource-actions { gap: 2px; }
+  .account-series-navigation .account-nav-series { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-series-navigation .account-nav-series .rail-series, .account-series-create { transition: none; }
+  .account-series-navigation .account-nav-series .rail-series:hover, .account-series-create:hover, .account-series-navigation .account-nav-series .rail-series:active, .account-series-create:active { transform: none; }
 }

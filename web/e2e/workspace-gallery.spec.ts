@@ -43,7 +43,7 @@ async function fixture(request: APIRequestContext) {
   return { account, other, series, second, run, topicIds: topics.topic_ids as string[] };
 }
 
-test("account gallery uses validated covers; detail return preserves filter and focus without writes", async ({ page, request }, info) => {
+test("column gallery uses validated covers; detail return preserves filter and focus without writes", async ({ page, request }, info) => {
   const data = await fixture(request);
   const writes: string[] = [];
   const reads = { run: 0, research: 0, overview: 0, library: 0 };
@@ -55,18 +55,11 @@ test("account gallery uses validated covers; detail return preserves filter and 
     if (url.pathname === "/api/overview") reads.overview++;
     if (url.pathname.endsWith("/topic-library")) reads.library++;
   });
-  await page.goto(`/?creator=${data.account.id}&topics=queued`);
-  const columns = page.getByRole("region", { name: "栏目", exact: true });
-  await expect(columns.getByRole("button")).toHaveCount(2);
-  await expect(columns).toContainText("同账号第二栏目");
-  const recent = page.getByRole("region", { name: "近期作品", exact: true });
-  await expect(recent.getByRole("img")).toHaveCount(1);
-  await expect(recent).not.toContainText("还没有生产的文字草稿");
-  await expect(page.locator(".workspace-main").getByText("乙账号私有选题")).toHaveCount(0);
-  await columns.getByRole("button", { name: "进入栏目 有图与草稿", exact: true }).click();
-  // The account overview no longer renders a combined topic gallery. Exercise
-  // the current column gallery with an explicit durable filter for return links.
   await page.goto(`/?creator=${data.account.id}&series=${data.series.id}&topics=queued`);
+  const columns = page.getByRole("navigation", { name: "当前账号的栏目" });
+  await expect(columns.locator(".rail-series")).toHaveCount(2);
+  await expect(columns).toContainText("同账号第二栏目");
+  await expect(page.locator(".workspace-main").getByText("乙账号私有选题")).toHaveCount(0);
   const returnUrl = new URL(page.url()).pathname + new URL(page.url()).search;
   await expect(page.locator(".content-card")).toHaveCount(2);
   const produced = page.getByTestId(`library-${data.topicIds[0]}`);
@@ -114,7 +107,7 @@ test("account gallery uses validated covers; detail return preserves filter and 
   await expect(page.locator(".content-card")).toHaveCount(2);
   await expect(page.getByRole("heading", { name: "同账号另一个选题" })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("button", { name: /账号与栏目 ·/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "切换账号" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("workspace-gallery-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 320, height: 700 });

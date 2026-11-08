@@ -40,8 +40,8 @@ async function workspaceFixture(request: APIRequestContext, topicCount = 0, incl
 test("workspace tree keeps empty columns manageable, Skill links inspect real files, and main navigation stays fixed", async ({ page, request }, info) => {
   const data = await workspaceFixture(request, 24, true);
   await page.goto(`/?creator=${data.account.id}`);
-  await expect(page.locator(".account-nav-series .rail-series")).toHaveCount(3);
-  await expect(page.getByRole("heading", { name: data.empty.name })).toHaveCount(0);
+  await expect(page.locator(".account-nav-series .rail-series")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: data.empty.name })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: data.empty.name })).toBeVisible();
   await expect(page.locator(".rail-series").filter({ hasText: data.series.name })).toContainText(data.series.name);
   await expect(page.locator(".rail-series small, .rail-series .status-pill")).toHaveCount(0);
@@ -133,7 +133,7 @@ test("delete conflicts remain visible and do not trigger cancel or other writes"
 
 test("a delayed deletion cannot clear the newly selected series", async ({ page, request }) => {
   const data = await workspaceFixture(request);
-  await page.goto(`/?creator=${data.account.id}`);
+  await page.goto(`/?creator=${data.account.id}&series=${data.series.id}`);
   await page.locator(".rail-series").filter({ hasText: data.empty.name }).click();
   const settings = await openSettings(page);
   let release!: () => void;
@@ -148,10 +148,9 @@ test("a delayed deletion cannot clear the newly selected series", async ({ page,
   await settings.getByRole("button", { name: `删除栏目 ${data.empty.name}` }).click();
   await sent;
   // The pending modal intentionally disables closing. Browser Back leaves the
-  // column without cancelling its write, then the rail selects the next one.
+  // column without cancelling its write, returning to the previous one.
   await page.goBack();
-  await expect(page).toHaveURL(url => !url.searchParams.has("series"));
-  await page.locator(".rail-series").filter({ hasText: data.series.name }).click();
+  await expect(page).toHaveURL(url => url.searchParams.get("series") === data.series.id);
   release();
   expect((await completed).status()).toBe(200);
   await expect(page).toHaveURL(new RegExp(`series=${data.series.id}`));

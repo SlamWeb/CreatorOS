@@ -23,7 +23,7 @@ from sqlalchemy import event, inspect, text
 
 from creatoros.runs import ContentRunService
 from creatoros.storage import (
-    ContentRepository, ContentRevision, Database, Series,
+    ContentRepository, ContentRevision, CreatorPlatform, Database, Series,
     TopicRemoval, TopicSource, upgrade_database,
 )
 from creatoros.storage.models import Base
@@ -85,6 +85,49 @@ class MediaCollectionTests(unittest.TestCase):
     def original_files(self):
         return {str(path.relative_to(self.root)): path.read_bytes()
                 for path in (self.root / "outputs").rglob("*") if path.is_file()}
+
+    def test_series_scoping_preserves_legacy_and_rejects_cross_series_sources(self):
+        content = ContentRepository(self.db)
+        content.create_series(series_id="second-series", creator_id="review-lab", name="另一个栏目",
+            description="", audience="读者", skill_name="knowledge-to-carousel")
+        content.add_topic(topic_id="second-topic", series_id="second-series", title="另一个选题", source=TopicSource.MANUAL)
+        other = self.runs.create("second-topic")
+        legacy = self.create(request_id="legacy-single", run_ids=[self.first.id])
+        mixed = self.create(request_id="legacy-mixed", run_ids=[self.first.id, other.id])
+        empty = self.create(request_id="legacy-empty", run_ids=[])
+        scoped = self.create(request_id="scoped-empty", series_id="agent-notes", run_ids=[])
+        items = {item["id"]: item for item in self.client.get(self.base).json()["items"]}
+        self.assertEqual(items[legacy["id"]]["display_series_id"], "agent-notes")
+        self.assertIsNone(items[legacy["id"]]["series_id"])
+        self.assertIsNone(items[mixed["id"]]["display_series_id"])
+        self.assertIsNone(items[empty["id"]]["display_series_id"])
+        self.assertEqual(items[scoped["id"]]["display_series_id"], "agent-notes")
+        invalid = self.client.post(self.base, json=dict(name="错栏目", request_id="invalid-series", series_id="second-series", run_ids=[self.first.id]))
+        self.assertEqual(invalid.status_code, 422)
+        invalid_topic = self.client.post(self.base, json=dict(name="错选题", request_id="invalid-topic", series_id="second-series", topic_id="review-1"))
+        self.assertEqual(invalid_topic.status_code, 422)
+        content.create_creator(creator_id="other-owner", display_name="其他账号", platform=CreatorPlatform.XIAOHONGSHU)
+        content.create_series(series_id="other-owned", creator_id="other-owner", name="其他账号栏目", description="", audience="读者", skill_name="knowledge-to-carousel")
+        forbidden = self.client.post(self.base, json=dict(name="跨账号", request_id="other-account", series_id="other-owned"))
+        self.assertEqual(forbidden.status_code, 404)
+        invalid = self.client.patch(f"{self.base}/{scoped['id']}", json=dict(expected_version=scoped["version"], run_ids=[other.id]))
+        self.assertEqual(invalid.status_code, 422)
+        self.assertEqual(self.detail(scoped)["run_ids"], [])
+        self.assertEqual(self.detail(mixed)["run_ids"], [self.first.id, other.id])
+
+    def test_series_column_migration_does_not_rewrite_legacy_collection(self):
+        created = self.create(request_id="legacy-migration", run_ids=[self.first.id])
+        identifier = created["id"]
+        url = f"sqlite:///{(self.root / 'review.db').as_posix()}"
+        self.db.engine.dispose()
+        command.downgrade(config(url), "20261107_0029")
+        with self.db.engine.connect() as connection:
+            before = dict(connection.execute(text("SELECT * FROM media_collections WHERE id=:id"), {"id": identifier}).mappings().one())
+        upgrade_database(url)
+        with self.db.engine.connect() as connection:
+            after = dict(connection.execute(text("SELECT * FROM media_collections WHERE id=:id"), {"id": identifier}).mappings().one())
+        self.assertIsNone(after.pop("series_id"))
+        self.assertEqual(after, before)
 
     def test_multi_run_revisions_automatic_topic_extra_run_and_read_only_get(self):
         self.runs.request_revision(self.first.id, "Local second fixture revision",
@@ -458,7 +501,7 @@ class MediaCollectionMigrationTests(unittest.TestCase):
                 # table and every original row exactly.
                 for table in ("agent_plan_steps", "agent_plans", "creator_skill_refs",
                               "managed_materials", "production_queue_history", "production_task_history", "series_skill_refs",
-                              "skill_switch_intents"):
+                              "skill_switch_intents", "skill_display_categories"):
                     self.assertEqual(after.pop(table), [])
                 for row in after["content_runs"]:
                     self.assertIsNone(row.pop("task_id"))

@@ -52,7 +52,7 @@ test("workspace covers preserve the real image ratio and show missing-image feed
   await page.screenshot({ path: info.outputPath("uncropped-column-covers-mobile.png"), fullPage: true });
 });
 
-test("recent works keep their natural ratio, including while hovered", async ({ page, request }, info) => {
+test("column navigation uses a real recent cover as a thumbnail", async ({ page, request }, info) => {
   const created = await request.post("/api/creators", { data: { display_name: `近期图片-${crypto.randomUUID().slice(0, 8)}` } });
   expect(created.ok()).toBeTruthy();
   const creator = await created.json();
@@ -72,19 +72,11 @@ test("recent works keep their natural ratio, including while hovered", async ({ 
     const [width, height] = square ? [400, 400] : [600, 300];
     return route.fulfill({ contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="#a9c2d8"/></svg>` });
   });
-  await page.goto(`/workspace?creator=${creator.id}`);
-  const recent = page.getByRole("region", { name: "近期作品", exact: true });
-  const square = recent.getByRole("img", { name: "正方形近期作品" });
-  const wide = recent.getByRole("img", { name: "横向近期作品" });
-  await expect(square).toBeVisible({ timeout: 15000 });
-  await expect.poll(() => square.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(400);
-  await expect.poll(() => wide.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(600);
-  for (const [image, ratio] of [[square, 1], [wide, 2]] as const) {
-    const box = await image.boundingBox();
-    expect(box).toBeTruthy();
-    expect(Math.abs(box!.width / box!.height - ratio)).toBeLessThan(0.02);
-    await image.hover();
-    await expect(image).toHaveCSS("transform", "none");
-  }
-  await page.screenshot({ path: info.outputPath("uncropped-recent-covers.png"), fullPage: true });
+  await page.goto(`/workspace?creator=${creator.id}&series=${series.id}`);
+  const thumbnail = page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: "图片栏目" }).locator("img");
+  await expect(thumbnail).toBeVisible({ timeout: 15000 });
+  await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(400);
+  await expect(thumbnail).toHaveAttribute("src", /image-proportion-square/);
+  await expect(thumbnail).toHaveCSS("object-fit", "cover");
+  await page.screenshot({ path: info.outputPath("column-cover-thumbnail.png"), fullPage: true });
 });

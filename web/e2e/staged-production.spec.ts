@@ -161,7 +161,7 @@ test("video accepts original BGM share text without pre-resolving it", async ({ 
 test("new series can be created before choosing any Skill", async ({ page, request }) => {
   const account = await post(request, "/api/creators", { display_name: `空栏目-${crypto.randomUUID().slice(0, 6)}` });
   await page.goto(`/?creator=${account.id}`);
-  await page.getByRole("complementary", { name: "账号与栏目", exact: true }).getByRole("button", { name: "新建栏目", exact: true }).click();
+  await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: "新建栏目", exact: true }).click();
   const create = page.getByRole("dialog", { name: "新建栏目", exact: true });
   await create.getByLabel("新栏目名称").fill("先建栏目再选 Skill");
   await expect(page.getByLabel("配方", { exact: true })).toHaveCount(0);

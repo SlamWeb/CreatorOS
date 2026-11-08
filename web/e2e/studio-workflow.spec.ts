@@ -8,10 +8,6 @@ test("workspace first use to revision and approval survives refresh", async ({ p
     expect(response.ok(), await response.text()).toBeTruthy();
     return response.json();
   };
-  await page.route(/\/api\/creators\/[^/]+\/tasks(?:\?.*)?$/, route => route.fulfill({
-    status: 200, contentType: "application/json",
-    body: JSON.stringify({ items: [{ id: "e2e-task", kind: "research", title: "Creator Routing 选题调研", status: "running", series_id: null, run_id: null, url: null, updated_at: "2026-10-08T08:00:00Z", last_activity_at: "2026-10-08T08:00:00Z" }], summary: { active: 1, awaiting_approval: 0, failed: 0 }, as_of: "2026-10-08T08:00:00Z" }),
-  }));
   await page.goto("/");
   await expect(page.getByRole("link", { name: "进入工作台", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "进入工作台", exact: true }).click();
@@ -28,12 +24,12 @@ test("workspace first use to revision and approval survives refresh", async ({ p
   expect(creatorId).toBeTruthy();
   expect(await read(`/api/creators/${creatorId}`)).toMatchObject({ display_name: "E2E 知识实验室", account_handle: "e2e_lab" });
   await expect(page.getByText("这个账号还没有栏目", { exact: true })).toBeVisible();
-  await page.getByRole("region", { name: "任务", exact: true }).getByRole("button", { name: "查看任务", exact: true }).click();
+  await page.getByRole("button", { name: "任务", exact: true }).click();
   await page.screenshot({ path: testInfo.outputPath("01-first-use.png"), fullPage: true });
-  await expect(page.getByRole("region", { name: "任务" })).toContainText("Creator Routing 选题调研");
-  await expect(page.getByRole("region", { name: "任务" })).toContainText("进行中 1");
+  await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
+  await page.getByRole("button", { name: "关闭任务" }).click();
 
-  await page.getByRole("region", { name: "栏目", exact: true }).getByRole("button", { name: "新建栏目", exact: true }).click();
+  await page.getByRole("region", { name: "空工作区", exact: true }).getByRole("button", { name: "新建栏目", exact: true }).click();
   await page.getByLabel("新栏目名称").fill("Agent 每日一题");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Agent 每日一题", level: 1 })).toBeVisible();
