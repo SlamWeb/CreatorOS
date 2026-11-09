@@ -1,21 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, studioApi } from "../api/client";
 import type { ProducerSkillItem, TopicView } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { useAgentChat } from "../features/agent";
 import { SkillInspector } from "../components/SkillInspector";
-import { CreatorTaskSummary } from "../components/CreatorTaskSummary";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { MediaCollections } from "../components/MediaCollections";
 import { BgmPool, QA_BGM_CREATOR } from "../components/BgmPool";
 import { CreatorSkillLibrary } from "../components/SkillLibrary";
 import { useWorkInbox } from "../components/TaskInbox";
 import { AccountNavigator } from "../components/AccountNavigator";
-import { PrimaryNavigation } from "../components/Layout";
-import { BrandMark } from "../components/BrandMark";
-import { AccountOverview } from "../components/AccountOverview";
 import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SeriesWorkspace } from "../features/series/SeriesWorkspace";
 import { useSeriesOperationNavigation } from "../features/series/useSeriesOperationNavigation";
@@ -63,10 +59,30 @@ export function WorkspacePage() {
     skill: ProducerSkillItem; creatorId?: string; seriesId?: string; accountName?: string;
   } | null>(null);
   const viewedSkill = useRef<string | null>(null);
-  const { params, setParams, scopedCreatorId, account, series, accountSeries, treeOpen, setTreeOpen,
+  const { params, setParams, scopedCreatorId, account, series, accountSeries,
     confirmingAccount, setConfirmingAccount, selectAccount, selectSeries, completeAssignment, accountDeleted, seriesDeleted } =
     useWorkspaceNavigation(creators.data ? accounts : undefined, seriesAll.data, accountVerified);
   useSeriesOperationNavigation(completeAssignment, seriesDeleted);
+  // Remember only a validated series per account; explicit old links always win.
+  useEffect(() => {
+    if (!account || !series || series.creator_id !== account.id) return;
+    try { sessionStorage.setItem(`creatoros:last-series:${account.id}`, series.id); } catch { /* Optional preference. */ }
+  }, [account?.id, series?.id, series?.creator_id]);
+  useEffect(() => {
+    if (!account || params.has("series") || !accountSeries.length || accountMissing) return;
+    const view = params.get("view");
+    // Existing account-level collection links must continue to resolve unchanged.
+    if (["data", "skills", "bgm"].includes(view ?? "") || params.has("collection") || params.has("collection_topic")) return;
+    let remembered: string | null = null;
+    try { remembered = sessionStorage.getItem(`creatoros:last-series:${account.id}`); } catch { /* Optional preference. */ }
+    const selected = accountSeries.find(item => item.id === remembered) ?? accountSeries[0];
+    setParams(previous => {
+      if (previous.has("series") || (previous.get("creator") && previous.get("creator") !== account.id)) return previous;
+      const next = new URLSearchParams(previous);
+      next.set("creator", account.id); next.set("series", selected.id);
+      return next;
+    }, { replace: true });
+  }, [account?.id, accountSeries, accountMissing, params, setParams]);
   useEffect(() => {
     if (!inspectedSkill) { viewedSkill.current = null; return; }
     if (inbox.data && viewedSkill.current !== inspectedSkill.skill.id) {
@@ -119,11 +135,11 @@ export function WorkspacePage() {
   const allSeries = seriesAll.data ?? [];
   const seriesId = series?.id ?? null;
   const requestedView = params.get("view") ?? "content";
-  const shownView = requestedView === "bgm" && account?.id !== QA_BGM_CREATOR ? "content" : requestedView;
+  const shownView = !["content", "data", "materials", "skills", "bgm"].includes(requestedView) || requestedView === "bgm" && account?.id !== QA_BGM_CREATOR ? "content" : requestedView;
   const scopeUnavailable = !!inspectedSkill?.creatorId && (workspaceLoading || !!workspaceError || creators.isError
     || !accountVerified || account?.id !== inspectedSkill.creatorId);
   const inspectSkill = (skill: ProducerSkillItem) => setInspectedSkill({ skill, creatorId: account?.id,
-    seriesId: series?.id, accountName: account?.display_name });
+    seriesId: shownView === "content" ? series?.id : undefined, accountName: account?.display_name });
 
   const discuss = (title: string, topic?: TopicView) => {
     chat.open({ creatorId: account?.id ?? null, accountName: account?.display_name, draftSeed: `我们讨论一下选题「${title}」。`,
@@ -141,44 +157,34 @@ export function WorkspacePage() {
   return <div className={`workspace${chat.isOpen ? " chat-open" : ""}`}>
     {workspaceLoading ? <LoadingState label="正在读取…" /> : workspaceError
       ? <ErrorState message={workspaceError.message} onRetry={workspaceError.retry} /> : <>
-    <button type="button" className="workspace-tree-toggle" aria-expanded={treeOpen} onClick={() => setTreeOpen(!treeOpen)}>账号与栏目 · {series?.name ?? account?.display_name ?? "选择账号"}</button>
-    <aside className={`workspace-rail${treeOpen ? " is-open" : ""}`} aria-label="账号与栏目">
-      {(account || series) && <div className="column-side-navigation">
-        <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
-        <PrimaryNavigation />
-      </div>}
+    <div className="workspace-main">
       <AccountNavigator accounts={accounts} account={account} series={accountSeries} selectedSeriesId={seriesId}
-        accountsLoading={creators.isFetching}
-        accountsIncomplete={creators.isError} onRetryAccounts={() => void creators.refetch()}
-        unassigned={allSeries.filter(item => item.creator_id === null)}
-        onSelectAccount={selectAccount} onSelectSeries={id => selectSeries(id)}
-        onOverview={() => account ? selectAccount(account.id, true) : accountSeries[0] && selectSeries(accountSeries[0].id)}
+        accountsLoading={creators.isFetching} accountsIncomplete={creators.isError} onRetryAccounts={() => void creators.refetch()}
+        unassigned={allSeries.filter(item => item.creator_id === null)} onSelectAccount={id => selectAccount(id, true)} onSelectSeries={id => selectSeries(id)}
         onCreateAccount={beginNewAccount} onCreateSeries={beginNewSeries} createSeriesDisabled={!!routeCreatorId && !accountVerified}
         hasUnseen={id => inbox.hasUnseen("series", id)} confirmingDelete={confirmingAccount === account?.id}
-        onConfirmDelete={() => setConfirmingAccount(account?.id ?? null)}
-        onDelete={() => account && deleteAccount.mutate(account.id)} deletePending={deleteAccount.isPending} />
+        onConfirmDelete={() => setConfirmingAccount(account?.id ?? null)} onDelete={() => account && deleteAccount.mutate(account.id)} deletePending={deleteAccount.isPending}
+        shownView={shownView} showBgm={account?.id === QA_BGM_CREATOR}
+        onViewChange={view => setParams(previous => { const next = new URLSearchParams(previous); if (view === "content") next.delete("view"); else next.set("view", view); return next; })} />
       {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
-    </aside>
-    <div className="workspace-main">
-      {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请从左侧重新选择。</p>}
-      {(accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从左侧重新选择。</p>}
-      {account && !series && !["data", "materials", "skills", "bgm"].includes(shownView) && <CreatorTaskSummary key={account.id} creatorId={account.id} />}
-      {!series && !accountMissing && (!params.has("creator") || account) && <>
-      <header className="workspace-head"><div><h1>{account?.display_name ?? "账号与栏目"}</h1></div>
-        {!!accountSeries.length && <button type="button" className="button button-secondary" onClick={beginNewSeries}>新建栏目</button>}
-      </header>
-      {account && <nav className="workspace-data-tabs" aria-label="账号工作区">{[{value:"content",label:"内容"},{value:"data",label:"数据"},{value:"materials",label:"素材"},...(account.id === QA_BGM_CREATOR ? [{value:"bgm",label:"BGM"}] : []),{value:"skills",label:"Skill 库"}].map(tab => <button key={tab.value} type="button" aria-pressed={(["data","materials","skills","bgm"].includes(shownView) ? shownView : "content") === tab.value}
-        onClick={() => setParams(previous => { const next = new URLSearchParams(previous); if(tab.value !== "content") next.set("view",tab.value); else next.delete("view"); return next; })}>{tab.label}</button>)}</nav>}
-      {account && params.get("view") === "bgm" && account.id === QA_BGM_CREATOR ? <BgmPool key={account.id} creatorId={account.id} /> : account && params.get("view") === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={inspectSkill} /> : account && params.get("view") === "materials" ? <MediaCollections key={account.id} creatorId={account.id} /> : account && params.get("view") === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> : <>
-      <AccountOverview key={account?.id ?? "unassigned"} creatorId={account?.id ?? null} series={accountSeries}
-        onSelect={id => selectSeries(id)} hasUnseen={id => inbox.hasUnseen("series", id)}
-        onCreate={beginNewSeries} />
-      </>}
-      </>}
-      {series && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series}
+      {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请重新选择栏目。</p>}
+      {(accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从账号切换中重新选择。</p>}
+      {series && shownView === "materials" && <h1 className="workspace-visually-hidden">{series.name}</h1>}
+      {series && ["content", "materials"].includes(shownView) && <nav className="series-view-tabs" aria-label="栏目工作区">
+        <button type="button" aria-pressed={shownView === "content"} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.delete("view"); next.delete("collection"); next.delete("collection_topic"); return next; })}>作品</button>
+        {account && <button type="button" aria-pressed={shownView === "materials"} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set("view", "materials"); return next; })}>素材</button>}
+      </nav>}
+      {account && shownView === "bgm" && account.id === QA_BGM_CREATOR ? <BgmPool key={account.id} creatorId={account.id} /> :
+        account && shownView === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={inspectSkill} /> :
+        account && shownView === "materials" ? <MediaCollections key={`${account.id}:${series?.id ?? "account"}`} creatorId={account.id} seriesId={series?.id} /> :
+        account && shownView === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> :
+        !series && !accountSeries.length && !accountMissing && (!params.has("creator") || account) ? <section className="workspace-empty" aria-label="空工作区">
+          <h2>{account ? "这个账号还没有栏目" : "还没有账号"}</h2>
+          <button type="button" className="button button-primary" onClick={beginNewSeries}>{account ? "新建栏目" : "新建账号"}</button>
+        </section> : null}
+      {series && shownView === "content" && (!routeCreatorId || account) && <SeriesWorkspace key={series.id} series={series}
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
-        skills={skills.data?.items ?? []} onInspectSkill={inspectSkill}
-        onDiscuss={discuss} />}
+        skills={skills.data?.items ?? []} onInspectSkill={inspectSkill} onDiscuss={discuss} />}
     </div>
     {accountDraft && <WorkspaceDialog title="新建账号" busy={createAccount.isPending} onClose={() => setAccountDraft(null)}>
       <form className="workspace-create-form" onSubmit={event => {

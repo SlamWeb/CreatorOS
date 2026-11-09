@@ -309,6 +309,8 @@ class MediaCollection(TimestampMixin, Base):
     creator_id: Mapped[str] = mapped_column(
         ForeignKey("creators.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Null preserves legacy account-wide and cross-series collections.
+    series_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     topic_id: Mapped[str | None] = mapped_column(String(80))
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

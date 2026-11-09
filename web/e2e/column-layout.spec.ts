@@ -36,13 +36,11 @@ test("column navigation remains usable on desktop and mobile", async ({ page, re
   await expect(page.getByRole("dialog", { name: "任务" })).toBeVisible();
   await page.getByRole("button", { name: "关闭任务" }).click();
   await expect(page.getByRole("link", { name: "Skill", exact: true })).toBeVisible();
-  const toggle = page.getByRole("button", { name: /^账号与栏目 ·/ });
-  await toggle.click();
   await expect(page.getByRole("button", { name: "测试栏目", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("account overview and column keep the same white navigation", async ({ page, request }, info) => {
+test("account resources and column keep the same white navigation", async ({ page, request }, info) => {
   const created = await request.post("/api/creators", { data: { display_name: `导航账号-${crypto.randomUUID().slice(0, 8)}` } });
   expect(created.ok()).toBeTruthy();
   const account = await created.json();
@@ -51,13 +49,14 @@ test("account overview and column keep the same white navigation", async ({ page
   const series = await createdSeries.json();
   await page.goto(`/workspace?creator=${account.id}&series=${series.id}`);
   await expect(page.getByRole("heading", { name: "统一导航栏目", exact: true })).toBeVisible({ timeout: 15000 });
-  const rail = page.locator(".workspace-rail");
+  const rail = page.locator(".sidebar");
+  const seriesNav = page.getByRole("navigation", { name: "当前账号的栏目" });
   const nav = page.getByRole("navigation", { name: "主导航" });
   await expect(nav).toBeVisible();
   await expect(rail).toHaveCSS("background-color", "rgb(255, 255, 255)");
   const before = await rail.boundingBox();
   await page.screenshot({ path: info.outputPath("column-navigation-desktop.png") });
-  await rail.getByRole("button", { name: "账号概览", exact: true }).click();
+  await page.getByRole("button", { name: "数据", exact: true }).click();
   await expect(page.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
   await expect(nav).toBeVisible();
   await expect(page.getByRole("button", { name: "运营指令" })).toBeHidden();
@@ -67,13 +66,10 @@ test("account overview and column keep the same white navigation", async ({ page
   expect(after?.width).toBe(before?.width);
   await expect(rail).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await page.screenshot({ path: info.outputPath("account-navigation-desktop.png") });
-  await page.getByRole("button", { name: "数据", exact: true }).click();
-  await expect(nav).toBeVisible();
-  await rail.getByRole("button", { name: "统一导航栏目", exact: true }).click();
+  await seriesNav.getByRole("button", { name: "统一导航栏目", exact: true }).click();
   await expect(page.getByRole("heading", { name: "统一导航栏目", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: /^账号与栏目 ·/ }).click();
-  await rail.getByRole("button", { name: "账号概览", exact: true }).click();
+  await page.getByRole("button", { name: "数据", exact: true }).click();
   await expect(page.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Skill", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
