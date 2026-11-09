@@ -129,6 +129,19 @@ class MediaCollectionTests(unittest.TestCase):
         self.assertIsNone(after.pop("series_id"))
         self.assertEqual(after, before)
 
+    def test_downgrade_preserves_explicit_series_ownership(self):
+        collection = self.create(request_id="scoped-downgrade", series_id="agent-notes", run_ids=[])
+        url = f"sqlite:///{(self.root / 'review.db').as_posix()}"
+        self.db.engine.dispose()
+        with self.assertRaisesRegex(RuntimeError, "explicit series ownership"):
+            command.downgrade(config(url), "20261107_0029")
+        with self.db.engine.connect() as connection:
+            row = connection.execute(text("SELECT series_id FROM media_collections WHERE id=:id"),
+                                     {"id": collection["id"]}).one()
+            version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        self.assertEqual(row.series_id, "agent-notes")
+        self.assertEqual(version, "20261109_0030")
+
     def test_multi_run_revisions_automatic_topic_extra_run_and_read_only_get(self):
         self.runs.request_revision(self.first.id, "Local second fixture revision",
             expected_version=self.runs.get(self.first.id).version)

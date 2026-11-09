@@ -13,4 +13,8 @@ def upgrade():
 
 
 def downgrade():
+    if op.get_bind().execute(sa.text(
+        "SELECT 1 FROM media_collections WHERE series_id IS NOT NULL LIMIT 1"
+    )).first():
+        raise RuntimeError("Cannot downgrade: media collections have explicit series ownership. Preserve or migrate their ownership first.")
     op.drop_column("media_collections", "series_id")
