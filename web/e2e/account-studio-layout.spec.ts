@@ -24,7 +24,7 @@ test("account and series navigation stay in the workspace while global navigatio
   const cardBounds = await selectedCard.boundingBox();
   expect(cardBounds).not.toBeNull();
   await page.mouse.move(cardBounds!.x + cardBounds!.width * .8, cardBounds!.y + cardBounds!.height * .6);
-  await expect.poll(() => selectedCard.evaluate(element => (element as HTMLElement).style.getPropertyValue("--image-x"))).not.toBe("");
+  await expect(selectedCard).toHaveCSS("transform", /matrix\(1, 0, 0, 1, 0, -3\)/);
   await page.screenshot({ path: info.outputPath("workspace-hover.png") });
   await page.getByRole("button", { name: "可用 Skill" }).click();
   await expect(page).toHaveURL(/view=skills/);

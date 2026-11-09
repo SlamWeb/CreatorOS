@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, GalleryVerticalEnd, LayoutGrid, Plus, Search, Trash2 } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
@@ -10,32 +10,8 @@ import "./account-navigator.css";
 function SeriesCard({ item, cover, active, unseen, onSelect }: {
   item: SeriesView; cover?: string; active: boolean; unseen: boolean; onSelect: () => void;
 }) {
-  const frame = useRef<number | null>(null);
-  useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
-  function move(event: PointerEvent<HTMLButtonElement>) {
-    if (event.pointerType !== "mouse" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const card = event.currentTarget;
-    const { clientX, clientY } = event;
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => {
-      const bounds = card.getBoundingClientRect();
-      if (!bounds.width || !bounds.height) return;
-      const x = Math.min(1, Math.max(0, (clientX - bounds.left) / bounds.width));
-      const y = Math.min(1, Math.max(0, (clientY - bounds.top) / bounds.height));
-      card.style.setProperty("--light-x", `${x * 100}%`);
-      card.style.setProperty("--light-y", `${y * 100}%`);
-      card.style.setProperty("--image-x", `${(x - .5) * 4}px`);
-      card.style.setProperty("--image-y", `${(y - .5) * 4}px`);
-      frame.current = null;
-    });
-  }
-  function reset(event: PointerEvent<HTMLButtonElement>) {
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-    frame.current = null;
-    for (const key of ["--light-x", "--light-y", "--image-x", "--image-y"]) event.currentTarget.style.removeProperty(key);
-  }
   return <button type="button" className={`rail-series${active ? " active" : ""}`}
-    aria-current={active ? "page" : undefined} aria-label={item.name} onClick={onSelect} onPointerMove={move} onPointerLeave={reset}>
+    aria-current={active ? "page" : undefined} aria-label={item.name} onClick={onSelect}>
     <span className="account-series-thumb" aria-hidden="true"><GalleryVerticalEnd size={18} />{cover && <img src={apiUrl(cover)} alt="" width={48} height={48} loading="lazy" onError={event => { event.currentTarget.hidden = true; }} />}</span>
     <span className="account-series-name" title={item.name}>{item.name}</span>{unseen && <UnseenDot label="栏目有未查看内容" />}
   </button>;

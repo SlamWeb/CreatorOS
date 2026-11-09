@@ -102,10 +102,9 @@
 .series-content-section .content-card > .topic-skill-usage { order: 2; margin: 0 16px 16px; color: #626b78; font-size: 12px; }
 .series-content-section .content-card-menu summary { width: 36px; height: 36px; }
 .series-content-section :is(button, a, summary, select):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.series-content-section .content-card:focus-within { z-index: 2; border-color: #b7cce9; box-shadow: 0 8px 24px rgb(33 101 196 / .12), 0 0 0 1px rgb(33 101 196 / .08); }
+.series-content-section .content-card:focus-within { z-index: 2; }
 @media (hover: hover) and (pointer: fine) {
-  .series-content-section .content-card:hover { z-index: 2; transform: translateY(-4px); border-color: #b7cce9; box-shadow: 0 14px 32px rgb(33 101 196 / .12), 0 3px 10px rgb(25 38 65 / .06); }
-  .series-content-section .content-card:hover .content-card-copy { transform: translateY(2px); }
+  .series-content-section .content-card:hover { z-index: 2; transform: translateY(-4px); box-shadow: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .series-content-section .content-card, .series-content-section .content-card-copy { transition: none; }
