@@ -48,6 +48,7 @@ from ..tools.discovery_gateway import ToolGateway, DISCOVER, EXECUTE, DISCOVERY_
 from ..tools.action_catalog import DIRECT_READ_ACTIONS
 from .topic_occ import prepare_topic_update
 from .plan_occ import prepare_plan_change
+from .skill_write_guard import SkillUnknownWriteGuard
 
 
 RSI_TURN_AUTHORIZATION = (
@@ -455,7 +456,7 @@ def run_agent(
             scoped_account = _scoped_account_snapshot(runtime_context, context_data) if context_factory is not None else False
             first_model_step = True
             pending_reads = PendingTaskReads()
-            skill_write_unknown = False
+            skill_write_guard = SkillUnknownWriteGuard(runtime_context)
 
             while True:
                 turns_used = state.turn - task_start_turn
@@ -696,8 +697,8 @@ def run_agent(
                         gateway_source = None
                     elif prepared_result is not None:
                         tool_result = prepared_result
-                    elif skill_write_unknown and canonical_call.name == "update_producer_skill_file":
-                        tool_result = ToolResult(content="本轮此前的 Skill 写入结果未知，本次编辑未执行；请先核对并报告。",
+                    elif skill_write_guard.blocks(canonical_call):
+                        tool_result = ToolResult(content="本轮存在结果未知的 Skill 写入，目标属于同一家族或无法确认是否相关；本次编辑未执行，请先核对并报告。",
                                                  is_error=True, error_type="skill_edit_not_dispatched",
                                                  details={"pre_dispatch": True})
                         gateway_source = None
@@ -724,7 +725,7 @@ def run_agent(
                     current_unknown = _unknown_continuation_write(effective_call, tool_result, runtime_context)
                     unknown_write |= current_unknown
                     if executed and _skill_write_outcome_unknown(effective_call, tool_result):
-                        skill_write_unknown = True
+                        skill_write_guard.record_unknown(effective_call)
                     pending_read_deferred |= bool(tool_result.details.get("pending_read_deferred"))
                     span.capture('tool_result', effective_call, tool_result)
                     if not tool_result.is_error:
