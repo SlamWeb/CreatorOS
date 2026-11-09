@@ -101,7 +101,7 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
             batch = root / "data/agent-benchmark-v2" / run_id
             record = batch / "records" / record_id
             record.mkdir(parents=True)
-            with patch.dict(regression_runner._NEW_RUN_BLOCKLIST, {}, clear=True):
+            with patch.dict(regression_runner._NEW_RUN_BLOCKLIST, {}, clear=True), patch('creatoros.evaluation.benchmark.run._reject_withdrawn_e06'):
                 manifest = freeze(batch, path, [case], nonvideo_guard=True, local_dispatch="local-dispatch-v5", catalog_binding=binding)
             verify_manifest(batch / "manifest.json")
             digest = tool_calling._sha((batch / "manifest.json").read_bytes())
@@ -183,9 +183,10 @@ class ExpansionRegressionRunnerTests(unittest.TestCase):
             with patch.object(tool_calling, "ROOT", root), \
                  patch.object(tool_calling, "_execution_dataset", return_value=(path, identity)), \
                  patch.object(tool_calling, "_hash_files", return_value="a" * 64), \
-                 patch.object(tool_calling, "_driver_files", return_value=[]):
+                 patch.object(tool_calling, "_driver_files", return_value=[]), \
+                 patch('creatoros.evaluation.benchmark.manifest._git_state', return_value={'sha': 'a' * 40, 'dirty': False, 'status_available': True, 'dirty_paths': []}):
                 result = tool_calling.run_registered(registry, round_data={"id": "round", "title": "expansion",
-                    "code_version": "test", "changes": ["agent_shared"]}, run_id="expansion-run", cases=["E07"],
+                    "code_version": "a" * 40, "changes": ["agent_shared"]}, run_id="expansion-run", cases=["E07"],
                     allow_paid=True, invoke=invoke, local_dispatch="local-dispatch-v5", catalog_binding=binding)
             run = registry.get_run("expansion-run")
             self.assertEqual(commands, ["freeze", "run"])

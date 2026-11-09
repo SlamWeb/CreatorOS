@@ -158,11 +158,20 @@ function Workbench() {
   const runId = params.get("run") ?? "";
   const run = ordered.find(entry => entry.id === runId);
   const caseId = params.get("case") ?? "";
-  const candidateId = params.get("compare_run") ?? "";
-  const candidateRun = ordered.find(entry => entry.id === candidateId);
+  // Only infer a comparison when the round has a single unambiguous run.
+  // Repeated attempts must be explicitly selected rather than cherry-picked.
+  const candidateSelection = params.get("compare_run");
+  const candidateRun = candidateSelection !== null
+    ? ordered.find(entry => entry.id === candidateSelection)
+    : ordered.length === 1 ? ordered[0] : undefined;
   const baseRuns = latestFirst(baseline.data?.runs ?? []);
-  const baselineRunId = params.get("base_run") ?? "";
-  const baselineRun = baseRuns.find(entry => entry.id === baselineRunId);
+  const baselineSelection = params.get("base_run");
+  const matches = candidateRun ? baseRuns.filter(entry => entry.suite_id === candidateRun.suite_id && entry.suite_version === candidateRun.suite_version) : [];
+  const baselineRun = baselineSelection !== null
+    ? baseRuns.find(entry => entry.id === baselineSelection)
+    : matches.length === 1 ? matches[0] : undefined;
+  const candidateId = candidateRun?.id ?? "";
+  const baselineRunId = baselineRun?.id ?? "";
   const comparison = useQuery({queryKey: ["eval-registry", "compare", baselineRunId, candidateId], queryFn: ({signal}) => registryApi.compare(baselineRunId, candidateId, signal), enabled: !!baselineRun && !!candidateRun && baselineRunId !== candidateId, ...options});
   const refresh = () => {void rounds.refetch(); if (roundId) void detail.refetch(); if (baseId && baseId !== roundId) void baseline.refetch(); if (baselineRun && candidateRun) void comparison.refetch();};
   return <main className="eval-hub">
@@ -182,7 +191,7 @@ function Workbench() {
           <div className="ew-notice"><strong>整体结论未提供</strong><p>请查看各测试集的实际结果及尚未确认项。</p></div>
           <ChangeRequirements run={ordered[0]} />
           <section className="ew-compare" aria-label="版本比较"><div className="ew-section-head"><h2>与基准比较</h2><label>对比 <select aria-label="选择对比版本" value={baseId} onChange={e => update({base: e.target.value, base_run: null})}><option value="">选择基准</option>{baseId && !rounds.data.items.some(item => item.id === baseId) && <option value={baseId}>基准不可用 · {baseId}</option>}{rounds.data.items.filter(item => item.id !== roundId).map(item => <option key={item.id} value={item.id}>{item.title} · {item.branch || "未记录分支"}</option>)}</select></label></div>
-            {!baseId ? <p className="ew-muted">没有记录上一轮，请选择对比版本。</p> : baseId === roundId ? <p role="alert">请选择不同的对比版本。</p> : baseline.isPending ? <p role="status" className="ew-muted">正在读取基准…</p> : baseline.isError ? <p role="alert">基准读取失败：{errorText(baseline.error)} <button type="button" onClick={() => void baseline.refetch()}>重试</button></p> : baseline.data && <>
+            {!baseId ? <p className="ew-muted">未记录上一轮关联，请选择对比版本；不会仅凭时间推断。</p> : baseId === roundId ? <p role="alert">请选择不同的对比版本。</p> : baseline.isPending ? <p role="status" className="ew-muted">正在读取基准…</p> : baseline.isError ? <p role="alert">基准读取失败：{errorText(baseline.error)} <button type="button" onClick={() => void baseline.refetch()}>重试</button></p> : baseline.data && <>
               <div className="ew-compare-selects"><label>当前运行<select aria-label="选择当前运行" value={candidateRun?.id ?? ""} onChange={e => update({compare_run: e.target.value, base_run: null})}><option value="">选择运行</option>{ordered.map(entry => <option key={entry.id} value={entry.id}>{entry.suite_id} · {dateText(entry.created_at)} · {entry.id}</option>)}</select></label><label>基准运行<select aria-label="选择基准运行" value={baselineRun?.id ?? ""} onChange={e => update({base_run: e.target.value})}><option value="">选择运行</option>{baseRuns.map(entry => <option key={entry.id} value={entry.id}>{entry.suite_id} · {dateText(entry.created_at)} · {entry.id}</option>)}</select></label></div>
               {!candidateRun || !baselineRun ? <p className="ew-muted">选择两次运行比较；当前尚未核实哪次是本轮首试。</p> : comparison.isPending ? <p role="status" className="ew-muted">正在核对比较条件…</p> : comparison.isError ? <p role="alert">无法比较：{errorText(comparison.error)} <button type="button" onClick={() => void comparison.refetch()}>重试</button></p> : comparison.data && <>
                 {!comparison.data.contract_compatible && <p className="ew-comparison-note">比较条件不完整或不同，不能计算涨跌。{comparison.data.contract_differences.map(item => `${item.field}（${item.reason === "missing" ? "缺失" : "不同"}）`).join("、")}</p>}

@@ -76,8 +76,9 @@ class E06FormalRegressionTests(unittest.TestCase):
                 self.assertEqual(registry.get_run('e06-run')['status'], 'running')
                 return 9
             with patch.object(tool_calling, 'ROOT', root), patch.object(tool_calling, '_execution_dataset', return_value=(path, identity)), \
-                 patch.object(tool_calling, '_hash_files', return_value='a' * 64), patch.object(tool_calling, '_driver_files', return_value=[]):
-                result = tool_calling.run_registered(registry, round_data={'id':'round', 'title':'e06', 'code_version':'test', 'changes':['judge']},
+                 patch.object(tool_calling, '_hash_files', return_value='a' * 64), patch.object(tool_calling, '_driver_files', return_value=[]), \
+                 patch('creatoros.evaluation.benchmark.manifest._git_state', return_value={'sha': 'a' * 40, 'dirty': False, 'status_available': True, 'dirty_paths': []}):
+                result = tool_calling.run_registered(registry, round_data={'id':'round', 'title':'e06', 'code_version':'a' * 40, 'changes':['judge']},
                     run_id='e06-run', cases=['E06'], allow_paid=True, invoke=invoke, local_dispatch='local-dispatch-v6', catalog_binding=self.binding)
             run = registry.get_run('e06-run')
             self.assertEqual(commands, ['freeze','run'])

@@ -635,6 +635,12 @@ def run_registered(registry, *, round_data, run_id, cases, allow_paid, invoke=No
         frozen = _read_bounded(batch, "manifest.json", limit=16 * 1024 * 1024)
         if frozen.get("model_configuration", {}).get("catalog_binding") != catalog_binding:
             raise ValueError("Frozen catalog binding differs from registered run")
+        version = round_data.get("code_version")
+        git = frozen.get("git") if isinstance(frozen.get("git"), dict) else {}
+        if (not isinstance(version, str) or not re.fullmatch(r"[a-f0-9]{40}", version)
+                or git.get("sha") != version or git.get("dirty") is not False
+                or git.get("status_available") is not True):
+            raise ValueError("A clean frozen Git SHA must match the registered code version before execution")
         manifest_hash = _sha(_read_bytes(batch, "manifest.json", limit=16 * 1024 * 1024))
         receipt = _read_bytes(batch, "manifest.json.sha256", limit=1024).decode("ascii").strip()
         if receipt != manifest_hash:

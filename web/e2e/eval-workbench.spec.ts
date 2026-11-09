@@ -11,6 +11,46 @@ async function fixture(page: import("@playwright/test").Page) {
   await page.route("**/api/eval/v1/compare?*", route => route.fulfill({json: {baseline_run_id: "run1", candidate_run_id: "run2", contract_compatible: true, contract_differences: [], baseline_planned: 2, candidate_planned: 2, common_planned: 2, comparable_cases: 1, outcomes: {paired_decidable: 1, baseline_passed: 1, candidate_passed: 0}, metrics: {input_tokens: {paired_cases: 1, baseline_mean: 140, candidate_mean: 123}, estimated_cost_min_usd: {paired_cases: 1, baseline_mean: 0.00001, candidate_mean: 0.00002}, estimated_cost_max_usd: {paired_cases: 1, baseline_mean: 0.00004, candidate_mean: 0.00005}}, cases: [{case_id: "T01", comparable: true, reason: null, baseline_status: "passed", candidate_status: "failed"}, {case_id: "T02", comparable: false, reason: "missing_result", baseline_status: "missing_result", candidate_status: "missing_result"}]}}));
 }
 
+test("defaults to the explicit previous round only when both runs are unambiguous", async ({page}) => {
+  const current = {...round('r3', 'r1'), created_at: '2026-11-07T00:00:00Z'};
+  // Identical timestamps and branch do not make r2 the recorded parent.
+  const items = [current, round('r2', null), round('r1', null)];
+  let currentRuns = [run('run3', 'r3')];
+  let parentRuns = [run('run1', 'r1')];
+  await page.route('**/api/eval/v1/rounds', route => route.fulfill({json: {items}}));
+  await page.route('**/api/eval/v1/rounds/r3', route => route.fulfill({json: {round: current, runs: currentRuns}}));
+  await page.route('**/api/eval/v1/rounds/r2', route => route.fulfill({json: {round: items[1], runs: [run('run2', 'r2')]}}));
+  await page.route('**/api/eval/v1/rounds/r1', route => route.fulfill({json: {round: items[2], runs: parentRuns}}));
+  await page.route('**/api/eval/v1/compare?*', route => route.fulfill({json: {baseline_run_id:'run1', candidate_run_id:'run3', contract_compatible:false, contract_differences:[{field:'model',reason:'missing'}], baseline_planned:2, candidate_planned:2, common_planned:2, comparable_cases:0, outcomes:{paired_decidable:0,baseline_passed:0,candidate_passed:0}, metrics:{}, cases:[]}}));
+  await page.goto('/eval');
+  await expect(page.getByLabel('选择对比版本')).toHaveValue('r1');
+  await expect(page.getByLabel('选择当前运行')).toHaveValue('run3');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('run1');
+  await expect(page.getByRole('region', {name:'版本比较'})).toContainText('不能计算涨跌');
+  await page.getByLabel('选择对比版本').selectOption('r2');
+  await expect(page.getByLabel('选择对比版本')).toHaveValue('r2');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('run2');
+  await page.reload();
+  await expect(page.getByLabel('选择对比版本')).toHaveValue('r2');
+  await page.getByRole('navigation', {name:'轮次列表'}).getByRole('button', {name:/版本 r2/}).click();
+  await expect(page.getByLabel('选择对比版本')).toHaveValue('');
+  await expect(page.getByRole('region', {name:'版本比较'})).toContainText('不会仅凭时间推断');
+  await page.getByRole('navigation', {name:'轮次列表'}).getByRole('button', {name:/版本 r1/}).click();
+  await expect(page.getByLabel('选择对比版本')).toHaveValue('');
+  currentRuns = [run('run3', 'r3'), run('run3b', 'r3')];
+  parentRuns = [run('run1', 'r1'), run('run1b', 'r1')];
+  await page.goto('/eval?round=r3');
+  await expect(page.getByLabel('选择当前运行')).toHaveValue('');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('');
+  await page.getByLabel('选择当前运行').selectOption('run3');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('');
+  await page.getByLabel('选择基准运行').selectOption('run1b');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('run1b');
+  await page.reload();
+  await expect(page.getByLabel('选择当前运行')).toHaveValue('run3');
+  await expect(page.getByLabel('选择基准运行')).toHaveValue('run1b');
+});
+
 test("shows actual recorded runs, paired comparison, and keeps selected case after refresh", async ({page}, info) => {
   await fixture(page);
   await page.goto("/eval");

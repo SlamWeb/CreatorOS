@@ -20,6 +20,7 @@ class ToolCallingRegistryTests(unittest.TestCase):
     @staticmethod
     def write_fake_manifest(batch):
         manifest = {"dataset_id": tool_calling.SUITE_ID, "selected_case_ids": ["B05"],
+            "git": {"sha": "a" * 40, "dirty": False, "status_available": True},
             "dataset_snapshot": {"sha256": "same"}, "model_configuration": {"benchmark_run_id": "run01",
             "benchmark_guard": policy(["B05"])}}
         raw = json.dumps(manifest).encode()
@@ -52,7 +53,7 @@ class ToolCallingRegistryTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.registry = EvalRegistry(self.root / "shared.sqlite")
-        self.round = {"id": "R01", "title": "tool change", "code_version": "code-hash"}
+        self.round = {"id": "R01", "title": "tool change", "code_version": "a" * 40}
         self.definition = {"id": "B05", "title": "test", "steps": [{"kind": "user", "text": "查一下"}]}
         self.dataset = {"dataset_id": tool_calling.SUITE_ID, "cases": [self.definition]}
         self.metadata = {"dataset_sha256": "same"}

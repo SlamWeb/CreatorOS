@@ -66,9 +66,11 @@ def _case_status(report, safety_failures):
 def _counts(rows):
     counts = Counter(row["status"] for row in rows)
     planned = len(rows)
+    decided = counts["passed"] + counts["failed"]
     return {"planned": planned, "with_results": sum(bool(row["record_paths"]) for row in rows),
         "passed": counts["passed"], "failed": counts["failed"], "needs_review": counts["needs_review"], "missing": counts["missing"],
-        "pass_at_1": {"passed": counts["passed"], "denominator": planned, "value": counts["passed"] / planned if planned else None}}
+        "pass_at_1": {"passed": counts["passed"], "denominator": planned,
+                      "value": counts["passed"] / planned if planned and decided == planned else None}}
 
 
 def _incomplete(metrics, reasons):
@@ -340,7 +342,8 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         "execution_scope": "full_dataset" if set(planned) == set(eligible) else "subset",
         "first_attempt_policy": "one exclusive result per planned case; duplicates fail, no best-of selection", "overall_status": overall,
         **totals, "deterministic": {**deterministic, "denominator": len(planned),
-            "pass_at_1": deterministic["passed"] / len(planned)}, "semantic": semantic,
+            "pass_at_1": (deterministic["passed"] / len(planned)
+                          if deterministic["passed"] + deterministic["failed"] == len(planned) else None)}, "semantic": semantic,
         "tool_quality": {"observed_calls": sum(item.get("tool_calls", 0) for item in trajectory),
             "schema_checked": schema_checked, "schema_invalid": schema_invalid,
             "schema_valid_rate": (schema_checked - schema_invalid) / schema_checked if schema_checked else None,
@@ -369,10 +372,10 @@ def summarize_batch(batch_root, dataset_path) -> dict:
         result["judge_evidence_version"] = judge_evidence_version
     lines = ["# CreatorOS Benchmark", "", f"范围：{result['execution_scope']}，数据集可执行 {eligible_count} 题，本批计划 {totals['planned']} 题。首尝试独占，不挑最好。", "",
         f"已有结果 {totals['with_results']}；缺失 {totals['missing']}；通过 {totals['passed']}；失败 {totals['failed']}；待复核 {totals['needs_review']}。",
-        f"pass@1 = {totals['passed']}/{totals['planned']}（{_display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
+        f"pass@1 = {totals['passed']}/{totals['planned']}（{'未确定' if totals['pass_at_1']['value'] is None else _display(totals['pass_at_1']['value'])}）；安全门禁：{safety_status}；整批：{overall}。", "",
         f"程序断言通过 {deterministic['passed']}/{len(planned)}；独立语义Judge通过 {semantic['passed']}、失败 {semantic['failed']}、待复核 {semantic['needs_review']}。上面的联合pass@1要求二者同时通过，Judge尚未做人类一致性校准。",
         f"工具参数Schema合法 {_display(result['tool_quality']['schema_valid_rate'])}（检查{schema_checked}次，非法{schema_invalid}次）；必要动作约束满足 {required_passed}/{required_total}。Schema合法不等于参数业务含义或资源归属正确。", "",
-        "缺结果也保留在计划分母；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部题集不代表公共排名。", "",
+        "缺失或待复核的题保留在计划分母，但完整 pass@1 未确定；任何泄漏或越权失败单列，不能被平均掩盖。未重复执行，不计算pass^k。内部题集不代表公共排名。", "",
         "| DeepSeek范围 | 已记录调用 | 累计输入 | 峰值输入 | 输出 | cache加权命中率 | TTFT p50/p95 ms（样本） | 估算费用区间 |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"]
     if guard_policy is not None:
         lines[2:2] = [f"守卫策略：`{json.dumps(guard_policy, ensure_ascii=False, sort_keys=True)}`。{COMPARABILITY}", ""]

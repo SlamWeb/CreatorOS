@@ -253,13 +253,13 @@ class RegressionRunnerTests(unittest.TestCase):
                 if args[3] == "freeze":
                     self.assertEqual(json.loads(Path(args[args.index("--catalog-binding-file") + 1]).read_text(encoding="utf-8")), binding)
                     batch.mkdir(parents=True)
-                    raw = json.dumps({"model_configuration": {"catalog_binding": binding}}).encode()
+                    raw = json.dumps({"model_configuration": {"catalog_binding": binding}, "git": {"sha": "a" * 40, "dirty": False, "status_available": True}}).encode()
                     (batch / "manifest.json").write_bytes(raw)
                     (batch / "manifest.json.sha256").write_text(tool_calling._sha(raw), encoding="ascii")
                     return 0
                 return 3
             with patch.object(tool_calling, "ROOT", root), patch.object(tool_calling, "_execution_dataset", return_value=(tool_calling.DATASET, tool_calling.SUITE_ID)), patch.object(tool_calling, "suite_and_metadata", return_value=(dataset, meta)):
-                outcome = tool_calling.run_registered(reg, round_data={"id": "round", "title": "test", "code_version": "sha", "changes": binding["change_scopes"]},
+                outcome = tool_calling.run_registered(reg, round_data={"id": "round", "title": "test", "code_version": "a" * 40, "changes": binding["change_scopes"]},
                     run_id="run01", cases=["B05"], allow_paid=True, local_dispatch="local-dispatch-v2",
                     catalog_binding=binding, invoke=invoke)
             self.assertEqual(outcome["status"], "failed")

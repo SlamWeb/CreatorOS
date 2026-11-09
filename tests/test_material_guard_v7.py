@@ -64,9 +64,10 @@ class MaterialGuardV7Tests(unittest.TestCase):
             with patch.object(tool_calling, 'ROOT', root), \
                  patch.object(tool_calling, '_execution_dataset', return_value=(path, dataset_id)), \
                  patch.object(tool_calling, '_hash_files', return_value='a' * 64), \
-                 patch.object(tool_calling, '_driver_files', return_value=[]):
+                 patch.object(tool_calling, '_driver_files', return_value=[]), \
+                 patch('creatoros.evaluation.benchmark.manifest._git_state', return_value={'sha': 'a' * 40, 'dirty': False, 'status_available': True, 'dirty_paths': []}):
                 result = tool_calling.run_registered(registry, round_data={'id': 'round', 'title': 'material',
-                    'code_version': 'test', 'changes': ['agent_shared']}, run_id='material-run', cases=['P03'],
+                    'code_version': 'a' * 40, 'changes': ['agent_shared']}, run_id='material-run', cases=['P03'],
                     allow_paid=True, invoke=invoke, local_dispatch='local-dispatch-v7', catalog_binding=binding)
             self.assertEqual(result['status'], 'failed')
             run = registry.get_run('material-run')

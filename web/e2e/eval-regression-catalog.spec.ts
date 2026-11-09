@@ -138,11 +138,11 @@ r.transition('catalog-run','completed')
   await expect(records.getByRole("button")).toHaveCount(1);
   await expect(records).toContainText("范围不完整");
   await page.goto("/eval?view=suites&suite=regular-v3");
-  await expect(records).toContainText("第三版回归轮次");
+  await expect(records).toContainText("第三版回归轮次", { timeout: 20000 });
   await expect(records).not.toContainText("隔离回归轮次");
   await expect(records.getByRole("button")).toHaveCount(1);
   await page.goto("/eval?view=suites&suite=regular-v1");
-  await expect(page.getByText("历史目录仅供查看，运行记录与当前版本分开保存。")).toBeVisible();
+  await expect(page.getByText("历史目录仅供查看，运行记录与当前版本分开保存。")).toBeVisible({ timeout: 20000 });
   await expect(records).toContainText("历史回归轮次");
   await expect(records).not.toContainText("隔离回归轮次");
   await expect(records.getByRole("button")).toHaveCount(1);

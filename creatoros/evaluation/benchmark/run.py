@@ -15,9 +15,30 @@ from uuid import uuid4
 
 REPO = Path(__file__).resolve().parents[3]
 DATASET = REPO / "docs/agent-eval/benchmark-v2/cases.json"
+_WITHDRAWN_E06_DATASET = "creatoros-expansion-50-v1-20261105"
+_WITHDRAWN_E06_SHA = "830efbbda78bc0f1b9a534f1f8a0d72fc1311d8e58518726de090393bbecb608"
+_WITHDRAWN_E06_CASE_SHA = "7e7d9f9735b927515eeec3f3c7f42ceafb6a3546d6148951d38a376afae20a99"
+_WITHDRAWN_E06_RUBRIC = "e06-s1"
+
+
+def _reject_withdrawn_e06(dataset_path, case_ids):
+    """Old E06 cannot start a new execution, even outside the registry CLI."""
+    from creatoros.evaluation.benchmark.natural_suite import canonical_digest
+    doc = json.loads(Path(dataset_path).read_text(encoding="utf-8"))
+    selected = case_ids if case_ids is not None else [item.get("id") for item in doc.get("cases", [])]
+    cases = [case for case in doc.get("cases", []) if isinstance(case, dict) and case.get("id") in selected]
+    withdrawn_case = any(
+        hashlib.sha256(json.dumps(case, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest() == _WITHDRAWN_E06_CASE_SHA
+        or (isinstance(case.get("rubric"), list) and any(
+            isinstance(rule, dict) and rule.get("id") == _WITHDRAWN_E06_RUBRIC for rule in case["rubric"]))
+        for case in cases)
+    if (withdrawn_case or ("E06" in selected and (doc.get("dataset_id") == _WITHDRAWN_E06_DATASET
+                                                   or canonical_digest(doc) == _WITHDRAWN_E06_SHA))):
+        raise ValueError("Withdrawn expansion E06 scoring cannot be executed; use the revised dataset")
 
 
 def freeze(root, dataset_path, case_ids=None, *, nonvideo_guard=False, local_dispatch=False, catalog_binding=None):
+    _reject_withdrawn_e06(dataset_path, case_ids)
     from creatoros.evaluation.benchmark.manifest import freeze_manifest
     from creatoros.integrations.codex import CODEX_MODEL, CODEX_EFFORT
     from creatoros.evaluation.benchmark.judge_timing import VERSION as JUDGE_EVIDENCE_VERSION
@@ -213,6 +234,7 @@ def main():
         if args.nonvideo_guard and local_dispatch not in {"local-dispatch-v4", "local-dispatch-v5", "local-dispatch-v6", "local-dispatch-v7", "local-dispatch-v8"}:
             from creatoros.evaluation.benchmark.nonvideo_guard import policy
             policy(args.cases.split(",") if args.cases else None, local_dispatch=local_dispatch)
+        _reject_withdrawn_e06(args.dataset or DATASET, args.cases.split(",") if args.cases else None)
         root.mkdir(parents=True, exist_ok=False)
         raw_binding = args.catalog_binding
         if args.catalog_binding_file:
@@ -240,6 +262,7 @@ def main():
         if args.dataset is not None and args.dataset.resolve() not in {dataset_path, original_path}:
             raise ValueError("Run/report must use the frozen dataset")
         if args.action == "run":
+            _reject_withdrawn_e06(dataset_path, manifest["selected_case_ids"])
             from creatoros.evaluation.benchmark.nonvideo_guard import validate
             from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
             verify_guard_version(manifest)

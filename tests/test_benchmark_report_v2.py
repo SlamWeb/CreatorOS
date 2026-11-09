@@ -130,16 +130,37 @@ class BenchmarkReportTests(unittest.TestCase):
         directory = self.record(requests=[request()])
         result = self.summarize()
         self.assertEqual((result["planned"], result["with_results"], result["missing"]), (50, 1, 49))
-        self.assertEqual(result["pass_at_1"], {"passed": 1, "denominator": 50, "value": 0.02})
+        self.assertEqual(result["pass_at_1"], {"passed": 1, "denominator": 50, "value": None})
+        self.assertIsNone(result["deterministic"]["pass_at_1"])
         self.assertEqual(result["overall_status"], "needs_review")
         self.assertIsNone(result["metrics"]["all_deepseek"]["cost"]["minimum"])
         self.assertIsNone(result["pass_power_k"])
         text = (self.root / "RESULTS.md").read_text(encoding="utf-8")
+        self.assertIn("pass@1 = 1/50（未确定）", text)
         self.assertIn(f"records/{directory.name}/report.json", text)
         self.assertIn(f"records/{directory.name}/requests.json", text)
         self.assertEqual(len([row for row in text.splitlines() if row.startswith("| B")]), 50)
         local = (self.root / 'RESULTS-LOCAL.md').read_text(encoding='utf-8')
         self.assertIn((directory / 'report.json').as_posix(), local)
+
+    def test_needs_review_preserves_planned_denominator_without_claiming_pass_rate(self):
+        self.plan(["B01", "B02"])
+        self.record("B01")
+        self.record("B02", semantic_status="needs_review", auto_status="needs_review")
+        result = self.summarize()
+        self.assertEqual(result["pass_at_1"], {"passed": 1, "denominator": 2, "value": None})
+        self.assertIsNone(result["deterministic"]["pass_at_1"])
+        self.assertIn("pass@1 = 1/2（未确定）", (self.root / "RESULTS.md").read_text(encoding="utf-8"))
+        self.assertIsNone(result["by_split"]["acceptance"]["pass_at_1"]["value"])
+
+    def test_fully_decided_batch_retains_pass_rate(self):
+        self.plan(["B01", "B02"])
+        self.record("B01")
+        self.record("B02", semantic_status="failed", auto_status="failed")
+        result = self.summarize()
+        self.assertEqual(result["pass_at_1"], {"passed": 1, "denominator": 2, "value": 0.5})
+        self.assertEqual(result["deterministic"]["pass_at_1"], 0.5)
+        self.assertIn("pass@1 = 1/2（0.5）", (self.root / "RESULTS.md").read_text(encoding="utf-8"))
 
     def test_deterministic_result_is_not_hidden_by_uncalibrated_judge(self):
         self.plan(['B01'])
