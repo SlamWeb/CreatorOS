@@ -111,7 +111,9 @@ from .worker_tasks import worker_task_routes
 from .observation import ObservationService
 from .observation_routes import observation_routes
 from .eval_routes import eval_routes
+from .eval_registry_routes import eval_registry_routes
 from creatoros.evaluation.benchmark.store import BenchmarkStore
+from creatoros.evaluation.registry import EvalRegistry
 from creatoros.integrations.codex_executable import resolve_codex_executable
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillInstallService, SkillWriteOutcomeUnknown, skills_root_for
 from .skill_display_categories import skill_display_category_routes
@@ -135,6 +137,7 @@ def create_app(
     publication_client=None,
     eval_root: Path | None = None,
     eval_cases_path: Path | None = None,
+    eval_registry_path: Path | None = None,
     skill_iteration_evaluator=None,
     defer_background_start: bool = False,
 ) -> FastAPI:
@@ -274,6 +277,8 @@ def create_app(
     app.state.observation = observations
     app.state.evaluation = BenchmarkStore(eval_root, cases_path=eval_cases_path)
     app.include_router(eval_routes(app.state.evaluation))
+    app.state.eval_registry = EvalRegistry(eval_registry_path)
+    app.include_router(eval_registry_routes(app.state.eval_registry))
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))
     app.include_router(worker_task_routes(db, research, discussions, iterations=iterations))

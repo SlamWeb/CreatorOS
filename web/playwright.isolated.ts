@@ -26,6 +26,7 @@ export function isolatedBrowserRun(prefix: string, defaultPort: number) {
     // Playwright inherits the process environment for webServer itself. Passing
     // it here as well would serialize every secret into the JSON report.
     env: { CREATOROS_E2E_ROOT: data, CREATOROS_STUDIO_URL: `http://127.0.0.1:${port}`,
+      CREATOROS_EVAL_REGISTRY: path.join(root, "eval-registry.sqlite3"),
       TEMP: temp, TMP: temp, TMPDIR: temp,
       DEEPSEEK_API_KEY: "", OPENAI_API_KEY: "", CODEX_API_KEY: "", ZHIHU_ACCESS_SECRET: "",
       PYTHON_DOTENV_DISABLED: "1", CODEX_HOME: path.join(root, "codex-home"),

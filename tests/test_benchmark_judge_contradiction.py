@@ -41,6 +41,37 @@ class ContradictionTests(unittest.TestCase):
         original = self.item(False, "pass应为false；pass应为true。")
         self.assertIsNone(qualify_explicit_contradictions(case(), original)["items"][0]["pass"])
 
+    def test_terminal_retractions_preserve_raw_and_require_review(self):
+        examples = [(False, "故应判 true，不判 false。撤回 false，改判 true。"),
+                    (True, "撤回 true，改判 false。"),
+                    (False, "Retract false; change the verdict to true."),
+                    (True, "Withdraw TRUE, corrected to FALSE."),
+                    (False, "Correction: pass should be true."),
+                    (True, "Correction: pass should be false.")]
+        for value, text in examples:
+            with self.subTest(text=text):
+                original = self.item(value, text)
+                frozen = deepcopy(original)
+                item = qualify_explicit_contradictions(case(), original)["items"][0]
+                self.assertIsNone(item['pass'])
+                self.assertIs(item['raw_pass'], value)
+                self.assertEqual(original, frozen)
+                self.assertEqual(score_case(case(), grade(), original)['semantic']['status'], 'needs_review')
+
+    def test_retraction_does_not_guess_or_cross_scope(self):
+        for value, text, expected in [
+            (False, '撤回 true，改判 false。', False),
+            (None, '撤回 false，改判 true。', None),
+            (False, '撤回 false，改判 false。', False),
+            (False, '撤回 false，改判 true，但仍需确认。', False),
+            (False, '其他项：撤回 false，改判 true。', False),
+            (False, '示例：“撤回 false，改判 true。', False),
+            (False, '撤回 false。', False),
+            (False, 'Retract false; change the verdict to true, pending review.', False),
+        ]:
+            with self.subTest(text=text):
+                self.assertIs(qualify_explicit_contradictions(case(), self.item(value, text))['items'][0]['pass'], expected)
+
 
 if __name__ == "__main__":
     unittest.main()

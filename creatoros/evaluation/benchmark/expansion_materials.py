@@ -7,9 +7,14 @@ def seed(world, case):
     case_id = case.get('id')
     if case_id == 'P01' and case.get('scenario') == 'materials_type':
         from creatoros.integrations.media_tools import media_tool
+        from PIL import Image
         path = world.input_dir / 'bench-video.mp4'
-        result = subprocess.run([media_tool('ffmpeg'), '-v','error','-y','-f','lavfi',
-            '-i','color=c=black:s=32x32:r=2:d=2','-i',str(world.input_dir/'tone.wav'),
+        # Some ffmpeg builds omit lavfi's color source; generate the same
+        # black input frame locally without requiring the optional filter.
+        frame = world.input_dir / 'bench-video-frame.png'
+        Image.new('RGB', (32, 32), 'black').save(frame)
+        result = subprocess.run([media_tool('ffmpeg'), '-v','error','-y','-loop','1','-framerate','2',
+            '-i',str(frame),'-i',str(world.input_dir/'tone.wav'),'-t','2',
             '-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',str(path)],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30,check=False)
         if result.returncode or not path.is_file():

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -100,7 +101,8 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
-    root = args.root.resolve()
+    requested_root = args.root.absolute()
+    root = requested_root.resolve()
     repo = Path(__file__).resolve().parents[3]
     if not root.is_relative_to(repo / "data/agent-benchmark-v2"):
         parser.error("Trial must live in the dedicated benchmark namespace")
@@ -108,16 +110,33 @@ def main():
     os.environ["DATABASE_URL"] = f"sqlite:///{(root / 'world/world.db').as_posix()}"
     from creatoros.evaluation.benchmark.manifest import frozen_dataset_path, verify_manifest
     manifest = verify_manifest(args.manifest)["manifest"]
+    batch_root = root.parent.parent
+    if (root.parent.name != "records" or args.manifest.resolve() != (batch_root / "manifest.json").resolve()
+            or manifest.get("model_configuration", {}).get("benchmark_run_id", batch_root.name) != batch_root.name):
+        parser.error("Trial and manifest must belong to the same batch")
+    trial_binding = {"benchmark_batch_id": batch_root.name,
+                     "benchmark_manifest_sha256": hashlib.sha256(args.manifest.read_bytes()).hexdigest()}
     from creatoros.evaluation.benchmark.judge_timing import verify_judge_evidence_version
     verify_judge_evidence_version(manifest)
     from creatoros.evaluation.benchmark.program_evidence_guard import verify_guard_version
     verify_guard_version(manifest)
     from creatoros.evaluation.benchmark.nonvideo_guard import validate, install_video_guard, DenyPublication
     guarded = validate(manifest, args.case)
+    local_guard_version = (manifest["model_configuration"].get("benchmark_guard") or {}).get("local_dispatch")
+    local_guard = bool(local_guard_version)
+    if local_guard_version == 'local-dispatch-v8':
+        from creatoros.evaluation.benchmark.local_dispatch_guard import DispatchGuard
+        if ('..' in args.root.parts or requested_root != root
+                or not DispatchGuard._safe_under(repo, requested_root)):
+            parser.error("Image trial path includes links or traversal")
     if args.case not in manifest["selected_case_ids"]:
         parser.error("Case is outside the frozen selection")
     if guarded:
         install_video_guard()
+    dispatch_guard = None
+    if local_guard:
+        from creatoros.evaluation.benchmark.local_dispatch_guard import install
+        dispatch_guard = install(local_guard_version)
     dataset_path = frozen_dataset_path(args.manifest, manifest).resolve()
     if args.dataset.resolve() != dataset_path:
         parser.error("Trial must use the verified frozen dataset")
@@ -150,15 +169,23 @@ def main():
         return MeasuredProvider(api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-flash",
                                 timeout_seconds=90, max_retries=0, sink=sink)
     world = BenchmarkWorld(root / "world", case, provider, dataset_path=dataset_path, eval_root=root.parents[2],
-                           publication_client=DenyPublication() if guarded else None)
+                           publication_client=DenyPublication() if guarded else None,
+                           defer_background_start=local_guard)
+    if local_guard_version == 'local-dispatch-v8':
+        dispatch_guard.bind_world(world, requested_root / 'world', trusted_root=repo)
     if guarded:
         from creatoros.integrations import video_production
         from creatoros.evaluation.benchmark.nonvideo_guard import deny_video
         if video_production.produce_video is not deny_video or not isinstance(world.app.state.publishing.client, DenyPublication):
             raise RuntimeError("Benchmark guards not installed")
-        write_json(root / "guard.json", {"policy": manifest["model_configuration"]["benchmark_guard"],
+        receipt = {"policy": manifest["model_configuration"]["benchmark_guard"],
             "case_id": case["id"], "video_dispatch_installed": True, "publication_client_installed": True,
-            "network_sandbox": False})
+            "network_sandbox": False}
+        if local_guard:
+            from creatoros.evaluation.benchmark.local_dispatch_guard import verify_installed
+            verify_installed(dispatch_guard, world.app)
+            receipt.update(local_dispatch_installed=True, background_services_deferred=True)
+        write_json(root / "guard.json", receipt)
     world.app.state.skill_iterations.provider_factory = lambda: MeasuredProvider(
         api_key=os.environ["DEEPSEEK_API_KEY"], model="deepseek-v4-flash", timeout_seconds=180,
         reasoning_effort="high", max_retries=0, sink=sink, purpose="rsi")
@@ -205,12 +232,13 @@ def main():
         messages = json.loads(messages_path.read_text(encoding="utf-8"))
         turns = {row.get("turn_id"): index for index, row in enumerate(browser.get("turns", []), 1)}
         trace_dir = messages_path.with_suffix(".request-trace")
-        calls, seen = [], set()
+        calls, seen, duplicate_ids = [], set(), set()
         for path in sorted(trace_dir.glob("*.json"), key=lambda path: path.stat().st_mtime_ns):
             snapshot = json.loads(path.read_text(encoding="utf-8"))
             for call in (snapshot.get("response") or {}).get("tool_calls", []):
                 identity = (snapshot["request_id"], call["id"])
                 if identity in seen:
+                    duplicate_ids.add(call['id'])
                     continue
                 seen.add(identity)
                 result = next((row for row in messages if row.get("role") == "tool" and row.get("tool_call_id") == call["id"]), {})
@@ -224,6 +252,12 @@ def main():
                     "request_id": snapshot["request_id"], "turn_id": snapshot.get("turn_id"),
                     "turn_index": turns.get(snapshot.get("turn_id")), "raw_result": raw,
                     "is_error": error_type is not None, "error_type": error_type})
+        from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
+        from creatoros.evaluation.benchmark.material_read_evidence import applies as applies_material
+        if applies_e06(case) or applies_material(case):
+            for call in calls:
+                if call['tool_call_id'] in duplicate_ids:
+                    call['ambiguous_call_id'] = True
         return messages, calls
 
     def waiting(session_id):
@@ -266,7 +300,7 @@ def main():
             "conversation": [{key: entry[key] for key in ("role", "content", "tool_calls", "tool_call_id") if key in entry}
                              for entry in evidence["messages"] if entry.get("role") in {"user", "assistant"}],
             "variables": world.variables,
-            "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id") if k in row} for row in evidence["calls"]],
+            "tool_calls": [{k: row[k] for k in ("tool", "arguments", "is_error", "raw_result", "turn_index", "tool_call_id", "ambiguous_call_id") if k in row} for row in evidence["calls"]],
             "state_checks": evidence["grade"]["checks"], "rubric": rules, "temporal_evidence": temporal,
             "candidate_skills": candidate_skills, "candidate_evidence_error": candidate_error,
             "original_skill": evidence["initial_skills"]["skill_texts"].get(world.variables["skill_a"]),
@@ -274,6 +308,16 @@ def main():
                            for item in evidence["background"]["extractions"]],
             "iterations": evidence["background"]["iterations"],
             "codex": {key: evidence["codex"].get(key) for key in ("nested_constraints", "submit_artifacts", "images")}}
+        from creatoros.evaluation.benchmark.e06_scope_evidence import applies as applies_e06
+        if applies_e06(case):
+            payload['e06_tool_receipts'] = [
+                {key: entry[key] for key in ('tool_call_id', 'content') if key in entry}
+                for entry in evidence['messages'] if entry.get('role') == 'tool']
+        from creatoros.evaluation.benchmark.material_read_evidence import applies as applies_material
+        if applies_material(case):
+            payload['material_tool_receipts'] = [
+                {key: entry[key] for key in ('tool_call_id', 'content') if key in entry}
+                for entry in evidence['messages'] if entry.get('role') == 'tool']
         from creatoros.evaluation.benchmark.semantic_judge import scoped_business_oracle
         payload["business_oracle"] = {name: scoped_business_oracle(evidence[name], world.variables["creator_a"], evidence["before"] if name == "after" else None)
                                       for name in ("before", "after")}
@@ -464,6 +508,17 @@ def main():
         if guard_check is not None and guard_check["status"] != "passed" and error is None:
             error = {"kind": "GuardEvidenceError", "message": "Frozen guard evidence missing or mismatched", "stage": "guard_evidence"}
         scores = score_case(case, grade, semantic_judge)
+        if local_guard:
+            from creatoros.evaluation.benchmark.local_dispatch_guard import apply_gate, verify_installed
+            calls = evidence.get("calls") if error is None else None
+            dispatch_gate = dispatch_guard.score(calls, background_started=world.app.state.background_services_started)
+            try:
+                verify_installed(dispatch_guard, world.app)
+            except RuntimeError:
+                if dispatch_gate["status"] != "failed":
+                    dispatch_gate = {"id": "local_dispatch_guard", "status": "needs_review",
+                                     "detail": "Guard wiring or deferred background state no longer verifiable"}
+            apply_gate(scores, dispatch_gate)
         grade["diagnostic_status"] = grade["auto_status"]
         grade["auto_status"] = scores["program"]["status"]
         semantic_status = scores["semantic"]["status"]
@@ -473,6 +528,7 @@ def main():
                    "all_deepseek": aggregate_metrics(requests, manifest["pricing"])}
         write_json(root / "metrics.json", metrics)
         report = {"schema_version": 1, "dataset_id": dataset["dataset_id"], "case_id": case["id"],
+            **trial_binding,
             "run_id": root.name, "git_sha": manifest["git"]["sha"], "fixture_version": "benchmark-world-v2-2",
             "started_at": started, "finished_at": now(), "elapsed_seconds": monotonic() - clock,
             "execution_status": "failed" if error else "completed", "execution_mode": "live", "review": None,

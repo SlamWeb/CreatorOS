@@ -99,7 +99,7 @@ def archive_evidence(path, world_root):
 
 
 class BenchmarkWorld:
-    def __init__(self, root, case, provider_factory, *, dataset_path, eval_root, publication_client=None):
+    def __init__(self, root, case, provider_factory, *, dataset_path, eval_root, publication_client=None, defer_background_start=False):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=False)
         self.case = case
@@ -166,7 +166,8 @@ class BenchmarkWorld:
             skill_install_service=self.installs, skill_extraction_service=self.extractions,
             topic_research_service=self.research, chat_root=self.root / "sessions",
             chat_provider_factory=provider_factory, eval_root=eval_root, eval_cases_path=dataset_path,
-            publication_client=publication_client)
+            eval_registry_path=self.root / "eval-registry.sqlite3", publication_client=publication_client,
+            defer_background_start=defer_background_start)
         self._seed_imported_artifacts()
         self._seed_audio()
         library = self.app.state.skill_library

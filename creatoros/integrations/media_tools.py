@@ -35,6 +35,6 @@ def probe_media(path):
 
 def decode_media(path):
     result = subprocess.run([media_tool("ffmpeg"), "-v", "error", "-xerror", "-i", str(path),
-                             "-f", "null", "-"], capture_output=True, timeout=300)
+                             "-c:v", "rawvideo", "-f", "null", "-"], capture_output=True, timeout=300)
     if result.returncode:
         raise ValueError("媒体完整解码失败，文件可能损坏。")
