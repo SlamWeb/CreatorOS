@@ -800,7 +800,7 @@ _V2_ACTIONLESS = {
         },
     },
     "update_producer_skill_file": {
-        "description": "按用户要求编辑 Skill 文件，结果为候选，不发布或切换栏目。可基于可用发布版另存私有候选。批量按顺序执行，失败即停且不回滚；结果未知时先核对，不重发整批。",
+        "description": "按用户要求编辑 Skill 文件，结果为候选，不发布或切换栏目。可用的非内置发布版，即使原件can_edit=false，也可另存当前账号私有候选，不覆盖共享原件。批量按顺序执行，失败即停且不回滚；结果未知时先核对，不重发整批。",
         "parameters": {
             "type": "object",
             "properties": {
