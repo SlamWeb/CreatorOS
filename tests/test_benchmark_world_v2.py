@@ -53,7 +53,7 @@ def isolated_worker(directory):
             "operation_events", "pending_operations", "production_queue_history",
             "production_queue_items", "production_task_history", "production_tasks", "publication_accounts",
             "publication_feedback_settings", "publication_feedback_states", "publication_metrics",
-            "publication_requests", "series", "series_skill_refs", "skill_calibrations",
+            "publication_requests", "series", "series_skill_refs", "skill_calibrations", "skill_display_categories",
             "skill_iterations", "skill_switch_intents", "topic_removals",
             "topic_research_queue_items", "topics", "write_receipts",
         }

@@ -136,8 +136,11 @@ class BenchmarkJudgeTimingTests(unittest.TestCase):
         from unittest.mock import patch
         from creatoros.evaluation.benchmark.judge_timing import VERSION
         from creatoros.evaluation.benchmark.run import freeze
-        with patch("creatoros.evaluation.benchmark.manifest.freeze_manifest", return_value={}) as freeze_manifest:
-            freeze(Path("unused"), Path("unused-cases.json"))
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as directory, patch("creatoros.evaluation.benchmark.manifest.freeze_manifest", return_value={}) as freeze_manifest:
+            dataset = Path(directory) / "cases.json"
+            dataset.write_text('{"cases": []}', encoding="utf-8")
+            freeze(Path(directory), dataset)
         self.assertEqual(freeze_manifest.call_args.kwargs["model_configuration"]["judge_evidence_version"], VERSION)
         from creatoros.evaluation.benchmark.program_evidence_guard import VERSION as PROGRAM_VERSION
         self.assertEqual(freeze_manifest.call_args.kwargs["model_configuration"]["program_evidence_guard_version"], PROGRAM_VERSION)
