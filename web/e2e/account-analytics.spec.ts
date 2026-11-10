@@ -59,6 +59,7 @@ test("account data reads SQLite projection, persists settings and handles sparse
   await page.getByRole("button", { name: "切换账号", exact: true }).click();
   await page.getByRole("dialog", { name: "切换账号", exact: true })
     .getByRole("button", { name: `切换到账号 ${second.display_name}`, exact: true }).click();
+  await page.getByRole("navigation", { name: "账号工作区" }).getByRole("button", { name: "数据", exact: true }).click();
   await expect(panel).toContainText("还没有近期发布的笔记");
   await expect(panel.getByRole("switch", { name: "自动更新" })).not.toBeChecked();
   await expect(panel.getByRole("button", { name: "刷新数据", exact: true })).toBeDisabled();

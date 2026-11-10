@@ -106,7 +106,7 @@ test("workspace launcher uses overview for no accounts and refuses a missing sel
   await launcher.click();
   await page.getByRole("button", { name: "关闭账号对话" }).click();
   await page.goto("/workspace?creator=missing-account");
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toBeVisible();
   await expect(launcher).toBeDisabled();
   // Represent an empty database at the account-list HTTP boundary; no write or
   // cross-account fallback is involved in this controlled empty-state check.
@@ -137,7 +137,7 @@ test("a cached account deleted in another session becomes unavailable without cl
     && response.status() === 404);
   await page.goBack();
   await missing;
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toHaveCount(0);
   await expect(panel.getByRole("heading", { name: account.display_name, exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "关闭账号对话", exact: true }).click();
@@ -161,7 +161,7 @@ test("a failed refresh of cached account details reports the error and disables 
   await page.clock.fastForward(6000);
   await page.goBack();
   await expect(page.getByRole("alert")).toContainText("读取当前账号失败");
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toHaveCount(0);
   await expect(launcher).toBeDisabled();
   await page.getByRole("button", { name: "重新连接", exact: true }).click();
   await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
@@ -218,10 +218,11 @@ test("a default account deleted before its real detail read does not become a va
     const deleted = await request.post(`/api/creators/${account.id}/delete`, { data: {} });
     expect(deleted.ok(), await deleted.text()).toBeTruthy();
     release();
-    await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+    await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "打开账号对话", exact: true })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "新建栏目", exact: true })).toBeDisabled();
+    // An unavailable account has no create control in the current workspace.
+    await expect(page.getByRole("button", { name: "新建栏目", exact: true })).toHaveCount(0);
     await switchAccount(page, other.display_name);
     await expect(page.getByRole("heading", { name: other.display_name, level: 1, exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "打开账号对话", exact: true }))
@@ -313,7 +314,7 @@ test("an open account Skill keeps its scope when the account is deleted elsewher
     && response.status() === 404);
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
   await missing;
-  await expect(page.getByText("账号不存在，请从左侧重新选择。", { exact: true })).toBeVisible();
+  await expect(page.getByText("账号不存在，请从账号切换中重新选择。", { exact: true })).toBeVisible();
   await expect.poll(() => original!.evaluate(element => element.isConnected)).toBe(true);
   await expect(dialog.getByRole("alert").filter({ hasText: "当前账号已切换或暂时无法确认" })).toBeVisible();
   await expect(editor).toHaveValue(draft);
@@ -392,7 +393,7 @@ test("switching accounts keeps an open Skill draft bound to its original account
   expect(binding.ok(), await binding.text()).toBeTruthy();
   await page.goto(`/workspace?creator=${other.id}`);
   await switchAccount(page, account.display_name);
-  await page.getByRole("navigation", { name: "账号工作区" }).getByRole("button", { name: "Skill 库", exact: true }).click();
+  await page.getByRole("navigation", { name: "账号工作区" }).getByRole("button", { name: "可用 Skill", exact: true }).click();
   await page.getByRole("region", { name: "账号 Skill 库", exact: true }).getByRole("button", { name: /^inspector-mind/ }).click();
   const dialog = page.getByRole("dialog", { name: "inspector-mind", exact: true });
   const created = page.waitForResponse(response => response.request().method() === "POST"
