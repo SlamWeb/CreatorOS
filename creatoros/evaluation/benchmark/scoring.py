@@ -99,6 +99,8 @@ def score_case(case, grade, judge):
         valid_judge = qualify_visual_judgments(case, valid_judge)
         valid_judge = qualify_grounding_judgments(case, valid_judge)
         valid_judge = qualify_program_judgments(case, valid_judge, grade)
+        from .expansion_visual_tasks import qualify as qualify_visual_expansion
+        valid_judge = qualify_visual_expansion(case, valid_judge, grade)
         judgments = {item["id"]: item for item in valid_judge["items"]}
     except ValueError:
         judgments = {}

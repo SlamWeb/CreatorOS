@@ -101,9 +101,9 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
         <h1>{series.name}</h1>
         <div className="workspace-bound-skills" aria-label="栏目绑定的 Skills">
           {!poolItems.length && <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>设置栏目 Skill</button>}
-          {poolItems.length > 0 && <div><span className="muted">栏目 Skill：</span>{poolItems.map((bound, index) => <span key={bound.id}>
+          {poolItems.length > 0 && <div>{poolItems.map((bound, index) => <span key={bound.id}>
             {index > 0 && <span aria-hidden="true"> · </span>}
-            <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} creatorId={series.creator_id} showVersion />
+            <SkillReferenceButton id={bound.id} known={bound} fallback={bound.display_name ?? bound.name} onInspect={onInspectSkill} creatorId={series.creator_id} />
           </span>)}</div>}
         </div>
       </div>;

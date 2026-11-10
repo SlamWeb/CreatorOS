@@ -1,0 +1,467 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-expansion-extra-v1-20261105",
+  "status": "synthetic_development_only",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "X01",
+      "X02",
+      "X03",
+      "X04"
+    ]
+  },
+  "reference_policy": "Synthetic disposable fixtures; absent evidence is unknown, no human calibration.",
+  "split_policy": "Public development only.",
+  "cases": [
+    {
+      "id": "X01",
+      "title": "追加文字保留既有切入点",
+      "category": "persistence",
+      "split": "dev",
+      "family": "append_preserve_existing",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Isolated synthetic fixtures, not human calibrated."
+      },
+      "scenario": "extra_compound_topics",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "在英语辨析里找到「问路用语」。保留它原有的切入点，在末尾紧接着追加「补充：询问出口。」。"
+        }
+      ],
+      "intent": "追加文字保留既有切入点",
+      "expected_outcome": "是否准确报告追加结果，没有把原切入点替换掉？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra-append",
+          "field": "brief",
+          "value": "场景：车站问路。补充：询问出口。"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "extra-append"
+          ],
+          "except_fields": [
+            "brief",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "extra-append"
+          ]
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "x01-s1",
+          "question": "是否准确报告追加结果，没有把原切入点替换掉？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "X02",
+      "title": "交换两个既有对象的标题",
+      "category": "persistence",
+      "split": "dev",
+      "family": "swap_existing_titles",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Isolated synthetic fixtures, not human calibrated."
+      },
+      "scenario": "extra_compound_topics",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "英语辨析中，把 ID 为 extra-swap-a 和 extra-swap-b 的两个选题标题互换；它们的切入点和身份保持不变。"
+        }
+      ],
+      "intent": "交换两个既有对象的标题",
+      "expected_outcome": "是否说明两个原对象的标题已互换，且没有声称切入点也被互换？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra-swap-a",
+          "field": "title",
+          "value": "道歉表达"
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra-swap-b",
+          "field": "title",
+          "value": "迟到表达"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "extra-swap-a",
+            "extra-swap-b"
+          ],
+          "except_fields": [
+            "title",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "extra-swap-a",
+            "extra-swap-b"
+          ]
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "x02-s1",
+          "question": "是否说明两个原对象的标题已互换，且没有声称切入点也被互换？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "核验条件 6",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "X03",
+      "title": "按现有内容条件批量修改",
+      "category": "persistence",
+      "split": "dev",
+      "family": "conditional_subset_update",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Isolated synthetic fixtures, not human calibrated."
+      },
+      "scenario": "extra_compound_topics",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "英语辨析的「短语甲」「短语乙」「短语丙」三条中，只把切入点以「需校对：」开头的选题标题末尾追加「（待审）」；其他内容不变。"
+        }
+      ],
+      "intent": "按现有内容条件批量修改",
+      "expected_outcome": "是否按实际切入点筛选，只报告甲和丙已改，乙未改？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra-filter-a",
+          "field": "title",
+          "value": "短语甲（待审）"
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra-filter-c",
+          "field": "title",
+          "value": "短语丙（待审）"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "extra-filter-a",
+            "extra-filter-c"
+          ],
+          "except_fields": [
+            "title",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "extra-filter-a",
+            "extra-filter-c"
+          ]
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "x03-s1",
+          "question": "是否按实际切入点筛选，只报告甲和丙已改，乙未改？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "核验条件 6",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "X04",
+      "title": "明确要求同标题不同场景时保留两项",
+      "category": "persistence",
+      "split": "dev",
+      "family": "intentional_duplicate_creation",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Isolated synthetic fixtures, not human calibrated."
+      },
+      "scenario": "extra_compound_topics",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "在英语辨析新建两条独立选题，标题都叫「借用表达」：第一条切入点是「办公室借笔」，第二条切入点是「图书馆借书」。只入队，不生产。"
+        }
+      ],
+      "intent": "明确要求同标题不同场景时保留两项",
+      "expected_outcome": "是否准确报告两条同标题但切入点不同的选题已分别入队，没有合并或生产？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 2
+        },
+        {
+          "kind": "new_rows_match",
+          "table": "topics",
+          "value": [
+            {
+              "series_id": "bench-english",
+              "title": "借用表达",
+              "brief": "办公室借笔"
+            },
+            {
+              "series_id": "bench-english",
+              "title": "借用表达",
+              "brief": "图书馆借书"
+            }
+          ],
+          "preserve_existing": true
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "x04-s1",
+          "question": "是否准确报告两条同标题但切入点不同的选题已分别入队，没有合并或生产？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

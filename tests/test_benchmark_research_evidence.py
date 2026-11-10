@@ -127,6 +127,63 @@ class ResearchEvidenceTests(unittest.TestCase):
                  "research_evidence":{**result, "sent_source_ids":["source-1"]}}
         self.assertIsNone(qualify_grounding_judgments({"id":"B48"}, judge)["items"][0]["pass"])
 
+    def test_post_task_source_fetch_is_separate_and_cannot_prove_agent_open(self):
+        search = deepcopy(self.events[0])
+        search["payload"]["item"]["results"] = [{"type":"text_result", "url":URL,
+            "title":"Borrow", "snippet":"Receive something for a limited period"}]
+        self.write_events([search, event({"type":"openPage", "url":URL}, None)])
+        result=collect_research_evidence(self.root,self.data,fetcher=self.fetch,independent_fetch=True)
+        self.fetch.assert_called_once_with(URL)
+        self.assertEqual(result["status"],"needs_review")
+        self.assertEqual(result["sources"],[])
+        self.assertEqual(len(result["host_sources"]),1)
+        self.assertEqual(result["source_inventory"][0]["agent_open"],"attempted_no_body")
+        items={item["id"]:item["status"] for item in result["subchecks"]}
+        self.assertEqual(items["research_search_observed"],"passed")
+        self.assertEqual(items["source-1_agent_body"],"needs_review")
+        self.assertEqual(items["source-1_posthoc_host_body"],"passed")
+        self.assertEqual(items["source-1_claim_support"],"needs_review")
+        base={"items":[{"id":"b48-s1","pass":True,"evidence":"source"},
+                       {"id":"b48-source-1-support","pass":True,"evidence":"cited body"}],
+              "research_evidence":{**result,"sent_source_ids":[],"sent_host_source_ids":["source-1"]}}
+        qualified=qualify_grounding_judgments({"id":"B48"},base)
+        self.assertIsNone(qualified["items"][0]["pass"])
+        self.assertIs(qualified["items"][1]["pass"],True)
+        partial=deepcopy(base)
+        partial["items"][1]["evidence"]="该来源是词表；但仅支持等级标注这一部分主张。"
+        qualified=qualify_grounding_judgments({"id":"B48"},partial)
+        self.assertIsNone(qualified["items"][1]["pass"])
+        self.assertIs(partial["items"][1]["pass"],True)
+        full=deepcopy(base)
+        full["items"][1]["evidence"]="该来源明确支持这条主张。"
+        self.assertIs(qualify_grounding_judgments({"id":"B48"},full)["items"][1]["pass"],True)
+        for mutation in ("not_sent","changed_text","wrong_url","missing_provenance"):
+            bad=deepcopy(base)
+            if mutation=="not_sent": bad["research_evidence"]["sent_host_source_ids"]=[]
+            elif mutation=="changed_text": bad["research_evidence"]["host_sources"][0]["text"]+="tampered"
+            elif mutation=="wrong_url": bad["research_evidence"]["host_sources"][0]["url"]+="other"
+            else: del bad["research_evidence"]["provenance"]
+            self.assertIsNone(qualify_grounding_judgments({"id":"B48"},bad)["items"][1]["pass"])
+
+    def test_independent_fetch_is_opt_in_and_bounded_to_three_matched_sources(self):
+        urls=[f"https://dictionary.cambridge.org/dictionary/english/word{i}" for i in range(5)]
+        self.batch["candidates"][0]["sources"]=[{"url":url,"title":"Dictionary"} for url in urls]
+        self.write("batches/batch-a.json",self.batch)
+        search=deepcopy(self.events[0])
+        search["payload"]["item"]["results"]=[{"type":"text_result","url":url,"title":"Dictionary","snippet":"brief"} for url in urls]
+        self.write_events([search])
+        result=self.collect()
+        self.fetch.assert_not_called()
+        self.assertEqual(result["host_sources"],[])
+        self.fetch.side_effect=lambda url:{"url":url,"status":200,"text":BODY,"raw_sha256":sha(b"body"),
+                                         "fetched_at":"2026-11-05T00:01:00+00:00"}
+        result=collect_research_evidence(self.root,self.data,fetcher=self.fetch,independent_fetch=True)
+        self.assertEqual(self.fetch.call_count,3)
+        self.assertEqual(len(result["host_sources"]),3)
+        self.assertEqual([row["host_fetch"] for row in result["source_inventory"]],
+                         ["verified_body"]*3+["not_attempted"]*2)
+        self.assertEqual(result["status"],"needs_review")
+
     def test_four_sources_do_not_exceed_the_old_three_source_limit(self):
         urls = [URL] + [f"https://dictionary.cambridge.org/dictionary/english/word{i}" for i in range(3)]
         self.batch["candidates"][0]["sources"] = [{"url":url,"title":"Dictionary"} for url in urls]

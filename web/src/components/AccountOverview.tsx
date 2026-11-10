@@ -1,14 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { Folder, Plus } from "lucide-react";
+import { GalleryVerticalEnd, Plus } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { apiUrl, studioApi } from "../api/client";
 import type { SeriesView } from "../api/types";
 import { StatusPill } from "./StatusPill";
 import "./account-overview.css";
 
-export function AccountOverview({ creatorId, series, onSelect, onCreate, hasUnseen }: {
-  creatorId: string | null; series: SeriesView[]; onSelect: (id: string) => void; onCreate: () => void;
-  hasUnseen: (id: string) => boolean;
+export function AccountOverview({ creatorId, series, onCreate }: {
+  creatorId: string | null; series: SeriesView[]; onCreate: () => void;
 }) {
   const location = useLocation();
   const recent = useQuery({ queryKey: ["runs", "account-overview", creatorId],
@@ -21,17 +20,12 @@ export function AccountOverview({ creatorId, series, onSelect, onCreate, hasUnse
     .filter(run => { if (seenTopics.has(run.topic_id)) return false; seenTopics.add(run.topic_id); return true; }).slice(0, 6);
 
   return <div className="account-overview">
-    <section className="account-overview-columns" aria-label="栏目">
-      <header className="account-overview-section-head"><h2>栏目</h2></header>
-      {series.length ? <div className="account-column-list">{series.map(item => <button type="button" key={item.id}
-        onClick={() => onSelect(item.id)} aria-label={`进入栏目 ${item.name}`}>
-        <Folder size={18} aria-hidden="true" /><span>{item.name}</span>
-        {hasUnseen(item.id) && <span className="account-column-dot" aria-label="栏目有未查看内容" />}
-      </button>)}</div> : <div className="account-overview-empty">
-        <Folder size={24} aria-hidden="true" /><p>{creatorId ? "这个账号还没有栏目" : "还没有账号"}</p>
+    {!series.length && <section className="account-overview-columns" aria-label="栏目">
+      <div className="account-overview-empty">
+        <GalleryVerticalEnd size={24} aria-hidden="true" /><p>{creatorId ? "这个账号还没有栏目" : "还没有账号"}</p>
         <button type="button" className="button button-primary" onClick={onCreate}><Plus size={15} aria-hidden="true" />{creatorId ? "新建栏目" : "新建账号"}</button>
-      </div>}
-    </section>
+      </div>
+    </section>}
     <section className="account-recent-works" aria-label="近期作品">
       <header className="account-overview-section-head"><h2>近期作品</h2></header>
       {recent.isFetching && !recent.data && creatorId && <p className="account-overview-note" role="status">正在读取作品…</p>}

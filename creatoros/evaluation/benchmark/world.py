@@ -183,6 +183,27 @@ class BenchmarkWorld:
         self.skill_paths = {key: self.catalog.locate(key).relative_to(self.root).as_posix()
                             for key in [self.variables[name] for name in ("skill_a", "skill_b", "shared_skill")]}
         detail = self.app.state.media_collections.get(self.variables["creator_a"], self.variables["collection_a"])
+        if case.get("scenario") == "media_scope":
+            items = [item for item in detail["items"] if item["included"]]
+            if len(items) != 2 or any(not item.get("id") for item in items):
+                raise ValueError("Media benchmark requires exactly two identifiable source images")
+            self.variables.update(collection_item_1=items[0]["id"], collection_item_2=items[1]["id"])
+        from .expansion_identity import seed as seed_identity
+        from .expansion_safety import seed as seed_safety
+        from .expansion_materials import seed as seed_materials
+        from .expansion_visual_tasks import seed as seed_visual
+        from .expansion_extra import seed as seed_extra
+        from .expansion_extra2 import seed as seed_extra2
+        from .expansion_extra3 import seed as seed_extra3
+        seed_identity(self, case)
+        seed_safety(self, case)
+        seed_materials(self, case)
+        seed_visual(self, case)
+        seed_extra(self, case)
+        seed_extra2(self, case)
+        seed_extra3(self, case)
+        # Capture collection selection only after all isolated fixtures are seeded.
+        detail = self.app.state.media_collections.get(self.variables["creator_a"], self.variables["collection_a"])
         self.initial_collections = {detail["id"]: {
             "items": [dict(item) for item in detail["items"] if item["included"]],
             "snapshot_digest": detail["snapshot_digest"]}}

@@ -22,7 +22,7 @@ from PIL import Image, ImageChops, ImageStat
 from .visual_evidence import _read, UnavailableVisualEvidence
 from creatoros.integrations.media_tools import media_tool
 
-VERSION = "benchmark-video-evidence-v2"
+VERSION = "benchmark-video-evidence-v3"
 MAX_DECODED_FRAMES = 150
 
 
@@ -299,4 +299,37 @@ def collect_video_evidence(root, evidence, *, ffmpeg=None):
     except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError, zipfile.BadZipFile,
             subprocess.TimeoutExpired, UnavailableVisualEvidence) as error:
         result["error"] = {"kind":type(error).__name__, "message":str(error)}
+    result["subchecks"] = video_subchecks(result, evidence)
     return result
+
+
+def video_subchecks(result, evidence):
+    """Independent, narrowly worded checks; none alone resolves B47-s1."""
+    binding = result.get("input_binding", {})
+    frames = result.get("full_frames", {})
+    audio = result.get("audio", {})
+    bound = binding.get("status") == "passed"
+    frames_match = frames.get("coverage") == "all_decoded_frames" and frames.get("assessment") == "all_decoded_frames_consistent"
+    audio_match = audio.get("assessment") == "waveform_consistent"
+    checks = [
+        {"id": "video_frozen_inputs", "status": "passed" if bound else "needs_review",
+         "detail": "Specified source identities and frozen bytes are bound; actual rendered use is separate." if bound else "Frozen input identities or bytes could not be fully verified."},
+        {"id": "video_coarse_all_frame_match", "status": "passed" if frames_match else "needs_review",
+         "detail": "Every decoded frame in the first stream matches the expected order after 64px downscaling; this does not prove pixel identity, small details or original source." if frames_match else "The full first stream could not be verified as a coarse ordered match."},
+        {"id": "video_sampled_audio_similarity", "status": "passed" if audio_match else "needs_review",
+         "detail": "Sampled waveform correlation is consistent; correlation does not prove unique BGM source or whole-track correctness." if audio_match else "Sampled audio similarity could not be confirmed."},
+        {"id": "video_actual_media_provenance", "status": "needs_review",
+         "detail": "Input binding and approximate signal comparisons do not prove uniquely which source files were used to render the video."},
+    ]
+    # The existing code checks both SDK event coverage and the completed count;
+    # missing events must not silently become zero. This result is independent
+    # of frame/audio evidence and can expose an observed extra image generation.
+    from .grader import _expectation, MissingEvidence
+    try:
+        passed, detail = _expectation({"kind": "codex_image_count", "value": 0,
+                                       "require_execution": True}, evidence)
+        status = "passed" if passed else "failed"
+    except (MissingEvidence, KeyError, TypeError, ValueError):
+        status, detail = "needs_review", "Complete SDK image-generation event coverage unavailable."
+    checks.append({"id": "video_no_new_image_generation", "status": status, "detail": detail})
+    return checks

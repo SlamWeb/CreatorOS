@@ -1,0 +1,60 @@
+import { expect, test } from "@playwright/test";
+
+test("account and series navigation stay in the workspace while global navigation remains stable", async ({ page, request }, info) => {
+  const suffix = crypto.randomUUID().slice(0, 8);
+  async function post(url: string, data: object) {
+    const response = await request.post(url, { data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  const first = await post("/api/creators", { display_name: `工作台甲-${suffix}` });
+  const second = await post("/api/creators", { display_name: `工作台乙-${suffix}` });
+  const one = await post(`/api/creators/${first.id}/series`, { name: `第一栏目-${suffix}` });
+  const two = await post(`/api/creators/${first.id}/series`, { name: `第二栏目-${suffix}` });
+  const other = await post(`/api/creators/${second.id}/series`, { name: `另一账号栏目-${suffix}` });
+  await page.goto(`/workspace?creator=${first.id}&series=${one.id}`);
+  const sidebar = page.getByRole("navigation", { name: "主导航" });
+  await expect(sidebar.getByRole("link")).toHaveCount(5);
+  await expect(page.getByRole("heading", { name: one.name })).toBeVisible();
+  const box = await sidebar.boundingBox();
+  await expect(page.getByRole("button", { name: "切换账号" })).toContainText(first.display_name);
+  await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name }).click();
+  await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  const selectedCard = page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name });
+  const cardBounds = await selectedCard.boundingBox();
+  expect(cardBounds).not.toBeNull();
+  await page.mouse.move(cardBounds!.x + cardBounds!.width * .8, cardBounds!.y + cardBounds!.height * .6);
+  await expect(selectedCard).toHaveCSS("transform", /matrix\(1, 0, 0, 1, 0, -3\)/);
+  await page.screenshot({ path: info.outputPath("workspace-hover.png") });
+  await page.getByRole("button", { name: "可用 Skill" }).click();
+  await expect(page).toHaveURL(/view=skills/);
+  await page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name }).click();
+  await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  await page.getByRole("navigation", { name: "栏目工作区" }).getByRole("button", { name: "素材" }).click();
+  await expect(page.getByRole("region", { name: "素材文件夹" })).toBeVisible();
+  await page.getByRole("navigation", { name: "栏目工作区" }).getByRole("button", { name: "作品" }).click();
+  await expect(page.getByRole("heading", { name: two.name })).toBeAttached();
+  await sidebar.getByRole("link", { name: "Skill", exact: true }).click();
+  expect(await sidebar.boundingBox()).toEqual(box);
+  await sidebar.getByRole("link", { name: "账号与栏目" }).click();
+  await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("workspace-desktop.png"), fullPage: true });
+  await page.getByRole("button", { name: "切换账号" }).click();
+  await page.getByRole("dialog", { name: "切换账号" }).getByRole("button", { name: `切换到账号 ${second.display_name}` }).click();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: other.name })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: one.name })).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: two.name })).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(page.locator(".series-content-section")).toHaveCSS("animation-name", "none");
+  await expect(page.getByRole("navigation", { name: "当前账号的栏目" }).getByRole("button", { name: two.name })).toHaveCSS("transition-duration", "0s");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(selectedCard).toBeInViewport();
+  await expect.poll(async () => {
+    const card = await selectedCard.boundingBox();
+    const nav = await page.getByRole("navigation", { name: "当前账号的栏目" }).boundingBox();
+    return !!card && !!nav && card.x >= nav.x - 1 && card.x + card.width <= nav.x + nav.width + 1;
+  }).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("workspace-mobile.png"), fullPage: true });
+});

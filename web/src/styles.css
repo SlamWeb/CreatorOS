@@ -24,6 +24,8 @@ details > summary:not(:has(svg))::after { content: "+"; font-size: 1rem; font-we
 details[open] > summary:not(:has(svg))::after { content: "−"; }
 
 /* Shell */
+.studio-skip-link { position: fixed; z-index: 1000; top: 10px; left: 10px; padding: 10px 14px; border-radius: 8px; background: var(--ink); color: white; transform: translateY(-150%); }
+.studio-skip-link:focus-visible { transform: translateY(0); outline: 3px solid var(--accent); outline-offset: 2px; }
 .studio-shell { display: flex; min-height: 100vh; background: var(--canvas); }
 .sidebar { position: sticky; top: 0; align-self: flex-start; height: 100dvh; width: 220px; flex: 0 0 220px; border-right: 1px solid #e8e8eb; padding: 26px 16px 20px; display: flex; flex-direction: column; background: var(--canvas); }
 .brand-mark { color: var(--accent); font-weight: 700; font-size: 26px; letter-spacing: -.13em; line-height: 1; padding-left: 2px; }

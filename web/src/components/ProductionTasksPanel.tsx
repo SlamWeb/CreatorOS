@@ -110,7 +110,7 @@ export function ProductionTasksPanel({ topicId, series, startExpanded = false, d
   }
   const collectionId = tasks.data?.collection_id;
   const collectionUrl = collectionId && series.creator_id
-    ? `/?creator=${encodeURIComponent(series.creator_id)}&view=materials&collection=${encodeURIComponent(collectionId)}` : null;
+    ? `/?creator=${encodeURIComponent(series.creator_id)}&series=${encodeURIComponent(series.id)}&view=materials&collection=${encodeURIComponent(collectionId)}` : null;
   const runUrl = (id: string) => `/runs/${encodeURIComponent(id)}?return=${encodeURIComponent(location.pathname + location.search)}`;
   return <section className="production-tasks" aria-label="制作任务">
     <div className="production-tasks-heading"><h3>制作任务{tasks.data?.items.length ? `（${tasks.data.items.length}）` : ""}</h3>

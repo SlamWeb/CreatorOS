@@ -309,6 +309,8 @@ class MediaCollection(TimestampMixin, Base):
     creator_id: Mapped[str] = mapped_column(
         ForeignKey("creators.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Null preserves legacy account-wide and cross-series collections.
+    series_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     topic_id: Mapped[str | None] = mapped_column(String(80))
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -806,6 +808,15 @@ class PublicationFeedbackState(Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
+
+
+class SkillDisplayCategories(Base):
+    """Local library metadata, separate from exact Skill versions and inputs."""
+    __tablename__ = "skill_display_categories"
+    __table_args__ = (CheckConstraint("revision > 0", name="revision_positive"),)
+    family_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    categories_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class CreatorSkillRef(TimestampMixin, Base):

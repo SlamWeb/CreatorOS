@@ -1,0 +1,450 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-expansion-extra2-v1-20261105",
+  "status": "synthetic_development_only",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "Y01",
+      "Y02",
+      "Y03",
+      "Y04"
+    ]
+  },
+  "reference_policy": "Synthetic disposable fixtures, unknown on missing evidence; not human calibrated.",
+  "split_policy": "Public development only.",
+  "cases": [
+    {
+      "id": "Y01",
+      "title": "跨两个列表解析第二栏目的第三项",
+      "category": "persistence",
+      "split": "dev",
+      "family": "two_lists_second_series_third_item",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Account-bound isolated synthetic fixture; not human calibrated."
+      },
+      "scenario": "extra_context_data",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "按这个顺序分别列出「晨间专栏」和「夜间专栏」各自当前选题，按队列顺序展示标题和 ID。"
+        },
+        {
+          "kind": "user",
+          "text": "把刚才第二个栏目的第三条切入点改成「晚间复盘场景」。"
+        }
+      ],
+      "intent": "跨两个列表解析第二栏目的第三项",
+      "expected_outcome": "是否依据第一轮实际展示的两个列表，将第二个栏目的第三条对应到 extra2-second-3，准确报告其修改结果？",
+      "evaluation_scope": "multi_turn",
+      "expectations": [
+        {
+          "kind": "topics_delta",
+          "value": 0
+        },
+        {
+          "kind": "topic_field",
+          "id": "extra2-second-3",
+          "field": "brief",
+          "value": "晚间复盘场景"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "ids": [
+            "extra2-second-3"
+          ],
+          "except_fields": [
+            "brief",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics",
+          "exclude_ids": [
+            "extra2-second-3"
+          ]
+        },
+        {
+          "kind": "table_delta",
+          "table": "content_runs",
+          "value": 0
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "y01-s1",
+          "question": "是否依据第一轮实际展示的两个列表，将第二个栏目的第三条对应到 extra2-second-3，准确报告其修改结果？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Y02",
+      "title": "恢复已排除的素材集图片",
+      "category": "persistence",
+      "split": "dev",
+      "family": "restore_excluded_collection_item",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Account-bound isolated synthetic fixture; not human calibrated."
+      },
+      "scenario": "extra_context_data",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "「已有素材集」里第二张图片之前被排除了，把它重新包含进这个素材集，其他设置不变。"
+        }
+      ],
+      "intent": "恢复已排除的素材集图片",
+      "expected_outcome": "是否根据素材集回执说明第二张已重新纳入，未声称新生产图片？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_list",
+          "id": "{collection_a}",
+          "field": "excluded_ids_json",
+          "value": []
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "excluded_ids_json",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "y02-s1",
+          "question": "是否根据素材集回执说明第二张已重新纳入，未声称新生产图片？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Y03",
+      "title": "向已有素材集追加一个来源并保留原来源",
+      "category": "persistence",
+      "split": "dev",
+      "family": "append_collection_source_preserve_existing",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Account-bound isolated synthetic fixture; not human calibrated."
+      },
+      "scenario": "extra_context_data",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "在「已有素材集」中保留所有现有来源，再把 Run {extra2_run} 的成品加入并排在原来源之后，不要新建素材集或生产。"
+        }
+      ],
+      "intent": "向已有素材集追加一个来源并保留原来源",
+      "expected_outcome": "是否说明新增来源已加入，原有来源仍保留，没有声称新生产？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "collection_list",
+          "id": "{collection_a}",
+          "field": "run_ids_json",
+          "value": [
+            "{run_a}",
+            "{extra2_run}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "ids": [
+            "{collection_a}"
+          ],
+          "except_fields": [
+            "run_ids_json",
+            "version",
+            "updated_at"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections",
+          "exclude_ids": [
+            "{collection_a}"
+          ]
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "y03-s1",
+          "question": "是否说明新增来源已加入，原有来源仍保留，没有声称新生产？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "核验条件 3",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "核验条件 4",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "核验条件 5",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "Y04",
+      "title": "对比两个对象的共同点与不同点",
+      "category": "persistence",
+      "split": "dev",
+      "family": "compare_two_topic_fields",
+      "origin": {
+        "type": "synthetic",
+        "evidence": [],
+        "adaptation": "Account-bound isolated synthetic fixture; not human calibrated."
+      },
+      "scenario": "extra_context_data",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "比较选题 extra2-compare-a 和 extra2-compare-b 的切入点：地点相同吗？人物分别是谁？只回答这个问题。"
+        }
+      ],
+      "intent": "对比两个对象的共同点与不同点",
+      "expected_outcome": "是否准确说出两项地点均为车站、甲为游客、乙为司机，没有颠倒或虚构？",
+      "evaluation_scope": "outcome",
+      "expectations": [
+        {
+          "kind": "unchanged_business",
+          "value": true
+        },
+        {
+          "kind": "answer_contains",
+          "value": [
+            "车站",
+            "游客",
+            "司机"
+          ]
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_topics",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "topic_id": "extra2-compare-a"
+            }
+          },
+          {
+            "tool": "manage_topics",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "topic_id": "extra2-compare-b"
+            }
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "research_series_topics",
+          "prepare_publication"
+        ],
+        "forbidden_actions": [],
+        "max_tool_calls": 16
+      },
+      "rubric": [
+        {
+          "id": "y04-s1",
+          "question": "是否准确说出两项地点均为车站、甲为游客、乙为司机，没有颠倒或虚构？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_not_human_calibrated",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "核验条件 1",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "核验条件 2",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

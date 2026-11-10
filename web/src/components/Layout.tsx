@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { Activity, ClipboardCheck, LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 import { BrandMark } from "./BrandMark";
@@ -12,30 +13,63 @@ const navItems = [
   { to: "/observation", label: "Observation", icon: Activity },
   { to: "/eval", label: "Eval", icon: ClipboardCheck },
 ];
+const workspaceLocationKey = "creatoros:workspace-navigation:v1";
+function readWorkspaceLocation() {
+  try {
+    const query = new URLSearchParams(sessionStorage.getItem(workspaceLocationKey) ?? "");
+    const allowed = new URLSearchParams();
+    for (const key of ["creator", "series", "view", "topics", "offset"]) {
+      const value = query.get(key);
+      if (value) allowed.set(key, value);
+    }
+    const suffix = allowed.toString();
+    return suffix ? `/workspace?${suffix}` : "/workspace";
+  } catch { return "/workspace"; }
+}
 
 export function Layout() {
   return <WorkInboxProvider><LayoutContent /></WorkInboxProvider>;
 }
 
-function LayoutContent() {
+export function PrimaryNavigation() {
   const location = useLocation();
   const inbox = useWorkInbox();
+  const [workspaceLocation, setWorkspaceLocation] = useState(readWorkspaceLocation);
+  useEffect(() => {
+    if (location.pathname !== "/workspace" && !(location.pathname === "/" && location.search)) return;
+    const source = new URLSearchParams(location.search);
+    const selection = new URLSearchParams();
+    for (const key of ["creator", "series", "view", "topics", "offset"]) {
+      const value = source.get(key);
+      if (value) selection.set(key, value);
+    }
+    const query = selection.toString();
+    const target = query ? `/workspace?${query}` : "/workspace";
+    setWorkspaceLocation(target);
+    try { sessionStorage.setItem(workspaceLocationKey, query); } catch { /* Navigation still works without browser storage. */ }
+  }, [location.pathname, location.search]);
+  return <nav className="primary-nav" aria-label="主导航">
+    {navItems.map((item) => (
+      <NavLink key={item.to} to={item.to === "/workspace" ? workspaceLocation : item.to} aria-label={item.label} end={item.to === "/workspace"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/workspace" && location.pathname === "/") ? "active" : ""}`}>
+        <span className="nav-icon" aria-hidden="true"><item.icon size={17} strokeWidth={1.8} /></span><span>{item.label}</span>
+        {((item.to === "/skills" && inbox.skillUnread) || (item.to === "/workspace" && inbox.seriesUnread)) && <UnseenDot />}
+      </NavLink>
+    ))}
+  </nav>;
+}
+
+function LayoutContent() {
+  const location = useLocation();
   const [, setParams] = useSearchParams();
   const section = location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
   return (
-    <AgentChatProvider><div className={`studio-shell ${["/", "/workspace"].includes(location.pathname) ? "workspace-studio" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
+    <AgentChatProvider><div className={`studio-shell ${["/", "/workspace"].includes(location.pathname) ? "workspace-studio" : ""} ${["/", "/workspace"].includes(location.pathname) && new URLSearchParams(location.search).has("series") ? "column-workspace" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
+      <a href="#studio-main" className="studio-skip-link">跳到正文</a>
       <aside className="sidebar">
         <Link to="/" className="creative-brand" aria-label="CreatorOS 首页"><BrandMark /><span>CreatorOS</span></Link>
-        <nav className="primary-nav" aria-label="主导航">
-          {navItems.map((item) => (
-            <NavLink key={item.to} to={item.to} aria-label={item.label} end={item.to === "/workspace"} className={({ isActive }) => `nav-item ${isActive || (item.to === "/workspace" && location.pathname === "/") ? "active" : ""}`}>
-              <span className="nav-icon" aria-hidden="true"><item.icon size={17} strokeWidth={1.8} /></span><span>{item.label}</span>
-              {((item.to === "/skills" && inbox.skillUnread) || (item.to === "/workspace" && inbox.seriesUnread)) && <UnseenDot />}
-            </NavLink>
-          ))}
-        </nav>
+        <PrimaryNavigation />
       </aside>
-      <main className="main-content">
+      <main id="studio-main" className="main-content" tabIndex={-1}>
         <header className="topbar">
           <div>
             <p className="topbar-title">{section}</p>

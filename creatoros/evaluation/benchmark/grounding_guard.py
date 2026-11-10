@@ -5,7 +5,7 @@ import re
 
 from .research_evidence import VERSION as EVIDENCE_VERSION, MAX_EXCERPT, MAX_SOURCES, _url, _instant, MissingResearchEvidence
 
-VERSION = "research-grounding-qualification-v3"
+VERSION = "research-grounding-qualification-v5"
 SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -62,6 +62,39 @@ def _supported(case, judge):
     return len(ids) == len(set(ids)) and ids == sent
 
 
+def _host_supported(case, judge, source_id):
+    """Qualify a single *post-task* source claim, not researcher access."""
+    ev = judge.get("research_evidence") if isinstance(judge, dict) else None
+    if (not isinstance(ev, dict) or ev.get("version") != EVIDENCE_VERSION or ev.get("case_id") != case.get("id")
+            or not re.fullmatch(r"source-[1-9][0-9]*", source_id)):
+        return False
+    provenance = ev.get("provenance")
+    if not isinstance(provenance, dict) or any(not isinstance(provenance.get(key), str) or not SHA.fullmatch(provenance[key])
+            for key in ("batch_sha256", "events_sha256", "receipt_sha256")):
+        return False
+    hosts, inventory, sent = ev.get("host_sources"), ev.get("source_inventory"), ev.get("sent_host_source_ids")
+    if not isinstance(hosts, list) or not isinstance(inventory, list) or not isinstance(sent, list):
+        return False
+    if len(hosts) > MAX_SOURCES or any(not isinstance(x, str) for x in sent) or len(sent) != len(set(sent)) or source_id not in sent:
+        return False
+    matches = [s for s in hosts if isinstance(s, dict) and s.get("id") == source_id]
+    rows = [s for s in inventory if isinstance(s, dict) and s.get("id") == source_id]
+    if len(matches) != 1 or len(rows) != 1:
+        return False
+    source, row = matches[0], rows[0]
+    try:
+        return (row.get("host_fetch") == "verified_body" and source.get("url") == row.get("url")
+                and _url(source.get("url")) == source["url"]
+                and source.get("provenance") == "host_post_task_independent_fetch"
+                and isinstance(source.get("text"), str) and 80 <= len(source["text"].strip()) <= MAX_EXCERPT
+                and source.get("text_truncated") is False
+                and source.get("text_sha256") == hashlib.sha256(source["text"].encode("utf-8")).hexdigest()
+                and isinstance(source.get("raw_sha256"), str) and bool(SHA.fullmatch(source["raw_sha256"]))
+                and _instant(source.get("fetched_at")) is not None)
+    except (MissingResearchEvidence, KeyError, TypeError):
+        return False
+
+
 def qualify_grounding_judgments(case, judge):
     result = deepcopy(judge)
     if case.get("id") != "B48":
@@ -73,4 +106,18 @@ def qualify_grounding_judgments(case, judge):
             item["pass"] = None
             item["qualification"] = VERSION
             item["evidence"] += "；未采到可核验的搜索、来源打开与独立正文绑定，待复核。"
+        match = re.fullmatch(r"b48-(source-[1-9][0-9]*)-support", str(item.get("id", "")))
+        if match and item.get("pass") is not None and not _host_supported(case, judge, match.group(1)):
+            item["raw_pass"] = item.get("pass")
+            item["pass"] = None
+            item["qualification"] = VERSION
+            item["evidence"] += "；对应事后抓取的正文未完整绑定或未发送 Judge，待复核。"
+        elif (match and item.get("pass") is True and isinstance(item.get("evidence"), str)
+              and re.search(r"(?:仅支持|只支持)[^。；;\n]{0,80}(?:一部分主张|部分主张|部分内容)", item["evidence"])):
+            # A narrow explicit self-contradiction: the per-source rubric says
+            # partial support is unknown, never silently promote it to true.
+            item["raw_pass"] = True
+            item["pass"] = None
+            item["qualification"] = VERSION
+            item["evidence"] += "；该项规则要求部分支持保留待复核。"
     return result

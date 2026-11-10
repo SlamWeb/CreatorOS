@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FileImage, FileText } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -77,7 +77,7 @@ function clearStoredDraft(jobId: string) {
   try { sessionStorage.removeItem(draftStorageKey(jobId)); } catch { /* The in-memory draft remains available. */ }
 }
 
-export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSkill?: (skill: ProducerSkillItem) => void; onDirtyChange?: (dirty: boolean) => void } = {}) {
+export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra }: { onUseSkill?: (skill: ProducerSkillItem) => void; onDirtyChange?: (dirty: boolean) => void; entryExtra?: ReactNode } = {}) {
   const cache = useQueryClient();
   const inbox = useWorkInbox();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -397,6 +397,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange }: { onUseSk
       onClick={() => { setAuthorOpen(false); setOpen(value => !value); }}>{open ? "收起提炼" : "从作品提炼"}</button>
     <button type="button" className="button button-secondary extraction-toggle" aria-expanded={authorOpen} disabled={authorBusy || create.isPending}
       onClick={() => { if (!authorOpen) setOpen(false); setAuthorOpen(value => !value); }}>{authorOpen ? "收起编写" : "自己写 Skill"}</button>
+    {entryExtra}
     </div>
     <AuthorSkillForm visible={authorOpen} blocked={draftDirty || create.isPending} onDirtyChange={setAuthorDirty} onBusyChange={setAuthorBusy} onCreated={job => {
       cache.setQueryData(["skill-extraction", job.id], job);

@@ -16,6 +16,7 @@ from creatoros.evaluation.benchmark.judge_timing import qualify_temporal_judgmen
 from creatoros.evaluation.benchmark.judge_contradiction_guard import qualify_explicit_contradictions
 from creatoros.evaluation.benchmark.visual_guard import qualify_visual_judgments
 from creatoros.evaluation.benchmark.grounding_guard import qualify_grounding_judgments
+from creatoros.evaluation.benchmark.expansion_visual_tasks import qualify as qualify_visual_expansion
 from creatoros.evaluation.benchmark.program_evidence_guard import (
     VERSION as PROGRAM_EVIDENCE_GUARD_VERSION, qualify_program_judgments,
 )
@@ -30,6 +31,7 @@ SOURCES = [Path(__file__), REPO / 'creatoros/evaluation/benchmark/server.py', RE
            REPO / 'creatoros/evaluation/benchmark/judge_contradiction_guard.py',
            REPO / 'creatoros/evaluation/benchmark/judge_timing.py', REPO / 'creatoros/evaluation/benchmark/visual_guard.py',
            REPO / 'creatoros/evaluation/benchmark/visual_evidence.py',
+           REPO / 'creatoros/evaluation/benchmark/expansion_visual_tasks.py',
            REPO / 'creatoros/evaluation/benchmark/grounding_guard.py', REPO / 'creatoros/evaluation/benchmark/research_evidence.py',
            REPO / 'creatoros/evaluation/benchmark/rsi_evidence.py', REPO / 'creatoros/evaluation/benchmark/video_evidence.py',
            REPO / 'creatoros/evaluation/benchmark/program_evidence_guard.py',
@@ -275,6 +277,9 @@ def run(root, split, *, allow_paid=False, provider_factory=None, resume=False):
             sample['case'], qualify_visual_judgments(sample['case'],
                 qualify_temporal_judgments(sample['case'], qualify_explicit_contradictions(sample['case'], result)))),
             sample['payload'].get('state_checks')) if result else {}
+        if result:
+            qualified = qualify_visual_expansion(sample['case'], qualified,
+                                                  {'checks': sample['payload'].get('state_checks') or []})
         rows = compare(sample['expected'], qualified)
         item = {'sample_id': sample['id'], 'split': split, 'checks': rows, 'judge': result,
                 'raw_checks': compare(sample['expected'], result or {}),

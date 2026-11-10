@@ -91,6 +91,12 @@ class VideoEvidenceTests(unittest.TestCase):
         self.assertEqual(result["full_frames"]["count"],16)
         self.assertEqual(result["audio"]["assessment"],"waveform_consistent")
         self.assertEqual(result["status"],"needs_review")
+        checks={row["id"]:row["status"] for row in result["subchecks"]}
+        self.assertEqual(checks["video_frozen_inputs"],"passed")
+        self.assertEqual(checks["video_coarse_all_frame_match"],"passed")
+        self.assertEqual(checks["video_sampled_audio_similarity"],"passed")
+        self.assertEqual(checks["video_actual_media_provenance"],"needs_review")
+        self.assertEqual(checks["video_no_new_image_generation"],"needs_review")
 
     def test_reversed_frames_and_different_audio_do_not_masquerade_as_matches(self):
         self.make_video(("second","first"),660); self.build_evidence()
@@ -99,6 +105,19 @@ class VideoEvidenceTests(unittest.TestCase):
         self.assertEqual(result["full_frames"]["assessment"],"inconclusive")
         self.assertEqual(result["audio"]["assessment"],"inconclusive")
         self.assertEqual(result["status"],"needs_review")
+        checks={row["id"]:row["status"] for row in result["subchecks"]}
+        self.assertEqual(checks["video_coarse_all_frame_match"],"needs_review")
+        self.assertEqual(checks["video_sampled_audio_similarity"],"needs_review")
+
+    def test_generation_coverage_is_independent_of_media(self):
+        data=deepcopy(self.evidence)
+        for coverage, count, expected in (("complete",0,"passed"),("complete",1,"failed"),("partial",0,"needs_review")):
+            data["codex"]={"images":{"completed_generation_items":count},
+                           "generation_coverage":{"status":coverage},"parse_errors":[]}
+            result=collect_video_evidence(self.root,data,ffmpeg=str(FFMPEG))
+            checks={row["id"]:row["status"] for row in result["subchecks"]}
+            self.assertEqual(checks["video_no_new_image_generation"],expected)
+            self.assertEqual(checks["video_actual_media_provenance"],"needs_review")
 
     def test_all_frame_check_detects_single_frame_missed_by_eight_fps_samples(self):
         root=self.root

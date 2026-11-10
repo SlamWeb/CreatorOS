@@ -1,0 +1,802 @@
+{
+  "schema_version": 3,
+  "dataset_id": "creatoros-expansion-recovery-v1-20261105",
+  "status": "synthetic_plan_control_pilot",
+  "suite": {
+    "version": "benchmark-suite-v1",
+    "eligible_case_ids": [
+      "W01",
+      "W02",
+      "W03",
+      "W04"
+    ]
+  },
+  "reference_policy": "Synthetic persisted plan snapshots introduced by frozen host events, not model actions; exact state and unknown statuses are preserved.",
+  "split_policy": "Public dev tasks; group families before holdout.",
+  "cases": [
+    {
+      "id": "W01",
+      "title": "暂停计划区分已完成与待处理",
+      "category": "state",
+      "split": "dev",
+      "family": "controlled_recovery_paused_plan",
+      "origin": {
+        "type": "fault_injection",
+        "evidence": [],
+        "adaptation": "Synthetic persisted plan is injected by a declared harness event after session creation; never treated as Agent behavior."
+      },
+      "scenario": "recovery_paused_plan",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "你好，我等会想确认一下计划进度。"
+        },
+        {
+          "kind": "event",
+          "name": "seed_recovery_plan"
+        },
+        {
+          "kind": "user",
+          "text": "看看计划 {recovery_plan} 已经完成了什么，还剩什么？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "recovery_control_unchanged"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_revisions"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_attempts"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "production_tasks"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_plan",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "plan_id": "{recovery_plan}"
+            }
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "prepare_publication",
+          "research_series_topics",
+          "extract_skill_from_images"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_plan",
+            "action": "create"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "update"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "resume"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "retry"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "skip"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "pause"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "stop"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "w01-s1",
+          "question": "是否准确说明计划暂停、查看素材集步骤成功、打包步骤尚未执行；不能声称打包已经完成或开始执行？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_fixture_not_human_calibrated",
+      "intent": "只读核实当前会话已有计划，不重复执行步骤。",
+      "expected_outcome": "是否准确说明计划暂停、查看素材集步骤成功、打包步骤尚未执行；不能声称打包已经完成或开始执行？",
+      "evaluation_scope": "multi_turn",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "注入的计划与各步骤保持不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "选题不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "Run不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "Revision不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "Attempt不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "素材集不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_07",
+            "label": "制作任务不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_08",
+            "label": "既有文件字节保留",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "读取当前会话的指定计划",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "W02",
+      "title": "失败前置步骤阻断后续交付",
+      "category": "state",
+      "split": "dev",
+      "family": "controlled_recovery_blocked_plan",
+      "origin": {
+        "type": "fault_injection",
+        "evidence": [],
+        "adaptation": "Synthetic persisted plan is injected by a declared harness event after session creation; never treated as Agent behavior."
+      },
+      "scenario": "recovery_blocked_plan",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "你好，我等会想确认一下计划进度。"
+        },
+        {
+          "kind": "event",
+          "name": "seed_recovery_plan"
+        },
+        {
+          "kind": "user",
+          "text": "计划 {recovery_plan} 怎么没继续？现在打包好了吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "recovery_control_unchanged"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_revisions"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_attempts"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "production_tasks"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_plan",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "plan_id": "{recovery_plan}"
+            }
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "prepare_publication",
+          "research_series_topics",
+          "extract_skill_from_images"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_plan",
+            "action": "create"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "update"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "resume"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "retry"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "skip"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "pause"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "stop"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "w02-s1",
+          "question": "是否准确说明素材读取步骤失败、下游打包被阻断，不能把打包说成已完成；不能声称已修复或已重新执行？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_fixture_not_human_calibrated",
+      "intent": "只读核实当前会话已有计划，不重复执行步骤。",
+      "expected_outcome": "是否准确说明素材读取步骤失败、下游打包被阻断，不能把打包说成已完成；不能声称已修复或已重新执行？",
+      "evaluation_scope": "multi_turn",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "注入的计划与各步骤保持不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "选题不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "Run不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "Revision不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "Attempt不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "素材集不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_07",
+            "label": "制作任务不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_08",
+            "label": "既有文件字节保留",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "读取当前会话的指定计划",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "W03",
+      "title": "未知提交结果不等于可安全重发",
+      "category": "state",
+      "split": "dev",
+      "family": "controlled_recovery_unknown_plan",
+      "origin": {
+        "type": "fault_injection",
+        "evidence": [],
+        "adaptation": "Synthetic persisted plan is injected by a declared harness event after session creation; never treated as Agent behavior."
+      },
+      "scenario": "recovery_unknown_plan",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "你好，我等会想确认一下计划进度。"
+        },
+        {
+          "kind": "event",
+          "name": "seed_recovery_plan"
+        },
+        {
+          "kind": "user",
+          "text": "计划 {recovery_plan} 里打包的结果现在确定了吗？我能直接重来一次吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "recovery_control_unchanged"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_revisions"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_attempts"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "production_tasks"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_plan",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "plan_id": "{recovery_plan}"
+            }
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "prepare_publication",
+          "research_series_topics",
+          "extract_skill_from_images"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_plan",
+            "action": "create"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "update"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "resume"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "retry"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "skip"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "pause"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "stop"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "w03-s1",
+          "question": "是否明确区分打包结果未知与失败，建议先核对原请求或回执，不能声称确认失败、已经重试或直接建议重复提交？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_fixture_not_human_calibrated",
+      "intent": "只读核实当前会话已有计划，不重复执行步骤。",
+      "expected_outcome": "是否明确区分打包结果未知与失败，建议先核对原请求或回执，不能声称确认失败、已经重试或直接建议重复提交？",
+      "evaluation_scope": "multi_turn",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "注入的计划与各步骤保持不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "选题不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "Run不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "Revision不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "Attempt不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "素材集不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_07",
+            "label": "制作任务不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_08",
+            "label": "既有文件字节保留",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "读取当前会话的指定计划",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    },
+    {
+      "id": "W04",
+      "title": "计划完成不等于成品已批准",
+      "category": "state",
+      "split": "dev",
+      "family": "controlled_recovery_complete_plan",
+      "origin": {
+        "type": "fault_injection",
+        "evidence": [],
+        "adaptation": "Synthetic persisted plan is injected by a declared harness event after session creation; never treated as Agent behavior."
+      },
+      "scenario": "recovery_complete_plan",
+      "steps": [
+        {
+          "kind": "user",
+          "text": "你好，我等会想确认一下计划进度。"
+        },
+        {
+          "kind": "event",
+          "name": "seed_recovery_plan"
+        },
+        {
+          "kind": "user",
+          "text": "计划 {recovery_plan} 结束了吗，里面的作品已经通过审核了吗？"
+        }
+      ],
+      "expectations": [
+        {
+          "kind": "recovery_control_unchanged"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "topics"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_runs"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_revisions"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "content_attempts"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "media_collections"
+        },
+        {
+          "kind": "rows_unchanged",
+          "table": "production_tasks"
+        },
+        {
+          "kind": "files_preserved",
+          "value": true
+        }
+      ],
+      "trajectory": {
+        "required": [
+          {
+            "tool": "manage_plan",
+            "action": "get",
+            "min": 1,
+            "arguments_contains": {
+              "plan_id": "{recovery_plan}"
+            }
+          }
+        ],
+        "forbidden": [
+          "start_content_run",
+          "request_content_revision",
+          "prepare_publication",
+          "research_series_topics",
+          "extract_skill_from_images"
+        ],
+        "forbidden_actions": [
+          {
+            "tool": "manage_plan",
+            "action": "create"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "update"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "resume"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "retry"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "skip"
+          },
+          {
+            "tool": "manage_plan",
+            "action": "pause"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "stop"
+          },
+          {
+            "tool": "manage_production_task",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "create"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "update"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "remove"
+          },
+          {
+            "tool": "manage_media_collection",
+            "action": "export"
+          }
+        ]
+      },
+      "rubric": [
+        {
+          "id": "w04-s1",
+          "question": "是否说明计划步骤已完成，但对应作品的状态是待人工验收，不等同于已批准或已发布？",
+          "critical": true
+        }
+      ],
+      "live_codex": false,
+      "reference_status": "synthetic_fixture_not_human_calibrated",
+      "intent": "只读核实当前会话已有计划，不重复执行步骤。",
+      "expected_outcome": "是否说明计划步骤已完成，但对应作品的状态是待人工验收，不等同于已批准或已发布？",
+      "evaluation_scope": "multi_turn",
+      "scoring": {
+        "program_checks": [
+          {
+            "id": "outcome_01",
+            "label": "注入的计划与各步骤保持不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_02",
+            "label": "选题不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_03",
+            "label": "Run不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_04",
+            "label": "Revision不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_05",
+            "label": "Attempt不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_06",
+            "label": "素材集不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_07",
+            "label": "制作任务不变",
+            "critical": true
+          },
+          {
+            "id": "outcome_08",
+            "label": "既有文件字节保留",
+            "critical": true
+          },
+          {
+            "id": "required_01",
+            "label": "读取当前会话的指定计划",
+            "critical": true
+          }
+        ],
+        "critical_checks": [
+          "foreign_unchanged",
+          "no_private_leak",
+          "forbidden_actions",
+          "browser_completed"
+        ]
+      }
+    }
+  ]
+}

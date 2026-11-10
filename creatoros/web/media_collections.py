@@ -94,14 +94,31 @@ class MediaCollectionService:
     @staticmethod
     def _summary(row):
         return dict(id=row.id, name=row.name, version=row.version, topic_id=row.topic_id,
-                    run_ids=list(row.run_ids_json), created_at=row.created_at, updated_at=row.updated_at)
+                    series_id=row.series_id, run_ids=list(row.run_ids_json), created_at=row.created_at, updated_at=row.updated_at)
+
+    def _series_scope(self, session, creator_id, row):
+        """Infer only when every legacy source resolves to one current series."""
+        if row.series_id:
+            series = session.get(Series, row.series_id)
+            return row.series_id if series and series.creator_id == creator_id and series.is_active else None
+        series_ids = set()
+        try:
+            if row.topic_id:
+                series_ids.add(self._topic(session, creator_id, row.topic_id).series_id)
+            for run_id in row.run_ids_json:
+                _, topic = self._run(session, creator_id, run_id)
+                series_ids.add(topic.series_id)
+        except ContentRunError:
+            return None
+        return next(iter(series_ids)) if len(series_ids) == 1 else None
 
     def list(self, creator_id):
         with self.database.session() as session:
             self._creator(session, creator_id)
-            return [self._summary(row) for row in session.scalars(select(MediaCollection).where(
+            rows = session.scalars(select(MediaCollection).where(
                 MediaCollection.creator_id == creator_id).order_by(
-                    MediaCollection.created_at.desc(), MediaCollection.id))]
+                    MediaCollection.created_at.desc(), MediaCollection.id)).all()
+            return [{**self._summary(row), "display_series_id": self._series_scope(session, creator_id, row)} for row in rows]
 
     def sources(self, creator_id, topic_id=None):
         with self.database.session() as session:
@@ -133,7 +150,7 @@ class MediaCollectionService:
                 expected = (creator_id, row["series_id"], row["topic_id"])
                 run_owner = (row["run_creator"], row["run_series"], row["run_topic"])
                 revision_owner = (row["revision_creator"], row["revision_series"], row["revision_topic"])
-                source = dict(run_id=row["run_id"], run_title=row["run_title"] or row["topic_title"],
+                source = dict(run_id=row["run_id"], series_id=row["series_id"], run_title=row["run_title"] or row["topic_title"],
                     topic_id=row["topic_id"], topic_title=row["topic_title"], status=row["status"].value,
                     revision_id=row["revision_id"], revision_number=row["revision_number"], image_count=0)
                 if run_owner != expected or (row["revision_id"] is not None and revision_owner != expected):
@@ -150,16 +167,23 @@ class MediaCollectionService:
                 sources.append(source)
             return sources
 
-    def create(self, creator_id, *, name, request_id, topic_id=None, run_ids=None):
+    def create(self, creator_id, *, name, request_id, topic_id=None, run_ids=None, series_id=None):
         name = self._name(name)
         run_ids = _unique(run_ids or [], "来源任务")
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128:
             raise _error("创建请求标识无效。", "invalid_collection", 422)
-        digest = _digest(dict(name=name, topic_id=topic_id, run_ids=run_ids))
+        payload = dict(name=name, topic_id=topic_id, run_ids=run_ids)
+        if series_id is not None:
+            payload["series_id"] = series_id
+        digest = _digest(payload)
         with self.lock:
             try:
                 with self.database.session() as session:
                     self._creator(session, creator_id)
+                    if series_id:
+                        series = session.get(Series, series_id)
+                        if not series or series.creator_id != creator_id or not series.is_active:
+                            raise _error("栏目不存在或不属于当前账号。", "not_found", 404)
                     existing = session.scalar(select(MediaCollection).where(
                         MediaCollection.creator_id == creator_id, MediaCollection.request_id == request_id))
                     if existing:
@@ -168,12 +192,16 @@ class MediaCollectionService:
                         identifier = existing.id
                     else:
                         if topic_id:
-                            self._topic(session, creator_id, topic_id)
+                            topic = self._topic(session, creator_id, topic_id)
+                            if series_id and topic.series_id != series_id:
+                                raise _error("选题不属于当前栏目。", "invalid_collection", 422)
                         for run_id in run_ids:
-                            self._run(session, creator_id, run_id)
+                            _, topic = self._run(session, creator_id, run_id)
+                            if series_id and topic.series_id != series_id:
+                                raise _error("来源任务不属于当前栏目。", "invalid_collection", 422)
                         identifier = str(uuid4())
                         session.add(MediaCollection(id=identifier, creator_id=creator_id,
-                            topic_id=topic_id, name=name, request_id=request_id, create_digest=digest,
+                            topic_id=topic_id, series_id=series_id, name=name, request_id=request_id, create_digest=digest,
                             run_ids_json=run_ids, order_ids_json=[], excluded_ids_json=[]))
             except IntegrityError as error:
                 # A second service instance may have committed the same request first.
@@ -303,8 +331,11 @@ class MediaCollectionService:
             # Validate new sources before saving; unavailable old references can be removed.
             if "run_ids" in changes:
                 with self.database.session() as session:
+                    row = self._row(session, creator_id, identifier)
                     for run_id in run_ids:
-                        self._run(session, creator_id, run_id)
+                        _, topic = self._run(session, creator_id, run_id)
+                        if row.series_id and topic.series_id != row.series_id:
+                            raise _error("来源任务不属于当前栏目。", "invalid_collection", 422)
             if "run_ids" in changes:
                 with self.database.session() as session:
                     row = self._row(session, creator_id, identifier)
