@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from pydantic import ValidationError
+from jsonschema import Draft202012Validator
 from creatoros.ai.context import estimate_tokens
 from creatoros.context import RuntimeContext
 from creatoros.tools import tools
@@ -15,6 +16,32 @@ from creatoros.tools.staged_production import ManageMaterialArgs
 
 
 class MaterialViewTests(unittest.TestCase):
+    def test_model_schema_rejects_material_action_identifier_conflicts(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            context = RuntimeContext(root, creator_id='account', session_file=root / 'session.json',
+                                     archive_only_reads=True, allowed_tools=frozenset({'manage_material'}))
+            scoped = model_tool_schemas(tools, context)
+            schema = ToolGateway(context, scoped, model_view_version='v2', entry_mode='canonical').model_schemas()[0]['function']['parameters']
+            validator = Draft202012Validator(schema)
+            valid = [{'action': 'list'}, {'action': 'get', 'material_id': 'a' * 64},
+                     {'action': 'import_link', 'source_url': 'https://example.test'},
+                     {'action': 'import_status', 'import_id': 'job'}]
+            invalid = [{'action': 'get', 'material_id': 'a' * 64, 'source_url': 'https://example.test'},
+                       {'action': 'list', 'material_id': 'a' * 64},
+                       {'action': 'import_link', 'source_url': 'https://example.test', 'material_id': 'a' * 64},
+                       {'action': 'import_status', 'import_id': 'job', 'source_url': 'https://example.test'},
+                       {'action': 'analysis', 'material_id': 'a' * 64, 'import_id': 'job'}]
+            for data in valid:
+                with self.subTest(data=data):
+                    self.assertTrue(validator.is_valid(data))
+                    ManageMaterialArgs.model_validate(data)
+            for data in invalid:
+                with self.subTest(data=data):
+                    self.assertFalse(validator.is_valid(data))
+                    with self.assertRaises(ValidationError):
+                        ManageMaterialArgs.model_validate(data)
+
     def test_new_action_falls_back_to_scoped_schema(self):
         source = {'type': 'function', 'function': {'name': 'manage_material', 'parameters': {
             'type': 'object', 'properties': {'action': {'type': 'string', 'enum': ['list', 'future']}}}}}
@@ -33,7 +60,9 @@ class MaterialViewTests(unittest.TestCase):
             before = deepcopy(scoped)
             view = ToolGateway(context, scoped, model_view_version='v2', entry_mode='canonical').model_schemas()[0]
             self.assertEqual(scoped, before)
-            self.assertLess(estimate_tokens(view), estimate_tokens(scoped[0]))
+            # Explicit mutual exclusion costs tokens; bound growth rather than
+            # silently omitting the parser's action constraints.
+            self.assertLess(estimate_tokens(view), 500)
             params = view['function']['parameters']
             self.assertEqual(set(params['properties']), {'action', 'material_id', 'source_url', 'import_id',
                 'start', 'duration', 'force', 'offset', 'limit'})

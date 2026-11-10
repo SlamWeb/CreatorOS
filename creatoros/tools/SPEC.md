@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-11 · BGM 模型参数校验
+
+canonical-v2 的 `manage_material` 按动作排除互不兼容的素材 ID、分享链接和导入 ID，并在模型 Schema 中表达现有解析器的长度、数值和 ID 约束；账号绑定、旧协议和后端执行规则不变。Schema 发生变化，模型调用效果和供应商兼容性仍需真实验证。
+
 ## 2026-11-08 · Skill 库模型视图
 
 `manage_skill_library` 在 v2 中用共享字段和动作必填条件表达账号库 get/add/remove 与栏目池 set_pool：remove 使用已读账号库版本，set_pool 使用已读栏目池版本；栏目池列表整体替换，空列表清空，仍有效的旧默认由宿主保留，仍被栏目绑定的 Skill 不可从账号库移除。原账号绑定、parser、权限及执行链不变；v1 不变，旧 v2 发现回执需重新发现。

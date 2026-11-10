@@ -103,18 +103,21 @@ def _family_schema(name, entries):
 
 def _material_schema(entries, source):
     actions = [entry['action'] for entry in entries]
-    groups = [(['list'], []), (['get', 'analyze', 'analysis', 'analysis_status'], ['material_id']),
-              (['import_link'], ['source_url']), (['import_status'], ['import_id'])]
-    known_actions = {action for names, _ in groups for action in names}
+    groups = [(['list'], [], ['material_id', 'source_url', 'import_id']),
+              (['get', 'analyze', 'analysis', 'analysis_status'], ['material_id'], ['source_url', 'import_id']),
+              (['import_link'], ['source_url'], ['material_id', 'import_id']),
+              (['import_status'], ['import_id'], ['material_id', 'source_url'])]
+    known_actions = {action for names, _, _ in groups for action in names}
     if set(actions) - known_actions:
         return deepcopy(source)
     branches = []
-    for names, required in groups:
+    for names, required, forbidden in groups:
         allowed = [name for name in names if name in actions]
         if allowed:
             branch = {'properties': {'action': {'enum': allowed}}}
             if required:
                 branch['required'] = required
+            branch['not'] = {'anyOf': [{'required': [name]} for name in forbidden]}
             branches.append(branch)
     return {'type': 'function', 'function': {
         'name': 'manage_material',
@@ -122,15 +125,15 @@ def _material_schema(entries, source):
                         'analyze 后台分析，analysis_status 查进度，analysis 读结果。受理不代表完成。'),
         'parameters': {'type': 'object', 'properties': {
             'action': {'type': 'string', 'enum': actions},
-            'material_id': {'type': 'string'},
-            'source_url': {'type': 'string', 'description': '用户提供的音乐或视频分享原文'},
-            'import_id': {'type': 'string', 'description': '原导入回执 ID'},
-            'start': {'type': 'number', 'description': '分析片段起点（秒）；默认 0'},
-            'duration': {'type': 'number', 'description': '分析片段时长（秒）'},
+            'material_id': {'type': 'string', 'pattern': '^[a-f0-9]{64}$'},
+            'source_url': {'type': 'string', 'minLength': 1, 'maxLength': 10000, 'description': '用户提供的音乐或视频分享原文'},
+            'import_id': {'type': 'string', 'minLength': 1, 'maxLength': 100, 'description': '原导入回执 ID'},
+            'start': {'type': 'number', 'minimum': 0, 'description': '分析片段起点（秒）；默认 0'},
+            'duration': {'type': 'number', 'exclusiveMinimum': 0, 'maximum': 300, 'description': '分析片段时长（秒）'},
             'force': {'type': 'boolean', 'description': '仅明确要求重新分析时为 true'},
-            'offset': {'type': 'integer'},
-            'limit': {'type': 'integer'},
-        }, 'required': ['action'], 'oneOf': branches},
+            'offset': {'type': 'integer', 'minimum': 0},
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
+        }, 'required': ['action'], 'oneOf': branches, 'additionalProperties': False},
     }}
 
 
