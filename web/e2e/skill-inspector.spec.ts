@@ -471,6 +471,7 @@ test("add is explicit; filled slot can inspect without clearing; keyboard remain
   await expect(slot).toContainText("inspector-mind");
   await page.getByRole("button", { name: "移除 inspector-mind", exact: true }).click();
   await expect(slot).not.toContainText("inspector-mind");
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("knowledge-to-carousel");
   await page.getByRole("button", { name: "knowledge-to-carousel", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "knowledge-to-carousel" })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("button", { name: "加入组合" })).toBeVisible();
@@ -667,7 +668,7 @@ test("workspace Skill editing stays in the account drawer and survives refresh w
   let posts = 0;
   page.on("request", req => { if (req.url().includes("/api/agent/sessions") && req.method() !== "GET") posts++; });
   await page.goto(`/?creator=${account.id}&series=${series.id}`);
-  await page.getByRole("button", { name: /^inspector-mind\s*v\d+/ }).click();
+  await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "inspector-mind" });
   await dialog.getByRole("button", { name: "让 Agent 帮我修改当前 Skill" }).click();
   await dialog.getByRole("textbox", { name: "让 Agent 修改 inspector-mind" }).fill("不要额外标题，保留现有参考。请保存。");

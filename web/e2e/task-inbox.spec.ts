@@ -108,6 +108,7 @@ test("new saved Skill keeps its dot until its actual details are opened, includi
   const skillId = saved.saved_skills[0].id;
   const before = await (await request.get("/test/composer-evidence")).json();
   await page.reload();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(`收件箱故事 ${key.slice(0, 6)}`);
   const card = page.locator("button.skill-card").filter({ hasText: `收件箱故事 ${key.slice(0, 6)}` });
   await expect(card).toBeVisible();
   await expect(card.getByRole("img", { name: "Skill 有未查看更新" })).toBeVisible();
@@ -119,8 +120,12 @@ test("new saved Skill keeps its dot until its actual details are opened, includi
   const details = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: `收件箱故事 ${key.slice(0, 6)}` }) });
   await expect(details).toBeVisible();
   await details.getByRole("button", { name: "关闭 Skill 详情" }).click();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(`收件箱故事 ${key.slice(0, 6)}`);
+  await expect(card).toBeVisible();
   await expect(card.getByRole("img", { name: "Skill 有未查看更新" })).toHaveCount(0);
   await page.reload();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(`收件箱故事 ${key.slice(0, 6)}`);
+  await expect(card).toBeVisible();
   await expect(card.getByRole("img", { name: "Skill 有未查看更新" })).toHaveCount(0);
   const after = await (await request.get("/test/composer-evidence")).json();
   expect(after.counts).toEqual(before.counts);
