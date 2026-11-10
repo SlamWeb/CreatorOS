@@ -453,8 +453,9 @@ class ChatFocusTests(unittest.TestCase):
         self.assertTrue(any(block.get("type") == "image_ref" for block in selected[0]["content"]))
         self.assertIn("不能据此推断后续仍被选中", selected[0]["content"][0]["text"])
         self.assertEqual(first_tools, second_tools)
-        self.assertEqual({schema["function"]["name"] for schema in first_tools},
-                         {"discover_tools", "call_discovered_tool", "read_topic", "list_topics", "get_creator_tasks"})
+        tool_names = {schema["function"]["name"] for schema in first_tools}
+        self.assertTrue({"manage_topics", "get_creator_tasks"}.issubset(tool_names))
+        self.assertTrue({"discover_tools", "call_discovered_tool", "read_topic", "list_topics"}.isdisjoint(tool_names))
         self.assertEqual(protected_records(self.db), before_rows)
         self.assertEqual(tree_hashes(self.runs.output_root), before_files)
 

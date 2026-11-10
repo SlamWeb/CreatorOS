@@ -10,17 +10,17 @@ import { classifyGroup } from "./e2e-results.mjs";
 // New specs require a deliberate safety/fixture review before joining this run.
 const groups = [
   { name: "general", config: "playwright.config.ts", source: "fresh Studio database with controlled local producer", specs: [
-    "account-analytics.spec.ts", "account-chat.spec.ts", "account-navigator.spec.ts",
+    "account-analytics.spec.ts", "account-chat.spec.ts", "account-navigator.spec.ts", "account-studio-layout.spec.ts",
     "agent-composer-controls.spec.ts", "agent-discussion.spec.ts", "agent-layout.spec.ts",
-    "agent-research.spec.ts", "artifact-download.spec.ts", "batch-production.spec.ts",
+    "agent-research.spec.ts", "agent-input-whitespace.spec.ts", "artifact-download.spec.ts", "batch-production.spec.ts",
     "bulk-topic-queue.spec.ts", "chat-image-links.spec.ts", "chat-images.spec.ts", "chat-links.spec.ts", "chat-view-recovery.spec.ts",
-    "content-navigation.spec.ts", "eval.spec.ts", "fresh-production.spec.ts", "home-page.spec.ts",
+    "column-layout.spec.ts", "content-navigation.spec.ts", "eval.spec.ts", "eval-registry-integrated.spec.ts", "eval-regression-catalog.spec.ts", "eval-workbench.spec.ts", "fresh-production.spec.ts", "home-page.spec.ts",
     "observation.spec.ts", "polling.spec.ts", "production-progress.spec.ts", "publication-request.spec.ts",
-    "reply-trace.spec.ts", "run-workbench.spec.ts", "series-settings.spec.ts", "skill-calibration.spec.ts",
-    "skill-composer.spec.ts", "skill-extraction.spec.ts", "skill-inspector.spec.ts", "skill-iterations.spec.ts", "skill-switch-intent.spec.ts",
+    "reply-trace.spec.ts", "run-workbench.spec.ts", "series-materials.spec.ts", "series-settings.spec.ts", "skill-calibration.spec.ts",
+    "skill-composer.spec.ts", "skill-extraction.spec.ts", "skill-inspector.spec.ts", "skill-iterations.spec.ts", "skill-library-layout.spec.ts", "skill-switch-intent.spec.ts",
     "studio-preview.spec.ts", "studio-workflow.spec.ts", "task-inbox.spec.ts", "topic-production.spec.ts",
     "topic-references.spec.ts", "topic-removal.spec.ts", "topic-research.spec.ts", "ui-foundation.spec.ts",
-    "workbench-locator.spec.ts", "workspace-gallery.spec.ts", "workspace-management.spec.ts",
+    "workbench-locator.spec.ts", "workspace-gallery.spec.ts", "workspace-image-proportions.spec.ts", "workspace-management.spec.ts",
   ] },
   { name: "agent-plan", config: "playwright.agent-plan.config.ts", source: "fresh plan fixture; continuation held", specs: ["agent-plan.spec.ts"] },
   { name: "bgm", config: "playwright.config.ts", source: "fresh Studio database; real audio upload and ffprobe; controlled analysis and chat", specs: ["bgm-pool.spec.ts"] },

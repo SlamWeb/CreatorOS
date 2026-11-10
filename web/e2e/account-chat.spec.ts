@@ -187,7 +187,7 @@ test("the default account is verified before enabling its conversation", async (
     const launcher = page.getByRole("button", { name: "打开账号对话", exact: true });
     await expect(launcher).toBeDisabled();
     release();
-    await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "切换账号", exact: true })).toContainText(account.display_name);
     await expect(launcher).toHaveAttribute("title", `与 ${account.display_name} 对话`);
     await expect(launcher).toBeEnabled();
   } finally { release(); }
@@ -243,7 +243,7 @@ test("a late default-account refresh cannot replace the account chosen afterward
   expect(destination).toBeTruthy();
   await page.clock.install();
   await page.goto("/workspace");
-  await expect(page.getByRole("heading", { name: account.display_name, level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "切换账号", exact: true })).toContainText(account.display_name);
   await page.getByRole("link", { name: "Skill", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Skill 库", exact: true })).toBeVisible();
   let release!: () => void;
@@ -666,7 +666,7 @@ test("deep links derive a bound session scope; mismatched scopes cannot send", a
   await page.goto(`/?creator=${creator.id}`);
   await switchAccount(page, otherCreator.display_name);
   await expect.poll(() => new URL(page.url()).searchParams.get("creator")).toBe(otherCreator.id);
-  await expect(page.getByRole("heading", { name: otherCreator.display_name, level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "切换账号", exact: true })).toContainText(otherCreator.display_name);
 
   await page.goto("/agent");
   await expect(page.locator(".agent-history-list button")).toHaveCount(1);

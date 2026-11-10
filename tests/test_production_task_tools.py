@@ -81,13 +81,16 @@ class ProductionTaskToolContractTests(unittest.TestCase):
 
     def test_chat_marks_only_unknown_production_write_as_unknown(self):
         from tests.test_plan_continuation_unknown_write import ContinuationUnknownWriteTests
-        for error_type, expected in (('studio_outcome_unknown', 'unknown'),
-                                     ('invalid_arguments', 'failed'),
-                                     ('studio_read_failed', 'failed')):
-            with self.subTest(error_type=error_type), ContinuationUnknownWriteTests.isolated_case() as case:
+        for error_type, pre_dispatch, expected in (('studio_outcome_unknown', False, 'unknown'),
+                                                   ('invalid_arguments', True, 'failed'),
+                                                   ('studio_read_failed', True, 'failed'),
+                                                   ('invalid_arguments', False, 'unknown'),
+                                                   ('studio_read_failed', False, 'unknown')):
+            with self.subTest(error_type=error_type, pre_dispatch=pre_dispatch), ContinuationUnknownWriteTests.isolated_case() as case:
                 case.responses = [[('start_content_run', {'action': 'tasks', 'topic_id': 'isolated-topic',
                     'tasks': [{'kind': 'image', 'title': 'One', 'brief': 'Create one'}]})], []]
-                result = ToolResult(content='controlled result', is_error=True, error_type=error_type)
+                result = ToolResult(content='controlled result', is_error=True, error_type=error_type,
+                                    details={'pre_dispatch': True} if pre_dispatch else {})
                 with patch('creatoros.agent.loop.execute_tool_call', return_value=result):
                     view = case.chat.get(case.sid)
                     case.chat.submit(case.sid, 'production-unknown', '制作', view['version'], 'http://127.0.0.1:1')

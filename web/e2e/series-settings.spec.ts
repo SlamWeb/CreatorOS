@@ -110,7 +110,7 @@ test("rename conflict retains its draft; ownership change still persists through
 test("a late assignment response keeps the user's newer workspace location", async ({ page, request }) => {
   const data = await fixture(request);
   const other = await post(request, "/api/creators", { display_name: `并发接收账号-${data.suffix}` });
-  await page.goto(`/?creator=${data.account.id}`);
+  await page.goto(`/?creator=${data.account.id}&view=data`);
   await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
   await expect(page).toHaveURL(url => url.searchParams.get("series") === data.series.id);
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
@@ -141,7 +141,7 @@ test("a late assignment response keeps the user's newer workspace location", asy
 test("a pending assignment survives leaving and returning; its late failure is visible", async ({ page, request }) => {
   const data = await fixture(request);
   const other = await post(request, "/api/creators", { display_name: `迟到失败账号-${data.suffix}` });
-  await page.goto(`/?creator=${data.account.id}`);
+  await page.goto(`/?creator=${data.account.id}&view=data`);
   await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   let release!: () => void;
@@ -174,7 +174,7 @@ test("a pending assignment survives leaving and returning; its late failure is v
 
 test("a pending removal survives leaving and returning; its late failure is visible", async ({ page, request }) => {
   const data = await fixture(request);
-  await page.goto(`/?creator=${data.account.id}`);
+  await page.goto(`/?creator=${data.account.id}&view=data`);
   await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   let release!: () => void;
@@ -208,7 +208,7 @@ test("a pending removal survives leaving and returning; its late failure is visi
 test("a successful assignment finishes in the workspace revisited across routes", async ({ page, request }) => {
   const data = await fixture(request);
   const other = await post(request, "/api/creators", { display_name: `跨页面接收账号-${data.suffix}` });
-  await page.goto(`/?creator=${data.account.id}`);
+  await page.goto(`/?creator=${data.account.id}&view=data`);
   await page.getByRole("button", { name: data.series.name, exact: true }).first().click();
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   let release!: () => void;

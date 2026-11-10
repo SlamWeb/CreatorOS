@@ -10,8 +10,8 @@ test("closing the operation drawer stops its overview observer", async ({ page }
     } });
   });
 
-  await page.goto("/workspace");
-  await page.getByRole("button", { name: "运营指令" }).click();
+  // Open the existing operation deep link after navigation; this test covers its polling lifecycle.
+  await page.goto("/workspace?command=new");
   await expect(page.getByRole("dialog", { name: "运营指令" })).toBeVisible();
   await expect.poll(() => overviewRequests).toBe(1);
 

@@ -22,6 +22,7 @@ async function dragSkill(page: Page, name: string) {
 }
 
 async function addSkill(page: Page, name: string) {
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(name);
   await page.getByRole("button", { name, exact: true }).click();
   await page.getByRole("dialog", { name }).getByRole("button", { name: "加入组合", exact: true }).click();
 }
@@ -61,7 +62,6 @@ test("free composer accepts different Skill roles, deduplicates, removes and res
   await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   await page.goto("/skills");
   const basket = page.getByLabel("Skill 组合框", { exact: true });
-
   await dragSkill(page, "inspector-mind");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
@@ -191,6 +191,7 @@ test("controlled native merge stays a draft until saved, then explicit single-Sk
   });
   await page.goto("/skills");
   const basket = page.getByLabel("Skill 组合框", { exact: true });
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector");
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   await page.getByRole("dialog", { name: "inspector-mind" }).getByRole("button", { name: "加入组合" }).click();
   await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
@@ -241,6 +242,7 @@ test("controlled native merge stays a draft until saved, then explicit single-Sk
 
 test("a single Mind Skill is rejected by the real API and never shown as a created series", async ({ page, request }) => {
   await page.goto("/skills");
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-mind");
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   await page.getByRole("dialog", { name: "inspector-mind" }).getByRole("button", { name: "加入组合" }).click();
   const name = `单 Mind 不可生产-${crypto.randomUUID().slice(0, 8)}`;

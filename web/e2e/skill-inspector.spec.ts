@@ -3,6 +3,7 @@ import { limitVisibleSkillCatalog } from "./fixtures/skill-catalog";
 
 async function openMind(page: Page) {
   await page.goto("/skills");
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-mind");
   const card = page.getByRole("button", { name: "inspector-mind", exact: true });
   await card.click();
   const dialog = page.getByRole("dialog", { name: "inspector-mind" });
@@ -219,6 +220,7 @@ test("manual Skill selection waits for the chosen version to be verified", async
     if (req.method() === "GET" && new URL(req.url()).pathname === `/api/producer-skills/${fixture.mind.id}/files`) fileReads++;
   });
   await page.goto("/skills");
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-mind");
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const error = page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" });
   await expect(error).toBeVisible();
@@ -267,6 +269,7 @@ test("Skill library manual selection replaces a failed deep link", async ({ page
     route.fulfill({ status: 503, json: { detail: "受控读取故障" } }));
   await page.goto(`/skills?skill=${fixture.mind.id}&extraction=preserve-existing-task`);
   await expect(page.getByRole("alert").filter({ hasText: "无法读取指定 Skill" })).toBeVisible();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-visual");
   await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "inspector-visual", exact: true });
   await expect(dialog).toBeVisible();
@@ -289,6 +292,7 @@ test("Skill library manual selection wins over a slow valid deep link", async ({
   try {
     await page.goto(`/skills?skill=${fixture.mind.id}`);
     await expect.poll(() => blocked).toBe(true);
+    await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-visual");
     await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "inspector-visual", exact: true });
     await expect(dialog).toBeVisible();
@@ -308,6 +312,7 @@ test("Skill library opens another card after a successfully opened deep link", a
   await expect(first).toBeVisible();
   await first.getByRole("button", { name: "关闭 Skill 详情", exact: true }).click();
   await expect(first).toHaveCount(0);
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-visual");
   await page.getByRole("button", { name: "inspector-visual", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "inspector-visual", exact: true })).toBeVisible();
   await expect.poll(() => new URL(page.url()).searchParams.get("skill")).toBe(fixture.production.id);
@@ -514,6 +519,7 @@ test("controlled read failure can retry against real API", async ({ page }) => {
     else await route.continue();
   });
   await page.goto("/skills");
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill("inspector-mind");
   await page.getByRole("button", { name: "inspector-mind", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("alert")).toContainText("临时读取失败");

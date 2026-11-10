@@ -199,8 +199,12 @@ class PlanContinuationTests(unittest.TestCase):
                         self.assertEqual(len(tool_lists), 2)
                         visible = tool_lists[-1]
                     self.assertTrue(visible)
-                    self.assertEqual(visible, {'discover_tools', 'call_discovered_tool',
-                                               'read_topic', 'list_topics', 'get_creator_tasks'})
+                    self.assertEqual(visible, {
+                        'get_content_run', 'get_creator_tasks', 'get_producer_skill',
+                        'list_creator_series', 'list_creators', 'list_producer_skills',
+                        'manage_material', 'manage_media_collection', 'manage_plan',
+                        'manage_skill_library', 'manage_topics', 'read_image', 'read_tool_result',
+                    })
                     self.assertNotIn('start_content_run', visible)
                     self.assertTrue(any(e.get('kind') == 'assistant' and '已收到结果' in e.get('text', '')
                                         for e in doc['entries']))
