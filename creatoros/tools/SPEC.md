@@ -1,5 +1,9 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-17 · 全局 BGM 与栏目歌单
+
+`manage_bgm` 可搜索共享曲目、查看全曲分析摘要和导入进度，并按用户请求入池、重分析或调整当前账号栏目的歌单。宿主校验栏目归属和工作区状态。模型可用 `inputs.bgm_track_id` 选共享曲目，用 `inputs.bgm_reference` 直接交付用户的分享原文；旧素材仍使用 `inputs.bgm_material_id`。视频任务的素材集继续校验账号和选题归属，音频与可用分析在提交时冻结。
+
 ## 2026-11-11 · BGM 模型参数校验
 
 canonical-v2 的 `manage_material` 按动作排除互不兼容的素材 ID、分享链接和导入 ID，并在模型 Schema 中表达现有解析器的长度、数值和 ID 约束；账号绑定、旧协议和后端执行规则不变。Schema 发生变化，模型调用效果和供应商兼容性仍需真实验证。

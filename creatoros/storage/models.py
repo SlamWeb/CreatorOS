@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -491,6 +492,50 @@ class ManagedMaterial(TimestampMixin, Base):
     sha256: Mapped[str] = mapped_column(String(64))
     size_bytes: Mapped[int] = mapped_column(Integer)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class GlobalBgmTrack(TimestampMixin, Base):
+    __tablename__ = "global_bgm_tracks"
+
+    id: Mapped[str] = mapped_column(String(68), primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(200))
+    suffix: Mapped[str] = mapped_column(String(10))
+    kind: Mapped[str] = mapped_column(String(20))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    duration_seconds: Mapped[float] = mapped_column(Float)
+    source_type: Mapped[str] = mapped_column(String(20))
+    source_url: Mapped[str | None] = mapped_column(Text)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    analysis_status: Mapped[str] = mapped_column(String(20), default="not_started")
+    analysis_message: Mapped[str | None] = mapped_column(Text)
+    analysis_json: Mapped[dict | None] = mapped_column(JSON)
+    legacy_analysis_json: Mapped[dict | None] = mapped_column(JSON)
+
+
+class GlobalBgmLegacySource(Base):
+    __tablename__ = "global_bgm_legacy_sources"
+
+    material_id: Mapped[str] = mapped_column(ForeignKey("managed_materials.id", ondelete="RESTRICT"), primary_key=True)
+    track_id: Mapped[str] = mapped_column(ForeignKey("global_bgm_tracks.id", ondelete="RESTRICT"), index=True)
+
+
+class SeriesBgmTrack(TimestampMixin, Base):
+    __tablename__ = "series_bgm_tracks"
+
+    series_id: Mapped[str] = mapped_column(ForeignKey("series.id", ondelete="RESTRICT"), primary_key=True)
+    track_id: Mapped[str] = mapped_column(ForeignKey("global_bgm_tracks.id", ondelete="RESTRICT"), primary_key=True, index=True)
+
+
+class GlobalBgmImport(TimestampMixin, Base):
+    __tablename__ = "global_bgm_imports"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_url: Mapped[str] = mapped_column(Text)
+    media_url: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20))
+    message: Mapped[str | None] = mapped_column(Text)
+    track_id: Mapped[str | None] = mapped_column(ForeignKey("global_bgm_tracks.id", ondelete="RESTRICT"))
 
 
 class ContentRun(TimestampMixin, Base):

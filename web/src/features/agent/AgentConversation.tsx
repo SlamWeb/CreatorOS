@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, request, studioApi } from "../../api/client";
 import { History, Music2, Plus, Repeat2, X } from "lucide-react";
-import { QA_BGM_CREATOR, uploadBgm } from "../../components/BgmPool";
+import { QA_BGM_CREATOR, uploadBgm } from "../../components/bgmAccess";
 import { skillEditPrompt, type SkillEditHandoff } from "../../components/skillEditHandoff";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../../components/AgentAttachments";
 import { useAgentChat } from "./chatHostContext";

@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Activity, ClipboardCheck, LayoutGrid, Layers, Sparkles, SquarePen } from "lucide-react";
+import { Activity, ClipboardCheck, LayoutGrid, Layers, Music2, Sparkles, SquarePen } from "lucide-react";
 import { OperationDrawer } from "../features/operations/OperationDrawer";
 import { BrandMark } from "./BrandMark";
 import { AgentChatProvider } from "./AgentChatHost";
@@ -8,6 +8,7 @@ import { TaskInbox, UnseenDot, useWorkInbox, WorkInboxProvider } from "./TaskInb
 
 const navItems = [
   { to: "/workspace", label: "账号与栏目", icon: LayoutGrid },
+  { to: "/bgm", label: "BGM 池", icon: Music2 },
   { to: "/skills", label: "Skill", icon: Layers },
   { to: "/agent", label: "Agent", icon: Sparkles },
   { to: "/observation", label: "Observation", icon: Activity },
@@ -20,7 +21,7 @@ function readWorkspaceLocation() {
     const allowed = new URLSearchParams();
     for (const key of ["creator", "series", "view", "topics", "offset"]) {
       const value = query.get(key);
-      if (value) allowed.set(key, value);
+      if (value && !(key === "view" && value === "bgm")) allowed.set(key, value);
     }
     const suffix = allowed.toString();
     return suffix ? `/workspace?${suffix}` : "/workspace";
@@ -38,6 +39,7 @@ export function PrimaryNavigation() {
   useEffect(() => {
     if (location.pathname !== "/workspace" && !(location.pathname === "/" && location.search)) return;
     const source = new URLSearchParams(location.search);
+    if (source.get("view") === "bgm") return;
     const selection = new URLSearchParams();
     for (const key of ["creator", "series", "view", "topics", "offset"]) {
       const value = source.get(key);
@@ -61,7 +63,7 @@ export function PrimaryNavigation() {
 function LayoutContent() {
   const location = useLocation();
   const [, setParams] = useSearchParams();
-  const section = location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
+  const section = location.pathname === "/bgm" ? "BGM 池" : location.pathname.startsWith("/eval") ? "Eval" : location.pathname.startsWith("/observation") ? "Observation" : location.pathname.startsWith("/agent") ? "Agent" : location.pathname.startsWith("/skills") ? "Skill 库" : location.pathname.startsWith("/runs") ? "内容验收" : "账号与栏目";
   return (
     <AgentChatProvider><div className={`studio-shell ${["/", "/workspace"].includes(location.pathname) ? "workspace-studio" : ""} ${["/", "/workspace"].includes(location.pathname) && new URLSearchParams(location.search).has("series") ? "column-workspace" : ""} ${location.pathname.startsWith("/series/") ? "series-studio" : ""} ${location.pathname === "/agent" ? "agent-studio" : ""}`}>
       <a href="#studio-main" className="studio-skip-link">跳到正文</a>

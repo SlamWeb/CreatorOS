@@ -20,7 +20,7 @@ from creatoros.ai.types import ToolCall
 from creatoros.context import RuntimeContext
 from creatoros.config import PROJECT_ROOT
 from creatoros.plan_capabilities import PLAN_TOOL_NAMES, allows_tool_action, can_wait
-from creatoros.storage.models import AgentPlan, AgentPlanStep, ContentRun, MediaCollection, ProductionTask, Topic, WriteReceipt
+from creatoros.storage.models import AgentPlan, AgentPlanStep, ContentRun, Creator, MediaCollection, ProductionTask, Topic, WriteReceipt
 from creatoros.runs.observation import (observe_production, only_revision_matches, run_topic_id,
                                        submission_outcome, submission_shape_arguments, valid_submission_identity)
 from creatoros.runs.errors import ContentRunError
@@ -226,11 +226,12 @@ class PlanService:
             if self.db.engine.dialect.name == 'sqlite': session.execute(text('BEGIN IMMEDIATE'))
             yield session
 
-    def _owner(self, sid):
+    def _owner(self, sid, *, require_active=True):
         doc = self.chat.get(sid)
         owner = doc.get('creator_id') if doc.get('scope_kind') == 'creator' else None
         if not owner: raise ContentRunError('请在账号对话中创建计划。', code='scope_conflict', status_code=403)
-        self.chat.require_creator(owner)
+        if require_active:
+            self.chat.require_creator(owner)
         return owner
 
     @staticmethod
@@ -269,13 +270,15 @@ class PlanService:
         return result
 
     def list(self, sid):
-        owner = self._owner(sid)
+        owner = self._owner(sid, require_active=False)
         with self.db.session() as session:
+            creator = session.get(Creator, owner)
+            active = bool(creator and creator.is_active)
             rows = session.scalars(select(AgentPlan).where(AgentPlan.session_id == sid, AgentPlan.creator_id == owner)
                                    .order_by(AgentPlan.created_at.desc())).all()
             return {'items': [dict(id=r.id, title=r.title, status=r.status, version=r.version,
                                    tool_contract_version=2 if _current_contract(r) else None,
-                                   read_only=not _current_contract(r),
+                                   read_only=not active or not _current_contract(r),
                                    continuation_state=r.continuation_state, pause_reason=self._pause_reason(r)) for r in rows]}
 
     @staticmethod
@@ -296,18 +299,20 @@ class PlanService:
                                     .order_by(AgentPlanStep.position)))
 
     def get(self, sid, identity):
-        owner = self._owner(sid)
+        owner = self._owner(sid, require_active=False)
         with self.db.session() as session:
             p = self._find(session, sid, owner, identity)
+            creator = session.get(Creator, owner)
+            editable = bool(creator and creator.is_active and _current_contract(p))
             rows = self._rows(session, identity)
             return dict(id=p.id, session_id=p.session_id, creator_id=p.creator_id, title=p.title,
-                tool_contract_version=2 if _current_contract(p) else None, read_only=not _current_contract(p),
+                tool_contract_version=2 if _current_contract(p) else None, read_only=not editable,
                 version=p.version, status=p.status, continuation_state=p.continuation_state, pause_reason=self._pause_reason(p),
                 steps=[dict(id=s.step_key, title=s.title, tool=s.tool, arguments=deepcopy(s.arguments_json),
                     depends_on=list(s.depends_on_json), wait_for_completion=s.wait_for_completion,
                     status=s.status, result=deepcopy(s.result_json), error=s.error,
-                    retryable=_current_contract(p) and self._retryable(s),
-                    skippable=_current_contract(p) and self._skippable(s)) for s in rows])
+                    retryable=editable and self._retryable(s),
+                    skippable=editable and self._skippable(s)) for s in rows])
 
     @staticmethod
     def _safe_production_validation_failure(row):

@@ -2,22 +2,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, studioApi } from "../api/client";
-import type { ProducerSkillItem, TopicView } from "../api/types";
+import type { CreatorDirectoryItem, ProducerSkillItem, TopicView } from "../api/types";
+import type { RemovalStatus } from "../api/workspaceLifecycle";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { useAgentChat } from "../features/agent";
 import { SkillInspector } from "../components/SkillInspector";
 import { AccountAnalytics } from "../components/AccountAnalytics";
 import { MediaCollections } from "../components/MediaCollections";
-import { BgmPool, QA_BGM_CREATOR } from "../components/BgmPool";
 import { CreatorSkillLibrary } from "../components/SkillLibrary";
 import { useWorkInbox } from "../components/TaskInbox";
 import { AccountNavigator } from "../components/AccountNavigator";
 import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SeriesWorkspace } from "../features/series/SeriesWorkspace";
+import { SeriesPlaylist } from "../features/series/SeriesPlaylist";
 import { useSeriesOperationNavigation } from "../features/series/useSeriesOperationNavigation";
 import { useWorkspaceNavigation } from "../features/workspace/useWorkspaceNavigation";
 import { useCreatorDirectory } from "../api/useCreatorDirectory";
 import { refreshWorkspace } from "../features/workspace/workspaceData";
+import { WorkspaceRemoval } from "../features/workspace/WorkspaceRemoval";
+import { WorkspaceRecovery } from "../features/workspace/WorkspaceRecovery";
 import "./workspace.css";
 
 export function WorkspaceRedirect() {
@@ -41,18 +44,21 @@ export function WorkspacePage() {
   const targetCreator = useQuery({ queryKey: ["creator", routeCreatorId], queryFn: () => studioApi.creator(routeCreatorId!),
     enabled: !!routeCreatorId, staleTime: 5_000, retry: false });
   const accountVerified = !routeCreatorId || (targetCreator.isSuccess && targetCreator.data.id === routeCreatorId);
+  const accountArchived = accountVerified && targetCreator.data?.is_active === false;
   const accountMissing = !!routeCreatorId && targetCreator.isError && targetCreator.error instanceof ApiError && targetCreator.error.status === 404;
   const accounts = useMemo(() => {
     if (!routeCreatorId) return creators.items;
-    const target = accountVerified && targetCreator.data?.id === routeCreatorId ? targetCreator.data : undefined;
+    const target = accountVerified && targetCreator.data?.id === routeCreatorId && !accountArchived ? targetCreator.data : undefined;
     const others = creators.items.filter(item => item.id !== routeCreatorId);
     if (!target) return others;
     return creators.items.some(item => item.id === routeCreatorId)
       ? creators.items.map(item => item.id === routeCreatorId ? target : item)
       : [...others, target];
-  }, [creators.items, routeCreatorId, targetCreator.data, accountVerified]);
+  }, [creators.items, routeCreatorId, targetCreator.data, accountVerified, accountArchived]);
   const skills = useQuery({ queryKey: ["producer-skills"], queryFn: studioApi.producerSkills });
   const [accountDraft, setAccountDraft] = useState<{ name: string; handle: string } | null>(null);
+  const [accountRemoval, setAccountRemoval] = useState<CreatorDirectoryItem | null>(null);
+  const [accountRemovalNotice, setAccountRemovalNotice] = useState("");
   const [seriesDraft, setSeriesDraft] = useState<{ name: string; creatorId: string | null } | null>(null);
   const chat = useAgentChat();
   const [inspectedSkill, setInspectedSkill] = useState<{
@@ -60,7 +66,7 @@ export function WorkspacePage() {
   } | null>(null);
   const viewedSkill = useRef<string | null>(null);
   const { params, setParams, scopedCreatorId, account, series, accountSeries,
-    confirmingAccount, setConfirmingAccount, selectAccount, selectSeries, completeAssignment, accountDeleted, seriesDeleted } =
+    selectAccount, selectSeries, completeAssignment, accountDeleted, seriesDeleted } =
     useWorkspaceNavigation(creators.data ? accounts : undefined, seriesAll.data, accountVerified);
   useSeriesOperationNavigation(completeAssignment, seriesDeleted);
   // Remember only a validated series per account; explicit old links always win.
@@ -105,12 +111,14 @@ export function WorkspacePage() {
 
   const deleteAccount = useMutation({
     retry: false,
-    mutationFn: (id: string) => studioApi.deleteCreator(id),
-    onSuccess: async (_result, id) => {
-      await refresh();
-      accountDeleted(id);
+    mutationFn: ({ target, status }: { target: CreatorDirectoryItem; status: RemovalStatus }) => studioApi.deleteCreator(target.id, status),
+    onSuccess: async (result, { target }) => {
+      setAccountRemoval(null);
+      setAccountRemovalNotice(result.status === "deleted" ? `已永久删除「${target.display_name}」。` : `已从工作区移出「${target.display_name}」。`);
+      accountDeleted(target.id);
+      await Promise.all([refresh(), client.invalidateQueries({ queryKey: ["creator", target.id] }), client.invalidateQueries({ queryKey: ["run"] })]);
     },
-    onError: () => setConfirmingAccount(null),
+    onError: (_, { target }) => client.invalidateQueries({ queryKey: ["workspace-removal", "creators", target.id] }),
   });
 
   const createSeries = useMutation({
@@ -129,13 +137,19 @@ export function WorkspacePage() {
       : routeCreatorId && targetCreator.isSuccess && !accountVerified
         ? { message: "读取当前账号失败：返回账号与请求不一致。", retry: () => void targetCreator.refetch() }
         : null;
+  if (params.get("view") === "bgm") return <Navigate to="/bgm" replace />;
   if (workspaceLoading && !inspectedSkill) return <LoadingState label="正在读取…" />;
   if (workspaceError && !inspectedSkill) return <ErrorState message={workspaceError.message} onRetry={workspaceError.retry} />;
 
   const allSeries = seriesAll.data ?? [];
   const seriesId = series?.id ?? null;
   const requestedView = params.get("view") ?? "content";
-  const shownView = !["content", "data", "materials", "skills", "bgm"].includes(requestedView) || requestedView === "bgm" && account?.id !== QA_BGM_CREATOR ? "content" : requestedView;
+  const shownView = ["content", "data", "materials", "skills", "playlist"].includes(requestedView) ? requestedView : "content";
+  const setRecovery = (open: boolean) => setParams(previous => {
+    const next = new URLSearchParams(previous);
+    if (open) next.set("recovery", "1"); else next.delete("recovery");
+    return next;
+  }, { replace: !open });
   const scopeUnavailable = !!inspectedSkill?.creatorId && (workspaceLoading || !!workspaceError || creators.isError
     || !accountVerified || account?.id !== inspectedSkill.creatorId);
   const inspectSkill = (skill: ProducerSkillItem) => setInspectedSkill({ skill, creatorId: account?.id,
@@ -148,7 +162,7 @@ export function WorkspacePage() {
   };
   const beginNewAccount = () => { createAccount.reset(); setAccountDraft({ name: "", handle: "" }); };
   const beginNewSeries = () => {
-    if (routeCreatorId && !accountVerified) return;
+    if (accountArchived || (routeCreatorId && !accountVerified)) return;
     if (!accounts.length) { beginNewAccount(); return; }
     createSeries.reset();
     setSeriesDraft({ name: "", creatorId: scopedCreatorId });
@@ -158,23 +172,25 @@ export function WorkspacePage() {
     {workspaceLoading ? <LoadingState label="正在读取…" /> : workspaceError
       ? <ErrorState message={workspaceError.message} onRetry={workspaceError.retry} /> : <>
     <div className="workspace-main">
-      <AccountNavigator accounts={accounts} account={account} series={accountSeries} selectedSeriesId={seriesId}
+      <AccountNavigator accounts={accounts} account={account} series={accountArchived ? [] : accountSeries} selectedSeriesId={seriesId}
         accountsLoading={creators.isFetching} accountsIncomplete={creators.isError} onRetryAccounts={() => void creators.refetch()}
         unassigned={allSeries.filter(item => item.creator_id === null)} onSelectAccount={id => selectAccount(id, true)} onSelectSeries={id => selectSeries(id)}
-        onCreateAccount={beginNewAccount} onCreateSeries={beginNewSeries} createSeriesDisabled={!!routeCreatorId && !accountVerified}
-        hasUnseen={id => inbox.hasUnseen("series", id)} confirmingDelete={confirmingAccount === account?.id}
-        onConfirmDelete={() => setConfirmingAccount(account?.id ?? null)} onDelete={() => account && deleteAccount.mutate(account.id)} deletePending={deleteAccount.isPending}
-        shownView={shownView} showBgm={account?.id === QA_BGM_CREATOR}
+        onCreateAccount={beginNewAccount} onCreateSeries={beginNewSeries} createSeriesDisabled={accountArchived || (!!routeCreatorId && !accountVerified)}
+        hasUnseen={id => inbox.hasUnseen("series", id)}
+        onRemove={() => { if (!account) return; deleteAccount.reset(); setAccountRemovalNotice(""); setAccountRemoval(account); }}
+        onRecovery={() => setRecovery(true)} shownView={shownView}
         onViewChange={view => setParams(previous => { const next = new URLSearchParams(previous); if (view === "content") next.delete("view"); else next.set("view", view); return next; })} />
-      {deleteAccount.isError && <p className="form-error" role="alert">{deleteAccount.error.message}</p>}
-      {params.has("series") && !series && <p className="form-error" role="alert">栏目不存在或不属于当前账号，请重新选择栏目。</p>}
-      {(accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从账号切换中重新选择。</p>}
+      {accountRemovalNotice && <p role="status">{accountRemovalNotice}</p>}
+      {!accountArchived && params.has("series") && !series && <div className="form-error" role="alert"><p>栏目不存在或不属于当前账号，请重新选择栏目。</p><button className="text-link" type="button" onClick={() => setRecovery(true)}>查看已移出的栏目</button></div>}
+      {accountArchived ? <p role="status">账号「{targetCreator.data?.display_name}」已从工作区移出。你可以在「已移出的账号与栏目」中查看历史或恢复。</p> :
+        (accountMissing || params.has("creator") && !account) && <p className="form-error" role="alert">账号不存在，请从账号切换中重新选择。</p>}
       {series && shownView === "materials" && <h1 className="workspace-visually-hidden">{series.name}</h1>}
-      {series && ["content", "materials"].includes(shownView) && <nav className="series-view-tabs" aria-label="栏目工作区">
+      {series && !accountArchived && ["content", "materials", "playlist"].includes(shownView) && <nav className="series-view-tabs" aria-label="栏目工作区">
         <button type="button" aria-pressed={shownView === "content"} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.delete("view"); next.delete("collection"); next.delete("collection_topic"); return next; })}>作品</button>
         {account && <button type="button" aria-pressed={shownView === "materials"} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set("view", "materials"); return next; })}>素材</button>}
+        {account && <button type="button" aria-pressed={shownView === "playlist"} onClick={() => setParams(previous => { const next = new URLSearchParams(previous); next.set("view", "playlist"); next.delete("collection"); next.delete("collection_topic"); return next; })}>歌单</button>}
       </nav>}
-      {account && shownView === "bgm" && account.id === QA_BGM_CREATOR ? <BgmPool key={account.id} creatorId={account.id} /> :
+      {account && series && shownView === "playlist" ? <SeriesPlaylist key={series.id} seriesId={series.id} name={series.name} /> :
         account && shownView === "skills" ? <CreatorSkillLibrary key={account.id} creatorId={account.id} onInspect={inspectSkill} /> :
         account && shownView === "materials" ? <MediaCollections key={`${account.id}:${series?.id ?? "account"}`} creatorId={account.id} seriesId={series?.id} /> :
         account && shownView === "data" ? <AccountAnalytics key={account.id} creatorId={account.id} /> :
@@ -186,6 +202,12 @@ export function WorkspacePage() {
         accounts={accounts.map(a => ({ id: a.id, name: a.display_name }))}
         skills={skills.data?.items ?? []} onInspectSkill={inspectSkill} onDiscuss={discuss} />}
     </div>
+    {accountRemoval && account?.id === accountRemoval.id && <WorkspaceDialog title="删除或移出账号" busy={deleteAccount.isPending} onClose={() => setAccountRemoval(null)}>
+      <WorkspaceRemoval key={accountRemoval.id} type="creators" id={accountRemoval.id} name={accountRemoval.display_name} busy={deleteAccount.isPending}
+        error={deleteAccount.error?.message} onConfirm={status => deleteAccount.mutate({ target: accountRemoval, status })}
+        onCancel={() => setAccountRemoval(null)} />
+    </WorkspaceDialog>}
+    {params.has("recovery") && <WorkspaceRecovery accounts={accounts} selectedCreator={targetCreator.data} onClose={() => setRecovery(false)} />}
     {accountDraft && <WorkspaceDialog title="新建账号" busy={createAccount.isPending} onClose={() => setAccountDraft(null)}>
       <form className="workspace-create-form" onSubmit={event => {
         event.preventDefault();

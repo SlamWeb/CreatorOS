@@ -90,6 +90,69 @@ class StagedTasksTests(unittest.TestCase):
             self.assertEqual(session.query(ProductionQueueItem).count(), 2)
 
 
+    def test_shared_track_and_analysis_survive_playlist_changes_and_archival_after_submission(self):
+        import hashlib
+        import json
+        from unittest.mock import patch
+
+        from creatoros.integrations.global_bgm import GlobalBgmStore
+        from creatoros.runs.task_contracts import TaskExecutionSpec
+
+        def analyzed(bpm):
+            return (json.dumps({"schema": "bgm-editing-brief-v2", "overview": {"bpm": bpm}}).encode(),
+                    {"schema": "bgm-editing-brief-v2", "analyzer_version": "test", "summary": {"overview": {"bpm": bpm}}})
+
+        source = io.BytesIO()
+        with wave.open(source, "wb") as sound:
+            sound.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            sound.writeframes(b"\0\1" * 8000)
+        pool = GlobalBgmStore(self.db, legacy=self.materials)
+        self.tasks.stages.global_bgm = pool
+        with patch("creatoros.integrations.global_bgm.run_whole_analysis", return_value=analyzed(90)):
+            track_id = pool.put("shared.wav", source.getvalue())["id"]
+            worker = pool._analysis_thread
+            if worker:
+                worker.join(10)
+        self.assertTrue(pool.analysis_status(track_id)["analysis_available"])
+
+        pool.add_to_series("single", track_id)
+        images, image = self.image()
+        payload = self.video_payload(images, image)
+        payload["inputs"] = {"collection_id": images["collection_id"], "bgm_track_id": track_id}
+        submitted = self.tasks.create("topic", request_id="shared-bgm", tasks=[payload])
+        task_id = submitted["items"][0]["id"]
+        self.assertEqual(submitted["items"][0]["status"], "waiting")
+        with self.db.session() as session:
+            definition = session.get(ProductionTask, task_id).definition_json
+        self.assertEqual(definition["inputs"]["bgm_track_id"], track_id)
+        pinned = TaskExecutionSpec.model_validate(definition["execution_spec"])
+        expected = {item.kind: item.sha256 for item in pinned.materials}
+        self.assertEqual(expected, {
+            "audio": hashlib.sha256(source.getvalue()).hexdigest(),
+            "bgm_analysis": hashlib.sha256(analyzed(90)[0]).hexdigest(),
+        })
+
+        pool.remove_from_series("single", track_id)
+        with patch("creatoros.integrations.global_bgm.run_whole_analysis", return_value=analyzed(120)):
+            pool.start_analysis(track_id, force=True)
+            worker = pool._analysis_thread
+            if worker:
+                worker.join(10)
+        self.assertEqual(pool.resolve_analysis(track_id)["sha256"], hashlib.sha256(analyzed(120)[0]).hexdigest())
+        pool.archive(track_id)
+        with self.assertRaisesRegex(ContentRunError, "已归档"):
+            self.tasks.create("topic", request_id="new-shared-bgm", tasks=[payload])
+        for item in pinned.materials:
+            self.assertEqual(hashlib.sha256(Path(item.path).read_bytes()).hexdigest(), expected[item.kind])
+
+        self.runs.execute(image["run_id"])
+        self.tasks.stages.advance()
+        already_submitted = self.tasks.create("topic", request_id="shared-bgm", tasks=[payload])
+        self.assertEqual(already_submitted["items"][0]["id"], task_id)
+        run = self.runs.get(already_submitted["items"][0]["run_id"])
+        outgoing = TaskExecutionSpec.model_validate(run.input_snapshot_json["execution_spec"])
+        self.assertEqual({item.kind: item.sha256 for item in outgoing.materials if item.kind != "images_zip"}, expected)
+
     def test_wait_freeze_dispatch_once_and_material_collection_does_not_collect_video(self):
         images, image = self.image()
         payload = self.video_payload(images, image)

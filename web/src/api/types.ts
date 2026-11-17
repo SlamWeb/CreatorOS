@@ -136,6 +136,7 @@ export interface PageResponse<T> {
 }
 
 export interface RunSummary {  id: string;
+  workspace_archived?: boolean;
   task_kind?: TaskKind;
   latest_run_id?: string | null;
   task_id?: string | null;
@@ -167,7 +168,7 @@ export type TaskKind = "image" | "video";
 export interface TaskSkill { skill_id: string; digest: string; role: "primary" | "supporting" }
 export interface ProductionTaskInput {
   title: string; brief: string; kind?: TaskKind; skill_ids?: string[]; skills?: TaskSkill[]; skill_overrides?: SkillOverrides;
-  inputs?: { collection_id: string; export_id?: string; bgm_material_id?: string; bgm_reference?: string }; depends_on?: string[];
+  inputs?: { collection_id: string; export_id?: string; bgm_track_id?: string; bgm_material_id?: string; bgm_reference?: string }; depends_on?: string[];
 }
 export interface ProductionTaskView extends ProductionTaskInput {
   id: string; topic_id: string; position: number; run_id: string | null; run_version: number | null;

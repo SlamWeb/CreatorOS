@@ -31,11 +31,12 @@ class VideoTaskInputs(RunModel):
     collection_id: str = Field(min_length=1)
     export_id: str | None = None
     bgm_material_id: str | None = Field(default=None, min_length=1)
+    bgm_track_id: str | None = Field(default=None, pattern=r"^bgm-[a-f0-9]{64}$")
     bgm_reference: str | None = Field(default=None, min_length=1, max_length=10000)
 
     @model_validator(mode="after")
     def one_bgm(self):
-        if bool(self.bgm_material_id) == bool(self.bgm_reference):
+        if sum(map(bool, (self.bgm_track_id, self.bgm_material_id, self.bgm_reference))) != 1:
             raise ValueError("请选择音频文件，或提供 BGM 分享链接。")
         return self
 
@@ -70,11 +71,11 @@ def _digest(value):
 
 
 class ProductionTaskService:
-    def __init__(self, database, runs, executor, *, library=None, collections=None, materials=None):
+    def __init__(self, database, runs, executor, *, library=None, collections=None, materials=None, global_bgm=None):
         self.database, self.runs, self.executor = database, runs, executor
         self.submissions = ProductionSubmission(database, runs, executor)
         from .staged_tasks import StagedTasks
-        self.stages = StagedTasks(self, library, collections, materials)
+        self.stages = StagedTasks(self, library, collections, materials, global_bgm=global_bgm)
         executor.advance_tasks = self.stages.advance
 
     @staticmethod
@@ -102,8 +103,7 @@ class ProductionTaskService:
                 raise ContentRunError("请求标识已用于不同的制作要求。", code="idempotency_conflict")
             return list(saved["task_ids"])
 
-    @staticmethod
-    def _input_scope(session, topic, item, collection_version=None):
+    def _input_scope(self, session, topic, item, collection_version=None):
         if item.kind != "video":
             return None
         inputs = item.inputs
@@ -116,7 +116,15 @@ class ProductionTaskService:
         material = session.get(ManagedMaterial, inputs.bgm_material_id) if inputs.bgm_material_id else None
         if inputs.bgm_material_id and (material is None or material.creator_id != topic.series.creator_id):
             raise ContentRunError("音频素材不存在或不属于当前账号。", code="scope_conflict", status_code=403)
+        if inputs.bgm_track_id:
+            if not self.stages.global_bgm:
+                raise ContentRunError("全局 BGM 池未配置。", code="bgm_unavailable")
+            try:
+                self.stages.global_bgm.ensure_active(session, inputs.bgm_track_id)
+            except ValueError as error:
+                raise ContentRunError(str(error), code="bgm_unavailable", status_code=409) from error
         return {"collection": [collection.id, collection.creator_id, collection.topic_id, collection_version],
+                "track_id": inputs.bgm_track_id,
                 "material": ([material.id, material.creator_id, material.kind, material.sha256, material.size_bytes]
                              if material else None)}
 
@@ -196,8 +204,12 @@ class ProductionTaskService:
         # Keep old request hashes unchanged; old callers have no skill_ids key.
         canonical_tasks = [item.model_dump(mode="json", exclude={"skill_ids"} if item.skill_ids is None else set()) for item in inputs]
         for item in canonical_tasks:
-            if item.get("inputs") is not None and item["inputs"].get("bgm_reference") is None:
-                item["inputs"].pop("bgm_reference", None)  # Keep old file-only replay hashes stable.
+            video_inputs = item.get("inputs")
+            if video_inputs is not None:
+                # Keep the digests of previously submitted file/link tasks stable.
+                for key in ("bgm_reference", "bgm_track_id"):
+                    if video_inputs[key] is None:
+                        video_inputs.pop(key)
         digest = _digest(dict(topic_id=topic_id, tasks=canonical_tasks))
         existing = self._existing_task_ids(topic_id, request_id, digest)
         if existing is not None:
@@ -336,6 +348,9 @@ class ProductionTaskService:
             if topic is None or session.get(TopicRemoval, topic_id):
                 raise ContentRunError("选题已移除。", code="not_found", status_code=404)
             self._assert_task_owner(task, topic)
+            series = topic.series
+            if not series.is_active or not series.creator or not series.creator.is_active:
+                raise ContentRunError("所属账号或栏目已移出工作台，请先恢复。")
             if action == "remove":
                 if task.archived_at is None:
                     run = session.scalar(select(ContentRun).where(ContentRun.task_id == task.id)

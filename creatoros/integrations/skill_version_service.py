@@ -127,6 +127,11 @@ class SkillVersionService:
             TopicReferenceStore(self.database).verify(task_references)
             inputs["task_references"] = task_references.model_dump(mode="json")
         with service.lock, _SKILL_EDIT_LOCK:
+            if series_id:
+                with self.database.session() as session:
+                    source = session.get(Series, series_id)
+                    if source is None or not source.is_active or (source.creator_id and (source.creator is None or not source.creator.is_active)):
+                        raise ExtractionError("栏目或所属账号已移出工作区。", 409)
             directory = service._path("jobs", job_id)
             if (directory / "job.json").is_file():
                 job = service._read(job_id)
@@ -145,7 +150,7 @@ class SkillVersionService:
                 if series_id:
                     with self.database.session() as session:
                         series = session.get(Series, series_id)
-                        if series is None or not series.is_active:
+                        if series is None or not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
                             raise ExtractionError("栏目不存在或已移除。", 404)
                         binding_role, bound_id = self._binding(series, skill_id)
                         series_revision = series.revision
@@ -279,7 +284,7 @@ class SkillVersionService:
             if intent and (intent.signature != input_signature or intent.series_id != series_id):
                 raise ExtractionError("同一切换请求的输入已变化。", 409)
             series = session.get(Series, series_id)
-            if series is None or not series.is_active:
+            if series is None or not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
                 preflight_error = ExtractionError("栏目不存在或已移除。", 404)
             elif series.revision != expected_revision:
                 preflight_error = ExtractionError("栏目配置已变化，请刷新后确认。", 409)

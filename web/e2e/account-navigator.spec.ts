@@ -54,16 +54,16 @@ test("account links and search work beyond the first 100 accounts", async ({ pag
   expect(first.items.some((item: { id: string }) => item.id === target.id)).toBe(false);
   expect(first.items.some((item: { id: string }) => item.id === other.id)).toBe(false);
 
-  let requests = 0;
+  let directoryUnavailable = true;
   await page.route("**/api/creator-directory", async route => {
-    requests++;
-    if (requests === 1) {
+    if (directoryUnavailable) {
       return route.fulfill({ status: 503, json: { detail: "受控的账号目录读取故障" } });
     }
     return route.continue();
   });
   await page.goto(`/workspace?creator=${target.id}&series=${targetSeries.id}`);
   await expect(page.getByRole("alert")).toContainText("受控的账号目录读取故障");
+  directoryUnavailable = false;
   await page.getByRole("button", { name: "重新连接", exact: true }).click();
   const rail = await openRail(page);
   await expect(rail.getByRole("button", { name: "切换账号", exact: true })).toContainText(target.display_name, { timeout: 15_000 });
@@ -101,10 +101,9 @@ test("account links and search work beyond the first 100 accounts", async ({ pag
     JSON.stringify({ ids: skillIds, name, creatorId: accountId, instruction: "", mode: "reference" })),
   { skillIds: [seeded.mind.id, seeded.production.id], accountId: other.id, name: seriesName });
   await page.unroute("**/api/creator-directory");
-  let skillPageFailed = false;
+  let skillDirectoryUnavailable = true;
   await page.route("**/api/creator-directory", route => {
-    if (!skillPageFailed) {
-      skillPageFailed = true;
+    if (skillDirectoryUnavailable) {
       return route.fulfill({ status: 503, json: { detail: "Skill 库账号目录读取故障" } });
     }
     return route.continue();
@@ -114,6 +113,7 @@ test("account links and search work beyond the first 100 accounts", async ({ pag
   await expect(page.getByText("账号列表读取失败", { exact: true })).toBeVisible();
   const createColumn = page.getByRole("button", { name: "创建栏目", exact: true });
   await expect(createColumn).toBeDisabled();
+  skillDirectoryUnavailable = false;
   await page.getByRole("button", { name: "重试加载账号", exact: true }).click();
   const owner = page.getByRole("combobox", { name: "归属账号", exact: true });
   await expect(owner).toHaveValue(other.id);

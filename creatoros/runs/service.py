@@ -833,6 +833,7 @@ class ContentRunService:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
+            self._assert_existing_scope(session, content_run.topic_id, content_run)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再批准。")
             if content_run.status is not ContentRunStatus.AWAITING_APPROVAL:
@@ -876,6 +877,7 @@ class ContentRunService:
         with self.database.session() as session:
             repository = ContentRunRepository(self.database, session=session)
             content_run = self._require(repository, run_id)
+            self._assert_existing_scope(session, content_run.topic_id, content_run)
             if content_run.version != expected_version:
                 raise ContentRunError("运行状态已变化，请重新查看后再返工。")
             self._assert_current_run(session, content_run)

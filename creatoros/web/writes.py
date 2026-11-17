@@ -83,8 +83,8 @@ class StudioWriteService:
         )
         try:
             with self.database.session() as session:
-                if session.get(Creator, creator_id) is None:
-                    raise StudioWriteError("账号不存在，无法创建栏目。")
+                if not (creator := session.get(Creator, creator_id)) or not creator.is_active:
+                    raise StudioWriteError("账号不存在或已移出，无法创建栏目。")
                 session.add(series)
                 session.flush()
         except IntegrityError as error:
@@ -137,18 +137,6 @@ class StudioWriteService:
             raise
         except (PendingOperationError, ValueError) as error:
             raise StudioWriteError(str(error)) from error
-
-    def delete_creator(self, creator_id: str) -> None:
-        """删除账号；名下还有栏目时拒绝（栏目与产物链不级联删除）。"""
-        with self.database.session() as session:
-            creator = session.get(Creator, creator_id)
-            if creator is None:
-                raise StudioWriteError("账号不存在。", status_code=404)
-            has_series = session.scalar(select(func.count()).select_from(Series).where(Series.creator_id == creator_id))
-            if has_series:
-                raise StudioWriteError("账号下还有栏目，不能删除。")
-            session.delete(creator)
-            session.flush()
 
     def edit_topic(self, topic_id: str, *, title: str | None = None, brief: str | None = None,
                    changes: dict | None = None, expected_digest=None, request_id=None,
@@ -235,8 +223,8 @@ class StudioWriteService:
             series = session.get(Series, series_id)
             if series is None:
                 raise StudioWriteError("栏目不存在。", status_code=404)
-            if not series.is_active:
-                raise StudioWriteError("栏目已移出工作区，不能移除选题。")
+            if not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
+                raise StudioWriteError("栏目或所属账号已移出工作区，不能移除选题。")
             session.add(TopicRemoval(topic_id=topic_id, series_id=series_id, creator_id=series.creator_id,
                                      request_id=request_id, batch_id=batch_id, candidate_id=candidate_id,
                                      status=status))

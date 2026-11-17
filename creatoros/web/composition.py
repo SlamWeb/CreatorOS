@@ -11,7 +11,7 @@ from __future__ import annotations
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from creatoros.storage.models import ProductionTask, ProductionTaskHistory, ProductionQueueItem, ProductionQueueHistory
@@ -104,6 +104,7 @@ class SeriesCompositionService:
     ) -> tuple[str, bool]:
         def write(session) -> Series:
             series = self._load_series(session, series_id)
+            self._require_active(series)
             if series.skill_name is not None:
                 raise CompositionError(
                     "旧单 Skill 栏目不转换为组合；请新建组合栏目。",
@@ -127,6 +128,7 @@ class SeriesCompositionService:
     ) -> tuple[str, bool]:
         def write(session) -> Series:
             series = self._load_series(session, series_id)
+            self._require_active(series)
             self._check_revision(series, expected_revision)
             if creator_id is not None:
                 creator = session.get(Creator, creator_id)
@@ -164,7 +166,8 @@ class SeriesCompositionService:
         expected_revision: int,
         request_id: str,
         origin: str,
-        research,
+        lifecycle,
+        expected_status=None,
     ) -> tuple[str, str, bool, str | None]:
         """Delete a truly unused series, otherwise archive it and keep its history.
 
@@ -175,6 +178,8 @@ class SeriesCompositionService:
         operation = "delete_series"
         try:
             with self.database.session() as session:
+                if self.database.engine.dialect.name == 'sqlite':
+                    session.execute(text('BEGIN IMMEDIATE'))
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:
                     if existing.operation != operation:
@@ -195,42 +200,18 @@ class SeriesCompositionService:
                     raise CompositionError("栏目已归档。", status_code=409, code="series_inactive")
                 self._check_revision(series, expected_revision)
 
-                active_statuses = (ContentRunStatus.PRODUCING, ContentRunStatus.VALIDATING)
-                active_run = session.scalar(
-                    select(ContentRun.id)
-                    .join(Topic, ContentRun.topic_id == Topic.id)
-                    .where(Topic.series_id == series_id, ContentRun.status.in_(active_statuses))
-                    .limit(1)
-                )
-                if active_run is not None or research.has_active_for_series(series_id):
-                    raise CompositionError(
-                        "栏目仍有生产或调研任务进行中；请等待任务结束后重新操作。",
-                        status_code=409, code="series_active",
-                    )
-
-                has_topics = session.scalar(
-                    select(Topic.id).where(Topic.series_id == series_id).limit(1)
-                ) is not None
-                has_runs = session.scalar(
-                    select(ContentRun.id)
-                    .join(Topic, ContentRun.topic_id == Topic.id)
-                    .where(Topic.series_id == series_id)
-                    .limit(1)
-                ) is not None
-                has_research = research.has_history_for_series(series_id)
-                has_removals = session.scalar(
-                    select(TopicRemoval.topic_id).where(TopicRemoval.series_id == series_id).limit(1)
-                ) is not None
-                has_calibrations = session.scalar(
-                    select(SkillCalibration.id).where(SkillCalibration.series_id == series_id).limit(1)
-                ) is not None
+                assessment = lifecycle.assess("series", series_id, session)
+                if assessment["status"] == "blocked":
+                    raise CompositionError("栏目仍有进行中或已授权排队任务，请等待结束后重试。",
+                                           status_code=409, code="series_active")
+                if expected_status is not None and assessment["status"] != expected_status:
+                    raise CompositionError("栏目保留状态已变化，请重新查看后确认。", status_code=409, code="removal_changed")
                 creator_id = series.creator_id
-                if has_topics or has_runs or has_research or has_removals or has_calibrations:
+                status = assessment["status"]
+                if status == "archived":
                     series.is_active = False
-                    status = "archived"
                 else:
                     session.delete(series)
-                    status = "deleted"
 
                 response = {"series_id": series_id, "status": status, "creator_id": creator_id}
                 session.add(WriteReceipt(
@@ -277,7 +258,7 @@ class SeriesCompositionService:
         try:
             with self.database.session() as session:
                 series = self._load_series(session, series_id)
-                if not series.is_active:
+                if not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
                     raise CompositionError("栏目已移出工作区。", status_code=404, code="not_found")
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:
@@ -345,6 +326,11 @@ class SeriesCompositionService:
         if series is None:
             raise CompositionError("栏目不存在。", code="not_found", status_code=404)
         return series
+
+    @staticmethod
+    def _require_active(series: Series) -> None:
+        if not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
+            raise CompositionError("栏目或所属账号已移出工作区。", status_code=409, code="inactive")
 
     @staticmethod
     def _check_revision(series: Series, expected_revision: int) -> None:

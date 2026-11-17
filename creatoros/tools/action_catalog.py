@@ -78,6 +78,18 @@ ACTION_INFO = {
         "remove": ("从账号库移除Skill", "用户明确要求时用所见expected_version移除Skill；不删除共享原件。"),
         "set_pool": ("设置栏目的Skill池", "用户明确要求时以所见expected_version提交栏目Skill池；不生产。"),
     },
+    "manage_bgm": {
+        "list": ("查找全局 BGM", "按名称或来源搜索全项目共享的可用音乐，返回 track_id、分析状态与时长。"),
+        "get": ("查看共享音乐详情", "按真实 track_id 核实指定歌曲与分析状态。"),
+        "analysis": ("读取全曲分析摘要", "按真实 track_id 查已有分析的概要与版本，不重新分析。"),
+        "list_playlist": ("读取栏目 BGM 歌单", "按当前账号拥有的活动栏目 ID 查询常用音乐。"),
+        "add_to_playlist": ("加入栏目歌单", "仅应用户要求把指定共享曲目加入当前栏目的常用歌单。"),
+        "remove_from_playlist": ("从栏目歌单移除", "仅应用户要求解除当前栏目与指定曲目的引用，保留共享音频。"),
+        "import_link": ("从分享文本导入全局 BGM", "用户要求入池时提交完整分享文本，等待真实音频获取回执。"),
+        "import_status": ("核实共享 BGM 导入状态", "使用原 import_id 查询。音频已入池与分析完成是独立状态。"),
+        "retry_import": ("重试未完成的共享 BGM 导入", "用户明确要求重试时使用原 import_id。"),
+        "analyze": ("请求全曲分析", "用户要求分析时使用真实 track_id。仅明确要求重新分析已有结果时设 force=true。"),
+    },
     "manage_material": {
         "list": ("列出账号音乐素材", "只读分页列出当前账号BGM素材。"),
         "get": ("读取指定音乐素材", "只读获取当前账号指定material_id。"),

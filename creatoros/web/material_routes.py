@@ -39,7 +39,7 @@ def material_routes(store):
 
     @router.get("")
     def list_materials(creator_id: str):
-        return {"items": store.list(creator_id)}
+        return {"items": store.list(creator_id, require_active=False)}
 
     @router.post("", status_code=201)
     def upload(creator_id: str, body: MaterialUpload):
@@ -66,11 +66,11 @@ def material_routes(store):
 
     @router.get("/{identifier}")
     def get(creator_id: str, identifier: str):
-        return {key: value for key, value in store.resolve(creator_id, identifier).items() if key != "path"}
+        return {key: value for key, value in store.resolve(creator_id, identifier, require_active=False).items() if key != "path"}
 
     @router.get("/{identifier}/file")
     def file(creator_id: str, identifier: str):
-        value = store.resolve(creator_id, identifier)
+        value = store.resolve(creator_id, identifier, require_active=False)
         return FileResponse(value["path"], headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
     @router.put("/{identifier}/analysis")
@@ -80,7 +80,7 @@ def material_routes(store):
     @router.get("/{identifier}/analysis")
     def get_analysis(creator_id: str, identifier: str):
         import json
-        item = store.resolve_analysis(creator_id, identifier)
+        item = store.resolve_analysis(creator_id, identifier, require_active=False)
         if not item:
             return {"analysis_available": False}
         bundle = json.loads(item["path"].read_text(encoding="utf-8"))
@@ -92,6 +92,6 @@ def material_routes(store):
 
     @router.get("/{identifier}/analysis/status")
     def analysis_status(creator_id: str, identifier: str):
-        return store.analysis_status(creator_id, identifier)
+        return store.analysis_status(creator_id, identifier, require_active=False)
 
     return router

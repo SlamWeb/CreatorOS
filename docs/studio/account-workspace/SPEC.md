@@ -1,5 +1,12 @@
 # 账号与栏目工作区
 
+
+## 工作区移出与恢复 · 2026-11-17
+
+- 删除预览区分可彻底删除、移出保留和进行中阻止；预览只是快照，提交在生产协调锁内重新核对。空且无引用的账号/栏目可彻底删除；任何关联栏目、历史、素材、聊天或播放列表引用保留时移出而不级联删除。原始 queued Run 本身不代表授权生产；实际生产中、授权队列 pending/running、等待依赖的生产任务、已授权调研以及运行中 Skill 迭代阻止移出。
+- 移出账号只改变账号状态，原栏目状态与所有历史保留；恢复账号后，原活跃栏目随之重新可见，而此前单独移出的栏目仍保持移出。栏目恢复要求所属账号先恢复。默认账号目录及栏目列表只投影活跃工作区，历史直接读取保留；移出列表用于显式恢复。新的生产或写入仍受账号与栏目活跃状态约束。
+- 预览 `GET /api/creators/{id}/removal`、`GET /api/series/{id}/removal` 返回 status 和原因计数；执行沿用原账号和栏目移除接口，可带 expected_status 防止用户确认后保留状态变化；`POST /api/creators/{id}/restore` 和 `POST /api/series/{id}/restore` 恢复。`GET /api/creators?archived=true`、`GET /api/series?archived=true` 和账号内 `archived-series` 提供恢复项。
+
 ## 跨页面保留账号对话 · 2026-10-17（完成）
 
 - 问题：悬浮对话曾挂在 WorkspacePage；Agent 回复中的 SPA 链接跳到 Run、Skill 等页时，页面卸载连同对话状态与观察连接一起消失。

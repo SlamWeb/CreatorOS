@@ -91,16 +91,17 @@ class StudioQueryService:
         """Read only account identities in one statement for the local switcher."""
         with self.database.session() as session:
             rows = session.execute(
-                select(Creator.id, Creator.display_name).order_by(Creator.created_at, Creator.id)
+                select(Creator.id, Creator.display_name).where(Creator.is_active.is_(True)).order_by(Creator.created_at, Creator.id)
             ).all()
             return CreatorDirectoryView(items=[CreatorDirectoryItem(id=row.id, display_name=row.display_name) for row in rows])
 
-    def list_creators(self, *, offset: int, limit: int) -> PageResponse[CreatorView]:
+    def list_creators(self, *, offset: int, limit: int, archived: bool = False) -> PageResponse[CreatorView]:
         with self.database.session() as session:
-            total = int(session.scalar(select(func.count()).select_from(Creator)) or 0)
+            total = int(session.scalar(select(func.count()).select_from(Creator).where(Creator.is_active.is_(not archived))) or 0)
             creators = list(
                 session.scalars(
                     select(Creator)
+                    .where(Creator.is_active.is_(not archived))
                     .order_by(Creator.created_at, Creator.id)
                     .offset(offset)
                     .limit(limit)
@@ -136,12 +137,13 @@ class StudioQueryService:
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             return self._creator_views([creator], series, topics, runs)[0]
 
-    def list_series(self) -> list[SeriesView]:
+    def list_series(self, *, archived: bool = False) -> list[SeriesView]:
         """全部栏目（含未分配账号的），供创作空间三栏使用。"""
         with self.database.session() as session:
-            all_series = list(session.scalars(
-                select(Series).where(Series.is_active.is_(True)).order_by(Series.created_at, Series.id)
-            ))
+            statement = select(Series).outerjoin(Creator).where(Series.is_active.is_(not archived))
+            if not archived:
+                statement = statement.where(Series.creator_id.is_(None) | Creator.is_active.is_(True))
+            all_series = list(session.scalars(statement.order_by(Series.created_at, Series.id)))
             topics = list(session.scalars(select(Topic).where(_visible_topic()).order_by(Topic.position, Topic.id)))
             runs = list(session.scalars(select(ContentRun).order_by(ContentRun.updated_at.desc())))
             topics_by_series: dict[str, list[Topic]] = {}
@@ -158,6 +160,17 @@ class StudioQueryService:
                 )
                 for item in all_series
             ]
+
+    def archived_series(self, creator_id: str) -> list[SeriesView]:
+        with self.database.session() as session:
+            if session.get(Creator, creator_id) is None:
+                raise ValueError("账号不存在。")
+            rows = list(session.scalars(select(Series).where(
+                Series.creator_id == creator_id, Series.is_active.is_(False)).order_by(Series.created_at, Series.id)))
+            topics = list(session.scalars(select(Topic).where(Topic.series_id.in_([r.id for r in rows]), _visible_topic()))) if rows else []
+            runs = list(session.scalars(select(ContentRun).where(ContentRun.topic_id.in_([t.id for t in topics])))) if topics else []
+            return [self._series_view(row, [t for t in topics if t.series_id == row.id],
+                    [r for r in runs if any(t.id == r.topic_id and t.series_id == row.id for t in topics)]) for row in rows]
 
     def get_series(self, series_id: str) -> SeriesView | None:
         with self.database.session() as session:
@@ -271,6 +284,7 @@ class StudioQueryService:
         limit: int,
         status: ContentRunStatus | None = None,
         creator_id: str | None = None,
+        series_id: str | None = None,
     ) -> PageResponse[RunSummary]:
         with self.database.session() as session:
             statement = select(ContentRun).join(Topic).join(Series).join(Creator)
@@ -281,6 +295,9 @@ class StudioQueryService:
             if creator_id is not None:
                 statement = statement.where(Series.creator_id == creator_id)
                 count_statement = count_statement.where(Series.creator_id == creator_id)
+            if series_id is not None:
+                statement = statement.where(Series.id == series_id)
+                count_statement = count_statement.where(Series.id == series_id)
             total = int(session.scalar(count_statement) or 0)
             rows = list(
                 session.execute(
@@ -598,6 +615,9 @@ class StudioQueryService:
         creator = creators.get(snapshot.get("creator_id"))
         series = series_by_id.get(snapshot.get("series_id"))
         topic = topics_by_id.get(run.topic_id)
+        workspace_archived = bool((creator and not creator.is_active)
+                                  or (series and (not series.is_active or (series.creator and not series.creator.is_active))))
+        read_only = workspace_archived or removed or (latest_run_id and latest_run_id != run.id)
         cover_url, card_count = None, None
         if self.artifacts is not None:
             revision = next((item for item in run.revisions if item.revision_number == run.active_revision_number), None)
@@ -630,7 +650,8 @@ class StudioQueryService:
             error_stage=run.failure_stage,
             error_type=run.error_type,
             error_message=_error_message(run.error_message),
-            allowed_actions=["view"] if removed or (latest_run_id and latest_run_id != run.id) else StudioQueryService._run_actions(run),
+            allowed_actions=["view"] if read_only else StudioQueryService._run_actions(run),
+            workspace_archived=workspace_archived,
             cover_url=cover_url,
             card_count=card_count,
         )

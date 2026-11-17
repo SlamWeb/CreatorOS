@@ -15,7 +15,6 @@ export function useWorkspaceNavigation(accountData?: CreatorDirectoryItem[], ser
   const location = useLocation();
   const routePath = `${location.pathname}${location.search}`;
   const [treeOpen, setTreeOpen] = useState(false);
-  const [confirmingAccount, setConfirmingAccount] = useState<string | null>(null);
   const inbox = useWorkInbox();
   const chat = useAgentChat();
   const visitedSeries = useRef<string | null>(null);
@@ -62,7 +61,6 @@ export function useWorkspaceNavigation(accountData?: CreatorDirectoryItem[], ser
 
   function selectAccount(id: string, resetView = false) {
     setTreeOpen(false);
-    setConfirmingAccount(null);
     const account = accounts.find(item => item.id === id);
     if (chat.isOpen && account) chat.open({ creatorId: account.id, accountName: account.display_name });
     setParams(previous => selectAccountParams(previous, id, resetView));
@@ -74,13 +72,12 @@ export function useWorkspaceNavigation(accountData?: CreatorDirectoryItem[], ser
     if (mounted.current && paramsRef.current.get("series") === id) selectSeries(id, owner);
   }
   function accountDeleted(id: string) {
-    setConfirmingAccount(null);
     if (mounted.current) setParams(previous => removeDeletedAccountParams(previous, id));
   }
   function seriesDeleted(id: string) {
     if (mounted.current) setParams(previous => removeDeletedSeriesParams(previous, id));
   }
 
-  return { params, setParams, ...selection, treeOpen, setTreeOpen, confirmingAccount, setConfirmingAccount,
+  return { params, setParams, ...selection, treeOpen, setTreeOpen,
     selectAccount, selectSeries, completeAssignment, accountDeleted, seriesDeleted };
 }

@@ -187,11 +187,14 @@ test("new series can be created before choosing any Skill", async ({ page, reque
   await expect(pool.getByRole("checkbox", { name: "staged-ui-image", exact: true })).toBeChecked();
 });
 
-test("image freezes multiple Skills and a dependent video waits without a Run until cancelled", async ({ page, request }, info) => {
+test("image freezes multiple Skills and a video with a playlist track waits until cancelled", async ({ page, request }, info) => {
   const pair = await post(request, "/test/production-task-pair", {});
   const seeded = await post(request, "/test/staged-video", {});
   const account = await post(request, "/api/creators", { display_name: `多Skill-${crypto.randomUUID().slice(0, 6)}` });
   const series = (await post(request, "/api/series", { creator_id: account.id, name: "一主多辅", skill_name: "knowledge-to-carousel", request_id: crypto.randomUUID() })).series;
+  const shared = await post(request, "/api/bgm", { name: "歌单固定配乐.wav", data_base64: seeded.audio_base64 });
+  const added = await request.put(`/api/series/${series.id}/bgm/${shared.id}`, { data: {} });
+  expect(added.ok(), await added.text()).toBeTruthy();
   for (const skill of [pair.mind, pair.production, seeded.image_skill, seeded.skill]) await post(request, `/api/creators/${account.id}/skills`, { skill_id: skill.id, request_id: crypto.randomUUID() });
   const pool = await request.get(`/api/series/${series.id}/skills`).then(response => response.json());
   const poolSaved = await request.put(`/api/series/${series.id}/skills`, { data: { expected_version: pool.version, skill_ids: ["knowledge-to-carousel", pair.mind.id, pair.production.id, seeded.image_skill.id, seeded.skill.id], defaults: pool.defaults } });
@@ -230,11 +233,23 @@ test("image freezes multiple Skills and a dependent video waits without a Run un
     await form.getByLabel("视频任务名称").fill("等待指定图片");
     await form.getByLabel("剪辑要求", { exact: true }).fill("必须等指定任务，不跳过缺图。");
     await form.getByRole("checkbox", { name: /staged-ui-video.*v1/ }).check();
-    await form.getByLabel("上传 BGM 文件").setInputFiles({ name: "bgm.wav", mimeType: "audio/wav", buffer: Buffer.from(seeded.audio_base64, "base64") });
-    await expect(form.getByLabel("选择 BGM")).not.toHaveValue("");
+    const picker = form.getByLabel("从全局 BGM 池选择", { exact: true });
+    await expect(picker.locator(`optgroup[label="栏目歌单"] option[value="${shared.id}"]`)).toHaveCount(1);
+    await picker.selectOption(shared.id);
+    await expect(form.getByLabel("选择 BGM", { exact: true })).toHaveValue("");
+    await expect(form.getByLabel("BGM 分享链接", { exact: true })).toHaveValue("");
+    await page.screenshot({ path: info.outputPath("shared-bgm-video-desktop.png"), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: info.outputPath("shared-bgm-video-mobile.png"), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.reload();
+    await page.getByRole("button", { name: "制作视频", exact: true }).click();
+    await expect(picker).toHaveValue(shared.id);
     await form.getByLabel("视频开始方式").selectOption("wait");
     await form.getByRole("checkbox", { name: /一主多辅任务/ }).check();
+    const submittedVideo = page.waitForRequest(value => value.method() === "POST" && new URL(value.url()).pathname === `/api/topics/${topicId}/production-tasks`);
     await form.getByRole("button", { name: "保存并等待图片完成" }).click();
+    expect((await submittedVideo).postDataJSON().tasks[0].inputs).toEqual({ collection_id: result.collection_id, bgm_track_id: shared.id });
     await expect(form.getByRole("status").filter({ hasText: "视频任务已保存" })).toBeVisible();
     await form.getByRole("link", { name: "查看这个选题的制作任务" }).click();
     const waiting = dialog.locator(".production-task-list > li").filter({ hasText: "等待指定图片" });

@@ -58,6 +58,7 @@ from .content_discussion import (
 from .skill_iterations import ManageSkillIterationArgs, manage_skill_iteration
 from .topics import ManageTopicsArgs, manage_topics
 from .media_collections import ManageMediaCollectionArgs, manage_media_collection
+from .bgm import ManageBgmArgs, manage_bgm
 from .staged_production import ManageSkillLibraryArgs, ManageMaterialArgs, manage_skill_library, manage_material
 from .plans import ManagePlanArgs, manage_plan
 from .production_task_control import ManageProductionTaskArgs, manage_production_task
@@ -212,7 +213,9 @@ tool_registry = {
              execute=get_skill_install, args_model=SkillJobArgs),
         Tool(name="manage_skill_library", description="管理当前账号 Skill 库和栏目池，账号由宿主绑定。get可带series_id读取栏目池；已有覆盖所需范围的目录且未变化时复用。add只传skill_id引用可用Skill；remove传skill_id和所见expected_version；set_pool只传series_id、expected_version、skill_ids保存栏目池。宿主保留仍有效的旧默认，不传defaults或主辅。共享引用不授予修改原件权限。",
              execute=manage_skill_library, args_model=ManageSkillLibraryArgs),
-        Tool(name="manage_material", description="管理当前账号 BGM：list/get 查询，import_link 后台导入分享原文，import_status 查进度；analyze 后台分析，analysis_status 查进度，analysis 读结果。",
+        Tool(name="manage_bgm", description="查询全项目共享 BGM、全曲分析状态与摘要，管理当前账号栏目的歌单。仅按用户要求导入、重试、重新分析或调整歌单；直接制作可交分享原文。",
+             execute=manage_bgm, args_model=ManageBgmArgs),
+        Tool(name="manage_material", description="访问旧账号音频素材：list/get 查询，import_link 后台导入分享原文，import_status 查进度；analyze 后台分析，analysis_status 查进度，analysis 读结果。",
              execute=manage_material, args_model=ManageMaterialArgs),
         Tool(name="list_producer_skills", description="列出已安装发布版；账号库和栏目池用manage_skill_library。include_versions=true查当前账号可访问家族全部版本/候选，可用family_skill_id限定。正文按需读取，不生产。",
              execute=list_producer_skills, args_model=ListProducerSkillsArgs),
@@ -226,7 +229,7 @@ tool_registry = {
              execute=list_creator_series, args_model=CreatorArgs),
         Tool(name="list_series_topics", description="统一查询栏目选题库：待选建议与已入队选题，支持 state 筛选。待选使用返回的 batch_id/candidate_id 准备确认，不可直接生产；已入队按 available_actions 操作。序号针对当前列表，歧义先询问。按 page.total 翻页。",
              execute=list_series_topics, args_model=TopicsArgs, expose_to_model=False),
-        Tool(name="start_content_run", description="用户明确要求生产且仅需提交时调用；明确要求完成后核验、继续处理或汇报结果时，通过manage_plan的生产步骤设置wait_for_completion=true。选择action：start用topic_ids列表按栏目默认生产，单条也填列表；tasks用topic_id和tasks拆分制作，每项显式kind和具体brief、可选skill_ids；fresh用source_run_id和所见expected_version清空旧上下文重做，可指定skill_ids；reference用series_id、title、当前会话attachment_ids及完整要求直接制作，可用skill_ids选择本次一份或多份精确版本，不改栏目绑定；省略时沿用默认。同一参考请求改选Skill会冲突，先核对原记录。25张独立理由图填25项，各自一个Codex会话，共用同题素材集。先图后视频用manage_plan等待上游，视频inputs携带collection_id与bgm_material_id或bgm_reference，分享原文直接交Codex，不先解析。受理不等于完成，不自动重提或发布。",
+        Tool(name="start_content_run", description="用户明确要求生产且仅需提交时调用；明确要求完成后核验、继续处理或汇报结果时，通过manage_plan的生产步骤设置wait_for_completion=true。选择action：start用topic_ids列表按栏目默认生产，单条也填列表；tasks用topic_id和tasks拆分制作，每项显式kind和具体brief、可选skill_ids；fresh用source_run_id和所见expected_version清空旧上下文重做，可指定skill_ids；reference用series_id、title、当前会话attachment_ids及完整要求直接制作，可用skill_ids选择本次一份或多份精确版本，不改栏目绑定；省略时沿用默认。同一参考请求改选Skill会冲突，先核对原记录。25张独立理由图填25项，各自一个Codex会话，共用同题素材集。先图后视频用manage_plan等待上游，视频inputs携带collection_id，以及全局bgm_track_id、用户分享原文bgm_reference或旧账号素材bgm_material_id中的一个；分享原文直接交Codex。受理不等于完成，不自动重提或发布。",
              execute=start_content_run, args_model=StartRunArgs),
         Tool(name="get_content_run", description="用户询问进度时查询同一 Run 的最新状态和链接，并返回各版本 revision_id/artifact_digest 以便明确讨论指定版本。awaiting_approval 仅表示待验收，approved 也不代表已发布。",
              execute=get_content_run, args_model=GetRunArgs),

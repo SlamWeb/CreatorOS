@@ -4,11 +4,13 @@ import { Link } from "react-router-dom";
 import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, studioApi } from "../../api/client";
 import type { ProducerSkillItem, SeriesView, TopicView, SkillLibraryView } from "../../api/types";
+import type { RemovalStatus } from "../../api/workspaceLifecycle";
 import { TopicLibrary } from "../../components/TopicLibrary";
 import { SkillReferenceButton } from "../../components/SkillReferenceButton";
 import { SeriesSkillPool } from "../../components/SkillLibrary";
 import { WorkspaceDialog } from "../../components/WorkspaceDialog";
 import { refreshWorkspace } from "../workspace/workspaceData";
+import { WorkspaceRemoval } from "../workspace/WorkspaceRemoval";
 import { operationKey, operationView, startSeriesOperation } from "./operationState";
 
 export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDiscuss }: {
@@ -33,10 +35,11 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
     retry: false,
     mutationKey: operationKey(series.id, "remove"),
     gcTime: Infinity,
-    mutationFn: () => studioApi.deleteSeries(series.id, {
-      expected_revision: series.revision, request_id: crypto.randomUUID().replaceAll("-", ""),
+    mutationFn: (expected_status: RemovalStatus) => studioApi.deleteSeries(series.id, {
+      expected_revision: series.revision, request_id: crypto.randomUUID().replaceAll("-", ""), expected_status,
     }),
-    onSuccess: () => refreshWorkspace(client),
+    onSuccess: () => Promise.all([refreshWorkspace(client), client.invalidateQueries({ queryKey: ["run"] })]),
+    onError: () => client.invalidateQueries({ queryKey: ["workspace-removal", "series", series.id] }),
   });
   const assignState = operationView(useMutationState({ filters: { mutationKey: operationKey(series.id, "assign"), exact: true },
     select: mutation => mutation.state }));
@@ -46,20 +49,18 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
   const assignError = assignState.error instanceof Error ? assignState.error.message : null;
   const deletePending = deleteState.pending;
   const deleteError = deleteState.error instanceof Error ? deleteState.error.message : null;
-  const onDelete = () => {
-    if (series.topic_count > 0 && !window.confirm("从工作区移除，保留选题、图片与记录")) return;
-    startSeriesOperation(client, series.id, () => remove.mutate());
-  };
   const [topicTitle, setTopicTitle] = useState("");
   const skillPool = useQuery({ queryKey: ["series-skills", series.id], queryFn: () => request<SkillLibraryView>(`/api/series/${encodeURIComponent(series.id)}/skills`), enabled: !!series.creator_id, retry: false });
   const poolItems = skillPool.data?.items ?? [];
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [removalOpen, setRemovalOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const addId = useId();
   const settingsId = useId();
   const titleInput = useRef<HTMLInputElement>(null);
   const addTrigger = useRef<HTMLButtonElement>(null);
+  const removeTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (addOpen) titleInput.current?.focus(); }, [addOpen]);
   const rename = useMutation({
     retry: false,
@@ -115,7 +116,7 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
   </>;
   const headerPanels = <>
     {settingsOpen && <WorkspaceDialog id={settingsId} title="栏目设置" className="series-settings-drawer"
-      busy={rename.isPending || assignPending || deletePending} onClose={() => setSettingsOpen(false)}>
+      busy={rename.isPending || assignPending || deletePending} onClose={() => { setSettingsOpen(false); setRemovalOpen(false); }}>
       <div className="series-settings-body">
       <p className="series-settings-name">{series.name}</p>
       <form className="workspace-rename" onSubmit={event => {
@@ -141,10 +142,14 @@ export function SeriesWorkspace({ series, accounts, skills, onInspectSkill, onDi
       {assignPending && <p role="status" className="series-settings-note">正在调整归属…</p>}
       {assignError && <p className="form-error" role="alert">{assignError}</p>}
       {series.creator_id && <SeriesSkillPool key={`${series.id}:${series.creator_id}`} seriesId={series.id} creatorId={series.creator_id} />}
-      {onDelete && <div className="series-settings-danger"><button type="button" className="button button-danger workspace-delete-series" aria-label={`删除栏目 ${series.name}`}
-        disabled={deletePending || assignPending} onClick={onDelete}>{deletePending ? "处理中…" : "删除栏目"}</button>
-        {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
-      </div>}
+      <div className="series-settings-danger">
+        <button type="button" ref={removeTrigger} className="button button-quiet workspace-delete-series" aria-expanded={removalOpen}
+          disabled={deletePending || assignPending || removalOpen} onClick={() => { remove.reset(); setRemovalOpen(true); }}>删除或移出栏目</button>
+        {removalOpen && <WorkspaceRemoval type="series" id={series.id} name={series.name} busy={deletePending || assignPending}
+          error={remove.error?.message} onConfirm={status => startSeriesOperation(client, series.id, () => remove.mutate(status))}
+          onCancel={() => { setRemovalOpen(false); requestAnimationFrame(() => removeTrigger.current?.focus()); }} />}
+        {!removalOpen && deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+      </div>
       </div>
     </WorkspaceDialog>}
     <form id={addId} className="workspace-add" hidden={!addOpen} onSubmit={event => {

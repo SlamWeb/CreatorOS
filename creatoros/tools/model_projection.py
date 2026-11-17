@@ -78,7 +78,7 @@ _TOPIC = (
 _RUN = (
     "id", "run_id", "creator_id", "creator_name", "series_id", "series_name",
     "topic_id", "topic_title", "status", "version", "active_revision_number",
-    "allowed_actions", "error_type", "error_message", "accepted", "card_count", "url",
+    "allowed_actions", "workspace_archived", "error_type", "error_message", "accepted", "card_count", "url",
     "production_queue", "latest_run_id", "task_id", "production_collection_id", "kind", "task_kind",
 )
 _REVISION = (
@@ -297,7 +297,7 @@ PROJECTED_TOOLS = frozenset({
     "manage_skill_iteration",
     "manage_topics", "manage_production_task",
     "manage_media_collection",
-    "manage_skill_library", "manage_material", "manage_plan",
+    "manage_skill_library", "manage_material", "manage_bgm", "manage_plan",
 }) | _RESEARCH_TOOLS | _RUN_TOOLS | _DISCUSSION_TOOLS | _SERIES_WRITE_TOOLS | _EXTRACTION_TOOLS | _EXTRACTION_WRITES
 
 
@@ -350,6 +350,12 @@ def project_model_data(tool_name: str, data: Any, *, is_error: bool = False,
         if "available_versions" in data:
             result["available_versions"] = _list(data["available_versions"], lambda item: _pick(item, _SKILL + ("digest",)))
         return result
+    if tool_name == "manage_bgm":
+        fields = ("id", "track_id", "name", "duration_seconds", "source_type", "archived",
+                  "analysis_available", "analysis_status", "analysis_schema", "analysis_message")
+        return _pick(data, ("action", "series_id", "status", "message", "schema", "analyzer_version",
+                            "overview", "sections", "beat_count", "onset_count", "added", "removed", "count", "page")
+                     + fields) | _items(data, fields)
     if tool_name == "manage_material":
         fields = ("id", "name", "kind", "sha256", "size_bytes", "duration_seconds", "source_url", "url", "analysis_available", "analysis_status")
         return _pick(data, ("action", "creator_id", "status", "message", "analysis", "receipt", "material_id", "source_url") + fields) | _items(data, fields)

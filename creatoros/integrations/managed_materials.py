@@ -38,10 +38,21 @@ class MaterialStore:
         self._analysis_jobs = {}
         self._import_jobs = {}
 
-    def _creator(self, session, creator_id):
+    def _creator(self, session, creator_id, *, require_active=True):
         creator = session.get(Creator, creator_id)
-        if not creator or not creator.is_active:
+        if not creator or (require_active and not creator.is_active):
             raise ValueError("账号不存在或未启用。")
+
+    def active_jobs_for_creator(self, creator_id):
+        with self._analysis_lock:
+            return sum(owner == creator_id and job["status"] == "running"
+                       for jobs in (self._analysis_jobs, self._import_jobs)
+                       for (owner, _), job in jobs.items())
+
+    def has_import_history(self, creator_id):
+        if self.root is None:
+            return False
+        return next(self._import_path(creator_id, "0" * 64).parent.glob("*.json"), None) is not None
 
     def _path(self, row):
         if self.root is None:
@@ -104,9 +115,9 @@ class MaterialStore:
             session.flush()
             return self._view(row)
 
-    def list(self, creator_id):
+    def list(self, creator_id, *, require_active=True):
         with self.database.session() as session:
-            self._creator(session, creator_id)
+            self._creator(session, creator_id, require_active=require_active)
             rows = list(session.scalars(select(ManagedMaterial).where(
                 ManagedMaterial.creator_id == creator_id).order_by(ManagedMaterial.created_at.desc())))
             values = []
@@ -117,9 +128,9 @@ class MaterialStore:
                                "analysis_status": self._analysis_status_for_path(creator_id, row.id, path, available)["status"]})
         return values
 
-    def resolve(self, creator_id, identifier):
+    def resolve(self, creator_id, identifier, *, require_active=True):
         with self.database.session() as session:
-            self._creator(session, creator_id)
+            self._creator(session, creator_id, require_active=require_active)
             row = session.get(ManagedMaterial, identifier)
             if not row or row.creator_id != creator_id:
                 raise ValueError("素材不存在或不属于当前账号。")
@@ -152,16 +163,16 @@ class MaterialStore:
         atomic_write_text(destination, json.dumps(bundle, ensure_ascii=False, indent=2))
         return {"material_id": identifier, "analysis_available": True}
 
-    def resolve_analysis(self, creator_id, identifier):
+    def resolve_analysis(self, creator_id, identifier, *, require_active=True):
         """Return a registered analysis path, or None for unanalysed audio."""
-        audio = self.resolve(creator_id, identifier)
+        audio = self.resolve(creator_id, identifier, require_active=require_active)
         path = audio["path"].parent / "bgm-analysis.json"
         if not path.is_file():
             return None
         return {"path": path, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
-    def analysis_status(self, creator_id, identifier):
-        audio = self.resolve(creator_id, identifier)
+    def analysis_status(self, creator_id, identifier, *, require_active=True):
+        audio = self.resolve(creator_id, identifier, require_active=require_active)
         return self._analysis_status_for_path(creator_id, identifier, audio["path"], audio["analysis_available"])
 
     def _analysis_status_for_path(self, creator_id, identifier, audio_path, analysis_available):
@@ -248,7 +259,7 @@ class MaterialStore:
 
     def import_status(self, creator_id, identifier):
         with self.database.session() as session:
-            self._creator(session, creator_id)
+            self._creator(session, creator_id, require_active=False)
         path = self._import_path(creator_id, identifier)
         with self._analysis_lock:
             item = self._import_jobs.get((creator_id, identifier))
@@ -263,7 +274,7 @@ class MaterialStore:
 
     def list_imports(self, creator_id):
         with self.database.session() as session:
-            self._creator(session, creator_id)
+            self._creator(session, creator_id, require_active=False)
         folder = self._import_path(creator_id, "0" * 64).parent
         if not folder.exists():
             return []

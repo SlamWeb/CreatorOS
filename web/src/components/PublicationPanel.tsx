@@ -10,7 +10,7 @@ import "./publication-panel.css";
 const statusNames = { draft: "待确认", sending: "正在发送", verifying: "正在核对", unknown: "需要核对", published: "已发布" };
 const initialDraft = (revision: RevisionView): PublicationDraft => ({ title: revision.publish_copy?.title ?? "", body: revision.publish_copy?.body ?? "", tags: revision.publish_copy?.hashtags.map(tag => tag.replace(/^#/, "")) ?? [], visibility: "公开可见" });
 
-export function PublicationPanel({ run, revision, active }: { run: RunDetail; revision: RevisionView; active: boolean }) {
+export function PublicationPanel({ run, revision, active, readOnly = false }: { run: RunDetail; revision: RevisionView; active: boolean; readOnly?: boolean }) {
   const client = useQueryClient();
   const [visible, setVisible] = useState(!document.hidden);
   const [draft, setDraft] = useState(() => initialDraft(revision));
@@ -33,8 +33,8 @@ export function PublicationPanel({ run, revision, active }: { run: RunDetail; re
     if (record && !dirty) { setDraft(publicationDraft(record.payload)); setTagsText(record.payload.tags.join(" ")); }
   }, [record?.digest, dirty]);
   useEffect(() => {
-    if (confirmation) dialog.current?.showModal(); else dialog.current?.close();
-  }, [confirmation]);
+    if (confirmation && !readOnly) dialog.current?.showModal(); else dialog.current?.close();
+  }, [confirmation, readOnly]);
   useEffect(() => { if (confirmation && record?.digest !== confirmation.digest) setConfirmation(null); }, [record?.digest]);
   const accept = (value: PublicationRequest) => {
     client.setQueryData(key, value);
@@ -59,7 +59,7 @@ export function PublicationPanel({ run, revision, active }: { run: RunDetail; re
   const reconcile = useMutation({ mutationFn: () => publicationApi.reconcile(record!.id, postUrl.trim() || undefined), onSuccess: value => { accept(value); setSubmitUncertain(false); confirm.reset(); } });
   const metrics = useMutation({ mutationFn: () => publicationApi.metrics(record!.id), onSuccess: accept });
   const busy = prepare.isPending || confirm.isPending || checkSubmission.isPending || reconcile.isPending || metrics.isPending;
-  const editable = !record || record.status === "draft";
+  const editable = !readOnly && (!record || record.status === "draft");
   const update = (value: Partial<PublicationDraft>) => { setDraft(old => ({ ...old, ...value })); setDirty(true); setConfirmation(null); };
   const error = prepare.error ?? confirm.error ?? checkSubmission.error ?? reconcile.error ?? metrics.error;
   const imagesReady = Boolean(confirmation?.payload.images.length) && confirmation!.payload.images.every(image => imageStates[image.url] === "loaded");
@@ -78,12 +78,13 @@ export function PublicationPanel({ run, revision, active }: { run: RunDetail; re
         </fieldset>
         {dirty ? <p className="publication-note">修改未保存，离开或刷新将丢失。</p> : null}
         {record?.blockers?.length ? <ul className="publication-blockers">{record.blockers.map(item => <li key={item}>{item}</li>)}</ul> : null}
-      </form> : <div className="publication-sent-copy"><h3>{record.payload.title}</h3><p>{record.payload.body}</p><span>{record.payload.visibility} · {record.payload.images.length} 张图片</span></div>}
+      </form> : record ? <div className="publication-sent-copy"><h3>{record.payload.title}</h3><p>{record.payload.body}</p><span>{record.payload.visibility} · {record.payload.images.length} 张图片</span></div> :
+        !run.publication && <p>没有发布记录。</p>}
       {record?.status === "published" ? <>
         {record.post_url ? <a className="button button-secondary" href={record.post_url} target="_blank" rel="noopener noreferrer">打开笔记<ExternalLink size={15} /></a> : null}
-        <div className="publication-feedback"><h3>效果数据</h3><button className="button button-quiet" type="button" disabled={busy} onClick={() => metrics.mutate()}><RefreshCw size={14} />{metrics.isPending ? "刷新中…" : "刷新数据"}</button></div>
+        <div className="publication-feedback"><h3>效果数据</h3>{!readOnly && <button className="button button-quiet" type="button" disabled={busy} onClick={() => metrics.mutate()}><RefreshCw size={14} />{metrics.isPending ? "刷新中…" : "刷新数据"}</button>}</div>
         {record.metrics?.length ? <><dl className="publication-metrics">{(["views", "likes", "favorites", "comments", "shares"] as const).map(name => <div key={name}><dt>{{ views: "阅读", likes: "点赞", favorites: "收藏", comments: "评论", shares: "分享" }[name]}</dt><dd>{record.metrics[record.metrics.length - 1][name] ?? "—"}</dd></div>)}</dl><p className="publication-note">{record.metrics.at(-1)?.measured_at ? formatDate(record.metrics.at(-1)!.measured_at!) : ""} · 未提供的数据以 — 显示</p></> : <p className="publication-note">尚未读取效果数据</p>}
-      </> : record?.status === "draft" && submitUncertain ? <div className="publication-reconcile"><p>提交结果尚未确认，请先读取最新状态。</p><button className="button button-secondary" disabled={busy} onClick={() => checkSubmission.mutate()}>{checkSubmission.isPending ? "读取中…" : "核对提交状态"}</button></div> : record && ["unknown", "verifying", "sending"].includes(record.status) ? <div className="publication-reconcile">
+      </> : !readOnly && record?.status === "draft" && submitUncertain ? <div className="publication-reconcile"><p>提交结果尚未确认，请先读取最新状态。</p><button className="button button-secondary" disabled={busy} onClick={() => checkSubmission.mutate()}>{checkSubmission.isPending ? "读取中…" : "核对提交状态"}</button></div> : !readOnly && record && ["unknown", "verifying", "sending"].includes(record.status) ? <div className="publication-reconcile">
         <p>{record.status === "sending" ? "正在提交，请勿重复发布。" : "先核对笔记是否已发布，不会自动重发。"}</p>
         <label>笔记链接（可选）<input type="url" value={postUrl} placeholder="https://www.xiaohongshu.com/explore/…" onChange={event => setPostUrl(event.target.value)} disabled={busy} /></label>
         <button className="button button-secondary" disabled={busy || record.status === "sending"} onClick={() => reconcile.mutate()}>{reconcile.isPending ? "核对中…" : "核对发布结果"}</button>
@@ -92,7 +93,7 @@ export function PublicationPanel({ run, revision, active }: { run: RunDetail; re
       {error ? <p role="alert" className="form-error">{error.message}{submitUncertain ? " 请核对发布结果，不要重新发送。" : ""}</p> : null}
     </>}
     <dialog className="publication-confirm" ref={dialog} aria-labelledby="publication-confirm-title" onCancel={event => { if (confirm.isPending) event.preventDefault(); else setConfirmation(null); }}>
-      {confirmation ? <><header><h2 id="publication-confirm-title">确认发布到小红书</h2><button className="button button-quiet" aria-label="关闭发布确认" disabled={confirm.isPending} onClick={() => setConfirmation(null)}><X size={18} /></button></header>
+      {!readOnly && confirmation ? <><header><h2 id="publication-confirm-title">确认发布到小红书</h2><button className="button button-quiet" aria-label="关闭发布确认" disabled={confirm.isPending} onClick={() => setConfirmation(null)}><X size={18} /></button></header>
         <p><strong>{confirmation.account.name}</strong> · {confirmation.payload.visibility}</p>
         <div className="publication-confirm-images">{confirmation.payload.images.map(image => <img key={`${confirmation.digest}-${image.order}`} src={apiUrl(image.url)} alt={`将发布的第 ${image.order} 张图片`}
           onLoad={event => { const loaded = event.currentTarget.naturalWidth > 0 && event.currentTarget.naturalHeight > 0; setImageStates(old => ({ ...old, [image.url]: loaded ? "loaded" : "failed" })); }}

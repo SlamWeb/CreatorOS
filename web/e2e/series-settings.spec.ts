@@ -163,7 +163,7 @@ test("a pending assignment survives leaving and returning; its late failure is v
   const drawer = page.getByRole("dialog", { name: "栏目设置" });
   await expect(drawer.getByText("正在调整归属…")).toBeVisible();
   await expect(drawer.getByLabel("归属账号")).toBeDisabled();
-  await expect(drawer.getByRole("button", { name: `删除栏目 ${data.series.name}` })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "删除或移出栏目" })).toBeDisabled();
   expect(writes).toBe(1);
   release();
   await expect(drawer.getByRole("alert")).toContainText("受控迟到归属冲突");
@@ -189,14 +189,15 @@ test("a pending removal survives leaving and returning; its late failure is visi
     await hold;
     await route.fulfill({ status: 409, json: { error: { message: "受控迟到删除冲突" } } });
   });
-  page.once("dialog", dialog => dialog.accept());
-  await page.getByRole("dialog", { name: "栏目设置" }).getByRole("button", { name: `删除栏目 ${data.series.name}` }).click();
+  const initialDrawer = page.getByRole("dialog", { name: "栏目设置" });
+  await initialDrawer.getByRole("button", { name: "删除或移出栏目" }).click();
+  await initialDrawer.getByRole("button", { name: "移出工作区", exact: true }).click();
   await ready;
   await page.goBack();
   await page.goForward();
   await page.getByRole("button", { name: "栏目设置", exact: true }).click();
   const drawer = page.getByRole("dialog", { name: "栏目设置" });
-  await expect(drawer.getByRole("button", { name: `删除栏目 ${data.series.name}` })).toBeDisabled();
+  await expect(drawer.getByRole("button", { name: "删除或移出栏目" })).toBeDisabled();
   await expect(drawer.getByLabel("归属账号")).toBeDisabled();
   expect(writes).toBe(1);
   release();

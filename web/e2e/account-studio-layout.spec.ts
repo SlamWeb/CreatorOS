@@ -14,7 +14,7 @@ test("account and series navigation stay in the workspace while global navigatio
   const other = await post(`/api/creators/${second.id}/series`, { name: `另一账号栏目-${suffix}` });
   await page.goto(`/workspace?creator=${first.id}&series=${one.id}`);
   const sidebar = page.getByRole("navigation", { name: "主导航" });
-  await expect(sidebar.getByRole("link")).toHaveCount(5);
+  await expect(sidebar.getByRole("link")).toHaveCount(6);
   await expect(page.getByRole("heading", { name: one.name })).toBeVisible();
   const box = await sidebar.boundingBox();
   await expect(page.getByRole("button", { name: "切换账号" })).toContainText(first.display_name);

@@ -367,12 +367,13 @@ _V2_ACTIONS["start_content_run.tasks"] = {
                                       "description": "本项使用的精确 Skill 版本 ID；可选多项，省略沿用栏目阶段默认"},
                         "inputs": {
                             "type": "object",
-                            "description": "仅 video 必填：素材集和 BGM；素材 ID 与分享原文二选一。",
+                            "description": "仅 video 必填：素材集和一种 BGM 来源。",
                             "properties": {
                                 "collection_id": _string("视频使用的素材集 ID"),
                                 "export_id": _string("选用的素材集导出 ID；不指定则省略"),
-                                "bgm_material_id": _string("已有音频或视频素材 ID；与 bgm_reference 二选一"),
-                                "bgm_reference": _string("用户提供的 BGM 分享原文或链接；与 bgm_material_id 二选一，无需预解析或先导入"),
+                                "bgm_track_id": _string("全局 BGM 池中可用的曲目 ID"),
+                                "bgm_material_id": _string("已有旧账号音频素材 ID"),
+                                "bgm_reference": _string("用户提供的 BGM 分享原文或链接，直接交 Codex"),
                             },
                             "required": ["collection_id"],
                         },

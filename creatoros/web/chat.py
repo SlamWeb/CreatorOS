@@ -36,7 +36,7 @@ from creatoros.web.plan_continuations import (ContinuationProvider, PROTOCOL, RE
     can_retry, exhausted_before_output, new_retry_at, retry_delay, settled_outcome)
 
 STUDIO_TOOLS = frozenset({"manage_media_collection", "query_feedback", "prepare_publication", "get_publication", "list_creators", "list_creator_series", "manage_topics",
-                          "manage_skill_library", "manage_material",
+                          "manage_skill_library", "manage_material", "manage_bgm",
                           "start_content_run", "get_content_run", "install_producer_skill",
                           "get_skill_install", "list_producer_skills", "research_series_topics",
                           "get_producer_skill",
@@ -54,7 +54,7 @@ ACCOUNT_TOOLS = frozenset({
     "manage_plan",
     "manage_production_task",
     "manage_media_collection",
-    "manage_skill_library", "manage_material",
+    "manage_skill_library", "manage_material", "manage_bgm",
     "query_feedback", "prepare_publication", "get_publication",
     "list_creators", "list_creator_series", "manage_topics",
     "start_content_run", "get_content_run", "list_producer_skills",
@@ -86,6 +86,13 @@ REPLY_POLICY = (
     "用户明确询问技术细节、证据或完整内容时再按需展开；不删减用户要求的结果。"
     "只能依据实际目录或工具结果陈述事实；未验证不得声称 ID 格式错误、记录不存在或故障根因。"
     "权限拒绝用‘这个对话只处理当前账号，请切换到目标账号后查询。’即可；不加当前账号 ID 的括号说明，不再列可查询的栏目，不推测目标记录归属。"
+)
+BGM_POLICY = (
+    "按歌曲查找全项目共享音乐时使用 manage_bgm，确认真实曲目和分析状态。"
+    "用户要求设置栏目常用歌单时，核实当前账号的栏目并使用 manage_bgm 的歌单操作。"
+    "选择全局池歌曲提交视频时使用 inputs.bgm_track_id，宿主冻结音频和可用分析，按作品需要写使用片段。"
+    "用户只给分享原文并要求直接制作时，用 inputs.bgm_reference 交 Codex；只有明确要求入池时才导入。"
+    "后台受理、取得音频和分析完成分别按回执报告。"
 )
 SKILL_EDIT_POLICY = (
     "账号可用Skill库与栏目常用池用manage_skill_library查询/管理；栏目池是常用子集，不限制账号库中的本次选择。"
@@ -421,13 +428,13 @@ class AgentChatService:
         if creator is None:
             raise HTTPException(404, "绑定账号不存在。")
         if not creator.is_active:
-            raise HTTPException(409, "绑定账号已停用，请在总览处理；不会自动改绑。")
+            raise HTTPException(409, "绑定账号已移出工作台。请恢复账号后继续对话。")
         return creator
 
     def _instructions(self, doc):
         if doc.get("scope_kind", "overview") != "creator":
-            return WEB_INSTRUCTIONS
-        return ACCOUNT_INSTRUCTIONS + (
+            return WEB_INSTRUCTIONS + "\n" + BGM_POLICY
+        return ACCOUNT_INSTRUCTIONS + "\n" + BGM_POLICY + (
             "\n当前是账号对话，不是总览。当前账号身份由宿主会话固定，目录中的 ID 只供调用工具，回复中用名称。"
             "只读写当前账号的栏目、选题和任务；要求范围外记录时，回答：‘这个对话只处理当前账号，请切换到目标账号后查询。’"
             "不能在聊天里改绑账号；不可使用全局 Skill 安装/提炼或栏目转移工具。"
@@ -501,6 +508,10 @@ class AgentChatService:
     def get(self, session_id):
         with self.lock:
             return self._view(self._read(session_id))
+
+    def active_turns_for_creator(self, creator_id):
+        with self.lock:
+            return sum(doc.get("creator_id") == creator_id for doc in self.active.values())
 
     def list(self, scope_kind=None, creator_id=None):
         with self.lock:
@@ -974,7 +985,7 @@ class AgentChatService:
                     "skill_selection": "各项仅用skill_ids选择精确版本，不使用skills主辅角色或skill_overrides。",
                     "bgm_share_field": "inputs.bgm_reference",
                     "audio_import_required": False,
-                    "bgm_pool": "用户要求入池时用 manage_material import_link；选已保存歌曲用 bgm_material_id，已有分析随任务冻结。",
+                    "bgm_pool": "使用 manage_bgm 查全局 BGM 和本栏目的歌单。选全局歌曲用 inputs.bgm_track_id，可用分析随任务冻结。对话附件仍用旧素材ID。",
                     "independent_images": "一图一task，25张独立理由图=25项tasks，同一选题收进同一素材集",
                     "image_then_video": "用manage_plan等待图片完成后继续剪辑，分享原文直接给Codex",
                     "obsolete_history": "旧回复中必须先取得音频素材ID的说法已作废"}
@@ -988,7 +999,7 @@ class AgentChatService:
                         focus["data"]["bgm_index"] = [{key: item.get(key) for key in ("id", "name", "duration_seconds", "analysis_available", "analysis_status")}
                                                         for item in tracks[:50]]
                         if len(tracks) > 50:
-                            focus["data"]["bgm_index_note"] = "仅列最近50项，其他音乐可用 manage_material 查询。"
+                            focus["data"]["bgm_index_note"] = "此处仅列最近 50 项旧账号附件。查找共享音乐请使用 manage_bgm。"
                 if materials:
                     focus["data"]["attached_bgm"] = materials
             permitted_tools = ACCOUNT_TOOLS if doc.get("scope_kind") == "creator" else STUDIO_TOOLS

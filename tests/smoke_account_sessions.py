@@ -80,7 +80,7 @@ def main(live=False):
                 assert client.post(base, json={"creator_id": "review-lab"}).status_code == 409
                 inactive = client.post(f"{base}/{account['id']}/turns", json={
                     "request_id": str(uuid4()), "text": "你好", "expected_version": client.get(f"{base}/{account['id']}").json()["version"]})
-                assert inactive.status_code == 409 and "已停用" in inactive.json()["error"]["message"]
+                assert inactive.status_code == 409 and "已移出工作台" in inactive.json()["error"]["message"]
                 assert client.post(f"{base}/{other['id']}/turns", json={
                     "request_id": str(uuid4()), "text": "你好", "expected_version": 0}).status_code == 404
                 assert client.get(f"{base}/{other['id']}").json()["creator_id"] == "other-account"

@@ -39,6 +39,7 @@ import type {
   ProductionTaskList,
   ProductionTaskInput,
 } from "./types";
+import type { RemovalStatus } from "./workspaceLifecycle";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "").replace(/\/$/, "");
 
@@ -143,7 +144,9 @@ export const studioApi = {
   cancelOperation: (id: string, input: { expected_version: number; expected_revision: number }) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify(input) }),
   confirmOperation: (id: string, input: OperationConfirmInput) => request<PendingOperationView>(`/api/operations/${encodeURIComponent(id)}/confirm`, { method: "POST", body: JSON.stringify(input) }),
   runs: () => request<PageResponse<RunSummary>>("/api/runs?limit=100"),
-  runsPage: (offset: number, creatorId?: string) => request<PageResponse<RunSummary>>(`/api/runs?limit=50&offset=${offset}${creatorId ? `&creator_id=${encodeURIComponent(creatorId)}` : ""}`),
+  runsPage: (offset: number, creatorId?: string, seriesId?: string) => request<PageResponse<RunSummary>>(`/api/runs?${new URLSearchParams({
+    limit: "50", offset: String(offset), ...(creatorId ? { creator_id: creatorId } : {}), ...(seriesId ? { series_id: seriesId } : {}),
+  })}`),
   run: (id: string) => request<RunDetail>(`/api/runs/${encodeURIComponent(id)}`),
   runDiscussions: (id: string) => request<{ items: DiscussionEntry[] }>(`/api/runs/${encodeURIComponent(id)}/discussion`),
   createRunDiscussion: (id: string, input: { request_id: string; revision_id: string; artifact_digest: string; message: string }) =>
@@ -228,7 +231,7 @@ export const studioApi = {
   cancelSkillExtraction: (id: string) => request<SkillExtractionJob>(`/api/skill-extractions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
   composeSeries: (input: SeriesComposeInput) => request<SeriesWriteResult>("/api/series", { method: "POST", body: JSON.stringify(input) }),
   renameSeries: (id: string, input: { name: string; expected_revision: number; request_id: string }) => request<SeriesWriteResult>(`/api/series/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
-  deleteSeries: (id: string, input: { expected_revision: number; request_id: string }) => request<{ id: string; status: "deleted" | "archived"; deduplicated: boolean }>(`/api/series/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify(input) }),
+  deleteSeries: (id: string, input: { expected_revision: number; request_id: string; expected_status?: RemovalStatus }) => request<{ id: string; status: RemovalStatus; deduplicated: boolean }>(`/api/series/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify(input) }),
   mergeSkills: (input: { request_id: string; skill_ids: string[]; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions/merge", { method: "POST", body: JSON.stringify(input) }),
   assignSeries: (id: string, input: { creator_id: string | null; expected_revision: number; request_id: string }) => request<SeriesWriteResult>(`/api/series/${encodeURIComponent(id)}/assignment`, { method: "POST", body: JSON.stringify(input) }),
   editTopic: (id: string, input: { title?: string; brief?: string | null }) => request<{ ok: boolean }>(`/api/topics/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
@@ -238,7 +241,7 @@ export const studioApi = {
       `/api/topics/${encodeURIComponent(id)}/remove`, { method: "POST", body: JSON.stringify(input) }),
   reorderTopics: (seriesId: string, ordered_topic_ids: string[]) => request<{ ok: boolean }>(`/api/series/${encodeURIComponent(seriesId)}/reorder`, { method: "POST", body: JSON.stringify({ ordered_topic_ids }) }),
   queueTopics: (seriesId: string, topics: { title: string; brief?: string | null; source?: "research" | "manual" }[]) => request<{ topic_ids: string[] }>(`/api/series/${encodeURIComponent(seriesId)}/queue`, { method: "POST", body: JSON.stringify({ topics, request_id: crypto.randomUUID().replaceAll("-", "") }) }),
-  deleteCreator: (id: string) => request<{ ok: boolean }>(`/api/creators/${encodeURIComponent(id)}/delete`, { method: "POST", body: "{}" }),
+  deleteCreator: (id: string, expected_status?: RemovalStatus) => request<{ ok: boolean; id: string; status: RemovalStatus }>(`/api/creators/${encodeURIComponent(id)}/delete`, { method: "POST", body: JSON.stringify({ expected_status }) }),
 };
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;

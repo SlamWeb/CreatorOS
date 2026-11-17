@@ -157,13 +157,15 @@ class ContentDiscussionService:
         target.parent.mkdir(parents=True, exist_ok=True)
         _write(target, record)
 
-    def _run_identity(self, run_id):
+    def _run_identity(self, run_id, *, require_active=False):
         with self.database.session() as session:
             run = session.get(ContentRun, run_id)
             topic = session.get(Topic, run.topic_id) if run else None
             series = session.get(Series, topic.series_id) if topic else None
             if not run or not series:
                 raise ContentRunError("内容任务不存在。", code="not_found", status_code=404)
+            if require_active and (not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active))):
+                raise ContentRunError("栏目或所属账号已移出工作区，不能启动讨论。", code="scope_inactive", status_code=409)
             frozen = run.input_snapshot_json
             if series.creator_id != frozen.get("creator_id"):
                 raise ContentRunError("栏目归属已变化，不能在新账号下续聊旧产物。", code="scope_changed", status_code=409)
@@ -192,7 +194,7 @@ class ContentDiscussionService:
         with self.lock:
             if self.cancel.is_set():
                 raise ContentRunError("讨论服务正在关闭，请启动后提交。", code="discussion_unavailable")
-            run, series = self._run_identity(run_id)
+            run, series = self._run_identity(run_id, require_active=True)
             records = self._records()
             request = dict(run_id=run_id, revision_id=revision_id, artifact_digest=artifact_digest, message=message)
             for previous in records:

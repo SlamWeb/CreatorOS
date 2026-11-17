@@ -33,7 +33,7 @@ export const useRuns = () => useQuery({
 });
 export const useRun = (id: string | undefined) => useQuery({
   queryKey: ["run", id], queryFn: () => studioApi.run(id ?? ""), enabled: Boolean(id),
-  refetchInterval: (query) => activeRunStatuses.includes(query.state.data?.status ?? "") ? 2_000 : false,
+  refetchInterval: (query) => !query.state.data?.workspace_archived && activeRunStatuses.includes(query.state.data?.status ?? "") ? 2_000 : false,
   ...queryOptions,
 });
 export const useOperation = (id: string | null) => useQuery({

@@ -64,7 +64,7 @@ CASES = [
     ("selected_skill_run", ["-m", "unittest", "tests.test_selected_skill_run", "-v"]),
     ("skill_libraries", ["-m", "unittest", "tests.test_skill_library", "tests.test_staged_production_agent", "-v"]),
     ("staged_production", ["-m", "unittest", "tests.test_staged_tasks", "tests.test_task_video_execution",
-                            "tests.test_managed_materials", "tests.test_production_task_tools", "-v"]),
+                            "tests.test_managed_materials", "tests.test_global_bgm", "tests.test_production_task_tools", "-v"]),
     ("skill_iteration_agent", ["-m", "unittest", "tests.test_skill_iteration_agent",
                                "tests.test_rsi_tool_revision_contract", "-v"]),
     ("skill_iteration_service", ["-m", "unittest", "tests.test_skill_iteration_service", "-v"]),
@@ -110,7 +110,7 @@ CASES = [
         "smoke_skill_workbench", "smoke_topic_research_sdk", "smoke_content_discussion",
         "smoke_native_production", "smoke_worker_delivery", "smoke_studio_production_progress",
         "smoke_studio_executor", "smoke_topic_remove", "smoke_topic_remove_migration",
-        "smoke_account_context", "smoke_worker_task_projection", "smoke_observation",
+        "smoke_account_context", "smoke_workspace_lifecycle", "smoke_worker_task_projection", "smoke_observation",
     )],
 ]
 

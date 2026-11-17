@@ -175,7 +175,8 @@ class SeriesRenameMigrationTests(unittest.TestCase):
             post_v18_tables = {"production_tasks", "agent_plan_steps", "agent_plans",
                                "creator_skill_refs", "managed_materials", "series_skill_refs",
                                "skill_switch_intents", "production_queue_history", "production_task_history",
-                               "skill_display_categories"}
+                               "skill_display_categories", "global_bgm_tracks", "global_bgm_legacy_sources",
+                               "series_bgm_tracks", "global_bgm_imports"}
             for operation, expected_added in ((lambda: upgrade_database(url), post_v18_tables),
                                               (lambda: command.downgrade(cfg, "20261024_0018"), set()),
                                               (lambda: upgrade_database(url), post_v18_tables)):

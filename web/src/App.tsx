@@ -16,6 +16,7 @@ const ObservationPage = lazy(() => import("./pages/ObservationPage").then(module
 const EvalPage = lazy(() => import("./pages/EvalPage").then(module => ({ default: module.EvalPage })));
 const CalibrationPage = lazy(() => import("./pages/CalibrationPage").then(module => ({ default: module.CalibrationPage })));
 const HomePage = lazy(() => import("./pages/HomePage").then(module => ({ default: module.HomePage })));
+const BgmPool = lazy(() => import("./components/BgmPool").then(module => ({ default: module.BgmPool })));
 
 const pageLoading = <div className="state-panel loading-state" role="status">正在加载页面…</div>;
 
@@ -28,6 +29,7 @@ export function App() {
       <Route element={<PageOutlet />}>
       <Route path="/" element={<HomeEntry />} />
       <Route path="/workspace" element={<WorkspacePage />} />
+      <Route path="/bgm" element={<BgmPool />} />
       <Route path="/skills" element={<SkillsPage />} />
       <Route path="/calibrate" element={<CalibrationPage />} />
       <Route path="/studio" element={<Navigate to="/skills" replace />} />

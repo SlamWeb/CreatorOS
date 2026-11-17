@@ -18,14 +18,14 @@ function SeriesCard({ item, cover, active, unseen, onSelect }: {
 }
 
 export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete, onRetryAccounts, account, series, selectedSeriesId, unassigned, onSelectAccount, onSelectSeries,
-  onCreateAccount, onCreateSeries, createSeriesDisabled, hasUnseen, confirmingDelete, onConfirmDelete, onDelete, deletePending,
-  shownView, onViewChange, showBgm }: {
+  onCreateAccount, onCreateSeries, createSeriesDisabled, hasUnseen, onRemove, onRecovery,
+  shownView, onViewChange }: {
   accounts: CreatorDirectoryItem[]; accountsLoading: boolean; accountsIncomplete: boolean; onRetryAccounts: () => void;
   account?: CreatorDirectoryItem; series: SeriesView[]; selectedSeriesId: string | null; unassigned: SeriesView[];
   onSelectAccount: (id: string) => void; onSelectSeries: (id: string) => void;
   onCreateAccount: () => void; onCreateSeries: () => void; createSeriesDisabled: boolean; hasUnseen: (id: string) => boolean;
-  confirmingDelete: boolean; onConfirmDelete: () => void; onDelete: () => void; deletePending: boolean;
-  shownView: string; onViewChange: (view: string) => void; showBgm: boolean;
+  onRemove: () => void; onRecovery: () => void;
+  shownView: string; onViewChange: (view: string) => void;
 }) {
   const [switching, setSwitching] = useState(false);
   const [search, setSearch] = useState("");
@@ -74,9 +74,8 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
     return () => observer.disconnect();
   }, [selectedSeriesId, shownView, seriesSearch, series.length]);
   const title = account?.display_name ?? (unassigned.length && series.some(item => item.creator_id === null) ? "未分配栏目" : "选择账号");
-  const views = [{ value: "data", label: "数据" },
-    ...(showBgm ? [{ value: "bgm", label: "BGM" }] : []), { value: "skills", label: "可用 Skill" }];
-  const TitleTag = selectedSeriesId && ["content", "materials"].includes(shownView) ? "div" : "h1";
+  const views = [{ value: "data", label: "数据" }, { value: "skills", label: "可用 Skill" }];
+  const TitleTag = selectedSeriesId && ["content", "materials", "playlist"].includes(shownView) ? "div" : "h1";
   return <>
     <div className="account-studio-head">
       <TitleTag className="account-studio-title" aria-label={title}><button type="button" className="account-nav-switch" aria-label="切换账号" aria-haspopup="dialog" aria-expanded={switching}
@@ -84,13 +83,15 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
         <span className="account-nav-avatar" aria-hidden="true">{account?.display_name.slice(0, 1) ?? <LayoutGrid size={16} />}</span>
         <span className="account-nav-name" title={title}>{title}</span><ChevronsUpDown size={16} aria-hidden="true" />
       </button></TitleTag>
-      {account && <nav className="account-resource-actions" aria-label="账号工作区">{views.map(view =>
-        <button key={view.value} type="button" aria-pressed={shownView === view.value} onClick={() => onViewChange(view.value)}>{view.label}</button>)}</nav>}
+      <nav className="account-resource-actions" aria-label="账号工作区">{account && views.map(view =>
+        <button key={view.value} type="button" aria-pressed={shownView === view.value} onClick={() => onViewChange(view.value)}>{view.label}</button>)}
+        <button type="button" aria-haspopup="dialog" onClick={onRecovery}>已移出的账号与栏目</button>
+      </nav>
     </div>
     {(account || series.length > 0) && <div className="account-series-navigation">
       <nav ref={seriesNav} className="account-nav-series" aria-label="当前账号的栏目">
         {matchingSeries.map(item => <SeriesCard key={item.id} item={item} cover={displayCovers.get(item.id)}
-          active={selectedSeriesId === item.id && ["content", "materials"].includes(shownView)} unseen={hasUnseen(item.id)} onSelect={() => onSelectSeries(item.id)} />)}
+          active={selectedSeriesId === item.id && ["content", "materials", "playlist"].includes(shownView)} unseen={hasUnseen(item.id)} onSelect={() => onSelectSeries(item.id)} />)}
         <button type="button" className="account-series-create" aria-label="新建栏目" disabled={createSeriesDisabled} onClick={onCreateSeries}><Plus size={15} aria-hidden="true" />新建栏目</button>
       </nav>
       {series.length > 7 && <label className="account-nav-search account-series-search"><Search size={15} aria-hidden="true" />
@@ -115,8 +116,8 @@ export function AccountNavigator({ accounts, accountsLoading, accountsIncomplete
       <footer className="account-switch-footer">
         {!!unassigned.length && <button type="button" onClick={() => { onSelectSeries(unassigned[0].id); setSwitching(false); }}><GalleryVerticalEnd size={16} aria-hidden="true" />未分配栏目</button>}
         <button type="button" onClick={() => { setSwitching(false); requestAnimationFrame(onCreateAccount); }}><Plus size={16} aria-hidden="true" />新建账号</button>
-        {account && !series.length && <button type="button" className="action-danger" disabled={deletePending}
-          onClick={() => confirmingDelete ? onDelete() : onConfirmDelete()}><Trash2 size={15} aria-hidden="true" />{deletePending ? "删除中…" : confirmingDelete ? "确认删除账号" : "删除当前账号"}</button>}
+        {account && <button type="button" className="action-danger" aria-haspopup="dialog"
+          onClick={() => { setSwitching(false); requestAnimationFrame(onRemove); }}><Trash2 size={15} aria-hidden="true" />删除或移出当前账号</button>}
       </footer>
     </WorkspaceDialog>}
   </>;

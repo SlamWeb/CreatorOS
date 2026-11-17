@@ -80,7 +80,7 @@ class SkillCalibrationService:
     def _series(self, series_id, skill_id):
         with self.database.session() as session:
             series = session.get(Series, series_id)
-            if series is None or not series.is_active:
+            if series is None or not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
                 raise ExtractionError("栏目不存在或已移除。", 404)
             bound = [series.skill_name] if series.skill_name else [series.mind_skill_id, series.production_skill_id]
             if skill_id not in bound:

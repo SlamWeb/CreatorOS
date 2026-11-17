@@ -103,6 +103,9 @@ class MaintenanceController:
             busy.append("bgm_analysis")
         if materials and any(item.get("status") == "running" for item in getattr(materials, "_import_jobs", {}).values()):
             busy.append("bgm_import")
+        global_bgm = getattr(service, "global_bgm", None)
+        if global_bgm:
+            busy.extend(reason for reason in global_bgm.busy() if reason not in busy)
         extraction = service.skill_extractions
         if extraction.active_id or extraction._draining:
             busy.append("skill_extraction")
@@ -201,7 +204,10 @@ class MaintenanceMiddleware:
         if mutating and controller.held:
             return await self.respond(send, 503, {"error": {"code": "maintenance_held",
                 "message": "服务正在安全维护，请稍后再试；已有内容保留。"}})
-        if not mutating:
+        # The first pool read can backfill account material bytes. Held reads
+        # only project registered rows, and a live backfill delays maintenance.
+        backfills_bgm = scope["method"] == "GET" and scope["path"].rstrip("/") == "/api/bgm" and not controller.held
+        if not mutating and not backfills_bgm:
             return await self.app(scope, receive, send)
         controller.inflight_writes += 1
         try:

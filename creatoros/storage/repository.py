@@ -186,6 +186,9 @@ class ContentRepository:
         if not ordered_topic_ids or len(ordered_topic_ids) != len(set(ordered_topic_ids)):
             raise ValueError("ordered_topic_ids 必须是非空且不重复的完整列表。")
         with self._session() as session:
+            series = session.get(Series, series_id)
+            if series is None or not series.is_active or (series.creator_id and (series.creator is None or not series.creator.is_active)):
+                raise ValueError("栏目或所属账号已移出工作区，不能调整选题。")
             all_topics = list(
                 session.scalars(select(Topic).where(Topic.series_id == series_id))
             )

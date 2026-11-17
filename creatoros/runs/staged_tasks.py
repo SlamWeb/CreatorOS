@@ -17,10 +17,11 @@ from .repository import ContentRunRepository
 
 
 class StagedTasks:
-    def __init__(self, owner, library=None, collections=None, materials=None):
+    def __init__(self, owner, library=None, collections=None, materials=None, *, global_bgm=None):
         self.owner = owner
         self.database, self.runs = owner.database, owner.runs
         self.library, self.collections, self.materials = library, collections, materials
+        self.global_bgm = global_bgm
         from creatoros.integrations.producer_skills import ProducerSkillCatalog, skills_root_for
         self.catalog = library.catalog if library else ProducerSkillCatalog(skills_root_for(self.database))
         self.root = self.runs.output_root / "staged-task-inputs"
@@ -53,23 +54,35 @@ class StagedTasks:
         dependencies = self.dependencies(session, topic.id, item.depends_on)
         inputs = item.inputs.model_dump(exclude_none=True) if item.inputs else {}
         if item.kind == "video":
-            if not self.materials or not self.collections:
+            if not self.collections:
                 raise ValueError("视频素材服务未配置。")
             if not inputs:
                 raise ValueError("视频需要图片素材集和 BGM。")
             detail = self.collections.get(creator_id, inputs["collection_id"])
             if detail.get("topic_id") not in (None, topic.id):
                 raise ValueError("请选择当前账号的独立素材集或本选题素材集。")
-            if inputs.get("bgm_material_id"):
-                bgm = self.materials.resolve(creator_id, inputs["bgm_material_id"])
+            track_id = inputs.get("bgm_track_id")
+            material_id = inputs.get("bgm_material_id")
+            if track_id:
+                if not self.global_bgm:
+                    raise ValueError("全局 BGM 池未配置。")
+                self.global_bgm.ensure_active(session, track_id)
+                bgm = self.global_bgm.resolve(track_id)
+                analysis = self.global_bgm.resolve_analysis(track_id)
+            elif material_id:
+                if not self.materials:
+                    raise ValueError("账号音频素材服务未配置。")
+                bgm = self.materials.resolve(creator_id, material_id)
+                analysis = self.materials.resolve_analysis(creator_id, material_id)
+            else:
+                bgm, analysis = None, None
+                spec.bgm_reference = inputs["bgm_reference"]
+            if bgm:
                 spec.materials.append(TaskMaterial(id=bgm["id"], kind="audio", path=str(bgm["path"]),
                                                    sha256=bgm["sha256"], name=bgm["name"]))
-                analysis = self.materials.resolve_analysis(creator_id, bgm["id"])
-                if analysis:
-                    spec.materials.append(TaskMaterial(id=bgm["id"] + "-analysis", kind="bgm_analysis",
-                        path=str(analysis["path"]), sha256=analysis["sha256"], name="bgm-analysis.json"))
-            else:
-                spec.bgm_reference = inputs["bgm_reference"]
+            if analysis:
+                spec.materials.append(TaskMaterial(id=bgm["id"] + "-analysis", kind="bgm_analysis",
+                    path=str(analysis["path"]), sha256=analysis["sha256"], name="bgm-analysis.json"))
         elif inputs or dependencies:
             raise ValueError("当前图片任务直接生产；输入素材集和阶段依赖用于视频制作。")
         # Freeze now, even if dependencies will take hours. Editing the library

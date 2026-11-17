@@ -36,6 +36,7 @@ from .schemas import (
     AssignmentRequest,
     CompositionUpdateRequest,
     CreatorCreateRequest,
+    CreatorRemovalRequest,
     CreatorDirectoryView,
     CreatorView,
     ErrorResponse,
@@ -81,12 +82,15 @@ from .media_collections import MediaCollectionService
 from .media_collection_routes import media_collection_routes
 from .production_task_routes import production_task_routes
 from .material_routes import material_routes
+from .global_bgm_routes import build_global_bgm_router
 from .skill_library_routes import create_skill_library_router
 from creatoros.integrations.managed_materials import MaterialStore
+from creatoros.integrations.global_bgm import GlobalBgmStore
 from creatoros.integrations.skill_library import SkillLibraryService
 from creatoros.runs.production_tasks import ProductionTaskService
 from .static import mount_studio
 from .chat import AgentChatService
+from .workspace_lifecycle import WorkspaceLifecycle
 from .chat_image_actions import chat_image_action_routes, extraction_owner_path
 from .chat_routes import chat_routes
 from .agent_scope import AgentScopeGuard
@@ -178,6 +182,8 @@ def create_app(
     discussions = content_discussion_service or ContentDiscussionService(
         db, artifacts, session_root.with_name(session_root.name + "-discussions"))
     queries.discussions = discussions
+    materials = MaterialStore(db)
+    workspace_lifecycle = WorkspaceLifecycle(db, research, chat, discussions, extractions, materials)
     observations = ObservationService(db, chat=chat, research=research,
                                      discussions=discussions, extractions=extractions, runs=runs)
     agent_scope = AgentScopeGuard(db, chat, research, discussions=discussions, iterations=iterations)
@@ -254,10 +260,11 @@ def create_app(
     app.state.queries = queries
     app.state.media_collections = MediaCollectionService(db, artifacts)
     app.state.skill_library = skill_library
-    app.state.materials = MaterialStore(db)
+    app.state.materials = materials
+    app.state.global_bgm = GlobalBgmStore(db, legacy=app.state.materials)
     chat.materials = app.state.materials
     app.state.production_tasks = ProductionTaskService(db, runs, executor, library=skill_library,
-        collections=app.state.media_collections, materials=app.state.materials)
+        collections=app.state.media_collections, materials=app.state.materials, global_bgm=app.state.global_bgm)
     app.state.reference_production = ReferenceProductionService(db, runs, executor, writes.pending_operations,
                                                                library=skill_library)
     app.state.writes = writes
@@ -301,6 +308,7 @@ def create_app(
     app.include_router(production_task_routes(app.state.production_tasks))
     app.include_router(create_skill_library_router(skill_library))
     app.include_router(material_routes(app.state.materials))
+    app.include_router(build_global_bgm_router(app.state.global_bgm))
 
     @app.middleware("http")
     async def local_writes(request: Request, call_next):
@@ -406,8 +414,9 @@ def create_app(
     def list_creators(
         offset: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        archived: bool = False,
     ) -> PageResponse[CreatorView]:
-        return queries.list_creators(offset=offset, limit=limit)
+        return queries.list_creators(offset=offset, limit=limit, archived=archived)
 
     @app.get("/api/creator-directory", response_model=CreatorDirectoryView)
     def creator_directory(response: Response) -> CreatorDirectoryView:
@@ -440,20 +449,21 @@ def create_app(
         return result
 
     @app.get("/api/series", response_model=list[SeriesView])
-    def list_series() -> list[SeriesView]:
-        return queries.list_series()
+    def list_series(archived: bool = False) -> list[SeriesView]:
+        return queries.list_series(archived=archived)
 
     @app.delete("/api/series/{series_id}", response_model=SeriesDeleteResponse)
     def delete_series(series_id: str, payload: SeriesDeleteRequest, request: Request) -> SeriesDeleteResponse:
         # Keep checks and the delete/archive transaction serialized against the
         # in-process run executor and research submitter.
-        with runs._write_lock, research.lock:
+        with app.state.production_tasks.submissions.coordinate_ownership_change(), research.lock, discussions.lock, extractions.lock:
             result_id, status, deduplicated, _creator_id = composition.delete_series(
                 series_id,
                 expected_revision=payload.expected_revision,
                 request_id=payload.request_id,
                 origin=_request_origin(request),
-                research=research,
+                lifecycle=workspace_lifecycle,
+                expected_status=payload.expected_status,
             )
         return SeriesDeleteResponse(id=result_id, status=status, deduplicated=deduplicated)
 
@@ -579,13 +589,37 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         return receipt or {"request_id": request_id, "status": "unknown", "deduplicated": False}
 
-    @app.post("/api/creators/{creator_id}/delete")
-    def delete_creator(creator_id: str):
+    @app.get("/api/creators/{creator_id}/archived-series", response_model=list[SeriesView])
+    def archived_series(creator_id: str):
         try:
-            writes.delete_creator(creator_id)
-        except StudioWriteError as error:
-            raise HTTPException(status_code=error.status_code, detail=str(error)) from error
-        return {"ok": True}
+            return queries.archived_series(creator_id)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/creators/{creator_id}/removal")
+    def creator_removal(creator_id: str):
+        with (app.state.production_tasks.submissions.coordinate_ownership_change(),
+              research.lock, discussions.lock, extractions.lock, chat.lock):
+            return workspace_lifecycle.assess("creator", creator_id)
+
+    @app.get("/api/series/{series_id}/removal")
+    def series_removal(series_id: str):
+        with app.state.production_tasks.submissions.coordinate_ownership_change(), research.lock, discussions.lock, extractions.lock:
+            return workspace_lifecycle.assess("series", series_id)
+
+    @app.post("/api/creators/{creator_id}/delete")
+    def delete_creator(creator_id: str, payload: CreatorRemovalRequest | None = None):
+        with (app.state.production_tasks.submissions.coordinate_ownership_change(),
+              research.lock, discussions.lock, extractions.lock, chat.lock):
+            return workspace_lifecycle.remove_creator(creator_id, payload.expected_status if payload else None)
+
+    @app.post("/api/creators/{creator_id}/restore")
+    def restore_creator(creator_id: str):
+        return workspace_lifecycle.restore("creator", creator_id)
+
+    @app.post("/api/series/{series_id}/restore")
+    def restore_series(series_id: str):
+        return workspace_lifecycle.restore("series", series_id)
 
     @app.get("/api/topics/{topic_id}", response_model=TopicView)
     def get_topic(topic_id: str, response: Response):
@@ -660,9 +694,10 @@ def create_app(
         limit: Annotated[int, Query(ge=1, le=100)] = 50,
         status: ContentRunStatus | None = None,
         creator_id: str | None = None,
+        series_id: str | None = None,
     ) -> PageResponse[RunSummary]:
         return queries.list_runs(
-            offset=offset, limit=limit, status=status, creator_id=creator_id
+            offset=offset, limit=limit, status=status, creator_id=creator_id, series_id=series_id
         )
 
     @app.get("/api/runs/{run_id}", response_model=RunDetail)

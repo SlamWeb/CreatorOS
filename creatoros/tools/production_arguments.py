@@ -27,12 +27,16 @@ class MaterialBgmInputs(CollectionInputs):
     bgm_material_id: str = Field(pattern=r"^[a-f0-9]{64}$", description="已有音频或视频的素材 ID。")
 
 
+class GlobalBgmInputs(CollectionInputs):
+    bgm_track_id: str = Field(pattern=r"^bgm-[a-f0-9]{64}$", description="全局 BGM 池曲目 ID。")
+
+
 class ReferenceBgmInputs(CollectionInputs):
     bgm_reference: str = Field(min_length=1, max_length=10000,
         description="用户给的 BGM 分享原文或链接，直接交给 Codex；无需预解析或先导入。")
 
 
-TaskInputs = Union[MaterialBgmInputs, ReferenceBgmInputs]
+TaskInputs = Union[GlobalBgmInputs, MaterialBgmInputs, ReferenceBgmInputs]
 
 
 class ProductionTask(ProductionArguments):
@@ -49,7 +53,7 @@ class ImageProductionTask(ProductionTask):
 
 class VideoProductionTask(ProductionTask):
     kind: Literal["video"]
-    inputs: TaskInputs = Field(description="素材集及 BGM 素材ID或分享原文，两种 BGM 输入二选一。")
+    inputs: TaskInputs = Field(description="素材集与一种 BGM 输入：全局曲目、旧账号素材或分享原文。")
     depends_on: list[ObjectId] = Field(default_factory=list, max_length=100,
         description="用户明确选择的本选题生图任务 ID；后台等待完成，不轮询。")
 

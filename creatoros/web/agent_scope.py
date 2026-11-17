@@ -23,6 +23,9 @@ _SERIES_COMPOSITION = re.compile(r"^/api/series/([^/]+)/composition$")
 _SERIES_QUEUE = re.compile(r"^/api/series/([^/]+)/queue$")
 _SERIES_QUEUE_RECEIPT = re.compile(r"^/api/series/([^/]+)/queue/receipts/([^/]+)$")
 _SERIES_DELETE = re.compile(r"^/api/series/([^/]+)$")
+_BGM_TRACK = re.compile(r"^/api/bgm/bgm-[a-f0-9]{64}(?:/(file|analysis|analysis/run))?$")
+_BGM_IMPORT = re.compile(r"^/api/bgm/imports(?:/([a-f0-9]{64})(/retry)?)?$")
+_SERIES_BGM = re.compile(r"^/api/series/([^/]+)/bgm(?:/(bgm-[a-f0-9]{64}))?$")
 _BATCH = re.compile(r"^/api/topic-research/([a-f0-9]{32})$")
 _BATCH_ACTION = re.compile(r"^/api/topic-research/([a-f0-9]{32})/(preview|queue)$")
 _RUN = re.compile(r"^/api/runs/([^/]+)$")
@@ -81,13 +84,35 @@ class AgentScopeGuard:
                     or not 8 <= len(edit_payload["request_id"]) <= 64):
                 return self._denied()
 
-        if session.get("scope_kind", "overview") != "creator":
-            return None
+        method, path = request.method.upper(), request.url.path
+        creator_scoped = session.get("scope_kind", "overview") == "creator"
         creator_id = session.get("creator_id")
-        if not isinstance(creator_id, str) or not self._active_creator(creator_id):
+        if creator_scoped and (not isinstance(creator_id, str) or not self._active_creator(creator_id)):
             return self._denied()
 
-        method, path = request.method.upper(), request.url.path
+        if path == "/api/bgm":
+            return None if method == "GET" else self._denied()
+        if path.startswith("/api/bgm/"):
+            track = _BGM_TRACK.fullmatch(path)
+            imported = _BGM_IMPORT.fullmatch(path)
+            allowed = (
+                track and (method == "GET" and track.group(1) != "analysis/run"
+                           or method == "POST" and track.group(1) == "analysis/run")
+                or imported and (method == "GET" and imported.group(2) is None
+                                 or method == "POST" and (imported.group(1) is None or imported.group(2)))
+            )
+            return None if allowed else self._denied()
+        playlist = _SERIES_BGM.fullmatch(path)
+        if playlist:
+            allowed = method in ({"PUT", "DELETE"} if playlist.group(2) else {"GET"})
+            if not creator_scoped or not allowed:
+                return self._denied()
+            with self.db.session() as transaction:
+                series = transaction.get(Series, playlist.group(1))
+                return None if series and series.is_active and series.creator_id == creator_id else self._denied()
+
+        if not creator_scoped:
+            return None
 
         plans = re.fullmatch(r"/api/agent/sessions/([^/]+)/plans(?:/([a-f0-9]{64})(?:/(actions))?)?", path)
         if plans:
@@ -245,6 +270,8 @@ class AgentScopeGuard:
             return None if self._can_fork_or_edit_skill(match.group(1), creator_id) else self._skill_denied()
 
         if method == "GET" and path == "/api/creators":
+            if "archived" in request.query_params:
+                return self._denied()
             return await self._creator_page(request, creator_id)
 
         match = _CREATOR_PATH.fullmatch(path)
@@ -610,7 +637,9 @@ class AgentScopeGuard:
             return False
         inputs = task.get("inputs")
         if inputs is not None:
-            if not isinstance(inputs, dict) or set(inputs) - {"collection_id", "export_id", "bgm_material_id", "bgm_reference"}:
+            if not isinstance(inputs, dict) or set(inputs) - {
+                "collection_id", "export_id", "bgm_track_id", "bgm_material_id", "bgm_reference",
+            }:
                 return False
             if any(value is not None and (not isinstance(value, str) or not value) for value in inputs.values()):
                 return False

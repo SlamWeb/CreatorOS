@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from creatoros.runs.service import ContentRunError
+from creatoros.runs.service import ContentRunError, ContentRunService
 from creatoros.storage import (
     ContentRun, ContentRunStatus, Database, ManualPublication,
     PublicationMetric, PublicationRequest, Topic, TopicStatus,
@@ -42,6 +42,7 @@ class ManualPublicationService:
                 if (existing.revision_id, existing.artifact_digest, existing.post_url) == (revision_id, artifact_digest, post_url):
                     return
                 raise ContentRunError("此 Run 已登记另一条笔记；请先核对原记录。", code="already_published")
+            ContentRunService._assert_existing_scope(session, run.topic_id, run)
             if session.scalar(select(PublicationRequest).where(PublicationRequest.content_run_id == run_id)):
                 raise ContentRunError("该内容已有发布单，请在发布单核对笔记链接。", code="publication_request_exists")
             if run.status is not ContentRunStatus.APPROVED or run.version != expected_version:
@@ -77,6 +78,10 @@ class ManualPublicationService:
                 ):
                     return
                 raise ContentRunError("该提交编号已用于另一份指标。", code="request_conflict")
+            run = session.get(ContentRun, run_id)
+            if run is None:
+                raise ContentRunError("Run 不存在。", code="not_found", status_code=404)
+            ContentRunService._assert_existing_scope(session, run.topic_id, run)
             session.add(PublicationMetric(
                 id=str(uuid4()), publication_id=publication.id, request_id=request_id,
                 views=views, likes=likes, favorites=favorites, comments=comments,

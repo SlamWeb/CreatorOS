@@ -215,6 +215,43 @@ class StagedAgentHttpTests(unittest.TestCase):
             expected_version=result["version"], skill_ids=[candidate["skill_id"]])
         self.assertTrue(stale.is_error)
 
+    def test_shared_bgm_tool_and_playlist_keep_account_boundaries(self):
+        from tests.media_test_support import require_media
+        require_media(self)
+        output = io.BytesIO()
+        with wave.open(output, "wb") as sound:
+            sound.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            sound.writeframes(b"\0\1" * 8000)
+        old = self.app.state.materials.put("review-lab", "Global fixture.wav", output.getvalue())
+        listed = self.call("manage_bgm", action="list", q="global fixture")
+        self.assertFalse(listed.is_error, listed.content)
+        track = json.loads(listed.to_model_content())["items"][0]
+        track_id = track["id"]
+        self.assertEqual(track["source_type"], "legacy")
+        self.assertNotEqual(track_id, old["id"])
+        self.assertNotIn("sha256", track)
+        other = self.context(creator_id="other", session=self.other)
+        self.assertFalse(self.call("manage_bgm", other, action="get", track_id=track_id).is_error)
+
+        summary = self.call("manage_bgm", action="analysis", track_id=track_id)
+        self.assertFalse(summary.is_error, summary.content)
+        self.assertFalse(json.loads(summary.to_model_content())["analysis_available"])
+
+        added = self.call("manage_bgm", action="add_to_playlist", series_id="agent-notes", track_id=track_id)
+        self.assertFalse(added.is_error, added.content)
+        denied = self.call("manage_bgm", other, action="remove_from_playlist", series_id="agent-notes", track_id=track_id)
+        self.assertEqual(denied.error_type, "agent_scope_rejected")
+        other_added = self.call("manage_bgm", other, action="add_to_playlist", series_id="other-series", track_id=track_id)
+        self.assertFalse(other_added.is_error, other_added.content)
+        removed = self.call("manage_bgm", action="remove_from_playlist", series_id="agent-notes", track_id=track_id)
+        self.assertFalse(removed.is_error, removed.content)
+        remaining = self.call("manage_bgm", other, action="list_playlist", series_id="other-series")
+        self.assertFalse(remaining.is_error, remaining.content)
+        self.assertEqual([row["id"] for row in json.loads(remaining.to_model_content())["items"]], [track_id])
+
+        direct_archive = self.client.post(f"/api/bgm/{track_id}/archive", headers=self.header(), json={})
+        self.assertEqual(direct_archive.status_code, 403)
+
     def test_typed_task_scope_rejects_foreign_skill_material_and_host_path_before_writes(self):
         from creatoros.storage.models import ManagedMaterial
         with self.database.session() as session:
@@ -359,7 +396,7 @@ class StagedAgentHttpTests(unittest.TestCase):
         with self.database.session() as session:
             self.assertEqual(session.query(ProductionTask).count(), 2)
 
-    def test_agent_video_accepts_original_share_text_without_import(self):
+    def test_agent_video_accepts_share_text_directly_and_selects_shared_bgm(self):
         """Actual scoped HTTP and isolated SQLite; controlled producer, no real Codex."""
         from tests.media_test_support import require_media
         require_media(self)
@@ -390,6 +427,23 @@ class StagedAgentHttpTests(unittest.TestCase):
             saved = session.get(ProductionTask, item["id"])
             self.assertEqual(saved.definition_json["inputs"]["bgm_reference"], share)
         self.assertEqual(self.app.state.materials.list("review-lab"), [])
+
+        tone = io.BytesIO()
+        with wave.open(tone, "wb") as sound:
+            sound.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+            sound.writeframes(b"\0\1" * 8000)
+        self.app.state.materials.put("review-lab", "共享剪辑样本.wav", tone.getvalue())
+        selected = self.call("manage_bgm", context, action="list", q="共享剪辑样本")
+        self.assertFalse(selected.is_error, selected.content)
+        track_id = json.loads(selected.content)["items"][0]["id"]
+        task["inputs"] = {"collection_id": images["collection_id"], "bgm_track_id": track_id}
+        shared = self.call("start_content_run", context, action="tasks", topic_id="review-1", tasks=[task])
+        self.assertFalse(shared.is_error, shared.content)
+        with self.database.session() as session:
+            saved = session.get(ProductionTask, json.loads(shared.content)["items"][0]["id"])
+            self.assertEqual(saved.definition_json["inputs"]["bgm_track_id"], track_id)
+            frozen = saved.definition_json["execution_spec"]["materials"]
+            self.assertEqual([material["id"] for material in frozen if material["kind"] == "audio"], [track_id])
 
 
 if __name__ == "__main__":

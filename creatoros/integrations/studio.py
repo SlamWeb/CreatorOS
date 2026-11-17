@@ -101,6 +101,8 @@ class StudioClient:
                   "error_type", "error_message", "card_count", "production_queue", "latest_run_id", "task_kind")
         result = {key: run.get(key) for key in fields}
         result["run_id"] = result.pop("id")
+        if run.get("workspace_archived"):
+            result["workspace_archived"] = True
         result["revisions"] = [
             {"revision_id": revision.get("id"),
              "revision_number": revision.get("revision_number"),

@@ -198,6 +198,7 @@ class RunSummary(ApiModel):
     error_type: str | None = None
     error_message: str | None = None
     allowed_actions: list[str]
+    workspace_archived: bool = False
     cover_url: str | None = None
     card_count: int | None = None
 
@@ -467,7 +468,12 @@ class AssignmentRequest(WriteRequest):
     request_id: str = Field(min_length=8, max_length=64)
 
 
+class CreatorRemovalRequest(WriteRequest):
+    expected_status: Literal["deleted", "archived"] | None = None
+
+
 class SeriesDeleteRequest(WriteRequest):
+    expected_status: Literal["deleted", "archived"] | None = None
     expected_revision: int = Field(ge=1)
     request_id: str = Field(min_length=8, max_length=64)
 
