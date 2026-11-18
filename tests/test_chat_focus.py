@@ -372,8 +372,10 @@ class ChatFocusTests(unittest.TestCase):
         runtime = RuntimeContext(self.root, creator_id="account-a", allowed_tools=ACCOUNT_TOOLS,
                                  archive_only_reads=True)
         schemas = model_tool_schemas(tools, runtime)
-        self.assertEqual(len(schemas), 36)
-        self.assertTrue({"manage_skill_library", "manage_material"} <= {item["function"]["name"] for item in schemas})
+        names = {item["function"]["name"] for item in schemas}
+        self.assertEqual(names, ACCOUNT_TOOLS)
+        self.assertTrue({"manage_skill_library", "manage_material", "manage_bgm"} <= names)
+        self.assertNotIn("manage_skill_task", names)
         messages = [{"role": "system", "content": "test"}, {"role": "user", "content": "查选定作品"},
                     {"role": "assistant", "tool_calls": [{"id": "read-one", "name": "get_content_run", "arguments": "{}"}]},
                     {"role": "tool", "tool_call_id": "read-one", "content": "{}"}]

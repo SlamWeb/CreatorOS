@@ -95,6 +95,9 @@ def model_tool_schemas(schemas, context):
     allowed = context.allowed_tools
     result = deepcopy([schema for schema in schemas
                        if allowed is None or schema["function"]["name"] in allowed])
+    if allowed is not None and "manage_skill_task" in allowed and getattr(context, "skill_task", None) is not None:
+        from .definitions import tool_registry
+        result.append(tool_registry["manage_skill_task"].to_schema())
     for schema in result:
         function = schema["function"]
         name = function["name"]

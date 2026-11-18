@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 _ID = r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}"
 _ROUTE = re.compile(rf"^/(series|runs)/({_ID})$")
+_UUID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
 _LABELS = {"series": "查看栏目", "research": "查看调研", "preview": "查看入队预览", "production": "查看内容", "discussion": "查看讨论"}
 
 
@@ -150,6 +151,21 @@ def tool_links(name, content, *, is_error=False, error_type=None, studio_url=Non
             return []
         if name == "manage_media_collection":
             return [] if is_error else _media_receipts(data, name)
+        if name == "manage_skill_task":
+            session, task = data.get("session_id"), data.get("task_id")
+            if is_error or data.get("status") != "published" or not all(
+                    isinstance(value, str) and _UUID.fullmatch(value) for value in (session, task)):
+                return []
+            base = f"/api/agent/sessions/{session}/skill-tasks/{task}/download"
+            links = []
+            for item in data.get("deliverables", []):
+                path, filename = item.get("path"), item.get("name")
+                if isinstance(path, str) and path.startswith("out/") and isinstance(filename, str) and filename:
+                    url = base + "?" + urlencode({"path": path})
+                    if item.get("url") == url:
+                        links.append({"url": url, "label": f"下载「{filename[:100]}」",
+                                      "kind": "download", "source_tool": name})
+            return links
         if name == "start_content_run" and not is_error and data.get("collection_id"):
             links = [_receipt(row, "production", name, studio_url) for row in data.get("items", [])
                      if isinstance(row, dict)]

@@ -21,6 +21,7 @@ TOOL_LABELS = {
     "update_series_composition": "修改现有栏目名称或技能绑定。",
     "list_producer_skills": "查询已安装Skill及可见版本，不读正文。",
     "get_producer_skill": "读取指定Skill正文或文件树及版本摘要。",
+    "manage_skill_task": "在本轮已授权的目录中加载 Skill、读写文件、运行脚本和交付产物。",
     "update_producer_skill_file": "用户要求时编辑Skill正文或参考图。",
     "list_creator_series": "读取当前账号栏目目录。",
     "get_content_run": "查询指定作品Run进度和版本。",

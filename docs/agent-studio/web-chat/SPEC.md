@@ -2,6 +2,8 @@
 
 > 当前并发语义：同一会话串行，不同会话按宿主配置并行；下方早期“全局仅一个请求”限制是历史。以 `creatoros/web/chat.py` 的会话检查及 `max_parallel_sessions` 为准。日期验证与部署记录保持原文。
 
+账号 Agent 的 Skill 发现、脚本授权和会话交付见 [DeepSeek Skill 执行](SKILL_TASKS.md)。
+
 ## 计划终态与检查点的使用（2026-11-03）
 
 - 用户只要求等待制作完成后核验或汇报时，账号 Agent 应建立等待生产终态的计划；计划完成或失败后由宿主唤醒原会话，不为汇报单独添加 `request_review`。

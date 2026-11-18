@@ -198,12 +198,15 @@ def create_app(
             return None
 
     skill_library = SkillLibraryService(db, skill_installs.catalog, source_owner=skill_source_owner)
+    from .skill_tasks import ChatSkillTasks
+    chat.skill_tasks = ChatSkillTasks(chat, skill_library, materials)
     skill_versions.library = skill_library
     calibrations.versions = skill_versions
     runs.skill_library = skill_library
     research.skill_library = skill_library
     agent_scope.skill_library = skill_library
     account_context.skill_library = skill_library
+    chat.focus_context_builder.skill_library = skill_library
     scope_request_lock = asyncio.Lock()
 
     plans = PlanService(db, chat)

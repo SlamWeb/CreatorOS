@@ -14,6 +14,7 @@ export type PendingAgentTurn = {
   attachment_ids: string[]; reasoning_effort: ReplayReasoningEffort;
   material_ids?: string[];
   iteration_mode?: boolean;
+  skill_workspace?: boolean;
   context_target?: ChatContextTarget;
 };
 export function isChatContextTarget(value: unknown): value is ChatContextTarget {
@@ -54,6 +55,7 @@ export function parsePendingAgentTurn(raw: string, sessionId: string): PendingAg
       (value.material_ids === undefined || Array.isArray(value.material_ids) && value.material_ids.every(id => typeof id === "string" && /^[a-f0-9]{64}$/.test(id))) &&
       isReplayReasoningEffort(value.reasoning_effort) &&
       (value.context_target === undefined || isChatContextTarget(value.context_target)) &&
+      (value.skill_workspace === undefined || typeof value.skill_workspace === "boolean") &&
       (value.iteration_mode === undefined || typeof value.iteration_mode === "boolean") ? value : null;
   } catch { return null; }
 }

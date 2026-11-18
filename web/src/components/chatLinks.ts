@@ -1,6 +1,22 @@
 export type ChatLink = { url: string; label: string; source_tool: string;
   kind?: string; title?: string; version?: number | string; created_at?: string; run_id?: string };
 
+const skillTaskDownloadPath = /^\/api\/agent\/sessions\/([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\/skill-tasks\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/download$/i;
+
+export function isChatDownload(href: string, sessionId: string, origin: string): boolean {
+  const url = new URL(href, origin);
+  if (url.origin !== origin || url.hash) return false;
+  if (/^\/api\/creators\/[A-Za-z0-9_-]+\/collections\/[A-Za-z0-9_-]+\/exports\/[a-f0-9]{64}\/download$/.test(url.pathname)) {
+    return !url.search;
+  }
+  if (skillTaskDownloadPath.exec(url.pathname)?.[1] !== sessionId) return false;
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== 1 || entries[0][0] !== "path") return false;
+  const path = entries[0][1];
+  return path.startsWith("out/") && !/[\\:\u0000-\u001f\u007f]/.test(path)
+    && path.split("/").every(segment => segment !== "" && segment !== "." && segment !== "..");
+}
+
 // Resource identity comes from the host receipt, never the model's wording.
 export function chatLinkLabel(link: ChatLink): string {
   if (!link.title) return link.label;
@@ -50,6 +66,7 @@ export function chatHref(href: string | undefined, links: ChatLink[], origin: st
       || [...url.searchParams.keys()].length !== 1 || url.hash)) return null;
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     const managed = /^\/(?:api\/)?(?:series\/series-[A-Za-z0-9_-]+|runs\/[a-f0-9-]{36})(?:\/|$)/i.test(pathname)
+      || skillTaskDownloadPath.test(pathname)
       || extraction || links.some(link => pathname === new URL(link.url, origin).pathname);
     const internal = url.origin === origin || loopback || managed;
     if (internal || !/^https?:\/\//.test(href)) {

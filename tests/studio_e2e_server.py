@@ -168,6 +168,31 @@ def seed_skill_files():
     return seed(app.state.skill_installs.catalog, root / "skill-fixtures")
 
 
+@app.post("/test/skill-task-download")
+def seed_skill_task_download():
+    """Freeze a controlled delivery for Chrome using the real download route."""
+    from uuid import uuid4
+    from urllib.parse import urlencode
+    from creatoros.storage import ContentRepository
+
+    creator_id = f"download-{uuid4().hex}"
+    ContentRepository(database).create_creator(creator_id=creator_id, display_name="Skill 文件下载测试")
+    chat = app.state.chat
+    session_id = chat.create(creator_id)["id"]
+    turn_id = str(uuid4())
+    workspace = chat.skill_tasks.store.create(session_id, turn_id, skills=[])
+    path = "out/结果.txt"
+    workspace.write_text(path, "受控验证")
+    workspace.publish([path])
+    with chat.lock:
+        doc = chat._read(session_id)
+        doc["requests"].append({"id": turn_id, "text": "测试文件交付", "status": "idle", "skill_workspace": True})
+        chat._save(doc)
+    endpoint = f"/api/agent/sessions/{session_id}/skill-tasks/{turn_id}/download"
+    return {"creator_id": creator_id, "session_id": session_id, "turn_id": turn_id,
+            "endpoint": endpoint, "url": endpoint + "?" + urlencode({"path": path})}
+
+
 @app.get("/test/composer-evidence")
 def composer_evidence(name: str = ""):
     """Read-only SQLite/file evidence; exists only in this isolated executable."""
@@ -191,6 +216,7 @@ def composer_evidence(name: str = ""):
             "extraction_jobs": len(app.state.skill_extractions.list())}
 
 
+app.router.routes.insert(0, app.router.routes.pop())
 app.router.routes.insert(0, app.router.routes.pop())
 
 

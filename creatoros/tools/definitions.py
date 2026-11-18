@@ -62,6 +62,7 @@ from .bgm import ManageBgmArgs, manage_bgm
 from .staged_production import ManageSkillLibraryArgs, ManageMaterialArgs, manage_skill_library, manage_material
 from .plans import ManagePlanArgs, manage_plan
 from .production_task_control import ManageProductionTaskArgs, manage_production_task
+from .skill_task import SkillTaskArgs, manage_skill_task
 
 
 # Old explicit calls remain valid; new model requests use each tool's default.
@@ -128,6 +129,8 @@ class Tool:
 tool_registry = {
     tool.name: tool
     for tool in [
+        Tool(name="manage_skill_task", description="本轮授权工作目录。prepare 冻结可用 Skill 和本轮附件；list 查看文件；read 读 UTF-8；write 创建或编辑 work/、out/ 文本；run 执行现有 Python 脚本，参数用 args，核对退出码；publish 交付可下载的 out/ 文件。用户只要文案时可直接在聊天交稿。",
+             execute=manage_skill_task, args_model=SkillTaskArgs),
         Tool(name="manage_production_task", description="管理当前账号指定选题的制作任务：list 查看任务，stop 停止单项排队或运行任务，remove 从列表移除终态任务并保留产物与历史。先用真实 task_id；只在用户明确要求时停止或移除。运行中收到停止请求不代表已退出，等待状态更新；无须反复轮询。",
              execute=manage_production_task, args_model=ManageProductionTaskArgs),
         Tool(name="manage_media_collection", description="管理当前账号素材集：list可按name筛选文件夹，可include_sources取任务索引；get读取选片/版本或已导出ZIP；create关联选题及额外Run；update用所见expected_version改名/来源/顺序/排除项；remove只删集合不删原图；export把当前保留图片按序保存为ZIP，返回准确下载入口和export_id，供后续剪辑取用，不调用Codex、不生产、不改Skill、不发布。仅导出时，定位collection_id后可直接export，无需先get全部图片；可省略version与snapshot由宿主读取当前选片，指定旧快照会拒绝。未知结果先查询，不换集合或另起生产。",
@@ -303,5 +306,7 @@ tool_registry = {
 
 
 # ``tool_registry`` is the complete execution catalog. ``tools`` is the
-# provider-facing schema list and deliberately omits internal-only tools.
-tools = [tool.to_schema() for tool in tool_registry.values() if tool.expose_to_model]
+# default provider-facing schema list. The host adds the turn-authorized
+# workspace tool only to the model request that owns that workspace.
+tools = [tool.to_schema() for tool in tool_registry.values()
+         if tool.expose_to_model and tool.name != "manage_skill_task"]

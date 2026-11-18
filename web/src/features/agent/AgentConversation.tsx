@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, request, studioApi } from "../../api/client";
-import { History, Music2, Plus, Repeat2, X } from "lucide-react";
+import { History, Music2, Plus, Repeat2, Terminal, X } from "lucide-react";
 import { QA_BGM_CREATOR, uploadBgm } from "../../components/bgmAccess";
 import { skillEditPrompt, type SkillEditHandoff } from "../../components/skillEditHandoff";
 import { ChatImages, ImagePicker, imageBase64, imageFileError, MAX_CHAT_IMAGES, readAttachmentDraft, writeAttachmentDraft, type ChatAttachment } from "../../components/AgentAttachments";
@@ -67,6 +67,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [reasoningPreferences, setReasoningPreferences] = useState<Record<string, string>>({});
   const [iterationDrafts, setIterationDrafts] = useState<Record<string, boolean>>({});
+  const [allowScripts, setAllowScripts] = useState(false);
   const [pendingTurns, setPendingTurns] = useState<Record<string, PendingAgentTurn | null>>({});
   const [checkingPending, setCheckingPending] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -111,6 +112,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     return () => { observer.disconnect(); window.removeEventListener("resize", fitComposer); };
   }, [fitComposer]);
   const id = standalone ? params.get("chat") : ((selectedChats[scopeKey] ?? readSessionValue(selectedChatStorageKey(scopeKey))) || null);
+  useLayoutEffect(() => { setAllowScripts(false); }, [id, scopeKey, active]);
   viewRef.current = `${scopeKey}:${id ?? "new"}`;
   const attachments = id ? (attachmentDrafts[id] ?? readAttachmentDraft(id)) : [];
   const audioAttachments = id ? (audioDrafts[id] ?? readAudioDraft(id)) : [];
@@ -164,6 +166,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   const iterationMode = pendingTurn ? pendingTurn.iteration_mode === true
     : iterationDrafts[scopeKey] ?? readSessionValue(iterationDraftKey(scopeKey)) === "true";
   const chooseIterationMode = (value: boolean) => {
+    if (value) setAllowScripts(false);
     writeSessionValue(iterationDraftKey(scopeKey), value ? "true" : "");
     setIterationDrafts(previous => ({ ...previous, [scopeKey]: value }));
   };
@@ -180,6 +183,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     setReasoningPreferences(previous => ({ ...previous, [preferenceKey]: value }));
   };
   const creatorId = standalone ? (requestedCreatorId ?? (doc?.scope_kind === "creator" ? doc.creator_id : null)) : embeddedCreatorId;
+  const skillWorkspace = !!creatorId && (pendingTurn ? pendingTurn.skill_workspace === true : allowScripts);
   const dataScopeKey = creatorId ? `creator:${creatorId}` : "overview";
   const scopeReady = active && (!id || !!doc || session.isError);
   const scopeQuery = creatorId
@@ -334,15 +338,17 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
   };
   const send = useMutation({
     retry: false,
-    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, materialIds, effort, iterationMode, contextTarget, pending }: {
+    mutationFn: async ({ text, current, scopeCreatorId, submittedScopeKey, sourceView, imageIds, materialIds, effort, iterationMode, skillWorkspace, contextTarget, pending }: {
       text: string; current: Session | undefined; scopeCreatorId: string | null; submittedScopeKey: string;
       sourceView: string; imageIds: string[]; materialIds: string[]; effort: ReplayReasoningEffort; iterationMode: boolean;
+      skillWorkspace: boolean;
       contextTarget?: ChatContextTarget; pending?: PendingAgentTurn;
     }) => {
       const target = await ensureSession(current, scopeCreatorId, submittedScopeKey, sourceView);
       if (pending && pending.sessionId !== target.id) throw new Error("待核对请求不属于当前对话，已停止发送。");
       const snapshot: PendingAgentTurn = pending ?? { sessionId: target.id, text, request_id: crypto.randomUUID(),
         expected_version: target.version, attachment_ids: imageIds, material_ids: materialIds, reasoning_effort: effort, iteration_mode: iterationMode,
+        ...(scopeCreatorId ? { skill_workspace: skillWorkspace } : {}),
         ...(contextTarget ? { context_target: { ...contextTarget } } : {}) };
       savePendingTurn(target.id, snapshot);
       writeSessionValue(reasoningPreferenceKey(target.id), snapshot.reasoning_effort);
@@ -352,6 +358,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         attachment_ids: snapshot.attachment_ids, reasoning_effort: snapshot.reasoning_effort,
         ...(snapshot.material_ids === undefined ? {} : { material_ids: snapshot.material_ids }),
         ...(snapshot.iteration_mode === undefined ? {} : { iteration_mode: snapshot.iteration_mode }),
+        ...(snapshot.skill_workspace === undefined ? {} : { skill_workspace: snapshot.skill_workspace }),
         ...(snapshot.context_target === undefined ? {} : { context_target: snapshot.context_target }),
       }) });
     },
@@ -364,6 +371,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
       clearSubmittedFocus(variables.submittedScopeKey, variables.pending?.context_target ?? variables.contextTarget);
       writeSessionValue(iterationDraftKey(variables.submittedScopeKey), "");
       setIterationDrafts(previous => ({ ...previous, [variables.submittedScopeKey]: false }));
+      setAllowScripts(false);
       updateError(variables.submittedScopeKey, "");
       if (scopeKeyRef.current === variables.submittedScopeKey) follow.current = true;
       void cache.invalidateQueries({ queryKey: ["agent-sessions", variables.submittedScopeKey] });
@@ -392,6 +400,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         clearSubmittedFocus(submittedScopeKey, original.context_target);
         writeSessionValue(iterationDraftKey(submittedScopeKey), "");
         setIterationDrafts(previous => ({ ...previous, [submittedScopeKey]: false }));
+        setAllowScripts(false);
         if (readSessionValue(draftStorageKey(submittedScopeKey)) === original.text) updateDraft(submittedScopeKey, "");
         saveAttachments(original.sessionId, readAttachmentDraft(original.sessionId).filter(image => !original.attachment_ids.includes(image.id)));
         saveAudio(original.sessionId, currentAudio(original.sessionId).filter(item => !(original.material_ids ?? []).includes(item.id)));
@@ -401,7 +410,8 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
         sendLock.current = true;
         send.mutate({ text: original.text, current: latest, scopeCreatorId: creatorId,
           submittedScopeKey, sourceView: `${submittedScopeKey}:${original.sessionId}`,
-          imageIds: original.attachment_ids, materialIds: original.material_ids ?? [], effort: original.reasoning_effort, iterationMode: original.iteration_mode === true, pending: original });
+          imageIds: original.attachment_ids, materialIds: original.material_ids ?? [], effort: original.reasoning_effort,
+          iterationMode: original.iteration_mode === true, skillWorkspace: original.skill_workspace === true, pending: original });
       }
     } catch (e) {
       updateError(submittedScopeKey, `核对失败：${e instanceof Error ? e.message : "请稍后再试。"} 原请求仍保留。`);
@@ -411,11 +421,12 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     if ((!draft.trim() && !attachments.length && !audioAttachments.length) || !validReasoning || pendingTurn || checkingPending || sendLock.current || uploadLock.current || send.isPending || doc?.status === "running" || (id && !doc) || cannotSend) return;
     sendLock.current = true;
     updateError(scopeKey, ""); send.mutate({ text: draft, current: doc, scopeCreatorId: creatorId, submittedScopeKey: scopeKey,
-      sourceView: viewRef.current, imageIds: attachments.map(image => image.id), materialIds: audioAttachments.map(item => item.id), effort: reasoningEffort, iterationMode,
+      sourceView: viewRef.current, imageIds: attachments.map(image => image.id), materialIds: audioAttachments.map(item => item.id), effort: reasoningEffort, iterationMode, skillWorkspace,
       ...(contextFocus ? { contextTarget: { ...contextFocus.target } } : {}) });
   };
   const chooseSession = (next: string | null) => {
     updateError(scopeKey, ""); setHistoryOpen(false);
+    setAllowScripts(false);
     updateContextFocus(scopeKey, null);
     if (standalone) {
       setParams(previous => {
@@ -437,7 +448,7 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
     // Only navigation is handed off; never send a turn or infer a new scope.
     if (!standalone || scopeMismatch || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest("a") : null;
-    if (!anchor || anchor.target === "_blank" || !anchor.getAttribute("href")) return;
+    if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download") || !anchor.getAttribute("href")) return;
     const destination = new URL(anchor.href, window.location.href);
     if (destination.origin !== window.location.origin || destination.pathname === "/agent") return;
     if (id) writeSessionValue(selectedChatStorageKey(dataScopeKey), id);
@@ -517,6 +528,13 @@ export function AgentConversation({ mode, creatorId: embeddedCreatorId = null, a
           title="仅授权本次请求：最多试用 3 轮，交付候选，不自动切换栏目"
           disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)}
           onClick={() => chooseIterationMode(!iterationMode)}><Repeat2 size={15} aria-hidden="true" />RSI</button>
+        {creatorId && <button type="button" className="agent-iteration-toggle" aria-pressed={skillWorkspace}
+          title="仅授权这条消息在隔离工作区里运行 Skill 脚本"
+          disabled={uploading || send.isPending || !!pendingTurn || checkingPending || doc?.status === "running" || cannotSend || (!!id && !doc)}
+          onClick={() => {
+            if (!skillWorkspace) chooseIterationMode(false);
+            setAllowScripts(!skillWorkspace);
+          }}><Terminal size={15} aria-hidden="true" />允许本轮运行脚本</button>}
         <span className="agent-compose-status" role="status"><span className={uploading || send.isPending || doc?.status === "running" ? "task-running-text" : undefined}>{uploading ? "正在上传文件…" : send.isPending ? "正在提交…" : doc?.status === "running" ? "正在处理…" : ""}</span></span>
         <button className="button button-primary" disabled={(!draft.trim() && !attachments.length && !audioAttachments.length) || !validReasoning || !!pendingTurn || checkingPending || uploading || send.isPending || doc?.status === "running" || (!!id && !doc) || cannotSend}>发送 ↑</button></div>
       {pendingTurn && !send.isPending && <div className="agent-submit-recovery">

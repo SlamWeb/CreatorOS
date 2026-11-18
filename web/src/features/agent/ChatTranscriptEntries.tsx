@@ -9,7 +9,7 @@ import { ChatToolDetails } from "../../components/ChatToolDetails";
 import { ResearchActivity } from "../../components/ResearchActivity";
 import { DiscussionActivity } from "../../components/DiscussionActivity";
 import { ChatImages } from "../../components/AgentAttachments";
-import { chatHref, chatLinkKind, chatLinkLabel, uniqueChatLinks, type ChatLink } from "../../components/chatLinks";
+import { chatHref, chatLinkKind, chatLinkLabel, isChatDownload, uniqueChatLinks, type ChatLink } from "../../components/chatLinks";
 import type { ChatEntryData as Entry } from "../../components/agentTranscript";
 import { compactReplyText, toolBatchStatus, type CompactTranscriptItem } from "../../components/compactTranscript";
 import "../../components/chat-transcript.css";
@@ -23,6 +23,7 @@ const tools: Record<string, string> = { list_creators: "查看账号", list_crea
   list_producer_skills: "查看生产 Skill", install_producer_skill: "安装 Skill", get_skill_install: "查询安装",
   get_producer_skill: "读取 Skill 文件", update_producer_skill_file: "保存 Skill 文件",
   manage_skill_iteration: "校准 Skill",
+  manage_skill_task: "执行 Skill 任务",
   manage_plan: "管理计划",
   manage_topics: "管理选题",
   manage_media_collection: "管理素材集",
@@ -49,7 +50,7 @@ const ChatEntry = memo(function ChatEntry({ entry, sessionId, sessionStatus, hid
           : <span title="此地址未由工具确认；请使用回复下方的任务入口">{children}</span>;
     },
   }}>{compactReplyText(entry.text, url => chatHref(url, links, window.location.origin)?.kind === "internal")}</Markdown></div>
-    {!!links.length && <ReplyLinks links={links} />}
+    {!!links.length && <ReplyLinks links={links} sessionId={sessionId} />}
     {(entry.complete || entry.terminal || (entry.complete === undefined && entry.terminal === undefined && sessionStatus !== "running")) && <div className="chat-reply-actions">
       <CopyReply text={entry.text} />
       <ChatTrace sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}
@@ -80,7 +81,7 @@ export function ChatEntryGroup({ group, sessionId, sessionStatus }: {
   </section>;
 }
 
-function ReplyLinks({ links }: { links: ChatLink[] }) {
+function ReplyLinks({ links, sessionId }: { links: ChatLink[]; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const detailsId = useId();
   const many = links.length > 2;
@@ -90,16 +91,17 @@ function ReplyLinks({ links }: { links: ChatLink[] }) {
       {open ? <Minus size={13} aria-hidden="true" /> : <Plus size={13} aria-hidden="true" />}
     </button>}
     {(!many || open) && <nav id={detailsId} className="chat-delivery-links" aria-label="本轮任务入口">
-      {links.map(link => <NamedChatLink key={link.url} link={link} />)}
+      {links.map(link => <NamedChatLink key={link.url} link={link} sessionId={sessionId} />)}
     </nav>}
   </div>;
 }
 
-function NamedChatLink({ link }: { link: ChatLink }) {
+function NamedChatLink({ link, sessionId }: { link: ChatLink; sessionId: string }) {
   const target = chatHref(link.url, [link], window.location.origin);
   if (target?.kind !== "internal") return null;
   const label = chatLinkLabel(link);
-  if (link.kind === "download" && /^\/api\/creators\/[A-Za-z0-9_-]+\/collections\/[A-Za-z0-9_-]+\/exports\/[a-f0-9]{64}\/download$/.test(target.href)) {
+  if (link.kind === "download") {
+    if (!isChatDownload(target.href, sessionId, window.location.origin)) return null;
     return <a href={target.href} download title={label} data-link-kind="download"><span>{label}</span></a>;
   }
   const at = link.created_at ? Date.parse(link.created_at) : NaN;
@@ -133,7 +135,7 @@ function ToolEntry({ entry, sessionId, links }: { entry: Entry; sessionId: strin
     </button>
     {running && entry.background?.note && <small role="status">{entry.background.note}</small>}
     {open && !!navigation.length && <nav className="chat-tool-links" aria-label="工具任务入口">
-      {navigation.map(link => <NamedChatLink key={link.url} link={link} />)}
+      {navigation.map(link => <NamedChatLink key={link.url} link={link} sessionId={sessionId} />)}
     </nav>}
     {open && <div id={detailsId} className="chat-tool-details" role="region" aria-label={`${tools[entry.name ?? ""] ?? entry.name ?? "工具"}详情`}>
       <ChatToolDetails sessionId={sessionId} turnId={entry.turn_id} requestId={entry.model_request_id}

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from uuid import UUID
+from urllib.parse import quote
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Request, HTTPException, Query, Response, Path
@@ -24,6 +25,7 @@ class ChatTurnRequest(BaseModel):
     expected_version: int = Field(ge=0)
     reasoning_effort: Literal["low", "medium", "high", "xhigh", "ultra", "none", "max"] = "high"
     iteration_mode: bool = False
+    skill_workspace: bool = False
     context_target: ChatContextTarget | None = None
 
 
@@ -71,6 +73,18 @@ def chat_routes(service):
     def context_trace(session_id: UUID, after: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100)):
         return service.context_trace(str(session_id), after, limit)
 
+    @router.get("/{session_id}/skill-tasks/{turn_id}/download")
+    def download_skill_task(session_id: UUID, turn_id: UUID, request: Request,
+                            path: str = Query(min_length=1, max_length=240)):
+        sid = str(session_id)
+        if request.headers.get("x-creatoros-agent-session", sid) != sid:
+            raise HTTPException(403, "交付文件属于另一条对话。")
+        data, receipt = service.skill_tasks.download(sid, str(turn_id), path)
+        return Response(data, media_type=receipt["media_type"], headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(receipt["name"], safe=""),
+        })
+
     @router.get("/{session_id}/turn-trace/{turn_id}")
     def turn_trace(session_id: UUID, turn_id: TraceTurnId, response: Response):
         response.headers['Cache-Control'] = 'no-store'
@@ -99,6 +113,7 @@ def chat_routes(service):
                                   material_ids=payload.material_ids,
                                   context_target=payload.context_target.model_dump(exclude_none=True) if payload.context_target else None,
                                   iteration_mode=payload.iteration_mode,
+                                  **({"skill_workspace": True} if payload.skill_workspace else {}),
                                   reasoning_effort=payload.reasoning_effort if "reasoning_effort" in payload.model_fields_set else None)
         except ChatViewNotStarted as error:
             from fastapi.responses import JSONResponse

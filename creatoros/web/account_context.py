@@ -27,26 +27,28 @@ class CreatorContextBuilder:
             return text[:SKILL_DESCRIPTION_LIMIT] + "\n[未完整展示；需要时按需查询]"
         return text
 
-    def _skill(self, reference, omissions):
+    def _skill(self, reference, omissions, *, creator_id=None):
         """Do not call describe(): legacy working-directory recovery can write files."""
         skill_id = reference
         try:
             if reference == self.catalog.BUILTIN_ID:
                 managed = Path(self.catalog.project_root) / "creatoros/skills"
-                if managed.is_symlink() or not managed.resolve().is_relative_to(Path(self.catalog.project_root).resolve()):
-                    raise ValueError("invalid managed root")
-                directory = managed / reference
+                root = Path(self.catalog.project_root).resolve()
             else:
                 record = self.catalog._record(reference)
                 skill_id = record["id"]
                 managed = self.catalog.root / "working"
-                if managed.is_symlink() or not managed.resolve().is_relative_to(self.catalog.root):
-                    raise ValueError("invalid managed root")
-                directory = self.catalog.root / "working" / skill_id
+                root = self.catalog.root
+            if creator_id is not None and not self.skill_library.can_use(creator_id, skill_id):
+                return None
+            if self.catalog._is_link_or_reparse(managed) or not managed.resolve().is_relative_to(root):
+                raise ValueError("invalid managed root")
+            directory = managed / skill_id
             if directory.resolve().parent != managed.resolve():
                 raise ValueError("invalid directory")
             path = directory / "SKILL.md"
-            if directory.is_symlink() or path.is_symlink() or not directory.is_dir():
+            if (self.catalog._is_link_or_reparse(directory) or self.catalog._is_link_or_reparse(path)
+                    or not directory.is_dir()):
                 raise ValueError("missing working directory")
             if not path.resolve().is_relative_to(directory.resolve()):
                 raise ValueError("invalid file")
@@ -64,6 +66,15 @@ class CreatorContextBuilder:
 
     def build(self, creator_id):
         omissions, series, skills, resolved = [], [], {}, {}
+
+        def resolve(reference):
+            if reference not in resolved:
+                item = self._skill(reference, omissions, creator_id=creator_id)
+                resolved[reference] = item["id"] if item else None
+                if item:
+                    skills.setdefault(item["id"], item)
+            return resolved[reference]
+
         with self.database.session() as session:
             creator = session.get(Creator, creator_id)
             if creator is None:
@@ -79,31 +90,31 @@ class CreatorContextBuilder:
                 select(Series).where(Series.creator_id == creator_id, Series.is_active.is_(True))
                 .order_by(Series.created_at, Series.id))
             for column in columns:
-                bindings = ({"single": column.skill_name} if column.skill_name else
-                            {"mind": column.mind_skill_id, "production": column.production_skill_id}
-                            if column.mind_skill_id and column.production_skill_id else {})
-                for role, reference in list(bindings.items()):
-                    if reference not in resolved:
-                        item = self._skill(reference, omissions)
-                        resolved[reference] = item["id"]
-                        skills.setdefault(item["id"], item)
-                    bindings[role] = resolved[reference]
+                references = ({"single": column.skill_name} if column.skill_name else
+                              {"mind": column.mind_skill_id, "production": column.production_skill_id}
+                              if column.mind_skill_id and column.production_skill_id else {})
+                bindings = {role: identity for role, reference in references.items()
+                            if (identity := resolve(reference))}
                 pool = session.get(SeriesSkillRef, column.id)
-                pool_ids = list(pool.skill_ids_json) if pool else list(bindings.values())
-                library_ids.extend(value for value in pool_ids if self.skill_library.can_use(creator_id, value))
+                if pool:
+                    pool_ids = list(dict.fromkeys(identity for reference in pool.skill_ids_json
+                                                  if (identity := resolve(reference))))
+                    defaults = {kind: [{"skill_id": identity, "role": item["role"]} for item in selections
+                                       if (identity := resolve(item["skill_id"]))]
+                                for kind, selections in pool.defaults_json.items()}
+                else:
+                    pool_ids = list(bindings.values())
+                    primary = bindings.get("single") or bindings.get("production")
+                    defaults = {"image": ([{"skill_id": primary, "role": "primary"},
+                        *([{"skill_id": bindings["mind"], "role": "supporting"}] if "mind" in bindings else [])
+                    ] if primary else []), "video": []}
                 series.append({"id": column.id, "name": column.name,
                                "revision": column.revision,
                                "skill_bindings": bindings,
                                "skill_pool": {"version": pool.version if pool else 0, "skill_ids": pool_ids,
-                                   "defaults": pool.defaults_json if pool else {"image": ([
-                                       {"skill_id": bindings.get("single") or bindings["production"], "role": "primary"},
-                                       *([{"skill_id": bindings["mind"], "role": "supporting"}] if "mind" in bindings else [])
-                                   ] if bindings else []), "video": []}}})
+                                              "defaults": defaults}})
             for reference in dict.fromkeys(library_ids):
-                if reference not in resolved:
-                    item = self._skill(reference, omissions)
-                    resolved[reference] = item["id"]
-                    skills.setdefault(item["id"], item)
+                resolve(reference)
             library_version = library.version if library else 0
         if self.skill_library:
             for item in skills.values():

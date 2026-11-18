@@ -856,6 +856,17 @@ class ProducerSkillCatalog:
             return self.project_root / "creatoros" / "skills" / skill_id
         return Path(self.describe(skill_id)["local_path"])
 
+    @_skill_io_locked
+    def snapshot_source(self, skill_id: str) -> tuple[Path, str]:
+        """Verify a local edition for freezing without repairing or editing the catalog."""
+        directory, item, _ = self._readable_skill_directory(skill_id)
+        digest = _digest(directory)
+        if item.get("version_status") == "released":
+            release = self._record(skill_id).get("release_digest")
+            if release and release != digest:
+                raise ValueError("已发布 Skill 的文件已变化，请先恢复版本原件。")
+        return directory, digest
+
     def resolve(self, skill_id: str) -> Path:
         """生产门禁：只有声明为可生产角色且满足当前轮播产物契约的 Skill 可绑定/生产。"""
         return self._resolve_production(skill_id, allow_candidate=False)

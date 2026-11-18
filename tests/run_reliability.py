@@ -97,6 +97,7 @@ CASES = [
         "tests.test_pending_tasks", "tests.test_task_navigation_contract", "tests.test_task_stop_remove",
         "tests.test_simple_skill_tasks", "tests.test_shared_skill_fork", "-v"]),
     ("skill_chat_feedback", ["-m", "unittest", "tests.test_authored_skill_actions", "tests.test_chat_attachments", "tests.test_skill_write_receipts",
+        "tests.test_agent_skill_discovery", "tests.test_skill_task_workspace", "tests.test_web_skill_tasks",
         "tests.test_feedback_tool", "tests.test_skill_authoring", "tests.test_skill_example_context", "-v"]),
     ("business_workflows", ["-m", "unittest", "tests.test_fresh_content_run", "tests.test_fresh_production_api",
         "tests.test_fresh_skill_ids", "tests.test_manage_production_task_tool", "tests.test_publication_matching",

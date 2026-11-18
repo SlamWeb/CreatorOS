@@ -11,7 +11,7 @@ import { classifyGroup } from "./e2e-results.mjs";
 const groups = [
   { name: "general", config: "playwright.config.ts", source: "fresh Studio database with controlled local producer", specs: [
     "account-analytics.spec.ts", "account-chat.spec.ts", "account-navigator.spec.ts", "account-studio-layout.spec.ts",
-    "agent-composer-controls.spec.ts", "agent-discussion.spec.ts", "agent-layout.spec.ts",
+    "agent-composer-controls.spec.ts", "agent-discussion.spec.ts", "agent-layout.spec.ts", "agent-skill-tasks.spec.ts",
     "agent-research.spec.ts", "agent-input-whitespace.spec.ts", "artifact-download.spec.ts", "batch-production.spec.ts",
     "bulk-topic-queue.spec.ts", "chat-image-links.spec.ts", "chat-images.spec.ts", "chat-links.spec.ts", "chat-view-recovery.spec.ts",
     "column-layout.spec.ts", "content-navigation.spec.ts", "eval.spec.ts", "eval-registry-integrated.spec.ts", "eval-regression-catalog.spec.ts", "eval-workbench.spec.ts", "fresh-production.spec.ts", "home-page.spec.ts",

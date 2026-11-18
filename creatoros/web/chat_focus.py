@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from creatoros.runs import ContentRunError
 from creatoros.runs.artifacts import validate_artifact
+from creatoros.integrations.skill_library import SkillLibraryService
 from creatoros.storage import Creator, Series, Topic, TopicRemoval, ContentRun, ContentRevision
 
 
@@ -53,6 +54,7 @@ class ChatFocusBuilder:
     def __init__(self, database, catalog, queries, artifacts, attachments):
         self.database, self.catalog, self.queries = database, catalog, queries
         self.artifacts, self.attachments = artifacts, attachments
+        self.skill_library = SkillLibraryService(database, catalog)
 
     def validate(self, creator_id, target):
         target = ChatContextTarget.model_validate(target).model_dump(exclude_none=True)
@@ -148,6 +150,8 @@ class ChatFocusBuilder:
         # Reference images first so an eight-page product does not crowd them out.
         for role, skill_id in bindings.items():
             try:
+                if not skill_id or not self.skill_library.can_use(creator_id, skill_id):
+                    raise ValueError("Skill unavailable in this account")
                 tree = self.catalog.list_skill_files(skill_id)
                 body = self.catalog.read_skill_file(skill_id, "SKILL.md", text_only=True)
                 entry = {key: tree[key] for key in ("id", "name", "display_name", "digest") if key in tree}
