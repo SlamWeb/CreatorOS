@@ -46,6 +46,7 @@ def isolated_worker(directory):
         expected = {"creator_a", "creator_b", "series_a", "series_b", "topic_a", "topic_b", "skill_a", "skill_b", "shared_skill", "video_skill", "run_a", "run_b", "collection_a", "foreign_collection", "bgm_material", "artifact_topic"}
         assert expected <= world.variables.keys(), expected - world.variables.keys()
         before = world.snapshot()
+        empty_bgm_tables = {"global_bgm_imports", "global_bgm_legacy_sources", "global_bgm_tracks", "series_bgm_tracks"}
         expected_tables = {
             "agent_plan_steps", "agent_plans", "alembic_version", "content_attempts",
             "content_revisions", "content_run_events", "content_runs", "creator_skill_refs",
@@ -56,8 +57,9 @@ def isolated_worker(directory):
             "publication_requests", "series", "series_skill_refs", "skill_calibrations", "skill_display_categories",
             "skill_iterations", "skill_switch_intents", "topic_removals",
             "topic_research_queue_items", "topics", "write_receipts",
-        }
+        } | empty_bgm_tables
         assert set(before["database"]) == expected_tables, sorted(before["database"])
+        assert all(before["database"][table] == [] for table in empty_bgm_tables)
         assert before["database"]["production_queue_history"] == []
         assert before["database"]["production_task_history"] == []
         assert before["database"]["skill_switch_intents"] == []
@@ -113,6 +115,7 @@ def isolated_worker(directory):
                 assert denied.json()["error"]["code"] in {"agent_scope_rejected", "skill_scope_rejected"}
             during = world.snapshot()  # Windows exclusive executor lock must not break snapshots.
             assert set(during["database"]) == expected_tables
+            assert all(during["database"][table] == before["database"][table] for table in empty_bgm_tables)
             assert during["database"]["production_queue_history"] == []
             assert during["database"]["production_task_history"] == []
             assert during["database"]["skill_switch_intents"] == []

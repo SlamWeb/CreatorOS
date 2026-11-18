@@ -513,7 +513,9 @@ class MediaCollectionMigrationTests(unittest.TestCase):
                 # Require each to be empty, then still compare every v17
                 # table and every original row exactly.
                 for table in ("agent_plan_steps", "agent_plans", "creator_skill_refs",
-                              "managed_materials", "production_queue_history", "production_task_history", "series_skill_refs",
+                              "global_bgm_imports", "global_bgm_legacy_sources", "global_bgm_tracks",
+                              "managed_materials", "production_queue_history", "production_task_history",
+                              "series_bgm_tracks", "series_skill_refs",
                               "skill_switch_intents", "skill_display_categories"):
                     self.assertEqual(after.pop(table), [])
                 for row in after["content_runs"]:
