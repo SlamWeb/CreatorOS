@@ -5,16 +5,14 @@ import { Link, useSearchParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiUrl, studioApi } from "../api/client";
-import type { ExtractedSkillDraft, ProducerSkillItem, SkillCalibration, SkillExtractionFile, SkillExtractionMode } from "../api/types";
+import type { ExtractedSkillDraft, ProducerSkillItem, SkillCalibration, SkillDisplayCategory, SkillExtractionFile } from "../api/types";
 import { ExtractionActivity } from "./ExtractionActivity";
 import { AuthorSkillForm } from "./AuthorSkillForm";
 import { ExtractionImagePicker, MAX_EXTRACTION_IMAGES } from "./ExtractionImagePicker";
+import { SkillCategoryFields, skillCategoryOptions } from "./SkillCategoryFields";
 import { useWorkInbox } from "./TaskInbox";
 import "./artifact-skill-extraction.css";
 
-const modeLabels: Record<SkillExtractionMode, string> = {
-  single: "单一完整 Skill（默认）", pair: "Mind + Visualize", mind: "仅 Mind", visual: "仅 Visualize",
-};
 const statusLabels: Record<string, string> = {
   queued: "排队中", running: "进行中", ready: "待确认", saved: "已入库", failed: "失败", interrupted: "已中断",
 };
@@ -84,7 +82,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
   const selectedId = searchParams.get("extraction");
   const [files, setFiles] = useState<File[]>([]);
   const [sourceText, setSourceText] = useState("");
-  const [mode, setMode] = useState<SkillExtractionMode>("single");
+  const [categories, setCategories] = useState<SkillDisplayCategory[]>([]);
   const [instruction, setInstruction] = useState("");
   const [open, setOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
@@ -267,11 +265,11 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
       setReferenceNotice(duplicates ? `已合并 ${duplicates} 张重复图片，使用 ${uploadIds.length} 张参考图。` : "");
       return studioApi.createSkillExtraction({
         request_id: requestIdRef.current, upload_ids: uploadIds, source_text: text,
-        mode, instruction: instruction.trim(),
+        mode: "single", instruction: instruction.trim(), ...(categories.length ? { categories } : {}),
       });
     },
     onSuccess: async job => {
-      setFiles([]); setSourceText("");
+      setFiles([]); setSourceText(""); setCategories([]);
       requestIdRef.current = null; uploadedFilesRef.current = []; uploadedIdsRef.current = []; setPanelError("");
       setNewWorkOpen(false);
       setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
@@ -338,7 +336,11 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
     onSuccess: async job => {
       clearStoredDraft(job.id);
       cache.setQueryData(["skill-extraction", job.id], job);
-      await Promise.all([cache.invalidateQueries({ queryKey: ["producer-skills"] }), cache.invalidateQueries({ queryKey: ["skill-extractions"] })]);
+      await Promise.all([
+        cache.invalidateQueries({ queryKey: ["producer-skills"] }),
+        cache.invalidateQueries({ queryKey: ["skill-extractions"] }),
+        cache.invalidateQueries({ queryKey: ["skill-display-categories"] }),
+      ]);
     },
   });
   const cancel = useMutation({
@@ -422,11 +424,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
               onChange={event => { resetCreateAttempt(); setSourceText(event.target.value); }} placeholder="粘贴作品文案" />
           </label>
           <p className="extraction-help">{sourceText.length.toLocaleString()} / 20,000 字符</p>
-          <label className="extraction-label">提炼方式
-            <select aria-label="提炼方式" value={mode} onChange={event => { resetCreateAttempt(); setMode(event.target.value as SkillExtractionMode); }}>
-              {Object.entries(modeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
+          <SkillCategoryFields categories={categories} onChange={next => { resetCreateAttempt(); setCategories(next); }} />
           <label className="extraction-label">提炼要求（可选）
             <textarea aria-label="提炼要求" rows={3} maxLength={4000} value={instruction}
               onChange={event => { resetCreateAttempt(); setInstruction(event.target.value); }} placeholder="例如：重点总结内容结构，视觉规则保持可替换。" />
@@ -478,6 +476,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
           {activeJob.operation && <span>当前操作：{activeJob.operation === "calibrate" ? "校准" : activeJob.operation === "extract" ? (activeJob.task_kind === "merge" ? "融合" : "提炼") : activeJob.operation === "revise" ? "改稿" : "试产"}</span>}
           {activeJob.note && activeJob.note.length <= 180 && <span>{activeJob.note}</span>}
         </div>
+        {Boolean(activeJob.categories?.length) && <p className="extraction-help">提交时选择的分类：{skillCategoryOptions.filter(option => activeJob.categories?.includes(option.value)).map(option => option.label).join("、")}</p>}
         {activeJob.note && activeJob.note.length > 180 && <div>
           <button type="button" className="extraction-new-trigger" aria-expanded={noteOpen} aria-controls={noteId}
             onClick={() => setNoteOpen(value => !value)}>修改说明<span>{noteOpen ? "收起" : "展开"}</span></button>

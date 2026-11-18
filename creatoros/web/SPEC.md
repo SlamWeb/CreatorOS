@@ -279,6 +279,12 @@ Skill 写前按账号和家族/版本在当前标签页保存待核对身份与�
 - 目录移除入口拒绝所有Agent来源头（含总览），账号assets PUT/DELETE及会话转换分别核验绑定与当前会话；二进制不允许模型直接传本地路径。错误统一为409摘要/引用/占用、413大小、403只读或权限、422无效内容。
 - 32项关联本地/真实loopback测试及独立前端DeepSeek回归通过，正式服务因正在生产未重启，OpenAPI目前无新assets路径；保持此状态不打断用户，完工后重启才生效。
 
+## 新建 Skill 的展示分类（2026-11-18）
+
+- `POST /api/skill-extractions` 和 `POST /api/skill-extractions/author` 可携带 `categories`，取值 `content`、`visual`、`processing`、`rules`，允许多选且标签不得重复。仅本机全局工作台可提交该字段和查看草稿分类。`[]` 与省略都表示待分类。
+- 提炼默认 `mode: "single"`，自写默认 `role: "legacy_end_to_end"`。非空分类只支持这两个完整 Skill 入口。省略分类时，显式的旧模式和角色继续可用。
+- 草稿状态不会创建分类行。待入库的分类草稿需要在本机全局工作台用 `expected_digest` 确认。重新提交同一请求返回原草稿，改变分类集合返回 409。已保存的请求可只读重放，后续分类编辑使用既有的分类 API 和 revision。
+
 ## 自写 Skill 草稿的网页与会话入口（2026-10-19）
 
 - POST /api/skill-extractions/author 将现成提示词/SKILL.md 与可选参考图保存为 ready 草稿，无 Codex worker/thread，不注册目录、不创建内容。复用原草稿文件预览、编辑、CAS 入库及试产契约。

@@ -45,7 +45,7 @@ test("real queued extraction, research, calibration edit, clean trial and explic
   const newWork = second.getByRole("button", { name: /新作品/ });
   if (await newWork.getAttribute("aria-expanded") === "false") await newWork.click();
   await second.getByLabel("参考文案", { exact: true }).fill("一只小狗做好蛋糕，看到别人精致的蛋糕后想把自己的藏起来。朋友找过来，小狗把朴素蛋糕递给朋友，两人一起吃。");
-  await second.getByLabel("提炼方式", { exact: true }).selectOption("mind");
+  await second.getByRole("checkbox", { name: "内容创作", exact: true }).check();
   await second.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(second).toHaveURL(/extraction=/);
   await expect(second.getByLabel("提炼任务详情").getByText("排队中", { exact: true })).toBeVisible();

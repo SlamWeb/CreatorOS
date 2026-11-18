@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/pC8AAAAASUVORK5CYII=", "base64");
 
@@ -183,7 +184,7 @@ async function submitOneImage(page: Page, instruction = "保持克制") {
   await page.getByRole("button", { name: "开始提炼" }).click();
 }
 
-test("nine renamed references deduplicate through real upload and Mind submission", async ({ page, request }, info) => {
+test("nine renamed references deduplicate and preserve selected categories through real submission and save", async ({ page, request }, info) => {
   // No browser API stubs: isolated HTTP/files are real; the server's extractor is controlled.
   await page.goto("/skills");
   await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
@@ -194,48 +195,176 @@ test("nine renamed references deduplicate through real upload and Mind submissio
     return canvas.toDataURL("image/png").split(",")[1];
   }));
   const files = [...samples, samples[0]].map((data, i) => ({ name: `reference-${i + 1}.png`, mimeType: "image/png", buffer: Buffer.from(data, "base64") }));
-  await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(files);
+  const form = page.getByRole("form", { name: "从作品提炼", exact: true });
+  await form.getByLabel("内容创作").check();
+  await form.getByLabel("视觉表现").check();
+  await expect(form.getByRole("combobox")).toHaveCount(0);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`extraction-category-form-${viewport.width}.png`) });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await form.getByLabel("参考图片", { exact: true }).setInputFiles(files);
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(9);
-  await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
   await page.getByLabel("提炼要求", { exact: true }).fill("只提炼如何讲故事和内容，不用管IP形象");
   const submitted = page.waitForResponse(r => r.url().endsWith("/api/skill-extractions") && r.request().method() === "POST");
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   const response = await submitted;
   expect(response.status()).toBe(202);
   const sent = response.request().postDataJSON();
-  expect(sent.mode).toBe("mind"); expect(sent.source_text).toBe("");
+  expect(sent.mode).toBe("single"); expect(sent.source_text).toBe("");
+  expect(sent.categories).toEqual(["content", "visual"]);
   expect(sent.instruction).toBe("只提炼如何讲故事和内容，不用管IP形象");
   expect(sent.upload_ids).toHaveLength(8); expect(new Set(sent.upload_ids).size).toBe(8);
   const jobId = (await response.json()).id;
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
   await expect(page.getByText("已合并 1 张重复图片，使用 8 张参考图。", { exact: true })).toBeVisible();
   const job = await (await request.get(`/api/skill-extractions/${jobId}`)).json();
-  expect(job.upload_ids).toEqual(sent.upload_ids); expect(job.skills.map((s: { role: string }) => s.role)).toEqual(["mind"]);
+  expect(job.upload_ids).toEqual(sent.upload_ids);
+  expect(job.skills.map((s: { role: string }) => s.role)).toEqual(["legacy_end_to_end"]);
+  expect(job.categories).toEqual(sent.categories);
   for (let i = 0; i < 8; i++) {
     expect(await (await request.get(job.uploads[i].url)).body()).toEqual(files[i].buffer);
   }
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path: info.outputPath(`duplicate-mind-${width}.png`), fullPage: true });
+    await page.screenshot({ path: info.outputPath(`categorized-extraction-${width}.png`), fullPage: true });
   }
   await page.reload(); await expect(page.getByText("任务状态：待确认")).toBeVisible();
   expect(new URL(page.url()).searchParams.get("extraction")).toBe(jobId);
+  await expect(page.getByText("提交时选择的分类：内容创作、视觉表现", { exact: true })).toBeVisible();
+  const saved = page.waitForResponse(r => r.url().endsWith(`/api/skill-extractions/${jobId}/save`) && r.request().method() === "POST");
+  await page.getByRole("button", { name: "确认加入 Skill 库", exact: true }).click();
+  const saveResponse = await saved;
+  expect(saveResponse.ok(), await saveResponse.text()).toBeTruthy();
+  const { saved_skills: [skill] } = await saveResponse.json();
+  const tags = await (await request.get("/api/skill-display-categories")).json();
+  expect(tags.items).toContainEqual({ family_id: skill.family_id, categories: ["content", "visual"], revision: 1 });
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(skill.name);
+  for (const pool of ["内容创作池", "视觉表现池"]) {
+    await expect(page.getByRole("region", { name: pool }).getByRole("button", { name: skill.name, exact: true })).toBeVisible();
+  }
+});
+
+test("authored Skill keeps categories and the accepted request across a reload, then appears in both pools", async ({ page, request }, info) => {
+  const name = `authored-categories-${randomUUID().slice(0, 8)}`;
+  const content = `---\nname: ${name}\ndescription: 分类仅用于查找\ncreatoros-output: text\n---\n\n保持这段原文。\n`;
+  let firstJobId = "";
+  let firstBody: unknown;
+  await page.route("**/api/skill-extractions/author", async route => {
+    const response = await route.fetch();
+    if (!firstJobId && response.ok()) {
+      firstJobId = (await response.json()).id;
+      firstBody = route.request().postDataJSON();
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
+  });
+
+  await page.goto("/skills");
+  await page.getByRole("button", { name: "自己写 Skill", exact: true }).click();
+  const form = page.getByRole("form", { name: "自己写 Skill" });
+  await form.getByLabel("英文标识").fill(name);
+  await form.getByLabel("用途说明").fill("分类仅用于查找");
+  await form.getByLabel("提示词或完整 SKILL.md").fill(content);
+  const rules = form.getByRole("checkbox", { name: "规则约束" });
+  await rules.focus(); await rules.press("Space");
+  await expect(rules).toBeChecked();
+  await form.getByRole("checkbox", { name: "素材处理" }).check();
+  await expect(form.getByRole("combobox")).toHaveCount(0);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`author-category-form-${viewport.width}.png`) });
+  }
+  await form.getByRole("button", { name: "保存为草稿" }).click();
+  await expect(form.getByRole("alert")).toContainText("无法连接");
+  expect(firstBody).toMatchObject({ name, categories: ["rules", "processing"], content });
+
+  await page.reload();
+  await page.getByRole("button", { name: "自己写 Skill", exact: true }).click();
+  await expect(form.getByLabel("提示词或完整 SKILL.md")).toHaveValue(content);
+  await expect(rules).toBeChecked();
+  await expect(form.getByRole("checkbox", { name: "素材处理" })).toBeChecked();
+  const retry = page.waitForResponse(r => r.url().endsWith("/api/skill-extractions/author"));
+  await form.getByRole("button", { name: "保存为草稿" }).click();
+  const retryResponse = await retry;
+  expect(retryResponse.ok(), await retryResponse.text()).toBeTruthy();
+  expect(retryResponse.request().postDataJSON()).toEqual(firstBody);
+  const draft = await retryResponse.json();
+  expect(draft.id).toBe(firstJobId);
+  expect(draft.skills[0]).toMatchObject({ skill_md: content, output_kind: "text" });
+  await expect(page.getByText("提交时选择的分类：素材处理、规则约束", { exact: true })).toBeVisible();
+
+  const saved = page.waitForResponse(r => r.url().endsWith(`/api/skill-extractions/${firstJobId}/save`));
+  await page.getByRole("button", { name: "确认加入 Skill 库", exact: true }).click();
+  const savedResponse = await saved;
+  expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
+  const { saved_skills: [skill] } = await savedResponse.json();
+  const tags = await (await request.get("/api/skill-display-categories")).json();
+  expect(tags.items).toContainEqual({ family_id: skill.family_id, categories: ["processing", "rules"], revision: 1 });
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(name);
+  for (const pool of ["素材处理池", "规则约束池"]) {
+    await expect(page.getByRole("region", { name: pool }).getByRole("button", { name, exact: true })).toBeVisible();
+  }
+  await page.reload();
+  for (const pool of ["素材处理池", "规则约束池"]) {
+    await expect(page.getByRole("region", { name: pool }).getByRole("button", { name, exact: true })).toBeVisible();
+  }
+});
+
+test("old pending authored drafts retry their original role and remain unclassified", async ({ page, request }) => {
+  const name = `old-authored-${randomUUID().slice(0, 8)}`;
+  const input = { request_id: randomUUID(), name, display_name: "", description: "旧自写草稿", content: "保留旧草稿原文。", role: "mind" };
+  const { display_name: _unset, ...payload } = input;
+  const original = await request.post("/api/skill-extractions/author", { data: { ...payload, upload_ids: [] } });
+  expect(original.ok(), await original.text()).toBeTruthy();
+  const originalJob = await original.json();
+  await page.goto("/skills");
+  await page.evaluate(draft => sessionStorage.setItem("creatoros:authored-skill:unsaved", JSON.stringify(draft)), { ...input, uploads: [] });
+  await page.reload();
+  await page.getByRole("button", { name: "自己写 Skill", exact: true }).click();
+  const form = page.getByRole("form", { name: "自己写 Skill" });
+  await expect(form.getByLabel("提示词或完整 SKILL.md")).toHaveValue(input.content);
+  await expect(form.getByRole("checkbox", { checked: true })).toHaveCount(0);
+  const retry = page.waitForResponse(r => r.url().endsWith("/api/skill-extractions/author"));
+  await form.getByRole("button", { name: "保存为草稿" }).click();
+  const retried = await retry;
+  expect(retried.ok(), await retried.text()).toBeTruthy();
+  expect(retried.request().postDataJSON()).toEqual({ ...payload, upload_ids: [] });
+  expect((await retried.json()).id).toBe(originalJob.id);
+  await expect(page.getByLabel("Mind Frontmatter 名称")).toHaveValue(name);
+
+  const saved = page.waitForResponse(r => r.url().endsWith(`/api/skill-extractions/${originalJob.id}/save`));
+  await page.getByRole("button", { name: "确认加入 Skill 库", exact: true }).click();
+  const savedResponse = await saved;
+  expect(savedResponse.ok(), await savedResponse.text()).toBeTruthy();
+  const { saved_skills: [skill] } = await savedResponse.json();
+  const tags = await (await request.get("/api/skill-display-categories")).json();
+  expect(tags.items.find((item: { family_id: string }) => item.family_id === skill.family_id)).toBeUndefined();
+  await page.reload();
+  await page.getByRole("searchbox", { name: "搜索 Skill" }).fill(name);
+  await expect(page.getByRole("region", { name: "待分类池" }).getByRole("button", { name, exact: true })).toBeVisible();
 });
 
 test("duplicate references retry an unknown submission without reupload or a new request", async ({ page }) => {
   const api = await installControlledApi(page, "ready", true);
   await page.goto("/skills"); await page.getByRole("button", { name: "从作品提炼", exact: true }).click();
   await page.getByRole("form", { name: "从作品提炼", exact: true }).getByLabel("参考图片", { exact: true }).setInputFiles(["first.png", "renamed.png"].map(name => ({ name, mimeType: "image/png", buffer: tinyPng })));
-  await page.getByLabel("提炼方式", { exact: true }).selectOption("mind");
+  await page.getByRole("checkbox", { name: "规则约束" }).check();
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByLabel("已选图片").getByRole("img")).toHaveCount(2);
+  await expect(page.getByRole("checkbox", { name: "规则约束" })).toBeChecked();
   await page.getByRole("button", { name: "开始提炼", exact: true }).click();
   await expect(page.getByText("任务状态：待确认")).toBeVisible();
   const creates = api.posts.filter(p => p.path === "/api/skill-extractions");
   expect(creates).toHaveLength(2); expect(creates[0].body).toEqual(creates[1].body);
   expect((creates[0].body as { upload_ids: string[] }).upload_ids).toEqual(["upload-e2e"]);
+  expect(creates[0].body).toMatchObject({ mode: "single", categories: ["rules"] });
   expect(api.posts.filter(p => p.path.endsWith("/uploads"))).toHaveLength(2);
 });
 

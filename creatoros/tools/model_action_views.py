@@ -528,14 +528,12 @@ _V2_ACTIONLESS = {
         },
     },
     "extract_skill_from_images": {
-        "description": "按用户要求从会话图片提炼 Skill 草稿；任务后台执行，ready 后供用户检查确认，不自动入库、绑定或生产。未完成时提供任务入口，不连续查询。",
+        "description": "按用户要求从会话图片提炼一份完整 Skill 草稿；任务后台执行，ready 后供用户检查确认，不自动入库、绑定或生产。未完成时提供任务入口，不连续查询。",
         "parameters": {
             "type": "object",
             "properties": {
                 "attachment_ids": {"type": "array", "items": {"type": "string"},
                                    "description": "当前会话的图片附件 ID，1–6 张且不重复"},
-                "mode": {"type": "string", "enum": ["single", "mind", "visual", "pair"],
-                         "description": "默认 single 完整方法；mind 内容方法；visual 呈现方法；pair 分别提炼内容和呈现"},
                 "instruction": _string("用户对提炼的要求"),
             },
             "required": ["attachment_ids"],
@@ -705,15 +703,13 @@ _V2_ACTIONLESS = {
         },
     },
     "create_skill_draft": {
-        "description": "保存用户给的文本为待检查 Skill 草稿，不提炼、不入库或生产。",
+        "description": "保存用户给的文本为一份完整的待检查 Skill 草稿，不提炼、不入库或生产。",
         "parameters": {
             "type": "object",
             "properties": {
                 "name": _string("小写字母、数字、连字符；正文有 frontmatter 时与 name 一致"),
                 "description": _string("用途；正文有 frontmatter 时与 description 一致"),
                 "content": _string("用户提供的提示词或完整 SKILL.md 原文"),
-                "role": {"type": "string", "enum": ["legacy_end_to_end", "mind", "production"],
-                         "description": "完整、内容方法、制作呈现；默认完整"},
                 "attachment_ids": {"type": "array", "items": {"type": "string"},
                                    "description": "用户指定为参考图的本会话附件 ID"},
                 "display_name": _string("展示名称；正文已有显示名时须一致"),

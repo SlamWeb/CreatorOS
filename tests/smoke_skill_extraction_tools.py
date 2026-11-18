@@ -91,7 +91,7 @@ def main():
     assert "request_id" in schema["required"]
     assert "image_paths" in schema["properties"] and "upload_ids" in schema["properties"]
     assert "source_text" in schema["properties"]
-    assert schema["properties"]["mode"]["default"] == "single"
+    assert "mode" not in schema["properties"]
 
     with TemporaryDirectory() as temporary:
         root = Path(temporary)

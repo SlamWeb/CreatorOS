@@ -1,5 +1,11 @@
 # CreatorOS Tool Exposure SPEC
 
+## 2026-11-18 · 新建、提炼和安装使用一份完整 Skill
+
+`create_skill_draft` 原样保存提示词或 `SKILL.md`，`extract_skill_from_images` 和 `extract_skills_from_artifact` 默认生成一份完整草稿。`install_producer_skill` 默认登记为完整 Skill，产物能力仍由已安装文件核验。各协议的模型视图省略这四个工具的旧 `role` / `mode` 字段，网页 Agent 接到明确请求即可直接提交。已有工具调用与 HTTP 请求仍可使用旧值，重复安装和重试沿用已有任务角色。
+
+草稿确认入库沿用已查看版本的 digest。编辑已有草稿仍须回传原角色，旧栏目组合与既有 Skill 校准可继续使用原契约。GitHub 安装和全局来源提炼仍限总览会话，账号会话只使用已开放的草稿和附件提炼入口。全局 Skill 的展示分类只在本机网页管理。
+
 ## 2026-11-17 · 全局 BGM 与栏目歌单
 
 `manage_bgm` 可搜索共享曲目、查看全曲分析摘要和导入进度，并按用户请求入池、重分析或调整当前账号栏目的歌单。宿主校验栏目归属和工作区状态。模型可用 `inputs.bgm_track_id` 选共享曲目，用 `inputs.bgm_reference` 直接交付用户的分享原文；旧素材仍使用 `inputs.bgm_material_id`。视频任务的素材集继续校验账号和选题归属，音频与可用分析在提交时冻结。

@@ -1,5 +1,12 @@
 # Artifact → Skill Workbench
 
+## 新建完整 Skill 的展示分类（2026-11-18）
+
+- 自写和提炼默认各生成一个完整 Skill。本机全局工作台可选一个或多个展示分类。分类随草稿记录，供分类筛选使用，和提炼要求、Skill 文件及内容版本摘要独立保存。已保存的旧角色和显式旧模式继续可读可用。
+- 同一 `request_id` 仅在输入等价时重放。分类顺序等价，空列表与省略等价。未确认入库的草稿没有分类行。确认入库为本草稿新建的 Skill family 初始化分类，分类更新走既有 revision 契约。
+- 入库开始后以已经确认的摘要恢复保存。数据库写入前后中断均可用同一摘要重试，既有分类行保留标签和 revision。注册被拒且未写入该 family 的草稿仍可编辑。
+- 隔离实测中，账号 Agent 接到清稿提示词后一次调用 `create_skill_draft` 完成自写草稿。另一份采访示例经 Codex 提炼为一份纯文本 Skill，入库后同一 family 同时归入素材处理和规则约束。GitHub 安装另用真实 `anthropics/skills` 的 `brand-guidelines` 子目录核验，登记后可设置两项分类。
+
 ## V7：宿主接收结构化草稿（2026-11-03）
 
 - 新的普通 single/mind/visual/pair 提炼和这些候选的修订使用 `creatoros-skill-files/v1`：Codex 只读、fresh thread、deny-all，返回有版本的 JSON 文件清单；宿主在本次操作 draft 内暂存、校验并发布文件。脚本只保存为草稿数据，不执行；不扩大 SDK 审批/文件权限，不安装、不试产、不入库、不发布。

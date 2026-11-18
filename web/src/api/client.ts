@@ -23,6 +23,7 @@ import type {
   SkillExtractionEvent,
   SkillExtractionEventPage,
   SkillExtractionMode,
+  SkillDisplayCategory,
   SkillCalibration,
   SkillCalibrationInput,
   RunDetail,
@@ -214,7 +215,7 @@ export const studioApi = {
     return request<SkillExtractionEvent>(`/api/skill-extractions/${encodeURIComponent(id)}/events/${eventId}?${query}`);
   },
   uploadSkillExtractionImage: (input: { name: string; data_base64: string }) => request<{ id: string; name: string; url: string }>("/api/skill-extractions/uploads", { method: "POST", body: JSON.stringify(input) }),
-  createSkillExtraction: (input: { request_id: string; upload_ids: string[]; source_text: string; mode: SkillExtractionMode; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions", { method: "POST", body: JSON.stringify(input) }),
+  createSkillExtraction: (input: { request_id: string; upload_ids: string[]; source_text: string; mode: SkillExtractionMode; instruction: string; categories?: SkillDisplayCategory[] }) => request<SkillExtractionJob>("/api/skill-extractions", { method: "POST", body: JSON.stringify(input) }),
   skillExtractionFile: async (id: string, role: string, path: string) => {
     const query = new URLSearchParams({ role, path });
     const response = await fetch(`${API_BASE}/api/skill-extractions/${encodeURIComponent(id)}/files?${query}`, { headers: { Accept: "text/plain" } });

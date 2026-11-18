@@ -1,10 +1,12 @@
 """Real loopback/SQLite checks for the chat-owned authored-draft workflow."""
 import base64
+from contextlib import closing
 import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 import httpx
 from PIL import Image
@@ -118,6 +120,42 @@ class AuthoredSkillActionTests(unittest.TestCase):
         self.assertEqual(create_skill_draft(**arguments, context=context).error_type, "request_required")
         self.assertIn("create_skill_draft", ACCOUNT_TOOLS)
         self.assertIn("create_skill_draft", STUDIO_TOOLS)
+
+    def test_overview_installs_one_skill_and_reuses_legacy_job_role(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database, _, _, app = make_fixture(root)
+            # Inspect persisted submissions without starting the Git worker.
+            with closing(database), patch.object(app.state.skill_installs, "_kick"), serve(app) as url:
+                sid = app.state.chat.create()["id"]
+                account_sid = app.state.chat.create("review-lab")["id"]
+                with httpx.Client(base_url=url, timeout=15, trust_env=False) as client:
+                    context = RuntimeContext(project_root=root, studio_url=url, agent_session_id=sid,
+                        user_request_id="install-turn", allowed_tools=STUDIO_TOOLS)
+                    old = client.post("/api/producer-skills/install", json={
+                        "github_url": "https://github.com/example/legacy-skill", "role": "mind"})
+                    old.raise_for_status()
+                    legacy_job = old.json()
+
+                    def submit(github_url, ctx=context):
+                        return execute_tool_call(ToolCall("install", "install_producer_skill",
+                            json.dumps({"github_url": github_url})), context=ctx, model_requested=True)
+
+                    replay = submit(legacy_job["github_url"])
+                    self.assertFalse(replay.is_error, replay.content)
+                    self.assertEqual(json.loads(replay.content)["id"], legacy_job["id"])
+                    self.assertEqual(json.loads(replay.content)["role"], "mind")
+                    submitted = submit("https://github.com/example/complete-skill")
+                    self.assertFalse(submitted.is_error, submitted.content)
+                    job_id = json.loads(submitted.content)["id"]
+                    job = client.get(f"/api/producer-skills/jobs/{job_id}")
+                    job.raise_for_status()
+                    self.assertEqual(job.json()["role"], "legacy_end_to_end")
+                    account_context = RuntimeContext(project_root=root, studio_url=url,
+                        agent_session_id=account_sid, user_request_id="install-turn", creator_id="review-lab",
+                        allowed_tools=ACCOUNT_TOOLS)
+                    self.assertEqual(submit("https://github.com/example/account-skill", account_context).error_type,
+                        "tool_not_exposed")
 
 
 if __name__ == "__main__":

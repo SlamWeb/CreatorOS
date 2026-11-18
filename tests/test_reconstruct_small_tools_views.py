@@ -1,5 +1,6 @@
 """Focused model-view and scope checks for the final small tools."""
 from copy import deepcopy
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -11,6 +12,7 @@ from creatoros.tools.discovery_gateway import ToolGateway
 from creatoros.tools.host_contract import model_tool_schemas
 from creatoros.tools.action_catalog import build_action_catalog
 from creatoros.tools.model_action_views import apply_model_action_views
+from creatoros.web.chat import ACCOUNT_INSTRUCTIONS, ACCOUNT_TOOLS, STUDIO_TOOLS, WEB_INSTRUCTIONS
 
 
 def views(name, root, creator_id='owner'):
@@ -25,6 +27,42 @@ def views(name, root, creator_id='owner'):
 
 
 class SmallToolViewTests(unittest.TestCase):
+    def test_new_skill_tools_default_to_one_skill_in_all_model_views(self):
+        cases = [
+            ('create_skill_draft', {'name': 'sample', 'description': 'sample', 'content': 'prompt'},
+             'role', 'legacy_end_to_end', 'mind'),
+            ('extract_skill_from_images', {'attachment_ids': ['image']}, 'mode', 'single', 'visual'),
+            ('extract_skills_from_artifact', {'request_id': 'request', 'source_text': 'sample'},
+             'mode', 'single', 'pair'),
+            ('install_producer_skill', {'github_url': 'https://github.com/example/skill'},
+             'role', 'legacy_end_to_end', 'production'),
+        ]
+        for tool_name, arguments, field, default, historical in cases:
+            with self.subTest(tool=tool_name):
+                tool = tool_registry[tool_name]
+                model_schemas = [tool.to_schema()]
+                if tool_name in ACCOUNT_TOOLS:
+                    with TemporaryDirectory(prefix='new-skill-view-') as tmp:
+                        schemas, _, v1, v2, canonical = views(tool_name, Path(tmp))
+                    model_schemas.extend((schemas[0], v1, v2, canonical))
+                for schema in model_schemas:
+                    self.assertNotIn(field, schema['function']['parameters']['properties'])
+                self.assertEqual(tool.parse_arguments(json.dumps(arguments))[field], default)
+                self.assertEqual(tool.parse_arguments(json.dumps({**arguments, field: historical}))[field], historical)
+
+    def test_single_skill_policy_keeps_existing_scope_and_legacy_editing(self):
+        for instructions in (WEB_INSTRUCTIONS, ACCOUNT_INSTRUCTIONS):
+            self.assertIn('直接交付一份完整 Skill', instructions)
+        self.assertTrue({'install_producer_skill', 'extract_skills_from_artifact'} <= STUDIO_TOOLS)
+        self.assertFalse({'install_producer_skill', 'extract_skills_from_artifact'} & ACCOUNT_TOOLS)
+        with TemporaryDirectory(prefix='old-skill-view-') as tmp:
+            root = Path(tmp)
+            _, _, _, compose, _ = views('compose_series', root)
+            _, _, _, edit, _ = views('edit_extracted_skills', root)
+        self.assertIn('mind_skill_id', compose['function']['parameters']['properties'])
+        draft_properties = edit['function']['parameters']['properties']['skills']['items']['properties']
+        self.assertIn('mind', draft_properties['role']['enum'])
+
     def test_list_creators_keeps_pagination_and_original_parser(self):
         with TemporaryDirectory(prefix='list-creators-view-') as tmp:
             schemas, original, old, new, canonical = views('list_creators', Path(tmp))

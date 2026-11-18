@@ -1,20 +1,38 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { apiUrl, request, studioApi } from "../api/client";
-import type { SkillExtractionJob, SkillExtractionUpload } from "../api/types";
+import type { SkillDisplayCategory, SkillExtractionJob, SkillExtractionUpload } from "../api/types";
 import { ExtractionImagePicker, MAX_EXTRACTION_IMAGES } from "./ExtractionImagePicker";
+import { isSkillDisplayCategory, SkillCategoryFields } from "./SkillCategoryFields";
 import "./author-skill-form.css";
 
 const storageKey = "creatoros:authored-skill:unsaved";
-type Role = "legacy_end_to_end" | "mind" | "production";
-interface Draft { name: string; display_name: string; description: string; content: string; role: Role; request_id: string; uploads: SkillExtractionUpload[] }
-const emptyDraft = (): Draft => ({ name: "", display_name: "", description: "", content: "", role: "legacy_end_to_end", request_id: "", uploads: [] });
+type HistoricalRole = "legacy_end_to_end" | "mind" | "production";
+interface Draft {
+  name: string;
+  display_name: string;
+  description: string;
+  content: string;
+  categories: SkillDisplayCategory[];
+  request_id: string;
+  uploads: SkillExtractionUpload[];
+  pendingRole?: HistoricalRole;
+}
+const emptyDraft = (): Draft => ({ name: "", display_name: "", description: "", content: "", categories: [], request_id: "", uploads: [] });
 function readDraft(): Draft {
   try {
-    const value = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Partial<Draft> | null;
-    if (!value || !["legacy_end_to_end", "mind", "production"].includes(value.role ?? "")) return emptyDraft();
-    if (["name", "display_name", "description", "content", "request_id"].some(key => typeof value[key as keyof Draft] !== "string")) return emptyDraft();
-    return { ...emptyDraft(), ...value, uploads: (value.uploads ?? []).filter(upload => typeof upload.id === "string" && typeof upload.name === "string" && typeof upload.url === "string") } as Draft;
+    const value = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as (Partial<Draft> & { role?: HistoricalRole }) | null;
+    if (!value) return emptyDraft();
+    const { name, display_name, description, content, request_id, uploads, categories, role, pendingRole = role } = value;
+    if (typeof name !== "string" || typeof display_name !== "string" || typeof description !== "string"
+      || typeof content !== "string" || typeof request_id !== "string") return emptyDraft();
+    return {
+      name, display_name, description, content, request_id,
+      uploads: Array.isArray(uploads) ? uploads.filter(upload => upload && typeof upload.id === "string" && typeof upload.name === "string" && typeof upload.url === "string") : [],
+      categories: Array.isArray(categories) ? [...new Set(categories.filter(isSkillDisplayCategory))] : [],
+      // Reuse the original payload for requests the old form may have already sent.
+      pendingRole: request_id && (pendingRole === "legacy_end_to_end" || pendingRole === "mind" || pendingRole === "production") ? pendingRole : undefined,
+    };
   } catch { return emptyDraft(); }
 }
 async function imageData(file: File): Promise<string> {
@@ -39,7 +57,7 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
   const mounted = useRef(true);
   const savedUploads = useRef(new Map<File, SkillExtractionUpload>());
   const firstInput = useRef<HTMLInputElement>(null);
-  const dirty = Boolean(draft.name || draft.display_name || draft.description || draft.content || draft.uploads.length || files.length);
+  const dirty = Boolean(draft.name || draft.display_name || draft.description || draft.content || draft.categories.length || draft.uploads.length || files.length);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (visible) firstInput.current?.focus(); }, [visible]);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
@@ -55,7 +73,7 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
   const edit = <K extends keyof Draft>(key: K, value: Draft[K]) => {
-    setDraft(current => ({ ...current, [key]: value, request_id: "" })); setError("");
+    setDraft(current => ({ ...current, [key]: value, request_id: "", pendingRole: undefined })); setError("");
   };
   const save = async () => {
     if (lock.current || blocked) return;
@@ -81,7 +99,9 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
       setProgress("正在保存草稿…");
       const job = await request<SkillExtractionJob>("/api/skill-extractions/author", {
         method: "POST", body: JSON.stringify({ request_id: current.request_id, name: current.name.trim(), ...(current.display_name.trim() ? { display_name: current.display_name.trim() } : {}),
-          description: current.description.trim(), content: current.content, role: current.role, upload_ids: uploads.map(upload => upload.id) }),
+          description: current.description.trim(), content: current.content, upload_ids: uploads.map(upload => upload.id),
+          ...(current.pendingRole ? { role: current.pendingRole } : {}),
+          ...(current.categories.length ? { categories: current.categories } : {}) }),
       });
       try { sessionStorage.removeItem(storageKey); } catch { /* Saving to the server has already succeeded. */ }
       setDraft(emptyDraft()); if (mounted.current) onCreated(job);
@@ -95,11 +115,11 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
       <div className="author-skill-fields">
         <label className="extraction-label">显示名称（可选）<input ref={firstInput} maxLength={80} value={draft.display_name} onChange={event => edit("display_name", event.target.value)} placeholder="例如：四格英语漫画" /></label>
         <label className="extraction-label">英文标识<input required maxLength={64} value={draft.name} onChange={event => edit("name", event.target.value)} placeholder="例如：english-comic" autoCapitalize="none" spellCheck={false} /></label>
-        <label className="extraction-label">Skill 类型<select value={draft.role} onChange={event => edit("role", event.target.value as Role)}><option value="legacy_end_to_end">完整 Skill</option><option value="mind">Mind · 内容方法</option><option value="production">Visualize · 呈现方法</option></select></label>
       </div>
+      <SkillCategoryFields categories={draft.categories} onChange={categories => edit("categories", categories)} />
       <label className="extraction-label">用途说明<input required maxLength={1000} value={draft.description} onChange={event => edit("description", event.target.value)} placeholder="它能制作什么，什么时候使用" /></label>
       <label className="extraction-label">提示词或完整 SKILL.md<textarea required rows={12} maxLength={20000} value={draft.content} onChange={event => edit("content", event.target.value)} placeholder="粘贴你已经调好的提示词，或带 frontmatter 的完整 SKILL.md" /></label>
-      <p className="extraction-help">{draft.content.length.toLocaleString()} / 20,000 字符 · 文字会在本标签页暂存，未上传图片刷新后需重新选择。</p>
+      <p className="extraction-help">{draft.content.length.toLocaleString()} / 20,000 字符 · 文字和分类会在本标签页暂存，未上传图片刷新后需重新选择。</p>
       <label className="extraction-label">参考图片（可选）</label>
       <ExtractionImagePicker files={files} disabled={busy} onError={setError} onChange={next => {
         if (next.length + draft.uploads.length > MAX_EXTRACTION_IMAGES) { setError("参考图片合计最多 20 张。"); return false; }

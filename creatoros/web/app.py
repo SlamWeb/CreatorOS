@@ -289,7 +289,7 @@ def create_app(
     app.include_router(observation_routes(observations))
     app.include_router(discussion_routes(discussions))
     app.include_router(worker_task_routes(db, research, discussions, iterations=iterations))
-    app.include_router(extraction_routes(extractions))
+    app.include_router(extraction_routes(extractions, db))
     app.include_router(calibration_routes(calibrations))
     app.include_router(work_inbox_routes(db, research, extractions))
     app.include_router(research_routes(research, queries))

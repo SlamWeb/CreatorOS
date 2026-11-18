@@ -316,6 +316,7 @@ test("unsupported direct combinations never write and can explicitly switch to m
   await page.getByLabel("栏目名称", { exact: true }).press("Enter");
   await page.getByRole("button", { name: "移除 inspector-visual", exact: true }).click();
   await expect(page.getByRole("button", { name: "创建栏目", exact: true })).toBeDisabled();
+  await expect(page.getByText("这组 Skill 无法直接绑定到栏目。要生成一份新 Skill，可选择「融合成新 Skill」。", { exact: true })).toBeVisible();
   await page.getByLabel("栏目名称", { exact: true }).press("Enter");
   await page.getByRole("radio", { name: "融合成新 Skill", exact: true }).check();
   await expect(page.getByRole("button", { name: "生成融合草稿", exact: true })).toBeEnabled();

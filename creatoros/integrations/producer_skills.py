@@ -132,6 +132,12 @@ def _write(path: Path, value: dict):
     temporary.replace(path)
 
 
+def _local_registration_id(source: Path, name: str, digest: str) -> str:
+    identity = os.path.normcase(str(source))
+    suffix = hashlib.sha256(f"local:{identity}:{digest}".encode("utf-8")).hexdigest()[:16]
+    return f"{name}--{suffix}"
+
+
 def _digest(directory: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -970,6 +976,15 @@ class ProducerSkillCatalog:
             _write(record_path, record)
         return self.describe(skill_id)
 
+    @_skill_io_locked
+    def has_local_registration(self, source: Path, name: str) -> bool:
+        """Check publication evidence after a rejected local registration."""
+        source = source.resolve(strict=True)
+        skill_id = _local_registration_id(source, name, _digest(source))
+        record = self.root / "registry" / f"{skill_id}.json"
+        return record.is_symlink() or record.exists()
+
+    @_skill_io_locked
     def register_local(self, directory: Path, *, role: str, source_note: str | None = None) -> dict:
         """Register a local Skill folder without downloading it or invoking a model."""
         if role not in self.ROLES:
@@ -1007,9 +1022,7 @@ class ProducerSkillCatalog:
         if _digest(source) != initial_digest:
             raise ValueError("导入期间本地 Skill 已变化，请重新开始。")
 
-        identity = os.path.normcase(str(source))
-        suffix = hashlib.sha256(f"local:{identity}:{initial_digest}".encode("utf-8")).hexdigest()[:16]
-        skill_id = f"{skill.name}--{suffix}"
+        skill_id = _local_registration_id(source, skill.name, initial_digest)
         if len(skill_id) > 120:
             raise ValueError("Skill 名称太长。")
 

@@ -23,6 +23,39 @@ test("Skill creation and GitHub install actions share a row and the install form
   await expect(page.getByRole("textbox", { name: "GitHub Skill 链接" })).toBeHidden();
 });
 
+test("GitHub install opens classification for the installed Skill and restores the job on refresh", async ({ page, request }) => {
+  // Control the GitHub fetch and install receipt, using a real local Skill for the classification editor.
+  const { items } = await (await request.get("/api/producer-skills")).json();
+  const skill = items.find((item: { name: string }) => item.name === "inspector-visual");
+  const id = "a".repeat(64);
+  const githubUrl = "https://github.com/example/creator-skill";
+  let completionReads = 0;
+  await page.route("**/api/producer-skills/install", async route => {
+    expect(route.request().postDataJSON()).toEqual({ github_url: githubUrl, role: "legacy_end_to_end" });
+    await route.fulfill({ status: 202, json: { id, status: "queued", message: "已排队", skill: null } });
+  });
+  await page.route(`**/api/producer-skills/jobs/${id}`, async route => {
+    completionReads += 1;
+    await route.fulfill({ json: { id, status: "installed", message: "已安装，尚未绑定栏目。", skill } });
+  });
+  await page.goto("/skills");
+  await page.getByRole("button", { name: "从 GitHub 安装", exact: true }).click();
+  await expect(page.getByLabel("Skill 角色")).toHaveCount(0);
+  await page.getByRole("textbox", { name: "GitHub Skill 链接" }).fill(githubUrl);
+  await page.getByRole("button", { name: "安装", exact: true }).click();
+  const categorize = page.getByRole("button", { name: "设置「inspector-visual」分类", exact: true });
+  await expect(categorize).toBeEnabled();
+  expect(completionReads).toBeGreaterThan(0);
+  await expect(page.getByText("已安装，尚未绑定栏目。", { exact: true })).toBeVisible();
+  await categorize.click();
+  const editor = page.getByRole("dialog", { name: "设置 Skill 分类" });
+  await expect(editor).toContainText("inspector-visual");
+  await expect(editor.getByRole("checkbox")).toHaveCount(4);
+  await editor.getByRole("button", { name: "取消", exact: true }).click();
+  await page.reload();
+  await expect(categorize).toBeEnabled();
+});
+
 test("search and pools preserve the selected Skill across refresh", async ({ page }, info) => {
   await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   const writes: string[] = [];

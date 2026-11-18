@@ -9,7 +9,7 @@ import shutil
 from ..skills.loader import parse_skill_frontmatter
 from .producer_skills import _write
 from .skill_extraction import (DraftSkill, ExtractionError, ExtractionResult,
-                               MAX_REFERENCE_IMAGES, now, record_failure_details)
+                               MAX_REFERENCE_IMAGES, category_input, now, record_failure_details)
 
 
 def document(name, description, content, role, display_name, assets):
@@ -58,7 +58,7 @@ def delivery_contract(text, role, kind):
     return "".join([*lines[:end], "creatoros-output: social-content-pack.image-carousel\n", *lines[end:]])
 
 
-def author(service, request_id, name, description, content, role, upload_ids, display_name):
+def author(service, request_id, name, description, content, role, upload_ids, display_name, categories=None):
     if (not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 128
             or not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64
             or not isinstance(description, str) or not description.strip() or len(description) > 1000
@@ -70,11 +70,12 @@ def author(service, request_id, name, description, content, role, upload_ids, di
                                             or len(display_name) > 80))):
         raise ExtractionError("请填写有效的 Skill 标识、说明和提示词，并上传最多 20 张参考图。")
     upload_ids = list(dict.fromkeys(upload_ids))
+    mode = {"mind": "mind", "production": "visual", "legacy_end_to_end": "single"}[role]
     inputs = dict(request_id=request_id, name=name, description=description, content=content,
                   role=role, upload_ids=upload_ids, display_name=display_name, task_kind="author")
-    digest = hashlib.sha256(json.dumps(inputs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    category_fields = category_input(categories, mode)
+    digest = hashlib.sha256(json.dumps({**inputs, **category_fields}, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     job_id = hashlib.sha256(request_id.encode()).hexdigest()
-    mode = {"mind": "mind", "production": "visual", "legacy_end_to_end": "single"}[role]
     with service.lock:
         if service.closed:
             raise ExtractionError("服务正在关闭，不能保存新草稿。", 409)
@@ -91,7 +92,7 @@ def author(service, request_id, name, description, content, role, upload_ids, di
         except ValueError as error:
             raise ExtractionError(str(error)) from error
         directory.mkdir(parents=True, exist_ok=False)
-        job = {"id": job_id, **inputs, "input_digest": digest, "mode": mode, "instruction": "",
+        job = {"id": job_id, **inputs, **category_fields, "input_digest": digest, "mode": mode, "instruction": "",
                "source_text": content, "status": "running", "created_at": now(), "updated_at": now(),
                "thread_id": None, "error": None, "note": "", "skills": [], "digest": None,
                "saved_skills": [], "cancel_requested": False, "operation": "author",

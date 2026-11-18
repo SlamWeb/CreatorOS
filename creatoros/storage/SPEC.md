@@ -4,6 +4,7 @@
 
 - `20261107_0029` 新增独立 `skill_display_categories` 表，以 Skill family ID 为键保存用户显式选择的 `content`、`visual`、`processing`、`rules` 多标签和乐观并发 revision；空列表表示待分类。元数据不进入 Skill 文件、Skill 版本摘要或 Run 冻结输入，不根据历史角色推断。
 - 本机全局 Web 的 `/api/skill-display-categories` 用于列出分类及以所见 revision 比较更新；不向 Agent 会话或账号作用域开放。该本机检查不是完整身份认证。已有分类时拒绝降级删除表。正式库尚未迁移或重启。
+- 新建完整 Skill 的分类意图随草稿 Job 存档。确认入库时，只为该草稿首次注册的 Skill family 创建 revision 1 行；分类行已存在时保留其标签与 revision。注册后中断可按同一草稿摘要继续完成入库。沿用现有表，无新增数据库迁移。
 
 ## 生产队列历史（2026-11-03）
 

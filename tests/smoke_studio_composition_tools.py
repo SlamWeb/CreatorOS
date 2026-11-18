@@ -5,6 +5,7 @@
 import json
 import os
 import subprocess
+from contextlib import ExitStack
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -52,21 +53,23 @@ def main() -> None:
     assert "Git" in install_description and "不调用模型" in install_description
     assert "不安装到 Codex 全局目录" in install_description
     assert "委托 Codex" not in install_description
-    assert "compose_series/update_series_composition" in descriptions["get_skill_install"]
-    assert "本地Skill发布版" in descriptions["list_producer_skills"]
+    assert "manage_skill_library" in descriptions["get_skill_install"]
+    assert "发布版" in descriptions["list_producer_skills"]
     assert "include_versions=true" in descriptions["list_producer_skills"]
 
-    with TemporaryDirectory() as temporary:
+    with TemporaryDirectory() as temporary, ExitStack() as resources:
         root = Path(temporary)
         url = f"sqlite:///{(root / 'tools.db').as_posix()}"
         upgrade_database(url)
         database = Database(url)
+        resources.callback(database.close)
         catalog = ProducerSkillCatalog(skills_root_for(database))
         mind = catalog.register(root / "w-mind", "https://github.com/example/mind-skill",
                                 _fixture(root / "w-mind", "mind-skill", compatible=False), role="mind")
         production = catalog.register(root / "w-prod", "https://github.com/example/prod-skill",
                                       _fixture(root / "w-prod", "prod-skill", compatible=True), role="production")
         installs = SkillInstallService(catalog)
+        resources.callback(installs.shutdown)
         app = create_app(database=database, skill_install_service=installs)
         with serve(app) as base, patch.dict(os.environ, {"CREATOROS_STUDIO_URL": base}):
             client = StudioClient(base)
@@ -78,7 +81,7 @@ def main() -> None:
             assert not created.is_error, created.content
             series_id = json.loads(created.content)["series"]["id"]
             assert tool_links("compose_series", created.content, studio_url=base) == [
-                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "compose_series"}]
+                {"url": f"/series/{series_id}", "label": "查看栏目", "kind": "series", "source_tool": "compose_series"}]
             # HTTP 读取同一对象：字段一致。
             via_http = client.request("GET", f"/api/series/{series_id}")
             assert via_http["mind_skill_id"] == mind["id"] and via_http["creator_id"] is None
@@ -96,7 +99,7 @@ def main() -> None:
             assigned = _tool("assign_series", series_id=series_id, creator_id=creator["id"], expected_revision=1)
             assert not assigned.is_error, assigned.content
             assert tool_links("assign_series", assigned.content, studio_url=base) == [
-                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "assign_series"}]
+                {"url": f"/series/{series_id}", "label": "查看栏目", "kind": "series", "source_tool": "assign_series"}]
             assert json.loads(assigned.content)["series"]["revision"] == 2
             assert client.request("GET", f"/api/series/{series_id}")["creator_id"] == creator["id"]
 
@@ -114,12 +117,10 @@ def main() -> None:
                           mind_skill_id=mind["id"], production_skill_id=other["id"], expected_revision=2)
             assert not moved.is_error, moved.content
             assert tool_links("update_series_composition", moved.content, studio_url=base) == [
-                {"url": f"/series/{series_id}", "label": "查看栏目", "source_tool": "update_series_composition"}]
+                {"url": f"/series/{series_id}", "label": "查看栏目", "kind": "series", "source_tool": "update_series_composition"}]
             assert json.loads(moved.content)["series"]["revision"] == 3
             assert json.loads(moved.content)["series"]["production_skill_id"] == other["id"]
             client.close()
-        database.close()
-        installs.shutdown()
     print("studio_composition_tools_smoke=passed")
 
 

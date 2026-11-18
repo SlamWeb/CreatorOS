@@ -87,8 +87,7 @@ class InstallSkillArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
     github_url: str = Field(description="用户明确要求安装的 GitHub 仓库或 tree/ref/skill-path 链接。")
     retry: bool = Field(default=False, description="仅用户明确要求重试失败/中断的安装时为 true；可能再次消耗额度。")
-    role: Literal["mind", "production", "legacy_end_to_end"] | None = Field(
-        default=None, description="Skill 角色：mind 内容方法；production 制作呈现；省略表示暂不分类（可展示不可生产）。")
+    role: Literal["mind", "production", "legacy_end_to_end"] | None = "legacy_end_to_end"
 
 
 class ComposeSeriesArgs(BaseModel):
@@ -298,7 +297,7 @@ class NoArgs(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
 
-def install_producer_skill(github_url, retry=False, role=None, context=None):
+def install_producer_skill(github_url, retry=False, role="legacy_end_to_end", context=None):
     return _call(lambda c: c.request("POST", "/api/producer-skills/install",
                                      payload={"github_url": github_url, "retry": retry, "role": role}), context)
 

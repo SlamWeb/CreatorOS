@@ -4,10 +4,11 @@ import { useSearchParams } from "react-router-dom";
 import { Image as ImageIcon, Package, Clapperboard, SlidersHorizontal, ShieldCheck, Layers, Ellipsis } from "lucide-react";
 import { studioApi, request } from "../api/client";
 import { useCreatorDirectory } from "../api/useCreatorDirectory";
-import type { ProducerSkillItem } from "../api/types";
+import type { ProducerSkillItem, SkillDisplayCategory as SkillCategory } from "../api/types";
 import { ErrorState, LoadingState } from "../components/PageState";
 import { ArtifactSkillExtraction } from "../components/ArtifactSkillExtraction";
 import { SkillInspector } from "../components/SkillInspector";
+import { isSkillDisplayCategory, SkillCategoryFields, skillCategoryOptions as categoryOptions } from "../components/SkillCategoryFields";
 import { Button } from "../components/ui/button";
 import { WorkspaceDialog } from "../components/WorkspaceDialog";
 import { SkillIterationHistory, SkillIterationPanel } from "../components/SkillIterationPanel";
@@ -15,19 +16,15 @@ import { UnseenDot, useWorkInbox } from "../components/TaskInbox";
 import "./studio-space.css";
 
 type DragPayload = { kind: "skill"; skill: ProducerSkillItem };
-type SkillCategory = "content" | "visual" | "processing" | "rules";
 type CategoryRecord = { family_id: string; categories: SkillCategory[]; revision: number };
 type CategoryEditor = { skill: ProducerSkillItem; categories: SkillCategory[]; revision: number; needsCheck: boolean; latest?: CategoryRecord };
-const categoryOptions: { value: SkillCategory; label: string }[] = [
-  { value: "content", label: "内容创作" }, { value: "visual", label: "视觉表现" },
-  { value: "processing", label: "素材处理" }, { value: "rules", label: "规则约束" },
-];
+type InstallJob = { id: string; status: string; message: string; skill: ProducerSkillItem | null };
 function validCategoryRecord(value: unknown): value is CategoryRecord {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return typeof record.family_id === "string" && !!record.family_id && Number.isInteger(record.revision)
     && (record.revision as number) >= 0 && Array.isArray(record.categories)
-    && record.categories.every(item => categoryOptions.some(option => option.value === item))
+    && record.categories.every(isSkillDisplayCategory)
     && new Set(record.categories).size === record.categories.length;
 }
 function emptyCategory(familyId: string): CategoryRecord { return { family_id: familyId, categories: [], revision: 0 }; }
@@ -192,7 +189,8 @@ export function SkillsPage() {
     retry: false,
     mutationFn: () => {
       const binding = directBinding(selectedIds, skills.data?.items ?? []);
-      if (!binding || !name.trim()) throw new Error("请选择一个完整 Skill 或 Mind＋Visualize，并填写栏目名称。");
+      if (!binding) throw new Error("这组 Skill 无法直接绑定到栏目。");
+      if (!name.trim()) throw new Error("请填写栏目名称。");
       const input = { name: name.trim(), description: "", audience: "", creator_id: creatorId || null, ...binding };
       const signature = JSON.stringify(input);
       if (composeRequest.current?.signature !== signature) composeRequest.current = { signature, id: crypto.randomUUID().replaceAll("-", "") };
@@ -232,24 +230,27 @@ export function SkillsPage() {
     onError: error => setNotice({ kind: "error", text: error.message }),
   });
 
+  const jobId = searchParams.get("skillJob");
   const [installUrl, setInstallUrl] = useState("");
-  const [installOpen, setInstallOpen] = useState(false);
-  const [installRole, setInstallRole] = useState<"mind" | "production" | "">("");
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [installOpen, setInstallOpen] = useState(Boolean(jobId));
   const install = useMutation({
     retry: false,
-    mutationFn: () => request<{ id: string }>("/api/producer-skills/install", {
-      method: "POST", body: JSON.stringify({ github_url: installUrl, role: installRole || null }),
+    mutationFn: (githubUrl: string) => request<InstallJob>("/api/producer-skills/install", {
+      method: "POST", body: JSON.stringify({ github_url: githubUrl, role: "legacy_end_to_end" }),
     }),
-    onSuccess: async (job) => {
-      setJobId(job.id);
-      await client.invalidateQueries({ queryKey: ["producer-skills"] });
+    onSuccess: data => {
+      client.setQueryData(["skill-install", data.id], data);
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("skillJob", data.id); return next; }, { replace: true });
     },
   });
-  const job = useQuery({
+  const installJob = useQuery({
     queryKey: ["skill-install", jobId], enabled: !!jobId, refetchInterval: q => ["queued", "installing"].includes(q.state.data?.status ?? "") ? 2000 : false,
-    queryFn: () => request<{ status: string; message: string }>(`/api/producer-skills/jobs/${encodeURIComponent(jobId!)}`),
+    queryFn: () => request<InstallJob>(`/api/producer-skills/jobs/${encodeURIComponent(jobId!)}`),
   });
+  const installedSkill = installJob.data?.status === "installed" ? installJob.data.skill : null;
+  useEffect(() => {
+    if (installedSkill) void client.invalidateQueries({ queryKey: ["producer-skills"] });
+  }, [client, installedSkill]);
 
   const validTarget = (payload: DragPayload, target: string | null) => {
     if (target === "skill-basket") return true;
@@ -373,6 +374,12 @@ export function SkillsPage() {
   const categoriesAvailable = categoryQuery.isSuccess && !categoryQuery.isError;
   const categoryMap = new Map((categoryQuery.data?.items ?? []).map(item => [item.family_id, item]));
   const categoryFor = (skill: ProducerSkillItem) => categoryMap.get(skill.family_id ?? skill.id) ?? emptyCategory(skill.family_id ?? skill.id);
+  const openCategoryEditor = (skill: ProducerSkillItem) => {
+    if (!categoriesAvailable || categoryDrop.isPending) return;
+    categorySave.reset();
+    const current = categoryFor(skill);
+    setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
+  };
   const roleParam = searchParams.get("role") ?? "all";
   const selectedRole = ["all", "mind", "production", "other"].includes(roleParam) ? roleParam : "all";
   const visibleSkills = allSkills.filter(skill => {
@@ -416,11 +423,7 @@ export function SkillsPage() {
         {inbox.hasUnseen("skill", skill.id) && <UnseenDot label="Skill 有未查看更新" />}
       </button>
       <Button type="button" variant="ghost" size="sm" className="skill-categorize" aria-label={`设置 ${skillLabel(skill)} 分类`} aria-description={categoryLabel} title={`设置分类：${categoryLabel}`}
-        disabled={!categoriesAvailable || categoryDrop.isPending} onClick={() => {
-          categorySave.reset();
-          const current = categoryFor(skill);
-          setCategoryEditor({ skill, categories: [...current.categories], revision: current.revision, needsCheck: false });
-        }}><Ellipsis size={16} aria-hidden="true" /></Button>
+        disabled={!categoriesAvailable || categoryDrop.isPending} onClick={() => openCategoryEditor(skill)}><Ellipsis size={16} aria-hidden="true" /></Button>
       <Button type="button" variant="ghost" size="sm" className="skill-select" aria-label={`${isSelected ? "取消选择" : "加入"} ${skillLabel(skill)}`}
         aria-pressed={isSelected} disabled={busy} onClick={() => isSelected ? setSelectedIds(ids => ids.filter(id => id !== skill.id)) : addSkill(skill)}>
         {isSelected ? "已选" : "加入"}
@@ -456,19 +459,17 @@ export function SkillsPage() {
     <ArtifactSkillExtraction entryExtra={<button type="button" className="button button-secondary skill-install-toggle" aria-expanded={installOpen} aria-controls="skill-github-install" onClick={() => setInstallOpen(value => !value)}>从 GitHub 安装</button>} onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
       setSelectedIds([skill.id]); setComposerOpen(true); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
     }} />
-        <form id="skill-github-install" className="skill-install" hidden={!installOpen} onSubmit={event => { event.preventDefault(); if (installUrl.trim()) install.mutate(); }}>
+        <form id="skill-github-install" className="skill-install" hidden={!installOpen} onSubmit={event => {
+          event.preventDefault(); if (installUrl.trim() && !install.isPending) install.mutate(installUrl.trim());
+        }}>
           <input aria-label="GitHub Skill 链接" type="url" required placeholder="https://github.com/…"
-            value={installUrl} onChange={event => setInstallUrl(event.target.value)} />
-          <div>
-            <select aria-label="Skill 角色" value={installRole} onChange={event => setInstallRole(event.target.value as typeof installRole)}>
-              <option value="">暂不分类</option>
-              <option value="mind">Mind</option>
-              <option value="production">Visualize</option>
-            </select>
-            <button className="button button-secondary" disabled={!installUrl.trim() || install.isPending}>安装</button>
-          </div>
+            disabled={install.isPending} value={installUrl} onChange={event => setInstallUrl(event.target.value)} />
+          <button type="submit" className="button button-secondary" disabled={!installUrl.trim() || install.isPending}>安装</button>
           {install.isError && <p className="form-error" role="alert">{install.error.message}</p>}
-          {job.data && <p className="space-note" role="status">{job.data.status} · {job.data.message}</p>}
+          {installJob.isError && <p className="form-error" role="alert">安装任务读取失败：{installJob.error.message} <button type="button" className="button button-secondary" onClick={() => void installJob.refetch()}>重试读取</button></p>}
+          {installJob.data && <p className="space-note" role="status">{installJob.data.message}</p>}
+          {installedSkill && <button type="button" className="button button-secondary" disabled={!categoriesAvailable || categoryDrop.isPending}
+            onClick={() => openCategoryEditor(installedSkill)}>设置「{skillLabel(installedSkill)}」分类</button>}
         </form>
     <div className="space-columns">
       <section className="skill-catalog" aria-label="Skill 列表">
@@ -517,7 +518,7 @@ export function SkillsPage() {
             </fieldset>}
             {isMerge ? <label>融合要求（可选）<textarea rows={3} maxLength={4000} value={mergeInstruction} onChange={event => setMergeInstruction(event.target.value)} placeholder="遇到冲突时，你更希望保留什么？" /></label> : <>
             {selectedIds.length === 2 && binding && <p className="space-note">保留两份原始 Skill，由同一个 Codex 生产会话参考使用。</p>}
-            {selectedIds.length > 1 && !binding && !missingSkills && <p className="space-note" role="status">直接使用需选择一份 Mind＋一份 Visualize；其他组合可选择融合。</p>}
+            {selectedIds.length > 1 && !binding && !missingSkills && <p className="space-note" role="status">这组 Skill 无法直接绑定到栏目。要生成一份新 Skill，可选择「融合成新 Skill」。</p>}
             <fieldset disabled={busy} className="composer-fields">
             <label>栏目名称<input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
             <label>归属账号<select value={creatorId} disabled={accountSelectionUnavailable} onChange={event => setCreatorId(event.target.value)}>
@@ -547,14 +548,8 @@ export function SkillsPage() {
     {categoryEditor && <WorkspaceDialog title="设置 Skill 分类" busy={categorySave.isPending} onClose={() => setCategoryEditor(null)}>
       <form className="skill-category-editor" onSubmit={event => { event.preventDefault(); if (!categoryEditor.needsCheck && !categorySave.isPending) categorySave.mutate(categoryEditor); }}>
         <p>{skillLabel(categoryEditor.skill)}</p>
-        <fieldset disabled={categorySave.isPending}><legend>可多选；不选择则为待分类</legend>
-          {categoryOptions.map((option, index) => <label key={option.value}>
-            <input type="checkbox" data-initial-focus={index === 0 ? true : undefined} checked={categoryEditor.categories.includes(option.value)}
-              onChange={event => setCategoryEditor(current => current ? { ...current,
-                categories: event.target.checked ? [...current.categories, option.value] : current.categories.filter(item => item !== option.value) } : null)} />
-            {option.label}
-          </label>)}
-        </fieldset>
+        <SkillCategoryFields legend="可多选；不选择则为待分类" focusFirst disabled={categorySave.isPending}
+          categories={categoryEditor.categories} onChange={categories => setCategoryEditor(current => current ? { ...current, categories } : null)} />
         {categorySave.isError && <p className="form-error" role="alert">{categorySave.error.message} 当前选择已保留，请核对后再保存。</p>}
         {categoryEditor.needsCheck && <div className="skill-category-conflict">
           <button type="button" className="button button-secondary" disabled={categoryQuery.isFetching} onClick={async () => {

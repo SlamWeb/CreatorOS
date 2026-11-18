@@ -480,6 +480,7 @@ export interface ProducerSkillDeleteResult {
   recovery_record: string;
 }
 
+export type SkillDisplayCategory = "content" | "visual" | "processing" | "rules";
 export type SkillExtractionMode = "pair" | "mind" | "visual" | "single";
 export type SkillExtractionStatus = "queued" | "running" | "ready" | "saved" | "failed" | "interrupted";
 export type SkillExtractionOperation = "extract" | "revise" | "trial" | "calibrate" | null;
@@ -557,6 +558,7 @@ export interface SkillExtractionJob {
   id: string;
   request_id: string;
   mode: SkillExtractionMode;
+  categories?: SkillDisplayCategory[];
   instruction: string;
   source_text?: string;
   suggested_topic?: string | null;

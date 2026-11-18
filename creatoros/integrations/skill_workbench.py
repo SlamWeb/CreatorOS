@@ -24,6 +24,8 @@ def require_draft(service, job, digest):
 
 def require_ready_draft(service, job, digest):
     """Check draft bytes and worker state independently of write authorization."""
+    if job.get("category_save_digest"):
+        raise ExtractionError("这份草稿已确认入库，请重试入库以完成保存。", 409)
     if (job["status"] != "ready" or job.get("operation")
             or job.get("queue", {}).get("state") in {"queued", "running"}):
         raise ExtractionError("请等待当前操作结束，或选择未入库草稿。", 409)

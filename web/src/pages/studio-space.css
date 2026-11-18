@@ -103,11 +103,11 @@ a.bind-tag { color: var(--accent); }
 }
 
 /* 安装表单 */
-.skill-install { display: grid; gap: 8px; margin-top: 18px; }
+.skill-install { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 18px; }
+.skill-install[hidden] { display: none; }
 .skill-install input { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; font: 12px/1.5 inherit; color: var(--ink); background: var(--canvas); outline: none; }
 .skill-install input:focus { border-color: var(--accent); box-shadow: var(--ring); }
-.skill-install > div { display: flex; gap: 8px; }
-.skill-install select { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--canvas); color: var(--ink); font: 12px inherit; padding: 7px 9px; }
+.skill-install > :not(input, button[type="submit"]) { grid-column: 1 / -1; justify-self: start; }
 
 /* Skill library: compact rows, one visible composer, scoped to this page. */
 .studio-shell:has(.skill-page) .main-content { position: relative; }
@@ -211,11 +211,8 @@ a.bind-tag { color: var(--accent); }
 .skill-page .extraction-entry-actions .extraction-toggle:first-child:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
 .skill-page .extraction-entry-actions .extraction-toggle:not(:first-child):hover:not(:disabled) { background: var(--surface); }
 .skill-category-editor > p { margin: 0 0 12px; color: var(--ink); font-size: 14px; font-weight: 600; }
-.skill-category-editor fieldset { display: grid; gap: 10px; border: 0; padding: 0; margin: 0; }
 .skill-category-editor legend { margin-bottom: 12px; color: #62626b; font-size: 13px; }
-.skill-category-editor label { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--ink); font-size: 13px; }
-.skill-category-editor input[type="checkbox"] { width: 16px; height: 16px; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
-.skill-category-editor input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.skill-category-editor .skill-category-choices { display: grid; gap: 4px; }
 .skill-category-editor .skill-category-conflict { margin-top: 16px; }
 .skill-category-editor .skill-category-conflict p { margin: 10px 0; color: #62626b; font-size: 13px; }
 .skill-category-editor .skill-category-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }

@@ -64,6 +64,15 @@ from .plans import ManagePlanArgs, manage_plan
 from .production_task_control import ManageProductionTaskArgs, manage_production_task
 
 
+# Old explicit calls remain valid; new model requests use each tool's default.
+_LEGACY_SKILL_ARGUMENTS = {
+    "create_skill_draft": "role",
+    "extract_skill_from_images": "mode",
+    "extract_skills_from_artifact": "mode",
+    "install_producer_skill": "role",
+}
+
+
 def _run_route_and_answer(*args, **kwargs):
     # Lazy import keeps the skills package independent from Tool Registry startup.
     from ..skills.route_and_answer.runner import run_route_and_answer
@@ -94,6 +103,9 @@ class Tool:
             if self.args_model is not None
             else self.parameters
         )
+        legacy_argument = _LEGACY_SKILL_ARGUMENTS.get(self.name)
+        if legacy_argument:
+            parameters["properties"].pop(legacy_argument)
         return {
             "type": "function",
             "function": {
@@ -207,7 +219,7 @@ tool_registry = {
              execute=update_series_composition, args_model=UpdateCompositionArgs),
         Tool(name="assign_series", description="用户明确要求时分配或撤回栏目归属账号；creator_id 为 null 表示撤回，撤回后不可生产。必须携带当前 revision。",
              execute=assign_series, args_model=AssignSeriesArgs),
-        Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，由 CreatorOS 使用 Git 后台下载并核验到本地 Skill 库，不调用模型、不安装到 Codex 全局目录。安装后可加入账号和栏目，在任务中选择；Skill 能否完成任务取决于正文和材料。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
+        Tool(name="install_producer_skill", description="用户明确要求安装 GitHub Skill 后，由 CreatorOS 使用 Git 后台下载并核验为一份完整 Skill，保存到本地 Skill 库，不调用模型、不安装到 Codex 全局目录。安装后可加入账号和栏目，在任务中选择；Skill 能否完成任务取决于正文和材料。返回安装任务，不生成内容、不绑定栏目。不要轮询等待；未知结果不得自动重试。",
              execute=install_producer_skill, args_model=InstallSkillArgs),
         Tool(name="get_skill_install", description="用户询问安装进展时查询任务；installed 只代表文件已登记，未加入账号或栏目，也不保证能完成任意任务。用户明确要求使用时，可通过 manage_skill_library 加入账号和栏目。",
              execute=get_skill_install, args_model=SkillJobArgs),
@@ -238,10 +250,10 @@ tool_registry = {
         Tool(name="request_content_revision", description="仅在用户明确要求返工时调用；按当前 Run version 创建待执行 revision，不会执行生产、批准或发布。先查最新 Run 取得 expected_version。", execute=request_content_revision, args_model=RequestContentRevisionArgs),
         Tool(name="get_creator_tasks", description="读取账号调研、生产、讨论及等待材料的任务；查一个选题优先用已知topic_id/run_id，不遍历全账号；确需任务目录时按栏目和状态筛选。已有结果覆盖本次问题时复用；用户问最新进展时重新查。waiting尚无Run，needs_attention需检查，cancelled已取消；返回具名选题/素材集入口，不创建、恢复或改变任务。", execute=get_creator_tasks, args_model=CreatorTasksArgs),
         Tool(name="read_image", description="实际查看当前会话附件、当前账号 Skill 的参考图或指定产物版本的图片。按返回的附件看图，不猜测图片内容；不接受任意本地路径。", execute=read_image, args_model=ReadImageArgs),
-        Tool(name="extract_skill_from_images", description="按用户要求从当前聊天图片提炼Skill草稿。宿主短时等待并展示进度；ready展示草稿，wait_background给任务入口并结束本轮，不连续查询。不会自动入库、组栏目或生产。", execute=extract_skill_from_images, args_model=ExtractSkillImagesArgs),
-        Tool(name="create_skill_draft", description="用户已经给出现成提示词或完整Skill，要求保存为可复用Skill时使用。原样保存文字及指定会话参考图，不调用Codex重新提炼；只生成待检查草稿，不入库、不创建栏目、不生产。需要从作品总结方法而没有现成提示词时用extract_skill_from_images。", execute=create_skill_draft, args_model=CreateSkillDraftArgs),
+        Tool(name="extract_skill_from_images", description="按用户要求从当前聊天图片提炼一份完整 Skill 草稿。宿主短时等待并展示进度；ready展示草稿，wait_background给任务入口并结束本轮，不连续查询。不会自动入库、组栏目或生产。", execute=extract_skill_from_images, args_model=ExtractSkillImagesArgs),
+        Tool(name="create_skill_draft", description="用户已经给出现成提示词或完整Skill，要求保存为可复用Skill时使用。原样保存文字及指定会话参考图为一份待检查草稿，不调用Codex重新提炼，不入库、不创建栏目、不生产。需要从作品总结方法而没有现成提示词时用extract_skill_from_images。", execute=create_skill_draft, args_model=CreateSkillDraftArgs),
         Tool(name="import_content_images", description="用户明确表示图片已是成品时，按顺序导入指定栏目成为待人工验收内容。不是生图队列，不调用 Codex、不批准、不发布。", execute=import_content_images, args_model=ImportContentImagesArgs),
-        Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
+        Tool(name="extract_skills_from_artifact", description="用户明确要求从作品提炼 Skill 时，提交参考图片或原始文案，提炼一份完整 Skill 草稿；本地图片限用户明确给出的项目内路径，也可用已有 upload_ids。返回任务句柄供查询，不会自动保存入库、绑定栏目或生产；结果不确定时复用同一 request_id。",
              execute=extract_skills_from_artifact, args_model=ExtractSkillsFromArtifactArgs),
         Tool(name="get_skill_extraction", description="用户主动询问时查询提炼任务一次，或列出历史任务。运行中给进度和任务入口后结束本轮，禁止连续查询等完成。ready只表示草稿可预览，展示并等待用户确认，不能当作已入库。",
              execute=get_skill_extraction, args_model=GetSkillExtractionArgs),

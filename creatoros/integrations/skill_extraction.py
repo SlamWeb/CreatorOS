@@ -22,6 +22,7 @@ from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from ..skills.loader import SkillLoader
+from ..storage.skill_display_categories import normalize_categories
 from .codex import CodexSdkProducer, _bounded_sdk, _production_client
 from .codex_turn_guard import require_completed_turn
 from .producer_skills import ProducerSkillCatalog, _digest, _write, freeze_skill, inherit_copy_permissions
@@ -72,6 +73,20 @@ class ExtractionError(ValueError):
     def __init__(self, message, status=422):
         super().__init__(message)
         self.status = status
+
+
+def category_input(categories, mode):
+    if categories is None:
+        return {}
+    try:
+        categories = normalize_categories(categories)
+    except ValueError as error:
+        raise ExtractionError(str(error)) from error
+    if not categories:
+        return {}
+    if mode != "single":
+        raise ExtractionError("选择展示分类时，请创建一个完整 Skill。")
+    return {"categories": categories}
 
 
 class DraftSkill(BaseModel):
@@ -280,10 +295,10 @@ class SkillExtractionService:
                 raise RuntimeError("Skill 提炼未能在关闭期限内结束。")
 
     def author(self, request_id, name, description, content, role="legacy_end_to_end",
-               upload_ids=None, display_name=None):
+               upload_ids=None, display_name=None, categories=None):
         from .skill_authoring import author
         return author(self, request_id, name, description, content, role,
-                      [] if upload_ids is None else upload_ids, display_name)
+                      [] if upload_ids is None else upload_ids, display_name, categories)
 
     def _path(self, kind, identifier):
         if not re.fullmatch(r"[a-f0-9]{64}", identifier):
@@ -338,12 +353,15 @@ class SkillExtractionService:
         except FileNotFoundError as error:
             raise ExtractionError("提炼记录不存在。", 404) from error
 
-    def get(self, job_id):
+    def get(self, job_id, *, include_categories=False):
         with self.lock:
             job = self._read(job_id)
             directory = self._path("jobs", job_id)
             job.pop("input_digest", None)
             job.pop("merge_request", None)
+            job.pop("category_save_digest", None)
+            if not include_categories:
+                job.pop("categories", None)
             job["queue_state"] = job.get("queue", {}).get("state")
             job["progress"] = None
             # Old failures remain immutable; expose their recorded cause read-only.
@@ -372,6 +390,11 @@ class SkillExtractionService:
             from .skill_workbench import project_trial
             job["trials"] = [project_trial(self, job_id, trial) for trial in job["trials"]]
             return job
+
+    def with_category_intent(self, job):
+        with self.lock:
+            categories = self._read(job["id"]).get("categories")
+            return {**job, "categories": categories} if categories else job
 
     def events(self, job_id, before_id=0, limit=50):
         with self.lock:
@@ -428,20 +451,20 @@ class SkillExtractionService:
             except (OSError, ValueError):
                 raise ExtractionError("Skill 文件不存在。", 404)
 
-    def list(self):
+    def list(self, *, include_categories=False):
         with self.lock:
             ids = sorted((self.root / "jobs").glob("*/job.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             result = []
             for path in ids:
                 try:
-                    result.append(self.get(path.parent.name))
+                    result.append(self.get(path.parent.name, include_categories=include_categories))
                 except (OSError, ValueError, KeyError, TypeError):
                     LOG.warning("Cannot display Skill job %s; kept unchanged", path.parent.name)
                 if len(result) == 50:
                     break
             return result
 
-    def submit(self, request_id, upload_ids=None, mode="single", instruction="", source_text=""):
+    def submit(self, request_id, upload_ids=None, mode="single", instruction="", source_text="", categories=None):
         upload_ids = upload_ids or []
         if (mode not in MODE_ROLES or not (upload_ids or source_text.strip()) or len(upload_ids) > MAX_REFERENCE_IMAGES
                 or not request_id.strip()
@@ -452,7 +475,8 @@ class SkillExtractionService:
         upload_ids = list(dict.fromkeys(upload_ids))
         job_id = hashlib.sha256(request_id.encode()).hexdigest()
         inputs = {"request_id": request_id, "upload_ids": upload_ids, "mode": mode, "instruction": instruction, "source_text": source_text}
-        digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
+        category_fields = category_input(categories, mode)
+        digest = hashlib.sha256(json.dumps({**inputs, **category_fields}, sort_keys=True).encode()).hexdigest()
         with self.lock:
             directory = self._path("jobs", job_id)
             if (directory / "job.json").exists():
@@ -466,7 +490,7 @@ class SkillExtractionService:
             images = [self.image_path(value) for value in upload_ids]
             uploads = [{k: json.loads((p.parent / "upload.json").read_text(encoding="utf-8"))[k]
                         for k in ("id", "name", "url")} for p in images]
-            job = {"id": job_id, **inputs, "input_digest": digest, "status": "queued",
+            job = {"id": job_id, **inputs, **category_fields, "input_digest": digest, "status": "queued",
                    "created_at": now(), "updated_at": now(), "uploads": uploads,
                    "thread_id": None, "error": None, "note": "", "skills": [], "digest": None,
                    "saved_skills": [], "cancel_requested": False, "operation": "extract",
@@ -665,7 +689,7 @@ class SkillExtractionService:
                 self._update(job_id, cancel_requested=True)
             return self.get(job_id)
 
-    def save(self, job_id, expected_digest):
+    def save(self, job_id, expected_digest, *, initialize_categories=None):
         with self.lock:
             job = self._read(job_id)
             if job.get("task_kind") in {"calibrate", "skill_version"}:
@@ -677,12 +701,39 @@ class SkillExtractionService:
             if (job["status"] != "ready" or job.get("operation")
                     or job.get("queue", {}).get("state") in {"queued", "running"}):
                 raise ExtractionError("提炼尚未就绪，不能入库。", 409)
-            directory = self._path("jobs", job_id)
-            if _digest(self._draft_root(job)) != expected_digest:
+            categories = job.get("categories")
+            if categories and initialize_categories is None:
+                raise ExtractionError("包含展示分类的草稿需在本机全局工作台确认入库。", 403)
+            draft_root = self._draft_root(job)
+            if _digest(draft_root) != expected_digest:
                 raise ExtractionError("草稿文件已变化，不会保存未预览内容；请重新提炼。", 409)
-            registered = [self.catalog.register_local(self._draft_root(job) / item["role"], role=item["role"],
-                source_note=f"artifact extraction {job_id}") for item in job["skills"]]
-            self._update(job_id, status="saved", saved_skills=registered, error=None)
+            previous_confirmation = job.get("category_save_digest")
+            if previous_confirmation and previous_confirmation != expected_digest:
+                raise ExtractionError("草稿版本与已确认入库的版本不一致。", 409)
+            if categories and not previous_confirmation:
+                # Freeze the confirmed digest before publishing a registry entry.
+                # A partial save can retry this draft after restart, without editing it.
+                self._update(job_id, category_save_digest=expected_digest)
+            source = f"artifact extraction {job_id}"
+            try:
+                registered = [self.catalog.register_local(draft_root / item["role"], role=item["role"],
+                    source_note=source) for item in job["skills"]]
+            except ValueError as error:
+                if categories:
+                    draft, = job["skills"]
+                    if not self.catalog.has_local_registration(draft_root / draft["role"], draft["name"]):
+                        self._update(job_id, category_save_digest=None)
+                        raise ExtractionError(str(error)) from error
+                raise
+            if categories:
+                item, = registered
+                # Registration preserves the winning record's source on replay.
+                # Only this draft's new root registration may initialize its labels.
+                if item.get("source_note") == source and item["id"] == item["family_id"]:
+                    initialize_categories(item["family_id"], categories)
+                self._update(job_id, status="saved", saved_skills=registered, error=None, category_save_digest=None)
+            else:
+                self._update(job_id, status="saved", saved_skills=registered, error=None)
             return self.get(job_id)
 
     def edit(self, job_id, expected_digest, skills):
