@@ -44,8 +44,8 @@ async function imageData(file: File): Promise<string> {
   });
 }
 
-export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, onBusyChange }: {
-  visible: boolean; blocked: boolean; onCreated: (job: SkillExtractionJob) => void; onDirtyChange: (dirty: boolean) => void; onBusyChange: (busy: boolean) => void;
+export function AuthorSkillForm({ visible, blocked, onCreated, onBusyChange }: {
+  visible: boolean; blocked: boolean; onCreated: (job: SkillExtractionJob) => void; onBusyChange: (busy: boolean) => void;
 }) {
   const [draft, setDraft] = useState(readDraft);
   const [files, setFiles] = useState<File[]>([]);
@@ -60,7 +60,6 @@ export function AuthorSkillForm({ visible, blocked, onCreated, onDirtyChange, on
   const dirty = Boolean(draft.name || draft.display_name || draft.description || draft.content || draft.categories.length || draft.uploads.length || files.length);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => { if (visible) firstInput.current?.focus(); }, [visible]);
-  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
   useEffect(() => {
     try { if (dirty) sessionStorage.setItem(storageKey, JSON.stringify(draft)); else sessionStorage.removeItem(storageKey); setStorageError(false); }

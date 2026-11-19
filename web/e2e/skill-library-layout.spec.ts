@@ -64,7 +64,7 @@ test("search and pools preserve the selected Skill across refresh", async ({ pag
   });
   await page.goto("/skills");
   const search = page.getByRole("searchbox", { name: "搜索 Skill" });
-  const basket = page.getByLabel("Skill 组合框", { exact: true });
+  const basket = page.getByLabel("已选 Skill", { exact: true });
   const mind = page.getByRole("button", { name: "inspector-mind", exact: true });
   const visual = page.getByRole("button", { name: "inspector-visual", exact: true });
 
@@ -73,7 +73,7 @@ test("search and pools preserve the selected Skill across refresh", async ({ pag
   await mind.click();
   const detail = page.getByRole("dialog", { name: "inspector-mind" });
   await expect(detail).toBeVisible();
-  await detail.getByRole("button", { name: "加入组合", exact: true }).click();
+  await detail.getByRole("button", { name: "选入栏目", exact: true }).click();
   await expect(detail).toBeHidden();
   await expect(basket).toContainText("inspector-mind");
 
@@ -102,7 +102,7 @@ test("search and pools preserve the selected Skill across refresh", async ({ pag
   const mobileDetail = page.getByRole("dialog", { name: "inspector-visual" });
   await expect(mobileDetail).toBeVisible();
   await page.screenshot({ path: info.outputPath("skill-library-detail-mobile.png"), fullPage: true });
-  await mobileDetail.getByRole("button", { name: "加入组合", exact: true }).click();
+  await mobileDetail.getByRole("button", { name: "选入栏目", exact: true }).click();
   await expect(basket).toContainText("inspector-visual");
   await expect(basket).toContainText("inspector-mind");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -221,32 +221,35 @@ test("category pools expand independently without changing the selection", async
   await expect(content.getByRole("button", { name: "池子测试 6", exact: true })).toBeVisible();
   await expect(visual.getByRole("button", { name: "池子测试 13", exact: true })).toHaveCount(0);
   await content.getByRole("button", { name: "收起内容创作池" }).click();
-  await expect(page.getByLabel("Skill 组合框", { exact: true })).toContainText("池子测试 1");
+  await expect(page.getByLabel("已选 Skill", { exact: true })).toContainText("池子测试 1");
   await expect(content.getByRole("button", { name: "取消选择 池子测试 1" })).toHaveAttribute("aria-pressed", "true");
 });
 
-test("a pending merge cannot change the selected Skills via drag or add", async ({ page }) => {
+test("a pending creation cannot change the selected Skills via drag or add", async ({ page, request }) => {
+  const creator = await request.post("/api/creators", { data: { display_name: "等待创建-" + crypto.randomUUID().slice(0, 8) } }).then(reply => reply.json());
   await limitVisibleSkillCatalog(page, ["inspector-mind", "inspector-visual", "knowledge-to-carousel"]);
   let release!: () => void;
   let started!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const requested = new Promise<void>(resolve => { started = resolve; });
-  await page.route("**/api/skill-extractions/merge", async route => {
+  await page.route("**/api/series", async route => {
+    if (route.request().method() !== "POST") return route.continue();
     started();
     await gate;
-    await route.fulfill({ status: 503, json: { detail: "受控的融合失败" } });
+    await route.fulfill({ status: 503, json: { detail: "受控的创建失败" } });
   });
   try {
     await page.goto("/skills");
     await page.getByRole("button", { name: "加入 inspector-mind", exact: true }).first().click();
     await page.getByRole("button", { name: "加入 inspector-visual", exact: true }).click();
-    await page.getByRole("radio", { name: "融合成新 Skill" }).check();
-    await page.getByRole("button", { name: "生成融合草稿" }).click();
+    await page.getByLabel("归属账号").selectOption(creator.id);
+    await page.getByLabel("栏目名称", { exact: true }).fill("正在创建的栏目");
+    await page.getByRole("button", { name: "创建栏目", exact: true }).click();
     await requested;
     const add = page.getByRole("button", { name: "加入 knowledge-to-carousel", exact: true });
     await expect(add).toBeDisabled();
     const source = page.getByRole("button", { name: "knowledge-to-carousel", exact: true });
-    const basket = page.getByLabel("Skill 组合框", { exact: true });
+    const basket = page.getByLabel("已选 Skill", { exact: true });
     await source.dragTo(basket);
     await expect(basket).not.toContainText("knowledge-to-carousel");
     await expect(basket).toContainText("inspector-mind");

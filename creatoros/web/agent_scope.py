@@ -540,8 +540,11 @@ class AgentScopeGuard:
     def _composition_skills_visible(self, payload, creator_id):
         """Keep released direct binding; hide inaccessible candidate existence."""
         catalog = self.research.catalog
-        for field in ("skill_name", "mind_skill_id", "production_skill_id"):
-            identity = payload.get(field)
+        identities = [payload.get(field) for field in ("skill_name", "mind_skill_id", "production_skill_id")]
+        pool = payload.get("skill_ids")
+        if isinstance(pool, list):
+            identities.extend(pool)
+        for identity in identities:
             # The route remains responsible for malformed or missing arguments.
             if not isinstance(identity, str) or not identity:
                 continue

@@ -301,7 +301,7 @@ try {
     mark({ unusedSkillDeleted: unusedId, refresh: true });
 
     await page.getByRole('button', { name: 'asset-live-main' }).click();
-    await dialog.getByRole('button', { name: '加入组合' }).click();
+    await dialog.getByRole('button', { name: '选入栏目' }).click();
     const composer = page.locator('form.composer-form');
     check(await composer.getByLabel('栏目定位').count() === 0 && await composer.getByLabel('目标受众').count() === 0,
       'Simple column creator still requires positioning/audience fields');

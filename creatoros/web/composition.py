@@ -1,7 +1,7 @@
 """组合栏目写服务：创建/改组合/分配账号的唯一写入点。
 
 规则（P2，用户已确认）：
-- 新栏目可无旧绑定，之后配置常用池；旧单 Skill 与完整 pair 保持兼容，禁止半套。
+- 新栏目可在创建时配置常用池；旧单 Skill 与完整 pair 保持兼容，禁止半套。
 - legacy 栏目不转换为 pair；pair 组合可以保存为未验证，生产门禁在 Run 创建时。
 - 所有写操作带 request_id 幂等：重复提交返回首次结果，不生成第二条记录。
 - 配置修改使用所见 revision 做 CAS，冲突返回 409 且零写入。
@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from uuid import uuid4
 from datetime import datetime, timezone
+from contextlib import nullcontext
 
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 from creatoros.storage.models import ProductionTask, ProductionTaskHistory, ProductionQueueItem, ProductionQueueHistory
 
-from creatoros.integrations.producer_skills import ProducerSkillCatalog
+from creatoros.integrations.producer_skills import ProducerSkillCatalog, _SKILL_EDIT_LOCK
 from creatoros.storage import (
     ContentRun,
     ContentRunStatus,
@@ -41,9 +42,10 @@ class CompositionError(ValueError):
 
 
 class SeriesCompositionService:
-    def __init__(self, database: Database, catalog: ProducerSkillCatalog):
+    def __init__(self, database: Database, catalog: ProducerSkillCatalog, *, skill_library=None):
         self.database = database
         self.catalog = catalog
+        self.skill_library = skill_library
 
     def create_series(
         self,
@@ -57,8 +59,14 @@ class SeriesCompositionService:
         production_skill_id: str | None,
         request_id: str,
         origin: str,
+        skill_ids: list[str] | None = None,
     ) -> tuple[str, bool]:
         """返回 (series_id, deduplicated)。"""
+
+        if skill_ids and (not creator_id or any((skill_name, mind_skill_id, production_skill_id))):
+            raise CompositionError("请选择归属账号；栏目 Skill 池不能和旧绑定同时提交。")
+        pool_request = ({"creator_id": creator_id, "name": name, "description": description,
+                         "audience": audience, "skill_ids": skill_ids} if skill_ids else None)
 
         def write(session) -> Series:
             mind_binding, production_binding = mind_skill_id, production_skill_id
@@ -88,9 +96,19 @@ class SeriesCompositionService:
             )
             session.add(series)
             session.flush()
+            if skill_ids:
+                if self.skill_library is None:
+                    raise CompositionError("账号 Skill 库未配置。", status_code=503)
+                try:
+                    self.skill_library.initialize_series_pool(session, series, skill_ids)
+                except PermissionError as error:
+                    raise CompositionError(str(error), status_code=403, code="skill_scope_denied") from error
+                except (ValueError, OSError, KeyError) as error:
+                    raise CompositionError(str(error)) from error
             return series
 
-        return self._run_idempotent("create_series", request_id, origin, write)
+        with (_SKILL_EDIT_LOCK if skill_ids else nullcontext()):
+            return self._run_idempotent("create_series", request_id, origin, write, pool_request=pool_request)
 
     def update_composition(
         self,
@@ -291,24 +309,28 @@ class SeriesCompositionService:
 
     # ---- internals ----
 
-    def _run_idempotent(self, operation: str, request_id: str, origin: str, write, resource_id: str | None = None):
+    def _run_idempotent(self, operation: str, request_id: str, origin: str, write,
+                        resource_id: str | None = None, *, pool_request: dict | None = None):
+        def replay(receipt):
+            if receipt.operation != operation or receipt.response_json.get("pool_request") != pool_request:
+                raise CompositionError("request_id 已用于不同操作或创建内容。",
+                                       status_code=409, code="request_id_reused")
+            return receipt.response_json["series_id"], True
+
         try:
             with self.database.session() as session:
+                if pool_request is not None and self.database.engine.dialect.name == "sqlite":
+                    session.execute(text("BEGIN IMMEDIATE"))
                 existing = session.get(WriteReceipt, request_id)
                 if existing is not None:
-                    if existing.operation != operation:
-                        raise CompositionError(
-                            "request_id 已被其他操作占用，请为每个新操作生成新的 request_id。",
-                            status_code=409, code="request_id_reused",
-                        )
-                    return existing.response_json["series_id"], True
+                    return replay(existing)
                 series = write(session)
                 session.add(WriteReceipt(
                     request_id=request_id,
                     operation=operation,
                     resource_id=resource_id or series.id,
                     origin=origin,
-                    response_json={"series_id": series.id},
+                    response_json={"series_id": series.id, **({"pool_request": pool_request} if pool_request else {})},
                 ))
                 session.flush()
                 return series.id, False
@@ -316,8 +338,8 @@ class SeriesCompositionService:
             # 并发下同一 request_id 的竞态：重读回执；否则是栏目同名等业务约束。
             with self.database.session() as session:
                 existing = session.get(WriteReceipt, request_id)
-                if existing is not None and existing.operation == operation:
-                    return existing.response_json["series_id"], True
+                if existing is not None:
+                    return replay(existing)
             raise CompositionError("同名栏目已存在或请求违反数据约束，未写入。", status_code=409, code="conflict") from error
 
     @staticmethod

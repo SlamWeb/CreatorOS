@@ -173,7 +173,6 @@ def create_app(
                             creator_context_factory=account_context.build)
     chat.focus_context_builder = ChatFocusBuilder(db, skill_installs.catalog, queries, artifacts, chat.attachments)
     research = topic_research_service or TopicResearchService(db, skill_installs.catalog)
-    composition = SeriesCompositionService(db, skill_installs.catalog)
     extractions = skill_extraction_service or SkillExtractionService(skill_installs.catalog)
     skill_versions = SkillVersionService(db, extractions)
     iterations = SkillIterationService(db, skill_versions, chat, evaluator=skill_iteration_evaluator)
@@ -198,6 +197,7 @@ def create_app(
             return None
 
     skill_library = SkillLibraryService(db, skill_installs.catalog, source_owner=skill_source_owner)
+    composition = SeriesCompositionService(db, skill_installs.catalog, skill_library=skill_library)
     skill_versions.library = skill_library
     calibrations.versions = skill_versions
     runs.skill_library = skill_library
@@ -504,6 +504,7 @@ def create_app(
             skill_name=payload.skill_name,
             mind_skill_id=payload.mind_skill_id,
             production_skill_id=payload.production_skill_id,
+            skill_ids=payload.skill_ids,
             request_id=payload.request_id,
             origin=_request_origin(request),
         )

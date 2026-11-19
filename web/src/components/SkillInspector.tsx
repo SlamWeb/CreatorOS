@@ -458,7 +458,7 @@ export function SkillInspector({ skill, onClose, onAdd, onDeleted, editContext, 
       </div>
       <div className="skill-inspector-actions">
         {onAdd && activeSkill.id === skill.id && !candidate && <button type="button" className="skill-inspector-add" disabled={save.isPending || busy}
-          onClick={() => { if (confirmDiscard()) onAdd(); }}>加入组合</button>}
+          onClick={() => { if (confirmDiscard()) onAdd(); }}>选入栏目</button>}
         <button type="button" className="skill-inspector-close" aria-label="关闭 Skill 详情" autoFocus disabled={save.isPending || busy} onClick={close}><X size={20} /></button>
       </div>
     </header>

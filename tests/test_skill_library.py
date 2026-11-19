@@ -8,11 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from sqlalchemy import select
 
-from creatoros.storage import Base, ContentRepository, Database, upgrade_database
+from creatoros.storage import Base, ContentRepository, CreatorSkillRef, Database, Series, upgrade_database
 from creatoros.integrations.producer_skills import ProducerSkillCatalog, SkillDigestConflict, freeze_skill
 from creatoros.integrations.skill_library import SkillLibraryService, SkillLibraryConflict
 from creatoros.web.skill_library_routes import create_skill_library_router
+from creatoros.web.composition import CompositionError, SeriesCompositionService
 
 
 class SkillLibraryTests(unittest.TestCase):
@@ -112,6 +114,48 @@ class SkillLibraryTests(unittest.TestCase):
         self.catalog.resolve_for_task(self.mind["id"], self.mind["digest"], "video", False)
         with self.assertRaises(ValueError):
             self.catalog.resolve(self.video["id"])
+
+    def test_create_series_pool_preserves_account_references_and_replays_exactly(self):
+        self.library.add("a", self.video["id"], "existing-video")
+        service = SeriesCompositionService(self.db, self.catalog, skill_library=self.library)
+        payload = dict(name="new series", description="", audience="", creator_id="a", skill_name=None,
+                       mind_skill_id=None, production_skill_id=None, request_id="create-with-pool", origin="web",
+                       skill_ids=[self.mind["id"], self.video["id"], "knowledge-to-carousel"])
+        series_id, duplicate = service.create_series(**payload)
+        self.assertFalse(duplicate)
+        pool = self.library.get_series(series_id)
+        self.assertEqual([item["id"] for item in pool["items"]], payload["skill_ids"])
+        self.assertEqual(pool["defaults"], {"image": [], "video": []})
+        self.assertEqual(service.create_series(**payload), (series_id, True))
+        for changes in ({"name": "different"}, {"creator_id": "b"}, {"skill_ids": []}):
+            with self.assertRaises(CompositionError) as failure:
+                service.create_series(**(payload | changes))
+            self.assertEqual(failure.exception.status_code, 409)
+        account = self.library.get_creator("a")
+        self.assertEqual(account["version"], 2)
+        self.assertEqual([item["id"] for item in account["items"]],
+                         [self.video["id"], self.mind["id"], "knowledge-to-carousel"])
+        with self.db.session() as session:
+            self.assertIn("knowledge-to-carousel", session.get(CreatorSkillRef, "a").skill_ids_json)
+        self.assertEqual(self.library.get_creator("b")["version"], 0)
+
+    def test_invalid_or_private_selection_rolls_back_the_entire_create(self):
+        candidate = self.catalog.create_skill_candidate(self.video["id"], self.video["digest"], "candidate-one")
+        library = SkillLibraryService(self.db, self.catalog, source_owner=lambda _: "a")
+        library.add("b", self.video["id"], "existing-shared")
+        service = SeriesCompositionService(self.db, self.catalog, skill_library=library)
+        payload = dict(name="must not exist", description="", audience="", creator_id="b", skill_name=None,
+                       mind_skill_id=None, production_skill_id=None, request_id="create-with-bad-skill", origin="web")
+        before = library.get_creator("b")
+        for invalid, status in ((candidate["id"], 403), ("missing-skill", 422), (self.mind["id"], 422)):
+            with self.assertRaises(CompositionError) as failure:
+                service.create_series(**payload, skill_ids=[self.mind["id"], invalid])
+            self.assertEqual(failure.exception.status_code, status)
+            self.assertEqual(library.get_creator("b"), before)
+            with self.db.session() as session:
+                self.assertIsNone(session.scalar(select(Series).where(Series.name == payload["name"])))
+        series_id, _ = service.create_series(**payload, skill_ids=[self.mind["id"]])
+        self.assertEqual([item["id"] for item in library.get_series(series_id)["items"]], [self.mind["id"]])
 
     def test_two_service_instances_cannot_both_win_same_pool_version(self):
         def write(_):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import re
 from threading import RLock
 from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -269,6 +270,40 @@ class SkillLibraryService:
         versions = [item for item in self.available(creator_id) if item["family_id"] in families]
         return {"series_id": series_id, "creator_id": creator_id, "items": items, "available_versions": versions,
                 "version": version, "defaults": defaults}
+
+    def initialize_series_pool(self, session, series, skill_ids):
+        """Add account references and the initial pool in the caller's create transaction."""
+        creator_id = series.creator_id
+        if any(skill_id != self.catalog.BUILTIN_ID and not re.fullmatch(r"[a-z0-9-]+--[a-f0-9]{16}", skill_id)
+               for skill_id in skill_ids):
+            raise ValueError("请选择已安装的 Skill ID。")
+        items = [self.describe(skill_id) for skill_id in skill_ids]
+        families = {item["family_id"] for item in items}
+        if len(families) != len(items):
+            raise ValueError("同一家族只能为栏目选择一个 Skill 版本。")
+        for item in items:
+            if item["version_status"] == "released":
+                continue
+            skill_id = item["id"]
+            if not self._contains(session, creator_id, skill_id) and not self._owns_source(creator_id, skill_id):
+                raise PermissionError("候选版本不属于此账号可访问的 Skill 家族。")
+
+        ref = session.get(CreatorSkillRef, creator_id)
+        existing = set()
+        for skill_id in (ref.skill_ids_json if ref else []):
+            try:
+                existing.add(self._family(skill_id))
+            except (ValueError, OSError, KeyError):
+                continue
+        additions = [item["id"] for item in items if item["family_id"] not in existing]
+        if additions:
+            if ref is None:
+                session.add(CreatorSkillRef(creator_id=creator_id, skill_ids_json=additions))
+            else:
+                ref.skill_ids_json = [*ref.skill_ids_json, *additions]
+                ref.version += 1
+        session.add(SeriesSkillRef(series_id=series.id, skill_ids_json=[item["id"] for item in items],
+                                   defaults_json={"image": [], "video": []}))
 
     def set_series(self, series_id, expected_version, skill_ids, defaults):
         if not isinstance(skill_ids, list) or len(skill_ids) != len(set(skill_ids)):

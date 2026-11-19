@@ -6,7 +6,7 @@ test("Skill composer can select an existing account", async ({ page, request }) 
   expect(response.ok(), await response.text()).toBeTruthy();
   const creator = await response.json();
   await page.goto("/skills");
-  const composer = page.getByRole("region", { name: "组合栏目", exact: true });
+  const composer = page.getByRole("region", { name: "创建栏目", exact: true });
   const account = composer.getByLabel("归属账号");
   await expect(account).toBeVisible({ timeout: 20_000 });
   await account.selectOption(creator.id);

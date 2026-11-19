@@ -631,9 +631,7 @@ export interface SeriesComposeInput {
   description: string;
   audience: string;
   creator_id?: string | null;
-  skill_name?: string | null;
-  mind_skill_id?: string | null;
-  production_skill_id?: string | null;
+  skill_ids?: string[];
   request_id: string;
 }
 

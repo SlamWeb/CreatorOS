@@ -88,6 +88,10 @@ with TemporaryDirectory() as temporary:
             "name": "forged", "creator_id": "creator-b", "request_id": uuid4().hex,
             "skill_name": "knowledge-to-carousel",
         })
+        forged_pool = client.post("/api/series", headers=scoped, json={
+            "name": "forged pool", "creator_id": "creator-b", "request_id": uuid4().hex,
+            "skill_ids": ["knowledge-to-carousel"],
+        })
         queued = client.post("/api/series/series-b/queue", headers=scoped, json={
             "request_id": uuid4().hex, "topics": [{"title": "forged", "source": "manual"}],
         })
@@ -95,7 +99,7 @@ with TemporaryDirectory() as temporary:
                                      json={"count": 1, "instructions": ""})
         install = client.post("/api/producer-skills/install", headers=scoped,
                               json={"github_url": "https://github.com/example/skill"})
-        assert [composed.status_code, queued.status_code, research_start.status_code, install.status_code] == [403] * 4
+        assert [reply.status_code for reply in (composed, forged_pool, queued, research_start, install)] == [403] * 5
         assert _counts(database) == before
         # Topic CRUD uses the real parent ownership check, not a model-supplied account.
         foreign_edit = client.patch("/api/topics/topic-b", headers=scoped, json={

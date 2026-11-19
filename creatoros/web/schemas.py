@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, TypeVar, Literal
+from typing import Annotated, Any, Generic, TypeVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -433,7 +433,7 @@ class TopicReorderRequest(WriteRequest):
 
 
 class SeriesComposeRequest(WriteRequest):
-    """可先创建空栏目，之后选择常用池；旧绑定仍禁止混用和半套。"""
+    """Create an empty series or initialize its account-backed Skill pool."""
 
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=10_000)
@@ -442,12 +442,17 @@ class SeriesComposeRequest(WriteRequest):
     skill_name: str | None = Field(default=None, min_length=1, max_length=4096)
     mind_skill_id: str | None = Field(default=None, min_length=1, max_length=4096)
     production_skill_id: str | None = Field(default=None, min_length=1, max_length=4096)
+    skill_ids: list[Annotated[str, Field(min_length=1, max_length=120)]] = Field(default_factory=list, max_length=100)
     request_id: str = Field(min_length=8, max_length=64)
 
     @model_validator(mode="after")
     def exactly_one_binding(self) -> "SeriesComposeRequest":
         legacy = self.skill_name is not None
         pair = self.mind_skill_id is not None or self.production_skill_id is not None
+        if self.skill_ids and (not self.creator_id or legacy or pair):
+            raise ValueError("请选择归属账号；栏目 Skill 池不能和旧绑定同时提交。")
+        if len(set(self.skill_ids)) != len(self.skill_ids):
+            raise ValueError("请选择不同的 Skill。")
         if legacy and pair:
             raise ValueError("不能同时提供 legacy 单 Skill 与 mind+production 组合。")
         if pair and not (self.mind_skill_id and self.production_skill_id):

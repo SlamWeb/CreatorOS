@@ -233,7 +233,6 @@ export const studioApi = {
   composeSeries: (input: SeriesComposeInput) => request<SeriesWriteResult>("/api/series", { method: "POST", body: JSON.stringify(input) }),
   renameSeries: (id: string, input: { name: string; expected_revision: number; request_id: string }) => request<SeriesWriteResult>(`/api/series/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteSeries: (id: string, input: { expected_revision: number; request_id: string; expected_status?: RemovalStatus }) => request<{ id: string; status: RemovalStatus; deduplicated: boolean }>(`/api/series/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify(input) }),
-  mergeSkills: (input: { request_id: string; skill_ids: string[]; instruction: string }) => request<SkillExtractionJob>("/api/skill-extractions/merge", { method: "POST", body: JSON.stringify(input) }),
   assignSeries: (id: string, input: { creator_id: string | null; expected_revision: number; request_id: string }) => request<SeriesWriteResult>(`/api/series/${encodeURIComponent(id)}/assignment`, { method: "POST", body: JSON.stringify(input) }),
   editTopic: (id: string, input: { title?: string; brief?: string | null }) => request<{ ok: boolean }>(`/api/topics/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteTopic: (id: string) => request<{ ok: boolean }>(`/api/topics/${encodeURIComponent(id)}/delete`, { method: "POST", body: "{}" }),

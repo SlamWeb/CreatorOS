@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Image as ImageIcon, Package, Clapperboard, SlidersHorizontal, ShieldCheck, Layers, Ellipsis } from "lucide-react";
 import { studioApi, request } from "../api/client";
 import { useCreatorDirectory } from "../api/useCreatorDirectory";
@@ -42,28 +42,18 @@ async function saveSkillCategories(input: CategoryEditor): Promise<CategoryRecor
 
 
 const composerKey = "creatoros:skill-composer:v1";
+const maxSeriesSkills = 100;
 type ComposePending = { signature: string; id: string };
-type ComposerDraft = { ids: string[]; name: string; creatorId: string; instruction: string; mode: "reference" | "merge";
-  composePending?: ComposePending; pending?: { request_id: string; skill_ids: string[]; instruction: string } };
+type ComposerDraft = { ids: string[]; name: string; creatorId: string; composePending?: ComposePending };
 function restoreComposer(): ComposerDraft {
   try {
     const data = JSON.parse(sessionStorage.getItem(composerKey) ?? "null");
     if (data && Array.isArray(data.ids) && data.ids.every((id: unknown) => typeof id === "string")) {
-      return { ids: data.ids.slice(0, 8), name: String(data.name ?? ""), creatorId: String(data.creatorId ?? ""),
-        instruction: String(data.instruction ?? ""), mode: data.mode === "merge" ? "merge" : "reference",
-        pending: data.pending, composePending: data.composePending };
+      return { ids: [...new Set<string>(data.ids)].slice(0, maxSeriesSkills), name: String(data.name ?? ""),
+        creatorId: String(data.creatorId ?? ""), composePending: data.composePending };
     }
   } catch { /* No stored draft. */ }
-  return { ids: [], name: "", creatorId: "", instruction: "", mode: "reference" };
-}
-
-function directBinding(ids: string[], skills: ProducerSkillItem[]) {
-  if (ids.some(id => !skills.some(skill => skill.id === id))) return null;
-  if (ids.length === 1) return { skill_name: ids[0] };
-  if (ids.length !== 2) return null;
-  const mind = skills.find(skill => ids.includes(skill.id) && skill.role === "mind");
-  const visual = skills.find(skill => ids.includes(skill.id) && skill.role === "production");
-  return mind && visual ? { mind_skill_id: mind.id, production_skill_id: visual.id } : null;
+  return { ids: [], name: "", creatorId: "" };
 }
 
 function categoryIcon(categories: SkillCategory[]) {
@@ -124,13 +114,9 @@ export function SkillsPage() {
   const [composerOpen, setComposerOpen] = useState(initial.ids.length > 0);
   const [name, setName] = useState(initial.name);
   const [creatorId, setCreatorId] = useState(initial.creatorId);
-  const [mergeInstruction, setMergeInstruction] = useState(initial.instruction);
-  const [mode, setMode] = useState(initial.mode);
-  const [workbenchDirty, setWorkbenchDirty] = useState(false);
   const [storageError, setStorageError] = useState("");
-  const mergeRequest = useRef<ComposerDraft["pending"]>(initial.pending);
   const composeRequest = useRef<ComposePending | null>(initial.composePending ?? null);
-  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string; href?: string } | null>(null);
   const [inspected, setInspected] = useState<ProducerSkillItem | null>(null);
   const openedSkill = useRef<string | null>(null);
   const viewedSkill = useRef<string | null>(null);
@@ -171,27 +157,24 @@ export function SkillsPage() {
   useEffect(() => () => dragCleanup.current?.(), []);
   const storeComposer = () => {
     try {
-      sessionStorage.setItem(composerKey, JSON.stringify({ ids: selectedIds, name, creatorId, instruction: mergeInstruction,
-        mode, pending: mergeRequest.current, composePending: composeRequest.current }));
+      sessionStorage.setItem(composerKey, JSON.stringify({ ids: selectedIds, name, creatorId, composePending: composeRequest.current }));
       setStorageError("");
-    } catch { setStorageError("浏览器无法暂存组合；离开或刷新会丢失尚未提交的选择。"); }
+    } catch { setStorageError("浏览器无法暂存草稿；离开或刷新会丢失尚未提交的选择。"); }
   };
-  useEffect(storeComposer, [selectedIds, name, creatorId, mergeInstruction, mode]);
+  useEffect(storeComposer, [selectedIds, name, creatorId]);
   const addSkill = (skill: ProducerSkillItem) => {
     setNotice(null);
-    if (compose.isPending || merge.isPending) return;
+    if (compose.isPending) return;
     if (selectedIds.includes(skill.id)) return;
-    if (selectedIds.length >= 8) { setNotice({ kind: "error", text: "一次最多选择 8 个 Skill。" }); return; }
+    if (selectedIds.length >= maxSeriesSkills) { setNotice({ kind: "error", text: `栏目最多可选 ${maxSeriesSkills} 个 Skill。` }); return; }
     setSelectedIds(current => [...current, skill.id]);
+    setComposerOpen(true);
   };
 
   const compose = useMutation({
     retry: false,
     mutationFn: () => {
-      const binding = directBinding(selectedIds, skills.data?.items ?? []);
-      if (!binding) throw new Error("这组 Skill 无法直接绑定到栏目。");
-      if (!name.trim()) throw new Error("请填写栏目名称。");
-      const input = { name: name.trim(), description: "", audience: "", creator_id: creatorId || null, ...binding };
+      const input = { name: name.trim(), description: "", audience: "", creator_id: creatorId, skill_ids: selectedIds };
       const signature = JSON.stringify(input);
       if (composeRequest.current?.signature !== signature) composeRequest.current = { signature, id: crypto.randomUUID().replaceAll("-", "") };
       storeComposer();
@@ -199,35 +182,16 @@ export function SkillsPage() {
     },
     onSuccess: async (result) => {
       setSelectedIds([]); setName(""); setCreatorId(""); composeRequest.current = null;
-      setNotice({ kind: "ok", text: `已创建「${result.series.name}」。` });
+      const params = new URLSearchParams({ creator: result.series.creator_id ?? creatorId, series: result.series.id });
+      setNotice({ kind: "ok", text: `已创建「${result.series.name}」。`, href: `/workspace?${params}` });
       await Promise.all([
         client.invalidateQueries({ queryKey: ["series-all"] }),
         client.invalidateQueries({ queryKey: ["creators"] }),
+        client.invalidateQueries({ queryKey: ["creator", result.series.creator_id] }),
+        client.invalidateQueries({ queryKey: ["creator-skills", result.series.creator_id] }),
       ]);
     },
     onError: (error) => setNotice({ kind: "error", text: error.message }),
-  });
-
-  const merge = useMutation({
-    retry: false,
-    mutationFn: () => {
-      if (workbenchDirty) throw new Error("请先保存或丢弃工作台中尚未保存的草稿。");
-      if (selectedIds.length < 2) throw new Error("请选择至少两个 Skill。");
-      const value = { skill_ids: selectedIds, instruction: mergeInstruction.trim() };
-      if (JSON.stringify({ skill_ids: mergeRequest.current?.skill_ids, instruction: mergeRequest.current?.instruction }) !== JSON.stringify(value)) {
-        mergeRequest.current = { ...value, request_id: crypto.randomUUID().replaceAll("-", "") };
-      }
-      storeComposer();
-      return studioApi.mergeSkills(mergeRequest.current!);
-    },
-    onSuccess: async job => {
-      client.setQueryData(["skill-extraction", job.id], job);
-      setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("extraction", job.id); return next; });
-      mergeRequest.current = undefined; storeComposer();
-      setNotice({ kind: "ok", text: "融合任务已提交。" });
-      await client.invalidateQueries({ queryKey: ["skill-extractions"] });
-    },
-    onError: error => setNotice({ kind: "error", text: error.message }),
   });
 
   const jobId = searchParams.get("skillJob");
@@ -403,10 +367,10 @@ export function SkillsPage() {
   const accountSelectionUnavailable = creators.isPending || creators.isError;
   const selectedSkills = selectedIds.map(id => allSkills.find(skill => skill.id === id)).filter((skill): skill is ProducerSkillItem => Boolean(skill));
   const missingSkills = selectedSkills.length !== selectedIds.length;
-  const busy = compose.isPending || merge.isPending;
-  const binding = directBinding(selectedIds, allSkills);
-  const isMerge = selectedIds.length > 1 && mode === "merge";
-  const canCreate = !!binding && !!name.trim() && !busy && !missingSkills && !selectedAccountMissing && !accountSelectionUnavailable;
+  const busy = compose.isPending;
+  const duplicateFamilies = new Set(selectedSkills.map(skill => skill.family_id ?? skill.id)).size < selectedSkills.length;
+  const canCreate = !!selectedIds.length && !!creatorId && !!name.trim() && !busy && !missingSkills
+    && !duplicateFamilies && !selectedAccountMissing && !accountSelectionUnavailable;
   const draggingSkill = drag?.payload.skill ?? null;
 
   const skillCard = (skill: ProducerSkillItem) => {
@@ -454,11 +418,9 @@ export function SkillsPage() {
     {targetError}
     {skills.isPending ? <LoadingState label="正在读取 Skill 库…" />
       : skills.isError ? <ErrorState message={skills.error.message} onRetry={() => void skills.refetch()} /> : <>
-    <header className="space-head"><h1>Skill 库</h1></header>
+    <header className="space-head"><h1>Skill Libraries</h1></header>
     <SkillIterationHistory />
-    <ArtifactSkillExtraction entryExtra={<button type="button" className="button button-secondary skill-install-toggle" aria-expanded={installOpen} aria-controls="skill-github-install" onClick={() => setInstallOpen(value => !value)}>从 GitHub 安装</button>} onDirtyChange={setWorkbenchDirty} onUseSkill={skill => {
-      setSelectedIds([skill.id]); setComposerOpen(true); setMode("reference"); setNotice({ kind: "ok", text: `已选择「${skillLabel(skill)}」，填写栏目名称后创建。` });
-    }} />
+    <ArtifactSkillExtraction entryExtra={<button type="button" className="button button-secondary skill-install-toggle" aria-expanded={installOpen} aria-controls="skill-github-install" onClick={() => setInstallOpen(value => !value)}>从 GitHub 安装</button>} onUseSkill={addSkill} />
         <form id="skill-github-install" className="skill-install" hidden={!installOpen} onSubmit={event => {
           event.preventDefault(); if (installUrl.trim() && !install.isPending) install.mutate(installUrl.trim());
         }}>
@@ -497,10 +459,10 @@ export function SkillsPage() {
         {!visibleSkills.length && <p className="skill-catalog-empty">{allSkills.length ? "没有匹配的 Skill。" : "还没有 Skill。"}</p>}
       </section>
 
-      <section className={`space-col skill-compose${composerOpen ? "" : " is-collapsed"}`} aria-label="组合栏目">
-        <div className="space-col-head"><h2>组合栏目</h2><button type="button" className="skill-compose-toggle" aria-expanded={composerOpen} aria-controls="skill-composer-content" onClick={() => setComposerOpen(value => !value)}>{composerOpen ? "收起" : "展开"}</button></div>
+      <section className={`space-col skill-compose${composerOpen ? "" : " is-collapsed"}`} aria-label="创建栏目">
+        <div className="space-col-head"><h2>创建栏目</h2><button type="button" className="skill-compose-toggle" aria-expanded={composerOpen} aria-controls="skill-composer-content" onClick={() => setComposerOpen(value => !value)}>{composerOpen ? "收起" : "展开"}</button></div>
         <div className="composer" id="skill-composer-content">
-          <div data-drop="skill-basket" aria-label="Skill 组合框"
+          <div data-drop="skill-basket" aria-label="已选 Skill"
             className={`skill-basket ${draggingSkill ? (drag?.target === "skill-basket" ? "drop-ok" : "can-drop") : ""}`}>
             {!selectedIds.length && <p>把任意 Skill 拖到这里，或在详情中加入</p>}
             {selectedSkills.map(skill => <div className="basket-item" key={skill.id}>
@@ -509,35 +471,27 @@ export function SkillsPage() {
               </button>
               <button type="button" className="skill-slot-view" onClick={() => inspectSkill(skill)} aria-label={`查看 ${skillLabel(skill)}`}>查看</button>
             </div>)}
-            {missingSkills && <p role="alert">部分 Skill 已不在库中。<button type="button" onClick={() => setSelectedIds(selectedSkills.map(s => s.id))}>移除失效选择</button></p>}
+            {missingSkills && <p role="alert">部分 Skill 已不在库中。<button type="button" disabled={busy} onClick={() => setSelectedIds(selectedSkills.map(s => s.id))}>移除失效选择</button></p>}
           </div>
-          <form className="composer-form" onSubmit={event => { event.preventDefault(); setNotice(null); if (busy) return; if (isMerge) merge.mutate(); else if (canCreate) compose.mutate(); }}>
-            {selectedIds.length > 1 && <fieldset className="composer-mode" disabled={busy} aria-label="Skill 使用方式">
-              <label><input type="radio" name="skill-mode" value="reference" checked={mode === "reference"} onChange={() => setMode("reference")} />直接使用</label>
-              <label><input type="radio" name="skill-mode" value="merge" checked={mode === "merge"} onChange={() => setMode("merge")} />融合成新 Skill</label>
-            </fieldset>}
-            {isMerge ? <label>融合要求（可选）<textarea rows={3} maxLength={4000} value={mergeInstruction} onChange={event => setMergeInstruction(event.target.value)} placeholder="遇到冲突时，你更希望保留什么？" /></label> : <>
-            {selectedIds.length === 2 && binding && <p className="space-note">保留两份原始 Skill，由同一个 Codex 生产会话参考使用。</p>}
-            {selectedIds.length > 1 && !binding && !missingSkills && <p className="space-note" role="status">这组 Skill 无法直接绑定到栏目。要生成一份新 Skill，可选择「融合成新 Skill」。</p>}
+          <form className="composer-form" onSubmit={event => { event.preventDefault(); if (canCreate) { setNotice(null); compose.mutate(); } }}>
+            {duplicateFamilies && <p className="space-error" role="alert">同一个 Skill 只能选择一个版本。</p>}
             <fieldset disabled={busy} className="composer-fields">
             <label>栏目名称<input required maxLength={120} value={name} onChange={event => setName(event.target.value)} placeholder="例如：AI 概念图解" /></label>
-            <label>归属账号<select value={creatorId} disabled={accountSelectionUnavailable} onChange={event => setCreatorId(event.target.value)}>
-              <option value="">暂不分配</option>
+            <label>归属账号<select required value={creatorId} disabled={accountSelectionUnavailable} onChange={event => setCreatorId(event.target.value)}>
+              <option value="">选择账号</option>
               {selectedAccountMissing && <option value={creatorId} disabled>{accountsLoading ? "正在查找已选账号…" : "已选账号不在目录中"}</option>}
               {accounts.map(account => <option key={account.id} value={account.id}>{account.display_name}</option>)}
             </select></label>
             {accountsLoading && <p className="space-note" role="status">正在更新账号列表…</p>}
             {accountsIncomplete && <p className="space-error" role="alert"><span>账号列表读取失败</span> <button type="button"
               onClick={() => void creators.refetch()}>重试加载账号</button></p>}
-            </fieldset></>}
-            <button className="composer-create" disabled={isMerge ? busy || missingSkills || workbenchDirty : !canCreate}>
-              {merge.isPending ? "提交中…" : compose.isPending ? "创建中…" : isMerge ? "生成融合草稿" : "创建栏目"}
-            </button>
-            {isMerge && workbenchDirty && <p role="alert">请先保存上方工作台的草稿修改。</p>}
+            </fieldset>
+            {!!selectedIds.length && <p className="space-note">所选 Skill 会加入账号库和这个栏目的 Skill 池。</p>}
+            <button className="composer-create" disabled={!canCreate}>{busy ? "创建中…" : "创建栏目"}</button>
           </form>
           {storageError && <p className="space-error" role="alert">{storageError}</p>}
           {notice?.kind === "error" && <p className="space-error" role="alert">{notice.text}</p>}
-          {notice?.kind === "ok" && <p className="space-ok" role="status">{notice.text}</p>}
+          {notice?.kind === "ok" && <p className="space-ok" role="status"><span>{notice.text}</span>{notice.href && <> <Link className="text-link" to={notice.href}>打开栏目</Link></>}</p>}
         </div>
       </section>
     </div>

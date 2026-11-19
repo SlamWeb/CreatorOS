@@ -75,7 +75,7 @@ function clearStoredDraft(jobId: string) {
   try { sessionStorage.removeItem(draftStorageKey(jobId)); } catch { /* The in-memory draft remains available. */ }
 }
 
-export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra }: { onUseSkill?: (skill: ProducerSkillItem) => void; onDirtyChange?: (dirty: boolean) => void; entryExtra?: ReactNode } = {}) {
+export function ArtifactSkillExtraction({ onUseSkill, entryExtra }: { onUseSkill?: (skill: ProducerSkillItem) => void; entryExtra?: ReactNode } = {}) {
   const cache = useQueryClient();
   const inbox = useWorkInbox();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -86,7 +86,6 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
   const [instruction, setInstruction] = useState("");
   const [open, setOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
-  const [authorDirty, setAuthorDirty] = useState(false);
   const [authorBusy, setAuthorBusy] = useState(false);
   const [newWorkOpen, setNewWorkOpen] = useState(!selectedId);
   const [jobsOpen, setJobsOpen] = useState(false);
@@ -101,7 +100,6 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
   const [draftSkills, setDraftSkills] = useState<ExtractedSkillDraft[]>([]);
   const [draftBaseDigest, setDraftBaseDigest] = useState("");
   const [draftDirty, setDraftDirty] = useState(false);
-  useEffect(() => { onDirtyChange?.(draftDirty || authorDirty); }, [draftDirty, authorDirty, onDirtyChange]);
   const [viewerMode, setViewerMode] = useState<"preview" | "edit">("preview");
   const [activeFileKey, setActiveFileKey] = useState("");
   const [fileContent, setFileContent] = useState("");
@@ -401,7 +399,7 @@ export function ArtifactSkillExtraction({ onUseSkill, onDirtyChange, entryExtra 
       onClick={() => { if (!authorOpen) setOpen(false); setAuthorOpen(value => !value); }}>{authorOpen ? "收起编写" : "自己写 Skill"}</button>
     {entryExtra}
     </div>
-    <AuthorSkillForm visible={authorOpen} blocked={draftDirty || create.isPending} onDirtyChange={setAuthorDirty} onBusyChange={setAuthorBusy} onCreated={job => {
+    <AuthorSkillForm visible={authorOpen} blocked={draftDirty || create.isPending} onBusyChange={setAuthorBusy} onCreated={job => {
       cache.setQueryData(["skill-extraction", job.id], job);
       void cache.invalidateQueries({ queryKey: ["skill-extractions"] });
       setAuthorOpen(false); setOpen(true); setNewWorkOpen(false); setPanelError("");
